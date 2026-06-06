@@ -91,7 +91,7 @@ pub(crate) struct SystemArgs {
 }
 
 /// A frame size written `WIDTHxHEIGHT`.
-fn frame_size(text: &str) -> Result<(u16, u16), String> {
+pub(super) fn frame_size(text: &str) -> Result<(u16, u16), String> {
     let (width, height) = text
         .split_once('x')
         .ok_or_else(|| format!("`{text}` isn't WIDTHxHEIGHT, e.g. 1920x1080"))?;
@@ -163,7 +163,7 @@ pub(crate) struct Cameras {
 
 /// The largest frame a benchmark's camera declares: 1 MiB, above a
 /// datagram, so its frames go through a ring of their own.
-const CAMERA_MAX_BYTES: u32 = 1 << 20;
+pub(super) const CAMERA_MAX_BYTES: u32 = 1 << 20;
 
 /// What recording one load gave.
 struct Run {

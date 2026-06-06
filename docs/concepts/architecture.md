@@ -733,7 +733,9 @@ memory stays flat.
 `cargo xtask bench ros2` records the same load as ROS 2 topics, one
 `sensor_msgs/msg/JointState` topic per stream, in the ROS 2 image, while
 the live view's bridge moves the arm with the first, and holds it to the
-same targets, with recording and the bridge together within two cores.
+same targets, with recording and the bridge together within two cores;
+with `--cameras` it publishes 1080p JPEG frames at 60 fps beside them as
+`sensor_msgs/msg/CompressedImage` topics.
 `cargo xtask bench upload` uploads an episode to the RustFS server of the
 `storage` profile, as the worker does, for each part size and number of
 parts at once, and reports how fast each went, with its CPU and memory;

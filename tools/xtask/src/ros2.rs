@@ -29,6 +29,7 @@ const LINTS: &str = "cargo clippy --locked -p kapto-transport -p kapto-cli -p ka
 /// publishing on ROS 2 topics.
 const TESTS: &str = "cargo test --locked -p kapto-transport --features ros2 --test ros2 \
     && cargo test --locked -p kapto-cli --features ros2 --test topics --test ros2_record \
+    --test ros2_cameras \
     --test ros2_serve \
     && cargo test --locked -p kapto-loadgen --features ros2 --lib --test ros2 \
     && cargo test --locked -p kapto-config --test ros2_installation -- --ignored";
