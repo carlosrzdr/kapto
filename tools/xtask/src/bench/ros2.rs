@@ -30,7 +30,9 @@ use super::page::{Delays, Page, percentiles};
 use super::place::Place;
 use super::report::{Check, Load, Machine, Report, Targets};
 use super::viewer::{Bridged, DELAY_P95_MS, mapping_of_first_stream, start_bridge};
-use super::{Spec, free_ports, measured, start_recording, work_dir, write_reports};
+use super::{
+    CAMERA_MAX_BYTES, Cameras, Spec, free_ports, measured, start_recording, work_dir, write_reports,
+};
 use crate::ros2::{self as image, Middleware};
 
 /// The reference load as ROS 2 topics, with the live view open.
@@ -45,6 +47,28 @@ pub(crate) struct Ros2Args {
     /// The middleware Kapto and the synthetic robot talk over.
     #[arg(long, value_enum, default_value_t = Middleware::Fastrtps)]
     middleware: Middleware,
+    /// Cameras published beside the joint states, each a
+    /// `sensor_msgs/msg/CompressedImage` topic of JPEG frames.
+    #[arg(long, default_value_t = 0)]
+    cameras: u16,
+    /// Frames a second from each camera.
+    #[arg(long, default_value_t = 60)]
+    camera_fps: u32,
+    /// Each camera's frame size, e.g. 1920x1080.
+    #[arg(long, default_value = "1920x1080", value_parser = super::frame_size)]
+    camera_size: (u16, u16),
+}
+
+impl Ros2Args {
+    /// The cameras asked for, if any.
+    fn cameras(&self) -> Option<Cameras> {
+        (self.cameras > 0).then_some(Cameras {
+            count: self.cameras,
+            fps: self.camera_fps,
+            width: self.camera_size.0,
+            height: self.camera_size.1,
+        })
+    }
 }
 
 /// Messages per second on each topic.
@@ -139,10 +163,15 @@ impl Ros2Report {
 pub(crate) fn run(root: &Path, args: &Ros2Args) -> ExitCode {
     if std::env::var_os("ROS_DISTRO").is_none() {
         let script = format!(
-            "cargo xtask bench ros2 --streams {} --seconds {} --middleware {}",
+            "cargo xtask bench ros2 --streams {} --seconds {} --middleware {} \
+             --cameras {} --camera-fps {} --camera-size {}x{}",
             args.streams,
             args.seconds,
-            args.middleware.name()
+            args.middleware.name(),
+            args.cameras,
+            args.camera_fps,
+            args.camera_size.0,
+            args.camera_size.1
         );
         return match image::build(root).and_then(|()| image::run_in(root, args.middleware, &script))
         {
@@ -178,7 +207,8 @@ fn measure_load(root: &Path, args: &Ros2Args) -> Result<Ros2Report, String> {
     // The message types' definitions, read from beside streams.toml.
     copy_folder(&root.join("packages/arm7_ros2/msg"), &work.join("msg"))?;
     let streams = work.join("streams.toml");
-    std::fs::write(&streams, streams_toml(args.streams)).map_err(|error| error.to_string())?;
+    std::fs::write(&streams, streams_toml(args.streams, args.cameras()))
+        .map_err(|error| error.to_string())?;
     let mapping = work.join("mapping.toml");
     std::fs::write(&mapping, mapping_of_first_stream()).map_err(|error| error.to_string())?;
     // A Unix socket's path has at most 107 bytes, which one deep in a
@@ -247,7 +277,7 @@ fn measure_load(root: &Path, args: &Ros2Args) -> Result<Ros2Report, String> {
     let load = Load {
         streams: args.streams,
         tcp_streams: 0,
-        cameras: None,
+        cameras: args.cameras(),
         rate_hz: RATE_HZ,
         seconds: args.seconds,
         messages_sent: totals.sent,
@@ -280,6 +310,7 @@ struct Sent {
 /// (`bridge_pid`) together once a second from its first second of sending.
 fn send(binaries: &Path, args: &Ros2Args, pid: u32, bridge_pid: u32) -> Result<Sent, String> {
     let start = Instant::now();
+    let cameras = start_cameras(binaries, args)?;
     let mut generator = Command::new(binaries.join("kapto-loadgen"))
         .args(["--transport", "ros2"])
         .args(["--streams", &args.streams.to_string()])
@@ -321,13 +352,36 @@ fn send(binaries: &Path, args: &Ros2Args, pid: u32, bridge_pid: u32) -> Result<S
     let _ = reader.join();
     let printed: Vec<String> = lines.try_iter().collect();
     let status = generator.wait().map_err(|error| error.to_string())?;
-    let totals = match generator_totals(&printed.join("\n")) {
+    let mut totals = match generator_totals(&printed.join("\n")) {
         Some(totals) if status.success() => totals,
         _ => return Err(format!("the load generator failed: {printed:#?}")),
     };
+    if let Some((mut started, reader, lines, mut printed)) = cameras {
+        let status = started.wait().map_err(|error| error.to_string())?;
+        let _ = reader.join();
+        printed.extend(lines.try_iter());
+        let printed = printed.join("\n");
+        let sent = match generator_totals(&printed) {
+            Some(sent) if status.success() => sent,
+            _ => return Err(format!("the cameras failed: {printed}")),
+        };
+        if !sent.kept_up() {
+            return Err(format!(
+                "the cameras fell behind ({} frames skipped, {} send errors), so the load wasn't the one asked for",
+                sent.skipped, sent.send_errors
+            ));
+        }
+        totals.sent += sent.sent;
+    }
     if !totals.kept_up() {
+        // The seconds it fell behind in, to tell a slow start from a stall.
+        let behind: Vec<&str> = printed
+            .iter()
+            .filter(|line| reports_a_second(line) && !line.contains("skipped 0 "))
+            .map(|line| line.trim())
+            .collect();
         return Err(format!(
-            "the load generator fell behind ({} ticks skipped, {} send errors), so the load wasn't the one asked for",
+            "the joint states fell behind ({} ticks skipped, {} send errors), so the load wasn't the one asked for: {behind:#?}",
             totals.skipped, totals.send_errors
         ));
     }
@@ -336,6 +390,55 @@ fn send(binaries: &Path, args: &Ros2Args, pid: u32, bridge_pid: u32) -> Result<S
         recording,
         bridge,
     })
+}
+
+/// The cameras' generator, its reader thread, its output and what it
+/// printed so far.
+type Sending = (
+    std::process::Child,
+    std::thread::JoinHandle<()>,
+    mpsc::Receiver<String>,
+    Vec<String>,
+);
+
+/// Starts the cameras, if any, and returns once they are sending.
+fn start_cameras(binaries: &Path, args: &Ros2Args) -> Result<Option<Sending>, String> {
+    // The cameras start first, and the joint states once they are sending:
+    // encoding a second of frames takes every core for a moment, which
+    // would hold the joint states up as they start. They run on two
+    // seconds longer, so every second the joint states are measured has
+    // both.
+    let Some(cameras) = args.cameras() else {
+        return Ok(None);
+    };
+    let mut started = Command::new(binaries.join("kapto-loadgen"))
+        .args(["--transport", "ros2"])
+        .args(["--streams", &cameras.count.to_string()])
+        .args(["--rate", &cameras.fps.to_string()])
+        .args(["--duration", &(args.seconds + 2).to_string()])
+        .args(["--wait-for-subscribers", &DISCOVERY_SECONDS.to_string()])
+        .args(["--camera", &format!("{}x{}", cameras.width, cameras.height)])
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("can't start the cameras: {error}"))?;
+    let stdout = started.stdout.take().ok_or("the cameras have no stdout")?;
+    let (lines_tx, lines) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            let _ = lines_tx.send(line);
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(u64::from(DISCOVERY_SECONDS) + 5);
+    let mut printed = Vec::new();
+    while !printed.iter().any(|line: &String| reports_a_second(line)) {
+        let Ok(line) = lines.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        else {
+            let _ = started.kill();
+            return Err(format!("the cameras never started sending: {printed:#?}"));
+        };
+        printed.push(line);
+    }
+    Ok(Some((started, reader, lines, printed)))
 }
 
 /// Builds Kapto and the load generator with ROS 2, returning where they are.
@@ -364,8 +467,9 @@ fn reports_a_second(line: &str) -> bool {
 
 /// A streams.toml of `streams` topics, named as the load generator
 /// publishes them and with its quality of service, each decoded as the sample arm's
-/// joints and gripper, as `packages/arm7_ros2` declares them.
-fn streams_toml(streams: u16) -> String {
+/// joints and gripper, as `packages/arm7_ros2` declares them; then each
+/// camera's compressed frames, on the topics the generator names them.
+fn streams_toml(streams: u16, cameras: Option<Cameras>) -> String {
     let mut text = String::new();
     for stream in 0..streams {
         let topic = match stream {
@@ -380,6 +484,19 @@ fn streams_toml(streams: u16) -> String {
              decoder = {{ kind = \"cdr\", fields = [\
                {{ name = \"joint_positions\", type = \"f64\", path = \"position\", count = 7 }}, \
                {{ name = \"gripper\", type = \"f64\", path = \"position[7]\" }} ] }}\n\n"
+        );
+    }
+    for camera in 0..cameras.map_or(0, |cameras| cameras.count) {
+        let topic = match camera {
+            0 => "/camera/image_raw/compressed".to_owned(),
+            _ => format!("/camera_{camera}/image_raw/compressed"),
+        };
+        let _ = write!(
+            text,
+            "[streams.camera_{camera}]\nrate_hz = {}\nmax_message_bytes = {CAMERA_MAX_BYTES}\n\
+             ros2 = {{ topic = \"{topic}\", type = \"sensor_msgs/msg/CompressedImage\", \
+             qos = {{ reliability = \"reliable\", depth = 10 }} }}\n\n",
+            cameras.map_or(0, |cameras| cameras.fps)
         );
     }
     text
@@ -418,7 +535,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&folder);
         copy_folder(&root().join("packages/arm7_ros2/msg"), &folder.join("msg")).unwrap();
         let path = folder.join("streams.toml");
-        std::fs::write(&path, streams_toml(3)).unwrap();
+        std::fs::write(&path, streams_toml(3, None)).unwrap();
         let file = kapto_config::ConfigFile {
             contents: std::fs::read_to_string(&path).unwrap(),
             path,
@@ -426,7 +543,7 @@ mod tests {
         let streams = kapto_config::parse_streams(&file).unwrap();
         let _ = std::fs::remove_dir_all(&folder);
         assert_eq!(streams.len(), 3);
-        let text = streams_toml(3);
+        let text = streams_toml(3, None);
         assert!(text.contains("topic = \"/joint_states\""));
         assert!(text.contains("topic = \"/joint_states_2\""));
     }

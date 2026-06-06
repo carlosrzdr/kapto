@@ -670,7 +670,9 @@ V4L2 (M15-01) move here rather than waiting for Phase B.
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M6b-04 `feat(capture): ros 2 camera topics` | `Image` and `CompressedImage` topics recorded whole, as rosbag2 does; the reference load plus two cameras (CAP-1's "plus cameras") benchmarked | In the ROS image: every frame stored byte for byte; `ros2 bag info` reads the recording | — |
+| M6b-04b `perf(capture): ros 2 cameras within a core` | Recording the reference load as ROS 2 topics with two 1080p cameras at 60 fps beside it takes 1.02–1.13 cores on the maintainer's laptop (`cargo xtask bench ros2 --cameras 2`), over the one-core target, with every message written. The two threads receiving the joint states (`cap-rx-ros2` and its middleware listener) take 2.6 times what they do without cameras, doing the same work; the cameras' own receivers take 0.01 each and the writer 0.24–0.28, lz4 on frames included. Find whether it is the machine (clock speed with more cores busy, under `powersave`) or Kapto, on the reference PC first, and what `capture.compression = "none"` saves | `bench ros2 --cameras 2` within a core over each middleware, on the reference PC | Capture's CPU with ROS 2 cameras |
+| M6b-04c `fix(capture): no loss counted for joint states that frames delayed` | With two 60 fps cameras on ROS 2, 179–339 of 1,920,000 joint states are counted lost though every one arrived: frames delay their delivery past what the settling window allows (three periods and the receiver's batch wait). Over UDP and TCP with cameras, none | `bench ros2 --cameras 2` counts none lost over each middleware | — |
+| M6b-04d `fix(capture): a camera's first frame` | In two hand-made runs, two ROS 2 cameras each sending 1,200 frames, the second camera's recording had 1,199, counted as nothing lost, as a missing first frame leaves no silence to measure; the benchmark's runs had every frame. Find whether a frame is published before Kapto's subscription has matched it, and what the generator's wait for subscribers misses | The second camera's frames complete in a loop of runs | — |
 | M6b-05 `feat(viz): cameras in the live view` | The bridge forwards each camera's newest frame to the page up to `viewer.camera_max_fps` (30), dropping and counting older ones, never waiting on the page; the page draws JPEG as received (the browser decodes it) and raw images onto a canvas. **Open question:** whether raw images are sent to the page as they are (about 30 MB/s for one 640×480 RGB camera at 30 fps) or capped lower by default | Frames at the cap from a faster camera, none from a stalled page; Playwright: a camera shown beside the robot; screenshots | A camera live beside the arm |
 | M6b-06 `feat(ui): cameras in replay` | The replay player shows each camera's frame at the cursor, playing at up to the cap and stepping frame by frame (every frame recorded), synced with the robot and plots on the receive-time timeline | Vitest: the frame at a time; Playwright: step through frames; screenshots | Replaying a camera |
 
@@ -951,8 +953,9 @@ reference.
 
 **Critical path**, taken in turn, one PR at a time:
 
-1. The cameras: M6b-04, M6b-05, M6b-06 (frames taken whole, shown live
-   beside the robot and in replay).
+1. The cameras: M6b-05, M6b-06 (frames shown live beside the robot and in
+   replay); then M6b-04b to M6b-04d (capture's CPU, counted loss and a
+   first frame with ROS 2 cameras).
 2. Layouts: M4-06 (the package's own) and M4-06b (the operator's, arranged
    in the UI).
 3. The one-command demo with uploads to RustFS: M8-04.

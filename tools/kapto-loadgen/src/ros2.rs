@@ -66,7 +66,10 @@ impl Publishers {
     pub(crate) fn open(topics: &[String], camera: bool) -> io::Result<Self> {
         let context = Context::create().map_err(|error| failed(&error))?;
         let mut node =
-            Node::create(context, "kapto_loadgen", "").map_err(|error| failed(&error))?;
+            // Its own name when it is a camera, so a camera and the joints
+            // can run as two generators side by side.
+            Node::create(context, if camera { "kapto_loadgen_camera" } else { "kapto_loadgen" }, "")
+                .map_err(|error| failed(&error))?;
         let qos = |depth| QosProfile {
             depth,
             ..QosProfile::default()

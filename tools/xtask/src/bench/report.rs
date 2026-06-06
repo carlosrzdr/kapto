@@ -189,8 +189,16 @@ impl Report {
             load.seconds,
             u64::from(load.streams) * u64::from(load.rate_hz),
             load.cameras.map_or_else(String::new, |cameras| format!(
-                ", and {} cameras of {}x{} JPEG frames at {} fps over TCP",
-                cameras.count, cameras.width, cameras.height, cameras.fps
+                ", and {} cameras of {}x{} JPEG frames at {} fps {}",
+                cameras.count,
+                cameras.width,
+                cameras.height,
+                cameras.fps,
+                if self.targets == Targets::Ros2 {
+                    "as `sensor_msgs/msg/CompressedImage` topics"
+                } else {
+                    "over TCP"
+                }
             )),
             load.messages_sent
         );
