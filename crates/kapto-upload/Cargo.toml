@@ -1,0 +1,46 @@
+[package]
+name = "kapto-upload"
+description = "Uploads to user-configured storage: the upload engine, storing through `object_store`."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# The conformance suite, the store that fails as told and the test
+# server's buckets, for the tests of stores and of what uses them.
+testing = ["dep:async-trait", "dep:reqwest", "tokio/rt"]
+
+[dependencies]
+async-trait = { workspace = true, optional = true }
+futures.workspace = true
+kapto-config.workspace = true
+kapto-core.workspace = true
+kapto-store.workspace = true
+object_store.workspace = true
+# Creating the test server's buckets, and requests S3 should refuse.
+reqwest = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+# Credentials files, written as TOML like the rest of the configuration.
+toml_edit.workspace = true
+# Waits between tries, on the runtime uploads run on.
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+async-trait.workspace = true
+reqwest.workspace = true
+kapto-testkit.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync"] }
+
+# Uploads to the RustFS server `cargo xtask bench upload` starts.
+[[bench]]
+name = "rustfs"
+harness = false
+required-features = ["testing"]
+
+[lints]
+workspace = true

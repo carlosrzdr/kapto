@@ -1,0 +1,92 @@
+# What each recording stage is allowed to cost, checked by
+# `cargo xtask bench model` against the stage benchmarks.
+#
+# Each stage's cost is split into a part per batch, per message and per KiB
+# of messages (any part left out is 0). The model reports a stage as over
+# budget if any part exceeds its budget here, and as unexpectedly cheap if it
+# costs less than a tenth of its budget at the reference load (16 streams at
+# 2 kHz of 68-byte messages, in batches of 64): usually a sign the benchmark
+# skips the real work.
+#
+# Budgets are set at about two to three times what the stage costs on the
+# maintainer's machine, so normal noise passes and real regressions don't.
+# Change a budget in the same pull request as the change that justifies it,
+# and say why in `reason`.
+
+[stage.udp_receive]
+per_batch_ns = 2_000
+per_message_ns = 600
+per_kib_ns = 300
+reason = "One readiness wait and a few batched system calls per batch; the kernel copies each datagram into its slot."
+
+[stage.hand_off]
+per_batch_ns = 300
+per_message_ns = 5
+per_kib_ns = 5
+reason = "Two lock-free queue operations per batch, whatever it holds."
+
+[stage.accounting_sequence]
+per_batch_ns = 200
+per_message_ns = 100
+per_kib_ns = 50
+reason = "Reads each message's sequence number and updates its stream's counters once per run of messages. Larger messages sit further apart in memory, so each read is more likely to miss the cache: hence a cost per KiB although no payload byte is read beyond the number."
+
+[stage.accounting_rate_gap]
+per_batch_ns = 200
+per_message_ns = 60
+per_kib_ns = 50
+reason = "Counts each message and checks each stream's silence once per batch."
+
+[stage.mcap_write_uncompressed]
+per_batch_ns = 1_000
+per_message_ns = 800
+per_kib_ns = 1_000
+reason = "Encodes one MCAP message record per message and copies its payload into the chunk."
+
+[stage.mcap_write_lz4]
+per_batch_ns = 1_000
+per_message_ns = 900
+per_kib_ns = 1_000
+reason = "As uncompressed, plus lz4 compression of each full chunk, spread over its messages."
+
+[stage.mcap_write_zstd]
+per_batch_ns = 1_000
+per_message_ns = 900
+per_kib_ns = 1_000
+reason = "As uncompressed, plus zstd compression of each full chunk, spread over its messages."
+
+[stage."timestamp/monotonic_now"]
+per_batch_ns = 50
+reason = "One clock read through the vDSO, once per batch."
+
+[stage."timestamp/to_utc"]
+per_batch_ns = 50
+reason = "One clock read and one addition, once per batch when writing."
+
+# Checking a recorded episode, in the worker: one batch is one episode,
+# its messages the recording's. Not on the recording path, so its share of
+# a core at the reference load says whether checking keeps up with
+# recording, not what recording costs.
+[stage.qa_job]
+per_batch_ns = 200_000
+per_message_ns = 2_000
+per_kib_ns = 25_000
+reason = "Opens the recording and reads its start once per episode, a fraction of a millisecond; decodes each message with its stored layout and copies each value a role names, about 0.6 µs per message; then the checks and statistics, linear in the values: the motion checks about 0.2 µs per message, and each joint's position, speed, acceleration, jerk and effort counted into its distribution, about 0.4 µs. Measured at 0.6 to 1.1 µs per message in all; raised from 600 ns to about twice that when the motion checks and the joints' position, acceleration and jerk were added, after counting a distribution's buckets in an array rather than a tree made the statistics three times cheaper: 0.08 s per minute of a 1 kHz arm."
+
+# Reading a recorded episode's events back, in the worker, to index them:
+# one batch is one episode, its messages the recording's, all read through
+# since events are among them. Not on the recording path.
+[stage.events_job]
+per_batch_ns = 500_000
+per_message_ns = 300
+per_kib_ns = 700
+reason = "Opens the recording and reads it through once, decompressing each chunk and skipping every message but the events, about 0.13 µs per message and 0.3 µs per KiB; then parses each event's JSON, a few a second. Measured at 1.9 ms for 15 s of a 1 kHz arm of 68-byte messages and 7.9 ms for a minute: 0.008 s per minute, budgeted at about twice that."
+
+# Making a recorded episode's replay, in the worker: one batch is one
+# episode, its messages the recording's. Like the `qa` job, not on the
+# recording path.
+[stage.replay_job]
+per_batch_ns = 3_000_000
+per_message_ns = 500
+per_kib_ns = 6_000
+reason = "Reads the recording's start, unpacks the package it carries and draws the robot once per episode, about 1 ms; decodes each message and merges it, and the robot's pose at 60 a second, into the replay view's steps: about 250 ns per message and 2.7 µs per KiB, 0.03 s per minute of a 1 kHz arm. Measured with each replay drawing its robot afresh, as the first replay of a package does. The sample arm has no meshes; a robot's meshes add reading them once and writing them into the view: the Franka Panda's 10.6 MB of COLLADA about 45 ms a reading. The worker keeps the robot it last drew whole for the next replay of the same package, which then reads no mesh."

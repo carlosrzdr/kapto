@@ -1,0 +1,11 @@
+# What this package is. Kapto identifies a version of it by its ID and
+# version, and by a hash of all its files (`kapto package show`).
+id = "arm7"
+version = "0.1.0"
+name = "Sample seven-joint arm"
+vendor = "Kapto"
+description = "A generic seven-joint arm with a two-finger gripper, matching the synthetic robot in tools/kapto-loadgen."
+
+# The robot description. What the robot sends and how it drives the joints
+# are in streams.toml and mapping.toml, the default names.
+urdf = "urdf/arm7.urdf"

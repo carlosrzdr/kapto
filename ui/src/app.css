@@ -1,0 +1,159 @@
+/* Kapto's look: a dense, minimal operator console on near-black, one green for
+   actions and selection, and state colours only where they carry meaning.
+   Fira Sans for the interface, Fira Code only for data and measurements.
+   Every component takes its colours, type and spacing from these tokens. */
+
+@import "@fontsource/fira-sans/400.css";
+@import "@fontsource/fira-sans/500.css";
+@import "@fontsource/fira-sans/600.css";
+@import "@fontsource/fira-code/400.css";
+@import "@fontsource/fira-code/500.css";
+
+:root {
+  /* Surfaces, darkest first. */
+  --background: #0b0c0d;
+  --panel: #151718;
+  --raised: #1f2224;
+  /* Text: 18:1 and 7.7:1 on the background. */
+  --text: #f2f4f5;
+  --muted: #9ca3a8;
+  /* Dividers, and the edges of controls (3:1 or more, so they can be seen). */
+  --line: #2a2e31;
+  --control-line: #6b7378;
+  /* Actions, the current selection and the focus ring. */
+  --accent: #22c55e;
+  --on-accent: #0b0c0d;
+  --ring: #f2f4f5;
+  /* States. Text in a state colour is 4.5:1 or more on every surface. */
+  --ok: #22c55e;
+  --info: #38bdf8;
+  --warning: #f59e0b;
+  --warning-background: #2b2108;
+  --danger: #f87171;
+  --danger-fill: #dc2626;
+  --on-danger: #ffffff;
+  --danger-background: #2a0e10;
+
+  --font-ui: "Fira Sans", system-ui, sans-serif;
+  --font-data: "Fira Code", ui-monospace, monospace;
+  /* A tight scale for a dense tool, never below 12px. */
+  --text-xs: 0.8rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --radius: 0.25rem;
+  --control-height: 1.75rem;
+  color-scheme: dark;
+}
+
+/* A dropdown's list is drawn by the browser, white on some systems: its
+   options take the page's colours so their text stays readable. */
+option,
+optgroup {
+  background-color: var(--panel);
+  color: var(--text);
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+/* A panel's sections: quiet labels that structure, more room above than below. */
+h2,
+h3 {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+h2:first-child,
+h3:first-child {
+  margin-top: 0;
+}
+
+/* The parts the browser draws, in the page's colours. */
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--text);
+}
+* {
+  scrollbar-color: var(--control-line) transparent;
+  scrollbar-width: thin;
+}
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+input,
+select,
+textarea {
+  accent-color: var(--accent);
+  caret-color: var(--accent);
+}
+
+/* Every control at least 24px in each direction, big enough to hit. */
+button,
+select,
+input:not([type="range"], [type="checkbox"], [type="radio"]) {
+  min-height: var(--control-height);
+  font-family: inherit;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.2rem;
+}
+button:not(:disabled),
+select:not(:disabled),
+summary {
+  cursor: pointer;
+}
+/* An icon sits beside its button's words. */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+}
+
+/* Figures that line up in tables and change in place. */
+table,
+time,
+.figures {
+  font-variant-numeric: tabular-nums;
+}
+code,
+kbd,
+.data {
+  font-family: var(--font-data);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+  }
+}

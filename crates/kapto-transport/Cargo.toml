@@ -1,0 +1,40 @@
+[package]
+name = "kapto-transport"
+description = "Inputs from robots: the `Transport` trait and its UDP, TCP and ROS 2 implementations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+kapto-capture.workspace = true
+kapto-core.workspace = true
+libc.workspace = true
+# `event`: waiting on every UDP socket at once with epoll, safely.
+rustix = { workspace = true, features = ["event"] }
+socket2.workspace = true
+# ROS 2 topics through ROS 2's own client library: only with `ros2`.
+r2r = { workspace = true, optional = true }
+# rcl's C functions as `r2r` binds them, for taking messages without
+# allocating: part of `r2r`, at its version.
+r2r_rcl = { workspace = true, optional = true }
+
+[features]
+# Subscribing to ROS 2 topics. Building it needs a sourced ROS 2
+# installation and libclang, so only the ROS 2 image has it.
+ros2 = ["dep:r2r", "dep:r2r_rcl"]
+
+[dev-dependencies]
+criterion.workspace = true
+# Reading back the ROS 2 messages taken, in the ROS 2 tests.
+kapto-decode.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "receive"
+harness = false
+
+[lints]
+workspace = true

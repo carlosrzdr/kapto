@@ -1,0 +1,15 @@
+{
+  "header": {"stamp": {"sec": "1773066812", "nanosec": 500}, "frameId": "base_link"},
+  "name": ["joint_1", "joint_2", "gripper"],
+  "position": [0.5, -1.25, 0.04],
+  "effort": [1.5, 2, 0.25],
+  "mode": "MODE_RUN",
+  "gains": {"kp": 120.5, "kd": 3.25},
+  "raw": "AQID/w==",
+  "offset": -42,
+  "counter": "18000000000000000000",
+  "enabled": true,
+  "angle": 1.5,
+  "big": "9007199254740993",
+  "history": [{"sec": "1", "nanosec": 2}, {"sec": "-3", "nanosec": 4}]
+}

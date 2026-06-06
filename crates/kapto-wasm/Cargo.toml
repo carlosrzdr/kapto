@@ -1,0 +1,12 @@
+[package]
+name = "kapto-wasm"
+description = "Kapto logic compiled to WebAssembly for the web UI, so the browser and the server apply the same rules."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

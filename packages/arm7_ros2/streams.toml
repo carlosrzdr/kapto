@@ -1,0 +1,35 @@
+# What the robot publishes: its joint states on the ROS 2 topic
+# /joint_states at 2 kHz, as the synthetic robot (tools/kapto-loadgen)
+# does. Start it, in the ROS 2 image, with
+#   cargo run --release -p kapto-loadgen --features ros2 -- --transport ros2
+# The message type's definition is read from the .msg files in msg/, so the
+# package decodes the same wherever Kapto runs.
+[streams.arm_joints]
+rate_hz = 2000
+
+# Reliable, and up to 1000 messages kept for Kapto by the middleware: the
+# robot publishes reliably, and a burst never needs to be dropped.
+[streams.arm_joints.ros2]
+topic = "/joint_states"
+type = "sensor_msgs/msg/JointState"
+qos = { reliability = "reliable", depth = 1000 }
+
+# The decoder has the topic's type; only the fields are declared.
+[streams.arm_joints.decoder]
+kind = "cdr"
+
+# joint_1 to joint_7 of urdf/arm7.urdf: the first seven positions, as the
+# message's names list them.
+[[streams.arm_joints.decoder.fields]]
+name = "joint_positions"
+type = "f64"
+path = "position"
+count = 7
+unit = "rad"
+
+# How far each finger is from closed: the `gripper` joint, named last.
+[[streams.arm_joints.decoder.fields]]
+name = "gripper"
+type = "f64"
+path = "position[7]"
+unit = "m"

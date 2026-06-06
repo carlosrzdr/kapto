@@ -1,0 +1,2033 @@
+{
+ "generator": "rclpy.serialization, ROS 2 Jazzy (ros@sha256:066420e07f60aa18262f2479981def87ebcfcec42eefb0c0c57c4a46098348ca)",
+ "messages": {
+  "joint_state": {
+   "type": "sensor_msgs/msg/JointState",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# This is a message that holds data to describe the state of a set of torque controlled joints.\n#\n# The state of each joint (revolute or prismatic) is defined by:\n#  * the position of the joint (rad or m),\n#  * the velocity of the joint (rad/s or m/s) and\n#  * the effort that is applied in the joint (Nm or N).\n#\n# Each joint is uniquely identified by its name\n# The header specifies the time at which the joint states were recorded. All the joint states\n# in one message have to be recorded at the same time.\n#\n# This message consists of a multiple arrays, one for each part of the joint state.\n# The goal is to make each of the fields optional. When e.g. your joints have no\n# effort associated with them, you can leave the effort array empty.\n#\n# All arrays in this message should have the same size, or be empty.\n# This is the only way to uniquely associate the joint name with the correct\n# states.\n\nstd_msgs/Header header\n\nstring[] name\nfloat64[] position\nfloat64[] velocity\nfloat64[] effort\n\n================================================================================\nMSG: std_msgs/Header\n# Standard metadata for higher-level stamped data types.\n# This is generally used to communicate timestamped data\n# in a particular coordinate frame.\n\n# Two-integer timestamp that is expressed as seconds and nanoseconds.\nbuiltin_interfaces/Time stamp\n\n# Transform frame with which this data is associated.\nstring frame_id\n\n================================================================================\nMSG: builtin_interfaces/Time\n# This message communicates ROS Time defined here:\n# https://design.ros2.org/articles/clock_and_time.html\n\n# The seconds component, valid over all int32 values.\nint32 sec\n\n# The nanoseconds component, valid in the range [0, 1e9), to be added to the seconds component. \n# e.g.\n# The time -1.7 seconds is represented as {sec: -2, nanosec: 3e8}\n# The time 1.7 seconds is represented as {sec: 1, nanosec: 7e8}\nuint32 nanosec\n",
+   "cdr": "000100003cdaae69f40100000a000000626173655f6c696e6b00350003000000080000006a6f696e745f3100080000006a6f696e745f32000800000067726970706572000300000000000000000000000000e03f000000000000f4bf7b14ae47e17aa43f0000000003000000000000000000f83f0000000000000040000000000000d03f00000000201e3514",
+   "values": {
+    "header": {
+     "stamp": {
+      "sec": 1773066812,
+      "nanosec": 500
+     },
+     "frame_id": "base_link"
+    },
+    "name": [
+     "joint_1",
+     "joint_2",
+     "gripper"
+    ],
+    "position": [
+     0.5,
+     -1.25,
+     0.04
+    ],
+    "velocity": [],
+    "effort": [
+     1.5,
+     2.0,
+     0.25
+    ]
+   }
+  },
+  "pose": {
+   "type": "geometry_msgs/msg/Pose",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# A representation of pose in free space, composed of position and orientation.\n\nPoint position\nQuaternion orientation\n\n================================================================================\nMSG: geometry_msgs/Point\n# This contains the position of a point in free space\nfloat64 x\nfloat64 y\nfloat64 z\n\n================================================================================\nMSG: geometry_msgs/Quaternion\n# This represents an orientation in free space in quaternion form.\n\nfloat64 x 0\nfloat64 y 0\nfloat64 z 0\nfloat64 w 1\n",
+   "cdr": "000100009a9999999999b93f9a9999999999c9bfcdccccccccccf43f00000000000000000000000000000000cd3b7f669ea0e63fcd3b7f669ea0e63f",
+   "values": {
+    "position": {
+     "x": 0.1,
+     "y": -0.2,
+     "z": 1.3
+    },
+    "orientation": {
+     "x": 0.0,
+     "y": 0.0,
+     "z": 0.7071067811865476,
+     "w": 0.7071067811865476
+    }
+   }
+  },
+  "pose_stamped": {
+   "type": "geometry_msgs/msg/PoseStamped",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# A Pose with reference coordinate frame and timestamp\n\nstd_msgs/Header header\nPose pose\n\n================================================================================\nMSG: geometry_msgs/Pose\n# A representation of pose in free space, composed of position and orientation.\n\nPoint position\nQuaternion orientation\n\n================================================================================\nMSG: geometry_msgs/Point\n# This contains the position of a point in free space\nfloat64 x\nfloat64 y\nfloat64 z\n\n================================================================================\nMSG: geometry_msgs/Quaternion\n# This represents an orientation in free space in quaternion form.\n\nfloat64 x 0\nfloat64 y 0\nfloat64 z 0\nfloat64 w 1\n\n================================================================================\nMSG: std_msgs/Header\n# Standard metadata for higher-level stamped data types.\n# This is generally used to communicate timestamped data\n# in a particular coordinate frame.\n\n# Two-integer timestamp that is expressed as seconds and nanoseconds.\nbuiltin_interfaces/Time stamp\n\n# Transform frame with which this data is associated.\nstring frame_id\n\n================================================================================\nMSG: builtin_interfaces/Time\n# This message communicates ROS Time defined here:\n# https://design.ros2.org/articles/clock_and_time.html\n\n# The seconds component, valid over all int32 values.\nint32 sec\n\n# The nanoseconds component, valid in the range [0, 1e9), to be added to the seconds component. \n# e.g.\n# The time -1.7 seconds is represented as {sec: -2, nanosec: 3e8}\n# The time 1.7 seconds is represented as {sec: 1, nanosec: 7e8}\nuint32 nanosec\n",
+   "cdr": "000100003cdaae69f40100000a000000626173655f6c696e6b000000000000000000f03f00000000000000400000000000000840000000000000000000000000000000000000000000000000000000000000f03f",
+   "values": {
+    "header": {
+     "stamp": {
+      "sec": 1773066812,
+      "nanosec": 500
+     },
+     "frame_id": "base_link"
+    },
+    "pose": {
+     "position": {
+      "x": 1.0,
+      "y": 2.0,
+      "z": 3.0
+     },
+     "orientation": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "w": 1.0
+     }
+    }
+   }
+  },
+  "twist_with_covariance_stamped": {
+   "type": "geometry_msgs/msg/TwistWithCovarianceStamped",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# This represents an estimated twist with reference coordinate frame and timestamp.\n\nstd_msgs/Header header\nTwistWithCovariance twist\n\n================================================================================\nMSG: geometry_msgs/TwistWithCovariance\n# This expresses velocity in free space with uncertainty.\n\nTwist twist\n\n# Row-major representation of the 6x6 covariance matrix\n# The orientation parameters use a fixed-axis representation.\n# In order, the parameters are:\n# (x, y, z, rotation about X axis, rotation about Y axis, rotation about Z axis)\nfloat64[36] covariance\n\n================================================================================\nMSG: geometry_msgs/Twist\n# This expresses velocity in free space broken into its linear and angular parts.\n\nVector3  linear\nVector3  angular\n\n================================================================================\nMSG: geometry_msgs/Vector3\n# This represents a vector in free space.\n\n# This is semantically different than a point.\n# A vector is always anchored at the origin.\n# When a transform is applied to a vector, only the rotational component is applied.\n\nfloat64 x\nfloat64 y\nfloat64 z\n\n================================================================================\nMSG: std_msgs/Header\n# Standard metadata for higher-level stamped data types.\n# This is generally used to communicate timestamped data\n# in a particular coordinate frame.\n\n# Two-integer timestamp that is expressed as seconds and nanoseconds.\nbuiltin_interfaces/Time stamp\n\n# Transform frame with which this data is associated.\nstring frame_id\n\n================================================================================\nMSG: builtin_interfaces/Time\n# This message communicates ROS Time defined here:\n# https://design.ros2.org/articles/clock_and_time.html\n\n# The seconds component, valid over all int32 values.\nint32 sec\n\n# The nanoseconds component, valid in the range [0, 1e9), to be added to the seconds component. \n# e.g.\n# The time -1.7 seconds is represented as {sec: -2, nanosec: 3e8}\n# The time 1.7 seconds is represented as {sec: 1, nanosec: 7e8}\nuint32 nanosec\n",
+   "cdr": "000100003cdaae69f40100000a000000626173655f6c696e6b005f45000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+   "values": {
+    "header": {
+     "stamp": {
+      "sec": 1773066812,
+      "nanosec": 500
+     },
+     "frame_id": "base_link"
+    },
+    "twist": {
+     "twist": {
+      "linear": {
+       "x": 0.0,
+       "y": 0.0,
+       "z": 0.0
+      },
+      "angular": {
+       "x": 0.0,
+       "y": 0.0,
+       "z": 0.0
+      }
+     },
+     "covariance": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    }
+   }
+  },
+  "image": {
+   "type": "sensor_msgs/msg/Image",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# This message contains an uncompressed image\n# (0, 0) is at top-left corner of image\n\nstd_msgs/Header header # Header timestamp should be acquisition time of image\n                             # Header frame_id should be optical frame of camera\n                             # origin of frame should be optical center of cameara\n                             # +x should point to the right in the image\n                             # +y should point down in the image\n                             # +z should point into to plane of the image\n                             # If the frame_id here and the frame_id of the CameraInfo\n                             # message associated with the image conflict\n                             # the behavior is undefined\n\nuint32 height                # image height, that is, number of rows\nuint32 width                 # image width, that is, number of columns\n\n# The legal values for encoding are in file include/sensor_msgs/image_encodings.hpp\n# If you want to standardize a new string format, join\n# ros-users@lists.ros.org and send an email proposing a new encoding.\n\nstring encoding       # Encoding of pixels -- channel meaning, ordering, size\n                      # taken from the list of strings in include/sensor_msgs/image_encodings.hpp\n\nuint8 is_bigendian    # is this data bigendian?\nuint32 step           # Full row length in bytes\nuint8[] data          # actual matrix data, size is (step * rows)\n\n================================================================================\nMSG: std_msgs/Header\n# Standard metadata for higher-level stamped data types.\n# This is generally used to communicate timestamped data\n# in a particular coordinate frame.\n\n# Two-integer timestamp that is expressed as seconds and nanoseconds.\nbuiltin_interfaces/Time stamp\n\n# Transform frame with which this data is associated.\nstring frame_id\n\n================================================================================\nMSG: builtin_interfaces/Time\n# This message communicates ROS Time defined here:\n# https://design.ros2.org/articles/clock_and_time.html\n\n# The seconds component, valid over all int32 values.\nint32 sec\n\n# The nanoseconds component, valid in the range [0, 1e9), to be added to the seconds component. \n# e.g.\n# The time -1.7 seconds is represented as {sec: -2, nanosec: 3e8}\n# The time 1.7 seconds is represented as {sec: 1, nanosec: 7e8}\nuint32 nanosec\n",
+   "cdr": "000100003cdaae69f40100000a000000626173655f6c696e6b00de130200000003000000060000006d6f6e6f380000000300000006000000000102fdfeff",
+   "values": {
+    "header": {
+     "stamp": {
+      "sec": 1773066812,
+      "nanosec": 500
+     },
+     "frame_id": "base_link"
+    },
+    "height": 2,
+    "width": 3,
+    "encoding": "mono8",
+    "is_bigendian": 0,
+    "step": 3,
+    "data": [
+     0,
+     1,
+     2,
+     253,
+     254,
+     255
+    ]
+   }
+  },
+  "basic_types": {
+   "type": "test_msgs/msg/BasicTypes",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "bool bool_value\nbyte byte_value\nchar char_value\nfloat32 float32_value\nfloat64 float64_value\nint8 int8_value\nuint8 uint8_value\nint16 int16_value\nuint16 uint16_value\nint32 int32_value\nuint32 uint32_value\nint64 int64_value\nuint64 uint64_value\n",
+   "cdr": "0001000001fec8000000c03f00000000000002c0f8c8c0f960ea7570001efbff00286bee00703286d0f7ffff000008c5a1d8ccf9",
+   "values": {
+    "bool_value": true,
+    "byte_value": 254,
+    "char_value": 200,
+    "float32_value": 1.5,
+    "float64_value": -2.25,
+    "int8_value": -8,
+    "uint8_value": 200,
+    "int16_value": -1600,
+    "uint16_value": 60000,
+    "int32_value": -320000,
+    "uint32_value": 4000000000,
+    "int64_value": -9000000000000,
+    "uint64_value": 18000000000000000000
+   }
+  },
+  "strings": {
+   "type": "test_msgs/msg/Strings",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "string string_value\nstring string_value_default1 \"Hello world!\"\nstring string_value_default2 \"Hello'world!\"\nstring string_value_default3 'Hello\"world!'\nstring string_value_default4 'Hello\\'world!'\nstring string_value_default5 \"Hello\\\"world!\"\nstring STRING_CONST=\"Hello world!\"\nstring<=22 bounded_string_value\nstring<=22 bounded_string_value_default1 \"Hello world!\"\nstring<=22 bounded_string_value_default2 \"Hello'world!\"\nstring<=22 bounded_string_value_default3 'Hello\"world!'\nstring<=22 bounded_string_value_default4 'Hello\\'world!'\nstring<=22 bounded_string_value_default5 \"Hello\\\"world!\"\n",
+   "cdr": "000100000600000068656c6c6f0000000100000000000000010000000000000001000000000000000100000000000000010000000000000008000000626f756e6465640001000000000000000100000000000000010000000000000001000000000000000100000000",
+   "values": {
+    "string_value": "hello",
+    "string_value_default1": "",
+    "string_value_default2": "",
+    "string_value_default3": "",
+    "string_value_default4": "",
+    "string_value_default5": "",
+    "bounded_string_value": "bounded",
+    "bounded_string_value_default1": "",
+    "bounded_string_value_default2": "",
+    "bounded_string_value_default3": "",
+    "bounded_string_value_default4": "",
+    "bounded_string_value_default5": ""
+   }
+  },
+  "arrays": {
+   "type": "test_msgs/msg/Arrays",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# Arrays of different types\nbool[3] bool_values\nbyte[3] byte_values\nchar[3] char_values\nfloat32[3] float32_values\nfloat64[3] float64_values\nint8[3] int8_values\nuint8[3] uint8_values\nint16[3] int16_values\nuint16[3] uint16_values\nint32[3] int32_values\nuint32[3] uint32_values\nint64[3] int64_values\nuint64[3] uint64_values\nstring[3] string_values\nBasicTypes[3] basic_types_values\nConstants[3] constants_values\nDefaults[3] defaults_values\nbool[3] bool_values_default [false, true, false]\nbyte[3] byte_values_default [0, 1, 255]\nchar[3] char_values_default [0, 1, 127]\nfloat32[3] float32_values_default [1.125, 0.0, -1.125]\nfloat64[3] float64_values_default [3.1415, 0.0, -3.1415]\nint8[3] int8_values_default [0, 127, -128]\nuint8[3] uint8_values_default [0, 1, 255]\nint16[3] int16_values_default [0, 32767, -32768]\nuint16[3] uint16_values_default [0, 1, 65535]\nint32[3] int32_values_default [0, 2147483647, -2147483648]\nuint32[3] uint32_values_default [0, 1, 4294967295]\nint64[3] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[3] uint64_values_default [0, 1, 18446744073709551615]\nstring[3] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after an array field is correct\nint32 alignment_check\n\n================================================================================\nMSG: test_msgs/BasicTypes\nbool bool_value\nbyte byte_value\nchar char_value\nfloat32 float32_value\nfloat64 float64_value\nint8 int8_value\nuint8 uint8_value\nint16 int16_value\nuint16 uint16_value\nint32 int32_value\nuint32 uint32_value\nint64 int64_value\nuint64 uint64_value\n\n================================================================================\nMSG: test_msgs/Constants\nbool BOOL_CONST=true\nbyte BYTE_CONST=50\nchar CHAR_CONST=100\nfloat32 FLOAT32_CONST=1.125\nfloat64 FLOAT64_CONST=1.125\nint8 INT8_CONST=-50\nuint8 UINT8_CONST=200\nint16 INT16_CONST=-1000\nuint16 UINT16_CONST=2000\nint32 INT32_CONST=-30000\nuint32 UINT32_CONST=60000\nint64 INT64_CONST=-40000000\nuint64 UINT64_CONST=50000000\n\n================================================================================\nMSG: test_msgs/Defaults\nbool bool_value true\nbyte byte_value 50\nchar char_value 100\nfloat32 float32_value 1.125\nfloat64 float64_value 1.125\nint8 int8_value -50\nuint8 uint8_value 200\nint16 int16_value -1000\nuint16 uint16_value 2000\nint32 int32_value -30000\nuint32 uint32_value 60000\nint64 int64_value -40000000\nuint64 uint64_value 50000000\n",
+   "cdr": "00010000010001000000000000000000000000000000000000000000000000000000e03f000000000000f83f0000000000000440000000000000ffff000001000000000000007c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000061007d010100000000280000040000006363630000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001326400000000903f00005c02000000000000f23fcec818fcd0078c0bd08affff60ea000000a69dfdffffffff80f0fa0200000000013264000000903f000000000000f23fcec818fcd0070000d08affff60ea000000a69dfdffffffff80f0fa0200000000013264050000903f000000000000f23fcec818fcd0070000d08affff60ea000000a69dfdffffffff80f0fa02000000000001000001ff00017f0000000000903f00000000000090bf6f1283c0ca21094000000000000000006f1283c0ca2109c0007f800001ff0000ff7f008000000100ffff000000000000ffffff7f000000800000000001000000ffffffff000000000000000000000000ffffffffffffff7f000000000000008000000000000000000100000000000000ffffffffffffffff01000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c756500009b00000000",
+   "values": {
+    "bool_values": [
+     true,
+     false,
+     true
+    ],
+    "byte_values": [
+     0,
+     0,
+     0
+    ],
+    "char_values": [
+     0,
+     0,
+     0
+    ],
+    "float32_values": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "float64_values": [
+     0.5,
+     1.5,
+     2.5
+    ],
+    "int8_values": [
+     0,
+     0,
+     0
+    ],
+    "uint8_values": [
+     0,
+     0,
+     0
+    ],
+    "int16_values": [
+     -1,
+     0,
+     1
+    ],
+    "uint16_values": [
+     0,
+     0,
+     0
+    ],
+    "int32_values": [
+     0,
+     0,
+     0
+    ],
+    "uint32_values": [
+     0,
+     0,
+     0
+    ],
+    "int64_values": [
+     0,
+     0,
+     0
+    ],
+    "uint64_values": [
+     0,
+     0,
+     0
+    ],
+    "string_values": [
+     "a",
+     "",
+     "ccc"
+    ],
+    "basic_types_values": [
+     {
+      "bool_value": false,
+      "byte_value": 0,
+      "char_value": 0,
+      "float32_value": 0.0,
+      "float64_value": 0.0,
+      "int8_value": 0,
+      "uint8_value": 0,
+      "int16_value": 0,
+      "uint16_value": 0,
+      "int32_value": 0,
+      "uint32_value": 0,
+      "int64_value": 0,
+      "uint64_value": 0
+     },
+     {
+      "bool_value": false,
+      "byte_value": 0,
+      "char_value": 0,
+      "float32_value": 0.0,
+      "float64_value": 0.0,
+      "int8_value": 0,
+      "uint8_value": 0,
+      "int16_value": 0,
+      "uint16_value": 0,
+      "int32_value": 0,
+      "uint32_value": 0,
+      "int64_value": 0,
+      "uint64_value": 0
+     },
+     {
+      "bool_value": false,
+      "byte_value": 0,
+      "char_value": 0,
+      "float32_value": 0.0,
+      "float64_value": 0.0,
+      "int8_value": 0,
+      "uint8_value": 0,
+      "int16_value": 0,
+      "uint16_value": 0,
+      "int32_value": 0,
+      "uint32_value": 0,
+      "int64_value": 0,
+      "uint64_value": 0
+     }
+    ],
+    "constants_values": [
+     {},
+     {},
+     {}
+    ],
+    "defaults_values": [
+     {
+      "bool_value": true,
+      "byte_value": 50,
+      "char_value": 100,
+      "float32_value": 1.125,
+      "float64_value": 1.125,
+      "int8_value": -50,
+      "uint8_value": 200,
+      "int16_value": -1000,
+      "uint16_value": 2000,
+      "int32_value": -30000,
+      "uint32_value": 60000,
+      "int64_value": -40000000,
+      "uint64_value": 50000000
+     },
+     {
+      "bool_value": true,
+      "byte_value": 50,
+      "char_value": 100,
+      "float32_value": 1.125,
+      "float64_value": 1.125,
+      "int8_value": -50,
+      "uint8_value": 200,
+      "int16_value": -1000,
+      "uint16_value": 2000,
+      "int32_value": -30000,
+      "uint32_value": 60000,
+      "int64_value": -40000000,
+      "uint64_value": 50000000
+     },
+     {
+      "bool_value": true,
+      "byte_value": 50,
+      "char_value": 100,
+      "float32_value": 1.125,
+      "float64_value": 1.125,
+      "int8_value": -50,
+      "uint8_value": 200,
+      "int16_value": -1000,
+      "uint16_value": 2000,
+      "int32_value": -30000,
+      "uint32_value": 60000,
+      "int64_value": -40000000,
+      "uint64_value": 50000000
+     }
+    ],
+    "bool_values_default": [
+     false,
+     true,
+     false
+    ],
+    "byte_values_default": [
+     0,
+     1,
+     255
+    ],
+    "char_values_default": [
+     0,
+     1,
+     127
+    ],
+    "float32_values_default": [
+     1.125,
+     0.0,
+     -1.125
+    ],
+    "float64_values_default": [
+     3.1415,
+     0.0,
+     -3.1415
+    ],
+    "int8_values_default": [
+     0,
+     127,
+     -128
+    ],
+    "uint8_values_default": [
+     0,
+     1,
+     255
+    ],
+    "int16_values_default": [
+     0,
+     32767,
+     -32768
+    ],
+    "uint16_values_default": [
+     0,
+     1,
+     65535
+    ],
+    "int32_values_default": [
+     0,
+     2147483647,
+     -2147483648
+    ],
+    "uint32_values_default": [
+     0,
+     1,
+     4294967295
+    ],
+    "int64_values_default": [
+     0,
+     9223372036854775807,
+     -9223372036854775808
+    ],
+    "uint64_values_default": [
+     0,
+     1,
+     18446744073709551615
+    ],
+    "string_values_default": [
+     "",
+     "max value",
+     "min value"
+    ],
+    "alignment_check": 0
+   }
+  },
+  "bounded_sequences": {
+   "type": "test_msgs/msg/BoundedSequences",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# Bounded sequences of different types\nbool[<=3] bool_values\nbyte[<=3] byte_values\nchar[<=3] char_values\nfloat32[<=3] float32_values\nfloat64[<=3] float64_values\nint8[<=3] int8_values\nuint8[<=3] uint8_values\nint16[<=3] int16_values\nuint16[<=3] uint16_values\nint32[<=3] int32_values\nuint32[<=3] uint32_values\nint64[<=3] int64_values\nuint64[<=3] uint64_values\nstring[<=3] string_values\nBasicTypes[<=3] basic_types_values\nConstants[<=3] constants_values\nDefaults[<=3] defaults_values\nbool[<=3] bool_values_default [false, true, false]\nbyte[<=3] byte_values_default [0, 1, 255]\nchar[<=3] char_values_default [0, 1, 127]\nfloat32[<=3] float32_values_default [1.125, 0.0, -1.125]\nfloat64[<=3] float64_values_default [3.1415, 0.0, -3.1415]\nint8[<=3] int8_values_default [0, 127, -128]\nuint8[<=3] uint8_values_default [0, 1, 255]\nint16[<=3] int16_values_default [0, 32767, -32768]\nuint16[<=3] uint16_values_default [0, 1, 65535]\nint32[<=3] int32_values_default [0, 2147483647, -2147483648]\nuint32[<=3] uint32_values_default [0, 1, 4294967295]\nint64[<=3] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[<=3] uint64_values_default [0, 1, 18446744073709551615]\nstring[<=3] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after a sequence field is correct\nint32 alignment_check\n\n================================================================================\nMSG: test_msgs/BasicTypes\nbool bool_value\nbyte byte_value\nchar char_value\nfloat32 float32_value\nfloat64 float64_value\nint8 int8_value\nuint8 uint8_value\nint16 int16_value\nuint16 uint16_value\nint32 int32_value\nuint32 uint32_value\nint64 int64_value\nuint64 uint64_value\n\n================================================================================\nMSG: test_msgs/Constants\nbool BOOL_CONST=true\nbyte BYTE_CONST=50\nchar CHAR_CONST=100\nfloat32 FLOAT32_CONST=1.125\nfloat64 FLOAT64_CONST=1.125\nint8 INT8_CONST=-50\nuint8 UINT8_CONST=200\nint16 INT16_CONST=-1000\nuint16 UINT16_CONST=2000\nint32 INT32_CONST=-30000\nuint32 UINT32_CONST=60000\nint64 INT64_CONST=-40000000\nuint64 UINT64_CONST=50000000\n\n================================================================================\nMSG: test_msgs/Defaults\nbool bool_value true\nbyte byte_value 50\nchar char_value 100\nfloat32 float32_value 1.125\nfloat64 float64_value 1.125\nint8 int8_value -50\nuint8 uint8_value 200\nint16 int16_value -1000\nuint16 uint16_value 2000\nint32 int32_value -30000\nuint32 uint32_value 60000\nint64 int64_value -40000000\nuint64 uint64_value 50000000\n",
+   "cdr": "000100000000000000000000000000000000000001000000000000000000000000000a4000000000030000000102030000000000000000000200000007000000f9ffffff0000000000000000000000000100000002000000780000000000000000000000000000000300000000010000030000000001ff000300000000017f00030000000000903f00000000000090bf030000006f1283c0ca21094000000000000000006f1283c0ca2109c003000000007f8000030000000001ff00030000000000ff7f008000000300000000000100ffff00000300000000000000ffffff7f00000080030000000000000001000000ffffffff03000000000000000000000000000000ffffffffffffff7f0000000000000080030000000000000000000000000000000100000000000000ffffffffffffffff0300000001000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c7565000000000000000000000000000000",
+   "values": {
+    "bool_values": [],
+    "byte_values": [],
+    "char_values": [],
+    "float32_values": [],
+    "float64_values": [
+     3.25
+    ],
+    "int8_values": [],
+    "uint8_values": [
+     1,
+     2,
+     3
+    ],
+    "int16_values": [],
+    "uint16_values": [],
+    "int32_values": [
+     7,
+     -7
+    ],
+    "uint32_values": [],
+    "int64_values": [],
+    "uint64_values": [],
+    "string_values": [
+     "x"
+    ],
+    "basic_types_values": [],
+    "constants_values": [],
+    "defaults_values": [],
+    "bool_values_default": [
+     false,
+     true,
+     false
+    ],
+    "byte_values_default": [
+     0,
+     1,
+     255
+    ],
+    "char_values_default": [
+     0,
+     1,
+     127
+    ],
+    "float32_values_default": [
+     1.125,
+     0.0,
+     -1.125
+    ],
+    "float64_values_default": [
+     3.1415,
+     0.0,
+     -3.1415
+    ],
+    "int8_values_default": [
+     0,
+     127,
+     -128
+    ],
+    "uint8_values_default": [
+     0,
+     1,
+     255
+    ],
+    "int16_values_default": [
+     0,
+     32767,
+     -32768
+    ],
+    "uint16_values_default": [
+     0,
+     1,
+     65535
+    ],
+    "int32_values_default": [
+     0,
+     2147483647,
+     -2147483648
+    ],
+    "uint32_values_default": [
+     0,
+     1,
+     4294967295
+    ],
+    "int64_values_default": [
+     0,
+     9223372036854775807,
+     -9223372036854775808
+    ],
+    "uint64_values_default": [
+     0,
+     1,
+     18446744073709551615
+    ],
+    "string_values_default": [
+     "",
+     "max value",
+     "min value"
+    ],
+    "alignment_check": 0
+   }
+  },
+  "unbounded_sequences": {
+   "type": "test_msgs/msg/UnboundedSequences",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# Unbounded sequences of different types\nbool[] bool_values\nbyte[] byte_values\nchar[] char_values\nfloat32[] float32_values\nfloat64[] float64_values\nint8[] int8_values\nuint8[] uint8_values\nint16[] int16_values\nuint16[] uint16_values\nint32[] int32_values\nuint32[] uint32_values\nint64[] int64_values\nuint64[] uint64_values\nstring[] string_values\nBasicTypes[] basic_types_values\nConstants[] constants_values\nDefaults[] defaults_values\nbool[] bool_values_default [false, true, false]\nbyte[] byte_values_default [0, 1, 255]\nchar[] char_values_default [0, 1, 127]\nfloat32[] float32_values_default [1.125, 0.0, -1.125]\nfloat64[] float64_values_default [3.1415, 0.0, -3.1415]\nint8[] int8_values_default [0, 127, -128]\nuint8[] uint8_values_default [0, 1, 255]\nint16[] int16_values_default [0, 32767, -32768]\nuint16[] uint16_values_default [0, 1, 65535]\nint32[] int32_values_default [0, 2147483647, -2147483648]\nuint32[] uint32_values_default [0, 1, 4294967295]\nint64[] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[] uint64_values_default [0, 1, 18446744073709551615]\nstring[] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after a sequence field is correct\nint32 alignment_check\n\n================================================================================\nMSG: test_msgs/BasicTypes\nbool bool_value\nbyte byte_value\nchar char_value\nfloat32 float32_value\nfloat64 float64_value\nint8 int8_value\nuint8 uint8_value\nint16 int16_value\nuint16 uint16_value\nint32 int32_value\nuint32 uint32_value\nint64 int64_value\nuint64 uint64_value\n\n================================================================================\nMSG: test_msgs/Constants\nbool BOOL_CONST=true\nbyte BYTE_CONST=50\nchar CHAR_CONST=100\nfloat32 FLOAT32_CONST=1.125\nfloat64 FLOAT64_CONST=1.125\nint8 INT8_CONST=-50\nuint8 UINT8_CONST=200\nint16 INT16_CONST=-1000\nuint16 UINT16_CONST=2000\nint32 INT32_CONST=-30000\nuint32 UINT32_CONST=60000\nint64 INT64_CONST=-40000000\nuint64 UINT64_CONST=50000000\n\n================================================================================\nMSG: test_msgs/Defaults\nbool bool_value true\nbyte byte_value 50\nchar char_value 100\nfloat32 float32_value 1.125\nfloat64 float64_value 1.125\nint8 int8_value -50\nuint8 uint8_value 200\nint16 int16_value -1000\nuint16 uint16_value 2000\nint32 int32_value -30000\nuint32 uint32_value 60000\nint64 int64_value -40000000\nuint64 uint64_value 50000000\n",
+   "cdr": "00010000000000000000000000000000010000000000803e00000000000000000000000000000000000000000000000000000000030000003d3d3d3d0100000000000000feffffffffffffff03000000000000000000000002000000040000006f6e65000400000074776f000000000000000000000000000300000000010061030000000001ff730300000000017f6f030000000000903f00000000000090bf030000006f1283c0ca21094000000000000000006f1283c0ca2109c003000000007f806f030000000001ff6c030000000000ff7f008020660300000000000100ffff75650300000000000000ffffff7f00000080030000000000000001000000ffffffff030000006e7431360000000000000000ffffffffffffff7f000000000000008003000000616c756500000000000000000100000000000000ffffffffffffffff03000000010000000076616c0a0000006d61782076616c7565005f760a0000006d696e2076616c7565006e7400000000616c75650a007803",
+   "values": {
+    "bool_values": [],
+    "byte_values": [],
+    "char_values": [],
+    "float32_values": [
+     0.25
+    ],
+    "float64_values": [],
+    "int8_values": [],
+    "uint8_values": [],
+    "int16_values": [],
+    "uint16_values": [],
+    "int32_values": [],
+    "uint32_values": [],
+    "int64_values": [
+     1,
+     -2,
+     3
+    ],
+    "uint64_values": [],
+    "string_values": [
+     "one",
+     "two"
+    ],
+    "basic_types_values": [],
+    "constants_values": [],
+    "defaults_values": [],
+    "bool_values_default": [
+     false,
+     true,
+     false
+    ],
+    "byte_values_default": [
+     0,
+     1,
+     255
+    ],
+    "char_values_default": [
+     0,
+     1,
+     127
+    ],
+    "float32_values_default": [
+     1.125,
+     0.0,
+     -1.125
+    ],
+    "float64_values_default": [
+     3.1415,
+     0.0,
+     -3.1415
+    ],
+    "int8_values_default": [
+     0,
+     127,
+     -128
+    ],
+    "uint8_values_default": [
+     0,
+     1,
+     255
+    ],
+    "int16_values_default": [
+     0,
+     32767,
+     -32768
+    ],
+    "uint16_values_default": [
+     0,
+     1,
+     65535
+    ],
+    "int32_values_default": [
+     0,
+     2147483647,
+     -2147483648
+    ],
+    "uint32_values_default": [
+     0,
+     1,
+     4294967295
+    ],
+    "int64_values_default": [
+     0,
+     9223372036854775807,
+     -9223372036854775808
+    ],
+    "uint64_values_default": [
+     0,
+     1,
+     18446744073709551615
+    ],
+    "string_values_default": [
+     "",
+     "max value",
+     "min value"
+    ],
+    "alignment_check": 0
+   }
+  },
+  "wstrings": {
+   "type": "test_msgs/msg/WStrings",
+   "rosbag2_encoding": "ros2idl",
+   "definition": "wstring wstring_value\nwstring wstring_value_default1 \"Hello world!\"\nwstring wstring_value_default2 \"Hell\u00f6 w\u00f6rld!\"\nwstring wstring_value_default3 \"\u30cf\u30ed\u30fc\u30ef\u30fc\u30eb\u30c9\"\n#wstring WSTRING_CONST=\"Hello world!\"\n#wstring<=22 bounded_wstring_value\n#wstring<=22 bounded_wstring_value_default1 \"Hello world!\"\nwstring[3] array_of_wstrings\nwstring[<=3] bounded_sequence_of_wstrings\nwstring[] unbounded_sequence_of_wstrings\n",
+   "cdr": "000100000200000068000000e90000000c00000048000000650000006c0000006c0000006f00000020000000770000006f000000720000006c00000064000000210000000c00000048000000650000006c0000006c000000f60000002000000077000000f6000000720000006c000000640000002100000007000000cf300000ed300000fc300000ef300000fc300000eb300000c930000001000000610000000000000002000000620000006300000000000000010000000300000078000000790000007a0000000000000000000000000000001e743eae0100000000000000f000000000000000",
+   "values": {
+    "wstring_value": "h\u00e9",
+    "wstring_value_default1": "Hello world!",
+    "wstring_value_default2": "Hell\u00f6 w\u00f6rld!",
+    "wstring_value_default3": "\u30cf\u30ed\u30fc\u30ef\u30fc\u30eb\u30c9",
+    "array_of_wstrings": [
+     "a",
+     "",
+     "bc"
+    ],
+    "bounded_sequence_of_wstrings": [],
+    "unbounded_sequence_of_wstrings": [
+     "xyz"
+    ]
+   }
+  },
+  "multi_nested": {
+   "type": "test_msgs/msg/MultiNested",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "# Mulitple levels of nested messages\nArrays[3] array_of_arrays\nBoundedSequences[3] array_of_bounded_sequences\nUnboundedSequences[3] array_of_unbounded_sequences\nArrays[<=3] bounded_sequence_of_arrays\nBoundedSequences[<=3] bounded_sequence_of_bounded_sequences\nUnboundedSequences[<=3] bounded_sequence_of_unbounded_sequences\nArrays[] unbounded_sequence_of_arrays\nBoundedSequences[] unbounded_sequence_of_bounded_sequences\nUnboundedSequences[] unbounded_sequence_of_unbounded_sequences\n\n================================================================================\nMSG: test_msgs/Arrays\n# Arrays of different types\nbool[3] bool_values\nbyte[3] byte_values\nchar[3] char_values\nfloat32[3] float32_values\nfloat64[3] float64_values\nint8[3] int8_values\nuint8[3] uint8_values\nint16[3] int16_values\nuint16[3] uint16_values\nint32[3] int32_values\nuint32[3] uint32_values\nint64[3] int64_values\nuint64[3] uint64_values\nstring[3] string_values\nBasicTypes[3] basic_types_values\nConstants[3] constants_values\nDefaults[3] defaults_values\nbool[3] bool_values_default [false, true, false]\nbyte[3] byte_values_default [0, 1, 255]\nchar[3] char_values_default [0, 1, 127]\nfloat32[3] float32_values_default [1.125, 0.0, -1.125]\nfloat64[3] float64_values_default [3.1415, 0.0, -3.1415]\nint8[3] int8_values_default [0, 127, -128]\nuint8[3] uint8_values_default [0, 1, 255]\nint16[3] int16_values_default [0, 32767, -32768]\nuint16[3] uint16_values_default [0, 1, 65535]\nint32[3] int32_values_default [0, 2147483647, -2147483648]\nuint32[3] uint32_values_default [0, 1, 4294967295]\nint64[3] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[3] uint64_values_default [0, 1, 18446744073709551615]\nstring[3] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after an array field is correct\nint32 alignment_check\n\n================================================================================\nMSG: test_msgs/BasicTypes\nbool bool_value\nbyte byte_value\nchar char_value\nfloat32 float32_value\nfloat64 float64_value\nint8 int8_value\nuint8 uint8_value\nint16 int16_value\nuint16 uint16_value\nint32 int32_value\nuint32 uint32_value\nint64 int64_value\nuint64 uint64_value\n\n================================================================================\nMSG: test_msgs/Constants\nbool BOOL_CONST=true\nbyte BYTE_CONST=50\nchar CHAR_CONST=100\nfloat32 FLOAT32_CONST=1.125\nfloat64 FLOAT64_CONST=1.125\nint8 INT8_CONST=-50\nuint8 UINT8_CONST=200\nint16 INT16_CONST=-1000\nuint16 UINT16_CONST=2000\nint32 INT32_CONST=-30000\nuint32 UINT32_CONST=60000\nint64 INT64_CONST=-40000000\nuint64 UINT64_CONST=50000000\n\n================================================================================\nMSG: test_msgs/Defaults\nbool bool_value true\nbyte byte_value 50\nchar char_value 100\nfloat32 float32_value 1.125\nfloat64 float64_value 1.125\nint8 int8_value -50\nuint8 uint8_value 200\nint16 int16_value -1000\nuint16 uint16_value 2000\nint32 int32_value -30000\nuint32 uint32_value 60000\nint64 int64_value -40000000\nuint64 uint64_value 50000000\n\n================================================================================\nMSG: test_msgs/BoundedSequences\n# Bounded sequences of different types\nbool[<=3] bool_values\nbyte[<=3] byte_values\nchar[<=3] char_values\nfloat32[<=3] float32_values\nfloat64[<=3] float64_values\nint8[<=3] int8_values\nuint8[<=3] uint8_values\nint16[<=3] int16_values\nuint16[<=3] uint16_values\nint32[<=3] int32_values\nuint32[<=3] uint32_values\nint64[<=3] int64_values\nuint64[<=3] uint64_values\nstring[<=3] string_values\nBasicTypes[<=3] basic_types_values\nConstants[<=3] constants_values\nDefaults[<=3] defaults_values\nbool[<=3] bool_values_default [false, true, false]\nbyte[<=3] byte_values_default [0, 1, 255]\nchar[<=3] char_values_default [0, 1, 127]\nfloat32[<=3] float32_values_default [1.125, 0.0, -1.125]\nfloat64[<=3] float64_values_default [3.1415, 0.0, -3.1415]\nint8[<=3] int8_values_default [0, 127, -128]\nuint8[<=3] uint8_values_default [0, 1, 255]\nint16[<=3] int16_values_default [0, 32767, -32768]\nuint16[<=3] uint16_values_default [0, 1, 65535]\nint32[<=3] int32_values_default [0, 2147483647, -2147483648]\nuint32[<=3] uint32_values_default [0, 1, 4294967295]\nint64[<=3] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[<=3] uint64_values_default [0, 1, 18446744073709551615]\nstring[<=3] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after a sequence field is correct\nint32 alignment_check\n\n================================================================================\nMSG: test_msgs/UnboundedSequences\n# Unbounded sequences of different types\nbool[] bool_values\nbyte[] byte_values\nchar[] char_values\nfloat32[] float32_values\nfloat64[] float64_values\nint8[] int8_values\nuint8[] uint8_values\nint16[] int16_values\nuint16[] uint16_values\nint32[] int32_values\nuint32[] uint32_values\nint64[] int64_values\nuint64[] uint64_values\nstring[] string_values\nBasicTypes[] basic_types_values\nConstants[] constants_values\nDefaults[] defaults_values\nbool[] bool_values_default [false, true, false]\nbyte[] byte_values_default [0, 1, 255]\nchar[] char_values_default [0, 1, 127]\nfloat32[] float32_values_default [1.125, 0.0, -1.125]\nfloat64[] float64_values_default [3.1415, 0.0, -3.1415]\nint8[] int8_values_default [0, 127, -128]\nuint8[] uint8_values_default [0, 1, 255]\nint16[] int16_values_default [0, 32767, -32768]\nuint16[] uint16_values_default [0, 1, 65535]\nint32[] int32_values_default [0, 2147483647, -2147483648]\nuint32[] uint32_values_default [0, 1, 4294967295]\nint64[] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[] uint64_values_default [0, 1, 18446744073709551615]\nstring[] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after a sequence field is correct\nint32 alignment_check\n",
+   "cdr": "0001000000000000000000000079000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004823561400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000100000000235614010000000000000000000000010000000000000000000000000000000000561400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000561400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001326400000000903f30245614000000000000f23fcec818fcd0075614d08affff60ea000000a69dfdffffffff80f0fa0200000000013264000000903f000000000000f23fcec818fcd0075614d08affff60ea000000a69dfdffffffff80f0fa0200000000013264000000903f000000000000f23fcec818fcd0075614d08affff60ea000000a69dfdffffffff80f0fa02000000000001000001ff00017f0000000000903f00000000000090bf6f1283c0ca21094000000000000000006f1283c0ca2109c0007f800001ff0000ff7f008000000100ffff000000000000ffffff7f000000800000000001000000ffffffffd02456140000000000000000ffffffffffffff7f000000000000008000000000000000000100000000000000ffffffffffffffff01000000000e00000a0000006d61782076616c75650000000a0000006d696e2076616c756500000000000000000000000000000000040000000000000000000000000000a20e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d825561400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000e00000100000000265614010000000000000000000000000000000000000000000000000000000000561400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000561400000000000000000000000000000000000000000000000000000001326456140000903f58040000000000000000f23fcec818fcd0070000d08affff60ea000000a69dfdffffffff80f0fa0200000000013264000000903f000000000000f23fcec818fcd0070000d08affff60ea000000a69dfdffffffff80f0fa0200000000013264000000903f000000000000f23fcec818fcd0070000d08affff60ea000000a69dfdffffffff80f0fa02000000000001000001ff00017f0000000000903f00000000000090bf6f1283c0ca21094000000000000000006f1283c0ca2109c0007f800001ff0000ff7f008000000100ffff000000000000ffffff7f000000800000000001000000ffffffffd81156140000000000000000ffffffffffffff7f000000000000008000000000000000000100000000000000ffffffffffffffff01000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c7565000000000000000000000000000000000000000000000000000000000000003020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000002856140100000000285614010000000000000000000000a0e5b1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000561400000000000000000000000000000000000000000000000000000001326456140000903fa70e0000000000000000f23fcec818fcd0070000d08affff60ea000000a69dfdffffffff80f0fa0200000000013264000000903f000000000000f23fcec818fcd0070000d08affff60ea000000a69dfdffffffff80f0fa0200000000013264000000903f000000000000f23fcec818fcd0070000d08affff60ea000000a69dfdffffffff80f0fa02000000000001000001ff00017f0000000000903f00000000000090bf6f1283c0ca21094000000000000000006f1283c0ca2109c0007f800001ff0000ff7f008000000100ffff000000000000ffffff7f000000800000000001000000ffffffff010000000000000000000000ffffffffffffff7f000000000000008000000000000000000100000000000000ffffffffffffffff01000000000200000a0000006d61782076616c75650000000a0000006d696e2076616c75650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000010000030000000001ff140300000000017f00030000000000903f00000000000090bf03000000d82b56146f1283c0ca21094000000000000000006f1283c0ca2109c003000000007f8014030000000001ff00030000000000ff7f008000000300000000000100ffff56140300000000000000ffffff7f00000080030000000000000001000000ffffffff03000000a90e00000000000000000000ffffffffffffff7f000000000000008003000000a90e000000000000000000000100000000000000ffffffffffffffff0300000001000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c75650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000010000030000000001ff000300000000017f00030000000000903f00000000000090bf030000006f1283c0ca21094000000000000000006f1283c0ca2109c003000000007f8014030000000001ff00030000000000ff7f008000000300000000000100ffff00000300000000000000ffffff7f00000080030000000000000001000000ffffffff03000000c02c56140000000000000000ffffffffffffff7f0000000000000080030000005904000000000000000000000100000000000000ffffffffffffffff0300000001000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c75650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000010000030000000001ff000300000000017f00030000000000903f00000000000090bf030000006f1283c0ca21094000000000000000006f1283c0ca2109c003000000007f8014030000000001ff00030000000000ff7f008000000300000000000100ffff56140300000000000000ffffff7f00000080030000000000000001000000ffffffff03000000680400000000000000000000ffffffffffffff7f0000000000000080030000006904000000000000000000000100000000000000ffffffffffffffff0300000001000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c75650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000010000030000000001ff000300000000017f00030000000000903f00000000000090bf030000006f1283c0ca21094000000000000000006f1283c0ca2109c003000000007f8014030000000001ff00030000000000ff7f008000000300000000000100ffff56140300000000000000ffffff7f00000080030000000000000001000000ffffffff030000004f0400000000000000000000ffffffffffffff7f0000000000000080030000005204000000000000000000000100000000000000ffffffffffffffff0300000001000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c75650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000010000030000000001ff000300000000017f00030000000000903f00000000000090bf030000006f1283c0ca21094000000000000000006f1283c0ca2109c003000000007f8014030000000001ff00030000000000ff7f008000000300000000000100ffff56140300000000000000ffffff7f00000080030000000000000001000000ffffffff030000003f0200000000000000000000ffffffffffffff7f0000000000000080030000000100000000000000000000000100000000000000ffffffffffffffff0300000001000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c75650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000010000030000000001ff000300000000017f00030000000000903f00000000000090bf030000006f1283c0ca21094000000000000000006f1283c0ca2109c003000000007f8014030000000001ff00030000000000ff7f008000000300000000000100ffff56140300000000000000ffffff7f00000080030000000000000001000000ffffffff03000000af0e00000000000000000000ffffffffffffff7f0000000000000080030000000000000000000000000000000100000000000000ffffffffffffffff0300000001000000000000000a0000006d61782076616c75650000000a0000006d696e2076616c756500000000000000000000000000000000000000000000000000000000000000000000007832561400000000f831561400000000a2040000000000000000000000000000b00e00000000000000000000000000009e040000000000000000000000000000b00e00000000000080325614000000009d040000",
+   "values": {
+    "array_of_arrays": [
+     {
+      "bool_values": [
+       false,
+       false,
+       false
+      ],
+      "byte_values": [
+       0,
+       0,
+       0
+      ],
+      "char_values": [
+       0,
+       0,
+       0
+      ],
+      "float32_values": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "float64_values": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "int8_values": [
+       0,
+       0,
+       0
+      ],
+      "uint8_values": [
+       0,
+       0,
+       0
+      ],
+      "int16_values": [
+       0,
+       0,
+       0
+      ],
+      "uint16_values": [
+       0,
+       0,
+       0
+      ],
+      "int32_values": [
+       0,
+       0,
+       0
+      ],
+      "uint32_values": [
+       0,
+       0,
+       0
+      ],
+      "int64_values": [
+       0,
+       0,
+       0
+      ],
+      "uint64_values": [
+       0,
+       0,
+       0
+      ],
+      "string_values": [
+       "",
+       "",
+       ""
+      ],
+      "basic_types_values": [
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       },
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       },
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       }
+      ],
+      "constants_values": [
+       {},
+       {},
+       {}
+      ],
+      "defaults_values": [
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       },
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       },
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       }
+      ],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     },
+     {
+      "bool_values": [
+       false,
+       false,
+       false
+      ],
+      "byte_values": [
+       0,
+       0,
+       0
+      ],
+      "char_values": [
+       0,
+       0,
+       0
+      ],
+      "float32_values": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "float64_values": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "int8_values": [
+       0,
+       0,
+       0
+      ],
+      "uint8_values": [
+       0,
+       0,
+       0
+      ],
+      "int16_values": [
+       0,
+       0,
+       0
+      ],
+      "uint16_values": [
+       0,
+       0,
+       0
+      ],
+      "int32_values": [
+       0,
+       0,
+       0
+      ],
+      "uint32_values": [
+       0,
+       0,
+       0
+      ],
+      "int64_values": [
+       0,
+       0,
+       0
+      ],
+      "uint64_values": [
+       0,
+       0,
+       0
+      ],
+      "string_values": [
+       "",
+       "",
+       ""
+      ],
+      "basic_types_values": [
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       },
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       },
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       }
+      ],
+      "constants_values": [
+       {},
+       {},
+       {}
+      ],
+      "defaults_values": [
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       },
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       },
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       }
+      ],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     },
+     {
+      "bool_values": [
+       false,
+       false,
+       false
+      ],
+      "byte_values": [
+       0,
+       0,
+       0
+      ],
+      "char_values": [
+       0,
+       0,
+       0
+      ],
+      "float32_values": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "float64_values": [
+       0.0,
+       0.0,
+       0.0
+      ],
+      "int8_values": [
+       0,
+       0,
+       0
+      ],
+      "uint8_values": [
+       0,
+       0,
+       0
+      ],
+      "int16_values": [
+       0,
+       0,
+       0
+      ],
+      "uint16_values": [
+       0,
+       0,
+       0
+      ],
+      "int32_values": [
+       0,
+       0,
+       0
+      ],
+      "uint32_values": [
+       0,
+       0,
+       0
+      ],
+      "int64_values": [
+       0,
+       0,
+       0
+      ],
+      "uint64_values": [
+       0,
+       0,
+       0
+      ],
+      "string_values": [
+       "",
+       "",
+       ""
+      ],
+      "basic_types_values": [
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       },
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       },
+       {
+        "bool_value": false,
+        "byte_value": 0,
+        "char_value": 0,
+        "float32_value": 0.0,
+        "float64_value": 0.0,
+        "int8_value": 0,
+        "uint8_value": 0,
+        "int16_value": 0,
+        "uint16_value": 0,
+        "int32_value": 0,
+        "uint32_value": 0,
+        "int64_value": 0,
+        "uint64_value": 0
+       }
+      ],
+      "constants_values": [
+       {},
+       {},
+       {}
+      ],
+      "defaults_values": [
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       },
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       },
+       {
+        "bool_value": true,
+        "byte_value": 50,
+        "char_value": 100,
+        "float32_value": 1.125,
+        "float64_value": 1.125,
+        "int8_value": -50,
+        "uint8_value": 200,
+        "int16_value": -1000,
+        "uint16_value": 2000,
+        "int32_value": -30000,
+        "uint32_value": 60000,
+        "int64_value": -40000000,
+        "uint64_value": 50000000
+       }
+      ],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     }
+    ],
+    "array_of_bounded_sequences": [
+     {
+      "bool_values": [],
+      "byte_values": [],
+      "char_values": [],
+      "float32_values": [],
+      "float64_values": [],
+      "int8_values": [],
+      "uint8_values": [],
+      "int16_values": [],
+      "uint16_values": [],
+      "int32_values": [],
+      "uint32_values": [],
+      "int64_values": [],
+      "uint64_values": [],
+      "string_values": [],
+      "basic_types_values": [],
+      "constants_values": [],
+      "defaults_values": [],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     },
+     {
+      "bool_values": [],
+      "byte_values": [],
+      "char_values": [],
+      "float32_values": [],
+      "float64_values": [],
+      "int8_values": [],
+      "uint8_values": [],
+      "int16_values": [],
+      "uint16_values": [],
+      "int32_values": [],
+      "uint32_values": [],
+      "int64_values": [],
+      "uint64_values": [],
+      "string_values": [],
+      "basic_types_values": [],
+      "constants_values": [],
+      "defaults_values": [],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     },
+     {
+      "bool_values": [],
+      "byte_values": [],
+      "char_values": [],
+      "float32_values": [],
+      "float64_values": [],
+      "int8_values": [],
+      "uint8_values": [],
+      "int16_values": [],
+      "uint16_values": [],
+      "int32_values": [],
+      "uint32_values": [],
+      "int64_values": [],
+      "uint64_values": [],
+      "string_values": [],
+      "basic_types_values": [],
+      "constants_values": [],
+      "defaults_values": [],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     }
+    ],
+    "array_of_unbounded_sequences": [
+     {
+      "bool_values": [],
+      "byte_values": [],
+      "char_values": [],
+      "float32_values": [],
+      "float64_values": [],
+      "int8_values": [],
+      "uint8_values": [],
+      "int16_values": [],
+      "uint16_values": [],
+      "int32_values": [],
+      "uint32_values": [],
+      "int64_values": [],
+      "uint64_values": [],
+      "string_values": [],
+      "basic_types_values": [],
+      "constants_values": [],
+      "defaults_values": [],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     },
+     {
+      "bool_values": [],
+      "byte_values": [],
+      "char_values": [],
+      "float32_values": [],
+      "float64_values": [],
+      "int8_values": [],
+      "uint8_values": [],
+      "int16_values": [],
+      "uint16_values": [],
+      "int32_values": [],
+      "uint32_values": [],
+      "int64_values": [],
+      "uint64_values": [],
+      "string_values": [],
+      "basic_types_values": [],
+      "constants_values": [],
+      "defaults_values": [],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     },
+     {
+      "bool_values": [],
+      "byte_values": [],
+      "char_values": [],
+      "float32_values": [],
+      "float64_values": [],
+      "int8_values": [],
+      "uint8_values": [],
+      "int16_values": [],
+      "uint16_values": [],
+      "int32_values": [],
+      "uint32_values": [],
+      "int64_values": [],
+      "uint64_values": [],
+      "string_values": [],
+      "basic_types_values": [],
+      "constants_values": [],
+      "defaults_values": [],
+      "bool_values_default": [
+       false,
+       true,
+       false
+      ],
+      "byte_values_default": [
+       0,
+       1,
+       255
+      ],
+      "char_values_default": [
+       0,
+       1,
+       127
+      ],
+      "float32_values_default": [
+       1.125,
+       0.0,
+       -1.125
+      ],
+      "float64_values_default": [
+       3.1415,
+       0.0,
+       -3.1415
+      ],
+      "int8_values_default": [
+       0,
+       127,
+       -128
+      ],
+      "uint8_values_default": [
+       0,
+       1,
+       255
+      ],
+      "int16_values_default": [
+       0,
+       32767,
+       -32768
+      ],
+      "uint16_values_default": [
+       0,
+       1,
+       65535
+      ],
+      "int32_values_default": [
+       0,
+       2147483647,
+       -2147483648
+      ],
+      "uint32_values_default": [
+       0,
+       1,
+       4294967295
+      ],
+      "int64_values_default": [
+       0,
+       9223372036854775807,
+       -9223372036854775808
+      ],
+      "uint64_values_default": [
+       0,
+       1,
+       18446744073709551615
+      ],
+      "string_values_default": [
+       "",
+       "max value",
+       "min value"
+      ],
+      "alignment_check": 0
+     }
+    ],
+    "bounded_sequence_of_arrays": [],
+    "bounded_sequence_of_bounded_sequences": [],
+    "bounded_sequence_of_unbounded_sequences": [],
+    "unbounded_sequence_of_arrays": [],
+    "unbounded_sequence_of_bounded_sequences": [],
+    "unbounded_sequence_of_unbounded_sequences": []
+   }
+  },
+  "nested": {
+   "type": "test_msgs/msg/Nested",
+   "rosbag2_encoding": "ros2msg",
+   "definition": "BasicTypes basic_types_value\n\n================================================================================\nMSG: test_msgs/BasicTypes\nbool bool_value\nbyte byte_value\nchar char_value\nfloat32 float32_value\nfloat64 float64_value\nint8 int8_value\nuint8 uint8_value\nint16 int16_value\nuint16 uint16_value\nint32 int32_value\nuint32 uint32_value\nint64 int64_value\nuint64 uint64_value\n",
+   "cdr": "00010000000000000000000000000000000000000000000000007570000000000000000000000000000000000000000000000000",
+   "values": {
+    "basic_types_value": {
+     "bool_value": false,
+     "byte_value": 0,
+     "char_value": 0,
+     "float32_value": 0.0,
+     "float64_value": 0.0,
+     "int8_value": 0,
+     "uint8_value": 0,
+     "int16_value": 0,
+     "uint16_value": 0,
+     "int32_value": 0,
+     "uint32_value": 0,
+     "int64_value": 0,
+     "uint64_value": 0
+    }
+   }
+  }
+ },
+ "msg_files": {
+  "builtin_interfaces/Time": "# This message communicates ROS Time defined here:\n# https://design.ros2.org/articles/clock_and_time.html\n\n# The seconds component, valid over all int32 values.\nint32 sec\n\n# The nanoseconds component, valid in the range [0, 1e9), to be added to the seconds component. \n# e.g.\n# The time -1.7 seconds is represented as {sec: -2, nanosec: 3e8}\n# The time 1.7 seconds is represented as {sec: 1, nanosec: 7e8}\nuint32 nanosec\n",
+  "geometry_msgs/Point": "# This contains the position of a point in free space\nfloat64 x\nfloat64 y\nfloat64 z\n",
+  "geometry_msgs/Pose": "# A representation of pose in free space, composed of position and orientation.\n\nPoint position\nQuaternion orientation\n",
+  "geometry_msgs/PoseStamped": "# A Pose with reference coordinate frame and timestamp\n\nstd_msgs/Header header\nPose pose\n",
+  "geometry_msgs/Quaternion": "# This represents an orientation in free space in quaternion form.\n\nfloat64 x 0\nfloat64 y 0\nfloat64 z 0\nfloat64 w 1\n",
+  "geometry_msgs/Twist": "# This expresses velocity in free space broken into its linear and angular parts.\n\nVector3  linear\nVector3  angular\n",
+  "geometry_msgs/TwistWithCovariance": "# This expresses velocity in free space with uncertainty.\n\nTwist twist\n\n# Row-major representation of the 6x6 covariance matrix\n# The orientation parameters use a fixed-axis representation.\n# In order, the parameters are:\n# (x, y, z, rotation about X axis, rotation about Y axis, rotation about Z axis)\nfloat64[36] covariance\n",
+  "geometry_msgs/TwistWithCovarianceStamped": "# This represents an estimated twist with reference coordinate frame and timestamp.\n\nstd_msgs/Header header\nTwistWithCovariance twist\n",
+  "geometry_msgs/Vector3": "# This represents a vector in free space.\n\n# This is semantically different than a point.\n# A vector is always anchored at the origin.\n# When a transform is applied to a vector, only the rotational component is applied.\n\nfloat64 x\nfloat64 y\nfloat64 z\n",
+  "sensor_msgs/Image": "# This message contains an uncompressed image\n# (0, 0) is at top-left corner of image\n\nstd_msgs/Header header # Header timestamp should be acquisition time of image\n                             # Header frame_id should be optical frame of camera\n                             # origin of frame should be optical center of cameara\n                             # +x should point to the right in the image\n                             # +y should point down in the image\n                             # +z should point into to plane of the image\n                             # If the frame_id here and the frame_id of the CameraInfo\n                             # message associated with the image conflict\n                             # the behavior is undefined\n\nuint32 height                # image height, that is, number of rows\nuint32 width                 # image width, that is, number of columns\n\n# The legal values for encoding are in file include/sensor_msgs/image_encodings.hpp\n# If you want to standardize a new string format, join\n# ros-users@lists.ros.org and send an email proposing a new encoding.\n\nstring encoding       # Encoding of pixels -- channel meaning, ordering, size\n                      # taken from the list of strings in include/sensor_msgs/image_encodings.hpp\n\nuint8 is_bigendian    # is this data bigendian?\nuint32 step           # Full row length in bytes\nuint8[] data          # actual matrix data, size is (step * rows)\n",
+  "sensor_msgs/JointState": "# This is a message that holds data to describe the state of a set of torque controlled joints.\n#\n# The state of each joint (revolute or prismatic) is defined by:\n#  * the position of the joint (rad or m),\n#  * the velocity of the joint (rad/s or m/s) and\n#  * the effort that is applied in the joint (Nm or N).\n#\n# Each joint is uniquely identified by its name\n# The header specifies the time at which the joint states were recorded. All the joint states\n# in one message have to be recorded at the same time.\n#\n# This message consists of a multiple arrays, one for each part of the joint state.\n# The goal is to make each of the fields optional. When e.g. your joints have no\n# effort associated with them, you can leave the effort array empty.\n#\n# All arrays in this message should have the same size, or be empty.\n# This is the only way to uniquely associate the joint name with the correct\n# states.\n\nstd_msgs/Header header\n\nstring[] name\nfloat64[] position\nfloat64[] velocity\nfloat64[] effort\n",
+  "std_msgs/Header": "# Standard metadata for higher-level stamped data types.\n# This is generally used to communicate timestamped data\n# in a particular coordinate frame.\n\n# Two-integer timestamp that is expressed as seconds and nanoseconds.\nbuiltin_interfaces/Time stamp\n\n# Transform frame with which this data is associated.\nstring frame_id\n",
+  "test_msgs/Arrays": "# Arrays of different types\nbool[3] bool_values\nbyte[3] byte_values\nchar[3] char_values\nfloat32[3] float32_values\nfloat64[3] float64_values\nint8[3] int8_values\nuint8[3] uint8_values\nint16[3] int16_values\nuint16[3] uint16_values\nint32[3] int32_values\nuint32[3] uint32_values\nint64[3] int64_values\nuint64[3] uint64_values\nstring[3] string_values\nBasicTypes[3] basic_types_values\nConstants[3] constants_values\nDefaults[3] defaults_values\nbool[3] bool_values_default [false, true, false]\nbyte[3] byte_values_default [0, 1, 255]\nchar[3] char_values_default [0, 1, 127]\nfloat32[3] float32_values_default [1.125, 0.0, -1.125]\nfloat64[3] float64_values_default [3.1415, 0.0, -3.1415]\nint8[3] int8_values_default [0, 127, -128]\nuint8[3] uint8_values_default [0, 1, 255]\nint16[3] int16_values_default [0, 32767, -32768]\nuint16[3] uint16_values_default [0, 1, 65535]\nint32[3] int32_values_default [0, 2147483647, -2147483648]\nuint32[3] uint32_values_default [0, 1, 4294967295]\nint64[3] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[3] uint64_values_default [0, 1, 18446744073709551615]\nstring[3] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after an array field is correct\nint32 alignment_check\n",
+  "test_msgs/BasicTypes": "bool bool_value\nbyte byte_value\nchar char_value\nfloat32 float32_value\nfloat64 float64_value\nint8 int8_value\nuint8 uint8_value\nint16 int16_value\nuint16 uint16_value\nint32 int32_value\nuint32 uint32_value\nint64 int64_value\nuint64 uint64_value\n",
+  "test_msgs/BoundedSequences": "# Bounded sequences of different types\nbool[<=3] bool_values\nbyte[<=3] byte_values\nchar[<=3] char_values\nfloat32[<=3] float32_values\nfloat64[<=3] float64_values\nint8[<=3] int8_values\nuint8[<=3] uint8_values\nint16[<=3] int16_values\nuint16[<=3] uint16_values\nint32[<=3] int32_values\nuint32[<=3] uint32_values\nint64[<=3] int64_values\nuint64[<=3] uint64_values\nstring[<=3] string_values\nBasicTypes[<=3] basic_types_values\nConstants[<=3] constants_values\nDefaults[<=3] defaults_values\nbool[<=3] bool_values_default [false, true, false]\nbyte[<=3] byte_values_default [0, 1, 255]\nchar[<=3] char_values_default [0, 1, 127]\nfloat32[<=3] float32_values_default [1.125, 0.0, -1.125]\nfloat64[<=3] float64_values_default [3.1415, 0.0, -3.1415]\nint8[<=3] int8_values_default [0, 127, -128]\nuint8[<=3] uint8_values_default [0, 1, 255]\nint16[<=3] int16_values_default [0, 32767, -32768]\nuint16[<=3] uint16_values_default [0, 1, 65535]\nint32[<=3] int32_values_default [0, 2147483647, -2147483648]\nuint32[<=3] uint32_values_default [0, 1, 4294967295]\nint64[<=3] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[<=3] uint64_values_default [0, 1, 18446744073709551615]\nstring[<=3] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after a sequence field is correct\nint32 alignment_check\n",
+  "test_msgs/Constants": "bool BOOL_CONST=true\nbyte BYTE_CONST=50\nchar CHAR_CONST=100\nfloat32 FLOAT32_CONST=1.125\nfloat64 FLOAT64_CONST=1.125\nint8 INT8_CONST=-50\nuint8 UINT8_CONST=200\nint16 INT16_CONST=-1000\nuint16 UINT16_CONST=2000\nint32 INT32_CONST=-30000\nuint32 UINT32_CONST=60000\nint64 INT64_CONST=-40000000\nuint64 UINT64_CONST=50000000\n",
+  "test_msgs/Defaults": "bool bool_value true\nbyte byte_value 50\nchar char_value 100\nfloat32 float32_value 1.125\nfloat64 float64_value 1.125\nint8 int8_value -50\nuint8 uint8_value 200\nint16 int16_value -1000\nuint16 uint16_value 2000\nint32 int32_value -30000\nuint32 uint32_value 60000\nint64 int64_value -40000000\nuint64 uint64_value 50000000\n",
+  "test_msgs/MultiNested": "# Mulitple levels of nested messages\nArrays[3] array_of_arrays\nBoundedSequences[3] array_of_bounded_sequences\nUnboundedSequences[3] array_of_unbounded_sequences\nArrays[<=3] bounded_sequence_of_arrays\nBoundedSequences[<=3] bounded_sequence_of_bounded_sequences\nUnboundedSequences[<=3] bounded_sequence_of_unbounded_sequences\nArrays[] unbounded_sequence_of_arrays\nBoundedSequences[] unbounded_sequence_of_bounded_sequences\nUnboundedSequences[] unbounded_sequence_of_unbounded_sequences\n",
+  "test_msgs/Nested": "BasicTypes basic_types_value\n",
+  "test_msgs/Strings": "string string_value\nstring string_value_default1 \"Hello world!\"\nstring string_value_default2 \"Hello'world!\"\nstring string_value_default3 'Hello\"world!'\nstring string_value_default4 'Hello\\'world!'\nstring string_value_default5 \"Hello\\\"world!\"\nstring STRING_CONST=\"Hello world!\"\nstring<=22 bounded_string_value\nstring<=22 bounded_string_value_default1 \"Hello world!\"\nstring<=22 bounded_string_value_default2 \"Hello'world!\"\nstring<=22 bounded_string_value_default3 'Hello\"world!'\nstring<=22 bounded_string_value_default4 'Hello\\'world!'\nstring<=22 bounded_string_value_default5 \"Hello\\\"world!\"\n",
+  "test_msgs/UnboundedSequences": "# Unbounded sequences of different types\nbool[] bool_values\nbyte[] byte_values\nchar[] char_values\nfloat32[] float32_values\nfloat64[] float64_values\nint8[] int8_values\nuint8[] uint8_values\nint16[] int16_values\nuint16[] uint16_values\nint32[] int32_values\nuint32[] uint32_values\nint64[] int64_values\nuint64[] uint64_values\nstring[] string_values\nBasicTypes[] basic_types_values\nConstants[] constants_values\nDefaults[] defaults_values\nbool[] bool_values_default [false, true, false]\nbyte[] byte_values_default [0, 1, 255]\nchar[] char_values_default [0, 1, 127]\nfloat32[] float32_values_default [1.125, 0.0, -1.125]\nfloat64[] float64_values_default [3.1415, 0.0, -3.1415]\nint8[] int8_values_default [0, 127, -128]\nuint8[] uint8_values_default [0, 1, 255]\nint16[] int16_values_default [0, 32767, -32768]\nuint16[] uint16_values_default [0, 1, 65535]\nint32[] int32_values_default [0, 2147483647, -2147483648]\nuint32[] uint32_values_default [0, 1, 4294967295]\nint64[] int64_values_default [0, 9223372036854775807, -9223372036854775808]\nuint64[] uint64_values_default [0, 1, 18446744073709551615]\nstring[] string_values_default [\"\", \"max value\", \"min value\"]\n# Regression test: check alignment of basic field after a sequence field is correct\nint32 alignment_check\n",
+  "test_msgs/WStrings": "wstring wstring_value\nwstring wstring_value_default1 \"Hello world!\"\nwstring wstring_value_default2 \"Hell\u00f6 w\u00f6rld!\"\nwstring wstring_value_default3 \"\u30cf\u30ed\u30fc\u30ef\u30fc\u30eb\u30c9\"\n#wstring WSTRING_CONST=\"Hello world!\"\n#wstring<=22 bounded_wstring_value\n#wstring<=22 bounded_wstring_value_default1 \"Hello world!\"\nwstring[3] array_of_wstrings\nwstring[<=3] bounded_sequence_of_wstrings\nwstring[] unbounded_sequence_of_wstrings\n"
+ }
+}

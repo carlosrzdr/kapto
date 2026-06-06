@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: Apache-2.0
+// A robot's joint state with every kind of Protobuf field, for checking
+// Kapto's Protobuf decoding against messages encoded by buf
+// (`cargo xtask golden protobuf`).
+syntax = "proto3";
+
+package kapto.test.v1;
+
+message Time {
+  int64 sec = 1;
+  uint32 nanosec = 2;
+}
+
+message Header {
+  Time stamp = 1;
+  string frame_id = 2;
+}
+
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  MODE_TEACH = 1;
+  MODE_RUN = 2;
+}
+
+message JointState {
+  Header header = 1;
+  repeated string name = 2;
+  repeated double position = 3;
+  repeated float effort = 4;
+  Mode mode = 5;
+  map<string, double> gains = 6;
+  bytes raw = 7;
+  sint32 offset = 8;
+  fixed64 counter = 9;
+  bool enabled = 10;
+  oneof target {
+    double angle = 11;
+    string pose_name = 12;
+  }
+  uint64 big = 13;
+  repeated Time history = 14;
+}

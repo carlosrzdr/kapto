@@ -1,0 +1,10 @@
+Kapto
+Copyright The Kapto Authors
+
+The web UI bundles the typefaces Fira Sans and Fira Code, licensed under the
+SIL Open Font License, Version 1.1; their copyright notices and the licence
+are in ui/FONTS-OFL.txt.
+
+The synthetic robot (tools/kapto-loadgen) encodes its camera's frames with
+jpeg-encoder, which is based in part on the work of the Independent JPEG
+Group.

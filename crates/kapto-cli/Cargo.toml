@@ -1,0 +1,65 @@
+[package]
+name = "kapto-cli"
+description = "The `kapto` command-line tool."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "kapto"
+path = "src/main.rs"
+required-features = ["run"]
+
+[features]
+default = ["run"]
+# Running the commands. Tools that only read the command-line definition
+# (the reference page generator) leave it out.
+run = ["dep:kapto-viz"]
+# ROS 2 topics; needs ROS 2 to build, so only the ROS 2 image has it.
+# The synthetic robot publishing on ROS 2 too, for the tests that run it.
+ros2 = ["kapto-transport/ros2", "kapto-loadgen/ros2"]
+
+[dependencies]
+clap.workspace = true
+kapto-capture.workspace = true
+kapto-config.workspace = true
+kapto-core.workspace = true
+kapto-decode.workspace = true
+kapto-loadgen.workspace = true
+kapto-qa.workspace = true
+kapto-robot.workspace = true
+kapto-server.workspace = true
+kapto-store.workspace = true
+kapto-transport.workspace = true
+kapto-upload.workspace = true
+kapto-viz = { workspace = true, optional = true }
+# The worker's idle I/O priority: `ioprio_set`, which rustix doesn't offer.
+libc.workspace = true
+pcap-parser.workspace = true
+# `process`: the worker's lower CPU priority.
+rustix = { workspace = true, features = ["process"] }
+serde_json.workspace = true
+signal-hook.workspace = true
+# Writing exported bags; the recordings' own format, already in the tree.
+mcap.workspace = true
+# The stores the worker's upload lane opens (docs/design/uploads.md).
+object_store.workspace = true
+sha2.workspace = true
+# The upload lane's runtime: uploads are idle connections (docs/design/process-and-thread-model.md,
+# uploads.md).
+tokio = { workspace = true, features = ["rt", "time"] }
+
+[dev-dependencies]
+kapto-testkit.workspace = true
+# The test server's buckets, for uploads to S3-compatible storage.
+kapto-upload = { workspace = true, features = ["testing"] }
+# How batches are sized, over every rate and size.
+proptest.workspace = true
+rmp-serde.workspace = true
+reqwest.workspace = true
+
+[lints]
+workspace = true

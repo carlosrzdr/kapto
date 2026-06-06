@@ -1,0 +1,150 @@
+<script lang="ts">
+  import type { StreamCounts } from "./api-types";
+  import { count } from "./format";
+
+  interface Props {
+    streams: StreamCounts[];
+    /** Messages received per second, by stream. */
+    rates: Record<string, number>;
+    /** Whether an episode is being recorded, so written counts mean something. */
+    recording: boolean;
+    /** Messages per second each stream is declared to send, where declared. */
+    declared?: Record<string, number | null | undefined>;
+    /**
+     * The streams whose messages are kept for late subscribers: they may
+     * send them once, so their silence isn't a problem.
+     */
+    kept?: Record<string, boolean>;
+    /** Whether capture answered, so its streams are known. */
+    known?: boolean;
+  }
+
+  let { streams, rates, recording, declared = {}, kept = {}, known = true }: Props = $props();
+
+  /** Below this share of its declared rate, a stream is shown as a problem. */
+  const SLOW = 0.9;
+
+  /** How a stream is arriving; `null` until its rate is known. */
+  function health(stream: StreamCounts): "silent" | "slow" | "ok" | "kept" | null {
+    const rate = rates[stream.stream];
+    if (rate === undefined) {
+      return null;
+    }
+    if (rate === 0) {
+      return kept[stream.stream] ? "kept" : "silent";
+    }
+    const expected = declared[stream.stream];
+    return expected && rate < expected * SLOW ? "slow" : "ok";
+  }
+
+  /** What a stream's dot says, for a screen reader and on hover. */
+  function said(state: "silent" | "slow" | "ok" | "kept", expected: number | null | undefined): string {
+    if (state === "silent") {
+      return "nothing arriving";
+    }
+    if (state === "kept") {
+      return "sends its messages once; every episode starts with the newest";
+    }
+    if (state === "slow") {
+      return "slower than declared";
+    }
+    return expected ? "arriving at its declared rate" : "arriving";
+  }
+</script>
+
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Stream</th>
+      <th scope="col">Rate</th>
+      <th scope="col">Received</th>
+      <th scope="col">Written</th>
+      <th scope="col">Dropped</th>
+      <th scope="col">Lost</th>
+    </tr>
+  </thead>
+  <tbody>
+    {#each streams as stream (stream.stream)}
+      {@const state = health(stream)}
+      <tr>
+        <th scope="row">
+          {stream.stream}{#if state}<span
+              class="dot {state}"
+              role="img"
+              aria-label={said(state, declared[stream.stream])}
+              title={said(state, declared[stream.stream])}
+            ></span>{/if}
+        </th>
+        <td class:problem={state === "silent" || state === "slow"} title={declared[stream.stream] ? `declared ${count(declared[stream.stream] ?? 0)}/s` : undefined}>
+          {#if state === null}–{:else if state === "silent"}silent{:else if state === "kept"}kept{:else}{`${count(rates[stream.stream] ?? 0)}/s`}{/if}{state === "slow" ? ` of ${count(declared[stream.stream] ?? 0)}` : ""}
+        </td>
+        <td>{count(stream.received)}</td>
+        <td>{recording ? count(stream.written) : "–"}</td>
+        <td class:problem={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
+        <td class:problem={stream.lost_upstream > 0}>{count(stream.lost_upstream)}</td>
+      </tr>
+    {:else}
+      <tr>
+        <td colspan="6" class="none">
+          {known ? "No streams declared." : "Not known while Kapto can't reach the capture process."}
+        </td>
+      </tr>
+    {/each}
+  </tbody>
+</table>
+
+<style>
+  .none {
+    color: var(--muted);
+    text-align: left;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+  }
+  th,
+  td {
+    padding: 0.35rem 0.5rem;
+    text-align: right;
+    border-bottom: 1px solid var(--line);
+  }
+  th[scope="row"],
+  thead th:first-child {
+    text-align: left;
+    font-weight: 500;
+  }
+  thead th {
+    color: var(--muted);
+    font-weight: 500;
+    font-size: var(--text-xs);
+  }
+  .problem {
+    color: var(--warning);
+    font-weight: 600;
+  }
+  .dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-left: 0.5rem;
+    border-radius: 50%;
+    vertical-align: middle;
+  }
+  .dot.ok {
+    background: var(--ok);
+  }
+  /* Neither a good state nor a problem: a hollow ring in the muted colour. */
+  .dot.kept {
+    border: 2px solid var(--muted);
+    width: 0.35rem;
+    height: 0.35rem;
+  }
+  /* A ring, not a filled dot: told apart by shape as well as colour. */
+  .dot.slow,
+  .dot.silent {
+    border: 2px solid var(--warning);
+    width: 0.35rem;
+    height: 0.35rem;
+  }
+</style>

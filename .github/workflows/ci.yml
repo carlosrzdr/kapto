@@ -1,0 +1,111 @@
+name: ci
+
+# Manual only for now: with a single contributor, `cargo xtask ci` is run
+# locally before each pull request. To run on every pull request, add:
+#   pull_request:
+#   push:
+#     branches: [main]
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-deny
+      - run: cargo xtask ci check
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest
+      - run: cargo xtask ci test
+
+  api:
+    name: api
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The comparison needs main's committed OpenAPI document.
+          fetch-depth: 0
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Check that oasdiff finds breaking changes
+        run: cargo test -p xtask -- --ignored oasdiff
+      - name: Check the API for changes that could break a client
+        run: cargo xtask api-diff --base origin/main
+
+  ui-flows:
+    name: ui flows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Run the web UI's flows in a browser
+        run: cargo xtask ui e2e
+
+  storage:
+    name: storage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest
+      - name: Test uploads to S3-compatible storage against RustFS
+        run: cargo xtask storage
+
+  docker:
+    name: docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build both images
+        run: docker compose build
+      - name: Smoke-test both images
+        run: |
+          for image in kapto:dev kapto-ros2:dev; do
+            docker run --rm "$image" --version
+            docker run --rm "$image" config validate
+          done
+      - name: Run the demo and check it receives its robot and records
+        run: |
+          docker run -d --rm --name demo -p 127.0.0.1:7700:7700 kapto:dev demo
+          trap 'docker logs demo; docker stop demo' EXIT
+          for _ in $(seq 60); do
+            curl -fs http://127.0.0.1:7700/api/status | grep -Eq '"received":[1-9]' && break
+            sleep 1
+          done
+          curl -fs http://127.0.0.1:7700/api/status | grep -Eq '"received":[1-9]'
+          curl -fs http://127.0.0.1:7700/ | grep -q '<div id="app">'
+          curl -fs -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:7700/api/episodes/start
+          sleep 2
+          curl -fs -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:7700/api/episodes/stop
+          curl -fs http://127.0.0.1:7700/api/episodes | grep -Eq '"written":[1-9]'

@@ -1,0 +1,41 @@
+name: Bug report
+description: Something Kapto does wrong, or a failure without a clear reason.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: The error
+      description: The full error report, with its cause code (such as `capture.disk_full`), and any log lines around it.
+      render: text
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      description: The commands, configuration (`kapto config show`; credentials are only ever referenced there) and robot package, as small as still shows it.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`kapto --version`"
+    validations:
+      required: true
+  - type: dropdown
+    id: runs
+    attributes:
+      label: Where Kapto runs
+      options:
+        - The kapto image
+        - The kapto-ros2 image
+        - Built from source
+    validations:
+      required: true

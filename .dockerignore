@@ -1,0 +1,9 @@
+# Only sources go into the build context.
+target/
+.git/
+**/*.md
+!crates/**/*.md
+# The UI is built in its own stage, from sources only.
+ui/node_modules/
+ui/dist/
+ui/.npm-cache/

@@ -1,0 +1,16 @@
+[package]
+name = "kapto-testkit"
+description = "What Kapto's tests share: scratch folders, waiting for a condition, and example episodes. Only ever a dev-dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+kapto-core.workspace = true
+kapto-store.workspace = true
+
+[lints]
+workspace = true

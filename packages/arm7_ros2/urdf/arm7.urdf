@@ -1,0 +1,256 @@
+<?xml version="1.0"?>
+<!-- A generic seven-joint arm for Kapto's demo and tests, sized like a
+     collaborative arm (about 1.3 m tall when straight), drawn with simple
+     shapes: hinge drums across the pitch joints, collars at the roll joints
+     and a two-finger gripper that opens and closes. Its joints match
+     the synthetic robot (tools/kapto-loadgen): seven joint positions in
+     radians, in this order, and the gripper opening in metres. Apache-2.0, like the rest of Kapto. -->
+<robot name="arm7">
+  <material name="white"><color rgba="0.93 0.94 0.95 1"/></material>
+  <material name="graphite"><color rgba="0.22 0.24 0.27 1"/></material>
+  <material name="accent"><color rgba="0.16 0.55 0.86 1"/></material>
+  <material name="steel"><color rgba="0.72 0.75 0.79 1"/></material>
+  <material name="floor"><color rgba="0.17 0.19 0.21 1"/></material>
+
+  <link name="base_link">
+    <!-- A floor plate around the arm: it grounds the arm visually, and a
+         viewer framing the whole scene then shows all of it. -->
+    <visual>
+      <origin xyz="0 0 -0.005"/>
+      <geometry><box size="1.6 1.6 0.01"/></geometry>
+      <material name="floor"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.01"/>
+      <geometry><cylinder radius="0.13" length="0.02"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.085"/>
+      <geometry><cylinder radius="0.08" length="0.13"/></geometry>
+      <material name="white"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.145"/>
+      <geometry><cylinder radius="0.082" length="0.012"/></geometry>
+      <material name="accent"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.075"/>
+      <geometry><cylinder radius="0.09" length="0.15"/></geometry>
+    </collision>
+  </link>
+  <link name="link_1">
+    <visual>
+      <origin xyz="0 0 0.01"/>
+      <geometry><cylinder radius="0.07" length="0.02"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.1"/>
+      <geometry><cylinder radius="0.065" length="0.16"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.1"/>
+      <geometry><cylinder radius="0.06" length="0.2"/></geometry>
+    </collision>
+  </link>
+  <link name="link_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.075" length="0.17"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.11"/>
+      <geometry><cylinder radius="0.06" length="0.16"/></geometry>
+      <material name="white"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.19"/>
+      <geometry><cylinder radius="0.062" length="0.01"/></geometry>
+      <material name="accent"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="0.07"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 0 0.1"/>
+      <geometry><cylinder radius="0.06" length="0.2"/></geometry>
+    </collision>
+  </link>
+  <link name="link_3">
+    <visual>
+      <origin xyz="0 0 0.01"/>
+      <geometry><cylinder radius="0.064" length="0.02"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.1"/>
+      <geometry><cylinder radius="0.058" length="0.18"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.1"/>
+      <geometry><cylinder radius="0.055" length="0.2"/></geometry>
+    </collision>
+  </link>
+  <link name="link_4">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.068" length="0.15"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.11"/>
+      <geometry><cylinder radius="0.052" length="0.16"/></geometry>
+      <material name="white"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.19"/>
+      <geometry><cylinder radius="0.054" length="0.01"/></geometry>
+      <material name="accent"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="0.065"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 0 0.1"/>
+      <geometry><cylinder radius="0.055" length="0.2"/></geometry>
+    </collision>
+  </link>
+  <link name="link_5">
+    <visual>
+      <origin xyz="0 0 0.01"/>
+      <geometry><cylinder radius="0.056" length="0.02"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.1"/>
+      <geometry><cylinder radius="0.05" length="0.18"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.1"/>
+      <geometry><cylinder radius="0.05" length="0.2"/></geometry>
+    </collision>
+  </link>
+  <link name="link_6">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.058" length="0.13"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.055"/>
+      <geometry><cylinder radius="0.045" length="0.05"/></geometry>
+      <material name="white"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="0.06"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 0 0.04"/>
+      <geometry><cylinder radius="0.05" length="0.08"/></geometry>
+    </collision>
+  </link>
+  <link name="link_7">
+    <visual>
+      <origin xyz="0 0 0.015"/>
+      <geometry><cylinder radius="0.045" length="0.03"/></geometry>
+      <material name="accent"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.015"/>
+      <geometry><cylinder radius="0.045" length="0.03"/></geometry>
+    </collision>
+  </link>
+  <link name="tool">
+    <visual>
+      <origin xyz="0 0 0.025"/>
+      <geometry><box size="0.09 0.06 0.05"/></geometry>
+      <material name="graphite"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.04"/>
+      <geometry><box size="0.12 0.04 0.08"/></geometry>
+    </collision>
+  </link>
+
+  <link name="finger_left">
+    <visual>
+      <origin xyz="0.0075 0 0.035"/>
+      <geometry><box size="0.015 0.025 0.07"/></geometry>
+      <material name="steel"/>
+    </visual>
+    <collision>
+      <origin xyz="0.0075 0 0.035"/>
+      <geometry><box size="0.015 0.025 0.07"/></geometry>
+    </collision>
+  </link>
+  <link name="finger_right">
+    <visual>
+      <origin xyz="-0.0075 0 0.035"/>
+      <geometry><box size="0.015 0.025 0.07"/></geometry>
+      <material name="steel"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.0075 0 0.035"/>
+      <geometry><box size="0.015 0.025 0.07"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="joint_1" type="revolute">
+    <parent link="base_link"/><child link="link_1"/>
+    <origin xyz="0 0 0.15"/><axis xyz="0 0 1"/>
+    <limit lower="-2.9" upper="2.9" effort="100" velocity="2"/>
+  </joint>
+  <joint name="joint_2" type="revolute">
+    <parent link="link_1"/><child link="link_2"/>
+    <origin xyz="0 0 0.2"/><axis xyz="0 1 0"/>
+    <limit lower="-2" upper="2" effort="100" velocity="2"/>
+  </joint>
+  <joint name="joint_3" type="revolute">
+    <parent link="link_2"/><child link="link_3"/>
+    <origin xyz="0 0 0.2"/><axis xyz="0 0 1"/>
+    <limit lower="-2.9" upper="2.9" effort="100" velocity="2"/>
+  </joint>
+  <joint name="joint_4" type="revolute">
+    <parent link="link_3"/><child link="link_4"/>
+    <origin xyz="0 0 0.2"/><axis xyz="0 1 0"/>
+    <limit lower="-2" upper="2" effort="100" velocity="2"/>
+  </joint>
+  <joint name="joint_5" type="revolute">
+    <parent link="link_4"/><child link="link_5"/>
+    <origin xyz="0 0 0.2"/><axis xyz="0 0 1"/>
+    <limit lower="-2.9" upper="2.9" effort="100" velocity="2"/>
+  </joint>
+  <joint name="joint_6" type="revolute">
+    <parent link="link_5"/><child link="link_6"/>
+    <origin xyz="0 0 0.2"/><axis xyz="0 1 0"/>
+    <limit lower="-2" upper="2" effort="100" velocity="2"/>
+  </joint>
+  <joint name="joint_7" type="revolute">
+    <parent link="link_6"/><child link="link_7"/>
+    <origin xyz="0 0 0.08"/><axis xyz="0 0 1"/>
+    <limit lower="-3" upper="3" effort="100" velocity="2"/>
+  </joint>
+  <joint name="tool_mount" type="fixed">
+    <parent link="link_7"/><child link="tool"/>
+    <origin xyz="0 0 0.03"/>
+  </joint>
+  <!-- The gripper: each finger slides out from the middle; the right one
+       mirrors the left, so one value opens and closes both. -->
+  <joint name="gripper" type="prismatic">
+    <parent link="tool"/><child link="finger_left"/>
+    <origin xyz="0.008 0 0.05"/><axis xyz="1 0 0"/>
+    <limit lower="0" upper="0.035" effort="20" velocity="0.1"/>
+  </joint>
+  <joint name="gripper_mirror" type="prismatic">
+    <parent link="tool"/><child link="finger_right"/>
+    <origin xyz="-0.008 0 0.05"/><axis xyz="-1 0 0"/>
+    <limit lower="0" upper="0.035" effort="20" velocity="0.1"/>
+    <mimic joint="gripper"/>
+  </joint>
+</robot>

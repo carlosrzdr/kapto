@@ -1,0 +1,12 @@
+[package]
+name = "kapto-select"
+description = "Relevance selection: scorers, retention plans and the audit of discarded data."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

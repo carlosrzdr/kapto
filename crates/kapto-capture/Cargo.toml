@@ -1,0 +1,37 @@
+[package]
+name = "kapto-capture"
+description = "The recording path: batch buffers, loss accounting, the MCAP writer and episode finalisation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+kapto-core.workspace = true
+kapto-store.workspace = true
+mcap.workspace = true
+rtrb.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# `fs`: how much room the recordings' disk has left.
+rustix = { workspace = true, features = ["fs"] }
+
+[dev-dependencies]
+kapto-testkit.workspace = true
+criterion.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "stages"
+harness = false
+
+[[bench]]
+name = "events_job"
+harness = false
+
+[lints]
+workspace = true

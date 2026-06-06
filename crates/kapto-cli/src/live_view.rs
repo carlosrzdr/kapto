@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: Apache-2.0
+
+//! Runs `kapto viz-bridge`, the robot moving live in the web UI's live
+//! view. Kept apart from the command's definition, so tools that only read
+//! the definitions build without the viewer.
+
+use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
+
+use kapto_core::{ClockSample, ErrorCode, KaptoError};
+use kapto_viz::{Bridge, BridgeSettings, LiveRobot, Plots, StreamFields};
+
+use crate::SettingFlags;
+use crate::viz_bridge::{Prepared, VizBridgeArgs, prepare, warning};
+
+pub(crate) fn viz_bridge(flags: &SettingFlags, args: &VizBridgeArgs) -> ExitCode {
+    match run(flags, args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(errors) => {
+            let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
+            eprintln!("{}", reports.join("\n\n"));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>> {
+    // SIGTERM, once serve has ended, ends the bridge at once: it has
+    // nothing to finish.
+    if let Some(parent) = args.parent
+        && let Err(error) = crate::parent::end_with(parent)
+    {
+        eprintln!("The viewer bridge won't end with serve: {error}");
+    }
+    let (_, deployment) = crate::config::load(flags)?;
+    let prepared = prepare(
+        &args.robot,
+        &args.streams,
+        &args.mapping,
+        &deployment.packages_dir.value,
+    )?;
+    for problem in prepared.warnings() {
+        eprintln!("{}\n", warning(problem));
+    }
+    let Prepared {
+        robot,
+        kinematics,
+        map,
+        streams,
+        ..
+    } = prepared;
+    let clock = ClockSample::now();
+    let live = LiveRobot::new(&robot, kinematics, &map, streams.len(), clock);
+    let plots = Plots::new(&StreamFields::of(&streams));
+
+    let mut settings = BridgeSettings::new(
+        deployment.server_bind.value,
+        (
+            deployment.viewer_stream_port.value,
+            deployment.server_port.value,
+        ),
+        deployment.tap_socket.value.clone(),
+    );
+    settings.control_socket = Some(deployment.control_socket.value.clone());
+    settings.display_interval =
+        Duration::from_secs(1) / deployment.viewer_display_rate.value.max(1);
+    settings.history_bytes = deployment.viewer_history_mib.value * 1024 * 1024;
+    settings.history_age = deployment.viewer_history_age.value;
+    let mut bridge = Bridge::start(&settings, &robot, live, &plots).map_err(|error| vec![error])?;
+    println!(
+        "Streaming {} to the live view on port {}",
+        robot.name,
+        bridge.stream_address().port()
+    );
+    println!(
+        "Live samples from capture: {}",
+        settings.tap_socket.display()
+    );
+
+    let stop = Arc::new(AtomicBool::new(false));
+    if let Some(seconds) = args.duration {
+        let stop = Arc::clone(&stop);
+        thread::Builder::new()
+            .name("viz-timer".into())
+            .spawn(move || {
+                thread::sleep(Duration::from_secs(u64::from(seconds)));
+                stop.store(true, Ordering::Relaxed);
+            })
+            .map_err(|error| {
+                vec![KaptoError::new(ErrorCode::CaptureThreadFailed).detail(error.to_string())]
+            })?;
+    }
+    bridge.run(&stop).map_err(|error| vec![error])?;
+    let stats = bridge.tap_stats();
+    println!(
+        "Read {} live samples; skipped {} of another version and {} unreadable",
+        stats.samples, stats.other_version, stats.unreadable
+    );
+    Ok(())
+}

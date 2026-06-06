@@ -1,0 +1,10 @@
+# Which quality checks run on the episodes recorded with this package, and
+# their thresholds. Each check's settings are in the table named after it;
+# a check left out runs with its defaults. Change `qa_params_version`
+# whenever a setting changes: every result records it.
+qa_params_version = "1"
+
+# A gate: every message that reached Kapto was written. An episode it
+# fails isn't accepted.
+[streams.complete]
+max_dropped = 0
