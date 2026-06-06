@@ -1,0 +1,20 @@
+[package]
+name = "kapto-config"
+description = "Kapto configuration: TOML schemas, loading, precedence between sources, and per-episode snapshots."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+kapto-core.workspace = true
+kapto-decode.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

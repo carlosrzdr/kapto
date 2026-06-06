@@ -1,0 +1,116 @@
+<?xml version="1.0"?>
+<!-- A small humanoid made of primitive shapes, for tests: a floating pelvis
+     with two legs, a torso, two arms with grippers, and a head. -->
+<robot name="humanoid">
+  <material name="grey"><color rgba="0.6 0.6 0.6 1"/></material>
+
+  <link name="pelvis">
+    <visual><geometry><box size="0.3 0.2 0.1"/></geometry><material name="grey"/></visual>
+  </link>
+  <link name="torso">
+    <visual><origin xyz="0 0 0.25"/><geometry><box size="0.3 0.2 0.5"/></geometry><material name="grey"/></visual>
+  </link>
+  <link name="head">
+    <visual><origin xyz="0 0 0.1"/><geometry><sphere radius="0.1"/></geometry></visual>
+  </link>
+  <joint name="waist_yaw" type="revolute">
+    <parent link="pelvis"/><child link="torso"/>
+    <origin xyz="0 0 0.05"/><axis xyz="0 0 1"/>
+    <limit lower="-1" upper="1" effort="100" velocity="2"/>
+  </joint>
+  <joint name="neck_yaw" type="revolute">
+    <parent link="torso"/><child link="head"/>
+    <origin xyz="0 0 0.5"/><axis xyz="0 0 1"/>
+    <limit lower="-1.2" upper="1.2" effort="10" velocity="3"/>
+  </joint>
+
+  <!-- Legs -->
+  <link name="left_thigh"><visual><origin xyz="0 0 -0.2"/><geometry><cylinder radius="0.05" length="0.4"/></geometry></visual></link>
+  <link name="left_shin"><visual><origin xyz="0 0 -0.2"/><geometry><cylinder radius="0.04" length="0.4"/></geometry></visual></link>
+  <link name="left_foot"><visual><geometry><box size="0.2 0.08 0.04"/></geometry></visual></link>
+  <joint name="left_hip_pitch" type="revolute">
+    <parent link="pelvis"/><child link="left_thigh"/>
+    <origin xyz="0 0.08 -0.05"/><axis xyz="0 1 0"/>
+    <limit lower="-1.5" upper="1" effort="150" velocity="3"/>
+  </joint>
+  <joint name="left_knee" type="revolute">
+    <parent link="left_thigh"/><child link="left_shin"/>
+    <origin xyz="0 0 -0.4"/><axis xyz="0 1 0"/>
+    <limit lower="0" upper="2.4" effort="150" velocity="3"/>
+  </joint>
+  <joint name="left_ankle_pitch" type="revolute">
+    <parent link="left_shin"/><child link="left_foot"/>
+    <origin xyz="0 0 -0.4"/><axis xyz="0 1 0"/>
+    <limit lower="-0.8" upper="0.8" effort="50" velocity="3"/>
+  </joint>
+  <link name="right_thigh"><visual><origin xyz="0 0 -0.2"/><geometry><cylinder radius="0.05" length="0.4"/></geometry></visual></link>
+  <link name="right_shin"><visual><origin xyz="0 0 -0.2"/><geometry><cylinder radius="0.04" length="0.4"/></geometry></visual></link>
+  <link name="right_foot"><visual><geometry><box size="0.2 0.08 0.04"/></geometry></visual></link>
+  <joint name="right_hip_pitch" type="revolute">
+    <parent link="pelvis"/><child link="right_thigh"/>
+    <origin xyz="0 -0.08 -0.05"/><axis xyz="0 1 0"/>
+    <limit lower="-1.5" upper="1" effort="150" velocity="3"/>
+  </joint>
+  <joint name="right_knee" type="revolute">
+    <parent link="right_thigh"/><child link="right_shin"/>
+    <origin xyz="0 0 -0.4"/><axis xyz="0 1 0"/>
+    <limit lower="0" upper="2.4" effort="150" velocity="3"/>
+  </joint>
+  <joint name="right_ankle_pitch" type="revolute">
+    <parent link="right_shin"/><child link="right_foot"/>
+    <origin xyz="0 0 -0.4"/><axis xyz="0 1 0"/>
+    <limit lower="-0.8" upper="0.8" effort="50" velocity="3"/>
+  </joint>
+
+  <!-- Arms, each ending in a two-finger gripper -->
+  <link name="left_upper_arm"><visual><origin xyz="0 0 -0.15"/><geometry><capsule radius="0.04" length="0.3"/></geometry></visual></link>
+  <link name="left_forearm"><visual><origin xyz="0 0 -0.12"/><geometry><capsule radius="0.035" length="0.24"/></geometry></visual></link>
+  <link name="left_finger_a"><visual><geometry><box size="0.02 0.01 0.05"/></geometry></visual></link>
+  <link name="left_finger_b"><visual><geometry><box size="0.02 0.01 0.05"/></geometry></visual></link>
+  <joint name="left_shoulder_pitch" type="revolute">
+    <parent link="torso"/><child link="left_upper_arm"/>
+    <origin xyz="0 0.2 0.45"/><axis xyz="0 1 0"/>
+    <limit lower="-3" upper="1" effort="40" velocity="4"/>
+  </joint>
+  <joint name="left_elbow" type="revolute">
+    <parent link="left_upper_arm"/><child link="left_forearm"/>
+    <origin xyz="0 0 -0.3"/><axis xyz="0 1 0"/>
+    <limit lower="-2.5" upper="0" effort="30" velocity="4"/>
+  </joint>
+  <joint name="left_finger_a" type="prismatic">
+    <parent link="left_forearm"/><child link="left_finger_a"/>
+    <origin xyz="0 0.01 -0.27"/><axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.04" effort="20" velocity="0.2"/>
+  </joint>
+  <joint name="left_finger_b" type="prismatic">
+    <parent link="left_forearm"/><child link="left_finger_b"/>
+    <origin xyz="0 -0.01 -0.27"/><axis xyz="0 -1 0"/>
+    <limit lower="0" upper="0.04" effort="20" velocity="0.2"/>
+    <mimic joint="left_finger_a"/>
+  </joint>
+  <link name="right_upper_arm"><visual><origin xyz="0 0 -0.15"/><geometry><capsule radius="0.04" length="0.3"/></geometry></visual></link>
+  <link name="right_forearm"><visual><origin xyz="0 0 -0.12"/><geometry><capsule radius="0.035" length="0.24"/></geometry></visual></link>
+  <link name="right_finger_a"><visual><geometry><box size="0.02 0.01 0.05"/></geometry></visual></link>
+  <link name="right_finger_b"><visual><geometry><box size="0.02 0.01 0.05"/></geometry></visual></link>
+  <joint name="right_shoulder_pitch" type="revolute">
+    <parent link="torso"/><child link="right_upper_arm"/>
+    <origin xyz="0 -0.2 0.45"/><axis xyz="0 1 0"/>
+    <limit lower="-3" upper="1" effort="40" velocity="4"/>
+  </joint>
+  <joint name="right_elbow" type="revolute">
+    <parent link="right_upper_arm"/><child link="right_forearm"/>
+    <origin xyz="0 0 -0.3"/><axis xyz="0 1 0"/>
+    <limit lower="-2.5" upper="0" effort="30" velocity="4"/>
+  </joint>
+  <joint name="right_finger_a" type="prismatic">
+    <parent link="right_forearm"/><child link="right_finger_a"/>
+    <origin xyz="0 0.01 -0.27"/><axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.04" effort="20" velocity="0.2"/>
+  </joint>
+  <joint name="right_finger_b" type="prismatic">
+    <parent link="right_forearm"/><child link="right_finger_b"/>
+    <origin xyz="0 -0.01 -0.27"/><axis xyz="0 -1 0"/>
+    <limit lower="0" upper="0.04" effort="20" velocity="0.2"/>
+    <mimic joint="right_finger_a"/>
+  </joint>
+</robot>

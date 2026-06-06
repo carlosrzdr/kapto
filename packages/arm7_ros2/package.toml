@@ -1,0 +1,11 @@
+# What this package is. Kapto identifies a version of it by its ID and
+# version, and by a hash of all its files (`kapto package show`).
+id = "arm7_ros2"
+version = "0.1.0"
+name = "Sample seven-joint arm on ROS 2"
+vendor = "Kapto"
+description = "The sample seven-joint arm of packages/arm7, publishing its joint states on a ROS 2 topic, as the synthetic robot in tools/kapto-loadgen does with --transport ros2."
+
+# The robot description. What the robot publishes and how it drives the
+# joints are in streams.toml and mapping.toml, the default names.
+urdf = "urdf/arm7.urdf"

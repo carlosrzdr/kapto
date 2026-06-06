@@ -1,0 +1,7 @@
+# Tests may use panicking shortcuts; product code may not (see Cargo.toml lints).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+# Names written as they are spelled, not code.
+doc-valid-idents = ["OpenAPI", "MessagePack", "RustFS", ".."]

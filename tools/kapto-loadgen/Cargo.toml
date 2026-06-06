@@ -1,0 +1,31 @@
+[package]
+name = "kapto-loadgen"
+description = "A synthetic robot that sends UDP, TCP or ROS 2 streams at a fixed rate, for Kapto's demo, tests and benchmarks."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+clap.workspace = true
+# The synthetic camera's JPEG frames.
+jpeg-encoder.workspace = true
+# Publishing on ROS 2 topics, serialised by ROS 2 itself; needs a ROS 2
+# installation to build, so only in the ROS 2 image.
+r2r = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Reading the ROS 2 topics back in the ROS 2 test, as r2r hands them over.
+futures.workspace = true
+# Each frame read back by a decoder of its own.
+jpeg-decoder.workspace = true
+proptest.workspace = true
+
+[features]
+# The ros2 transport (`--transport ros2`).
+ros2 = ["dep:r2r"]
+
+[lints]
+workspace = true

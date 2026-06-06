@@ -1,0 +1,37 @@
+# What the synthetic robot (tools/kapto-loadgen) sends: one stream of joint
+# positions and the gripper opening at 2 kHz on UDP port 9000. Start it with
+#   cargo run --release -p kapto-loadgen -- --streams 1
+[streams.arm_joints]
+rate_hz = 2000
+max_message_bytes = 76
+udp = { bind = "127.0.0.1:9000" }
+sequence = { offset = 0, type = "u32" }
+
+[streams.arm_joints.decoder]
+kind = "struct"
+
+[[streams.arm_joints.decoder.fields]]
+name = "sequence"
+type = "u32"
+offset = 0
+
+[[streams.arm_joints.decoder.fields]]
+name = "source_time"
+type = "u64"
+offset = 4
+unit = "ns"
+
+# joint_1 to joint_7 of urdf/arm7.urdf, in that order.
+[[streams.arm_joints.decoder.fields]]
+name = "joint_positions"
+type = "f64"
+offset = 12
+count = 7
+unit = "rad"
+
+# How far each finger is from closed: the `gripper` joint.
+[[streams.arm_joints.decoder.fields]]
+name = "gripper"
+type = "f64"
+offset = 68
+unit = "m"

@@ -1,0 +1,18 @@
+[package]
+name = "kapto-core"
+description = "Shared types used by every Kapto crate: identifiers, timestamps, roles and errors with cause codes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+rustix.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

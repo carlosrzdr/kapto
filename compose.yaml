@@ -1,0 +1,61 @@
+# Builds Kapto's images. Docker with BuildKit is the only prerequisite.
+#   docker compose build
+#   docker compose run --rm kapto config show
+services:
+  kapto:
+    image: kapto:dev
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: kapto
+
+  kapto-ros2:
+    image: kapto-ros2:dev
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: kapto-ros2
+
+  # S3-compatible storage on this machine, to try uploads without a cloud
+  # account (docs/guides/try-uploads.md); making the bucket starts both:
+  #   docker compose run --rm rustfs-bucket
+  # It keeps its objects in the volume `rustfs-data` until
+  # `docker compose --profile storage down --volumes`. Its credentials guard
+  # nothing but this test server; `cargo xtask storage` runs the upload tests
+  # against it on a port of its own.
+  rustfs:
+    profiles: [storage]
+    # Pinned by digest, so the tests always meet the same server. Update it
+    # deliberately, in its own pull request.
+    image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+    ports:
+      - "127.0.0.1:${KAPTO_STORAGE_PORT:-9000}:9000"
+    environment:
+      RUSTFS_ACCESS_KEY: kapto
+      RUSTFS_SECRET_KEY: kapto-storage
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9000/health"]
+      interval: 1s
+      retries: 60
+
+  # Makes the bucket `kapto` once the server answers, with the curl RustFS's
+  # image carries; one already there is left as it is.
+  rustfs-bucket:
+    profiles: [storage]
+    image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        status=$$(curl --silent --output /dev/null --write-out '%{http_code}'
+        --aws-sigv4 aws:amz:us-east-1:s3 --user kapto:kapto-storage
+        --request PUT http://rustfs:9000/kapto)
+        && echo "bucket kapto: $$status"
+        && { [ "$$status" = 200 ] || [ "$$status" = 409 ]; }
+
+volumes:
+  rustfs-data:

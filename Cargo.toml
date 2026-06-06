@@ -1,0 +1,160 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/kapto-core",
+    "crates/kapto-config",
+    "crates/kapto-transport",
+    "crates/kapto-decode",
+    "crates/kapto-capture",
+    "crates/kapto-robot",
+    "crates/kapto-qa",
+    "crates/kapto-select",
+    "crates/kapto-viz",
+    "crates/kapto-store",
+    "crates/kapto-upload",
+    "crates/kapto-server",
+    "crates/kapto-cli",
+    "crates/kapto-py",
+    "crates/kapto-wasm",
+    "crates/kapto-testkit",
+    "tools/kapto-loadgen",
+    "tools/xtask",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+repository = "https://github.com/carlosrzdr/kapto"
+publish = false
+
+[workspace.dependencies]
+axum = "0.8"
+# Implementing `object_store`'s traits, which are written with it: the
+# store that fails as told, in the upload tests. Already in the tree through
+# `object_store`.
+async-trait = "0.1"
+clap = { version = "4.6", features = ["derive"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+# Streams of messages as `r2r` hands them over, in the ROS 2 tests; already
+# in the tree through `r2r` and axum.
+futures = "0.3"
+gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
+# The synthetic camera's frames, encoded once when it starts; a baseline
+# JPEG encoder in Rust with no dependencies.
+jpeg-encoder = { version = "0.6", default-features = false, features = ["std"] }
+# Checking those frames in the tests with a decoder that isn't the encoder.
+jpeg-decoder = { version = "0.3", default-features = false }
+libc = "0.2"
+mcap = "0.25"
+mesh-loader = "0.1"
+# Storage for uploads: S3 and S3-compatible, GCS, Azure, a local folder
+# and memory, from Apache Arrow (docs/design/uploads.md). The cloud stores bring an HTTP
+# client with TLS (reqwest, rustls, aws-lc-rs), trusting the machine's own
+# certificates.
+object_store = { version = "0.14.2", default-features = false, features = ["aws", "azure", "fs", "gcp"] }
+# Rotations, transforms and matrices: forward kinematics' arithmetic, mesh
+# matrices and QA's models. Only `std`, no serialisation or random numbers.
+nalgebra = { version = "0.35", default-features = false, features = ["std"] }
+# Packet captures (pcap, pcapng), read by `kapto decode --pcap`.
+pcap-parser = "0.17"
+proptest = "1.11"
+# Protobuf messages read with a descriptor set, without generated code.
+prost-reflect = { version = "0.16", default-features = false }
+# The HTTP client in the API guide's Rust example; plain HTTP to this
+# machine, so no TLS.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
+roxmltree = "0.20"
+# ROS 2's own client library (rcl), for ROS 2 topics; only with the `ros2`
+# feature, which needs a ROS 2 installation and libclang to build.
+r2r = "0.9.7"
+r2r_rcl = "0.9.7"
+# MessagePack payloads, read through serde like JSON.
+rmp-serde = "1.3"
+rtrb = "0.4"
+# Runtime state in SQLite. `bundled` builds SQLite into the binary, so its
+# version is the one tested and no system library is needed;
+# `fallible_uint` stores unsigned counts, refusing any too large for SQLite
+# rather than wrapping them.
+rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
+rustix = { version = "1.1", features = ["time"] }
+schemars = "1.2"
+serde = { version = "1.0", features = ["derive"] }
+# Numbers parse to exactly the float they were written from, so decoded
+# values come back as the robot sent them. Objects keep the order their
+# keys were written in, so JSON Kapto reads and writes again stays as it
+# was (`indexmap` is already in the tree through `toml_edit`).
+serde_json = { version = "1.0", features = ["float_roundtrip", "preserve_order"] }
+sha2 = "0.11"
+# Only `flag`, which sets an atomic on a signal: no threads or pipes.
+signal-hook = { version = "0.4", default-features = false }
+socket2 = "0.6"
+# The live view's WebSocket, served from the bridge's own threads; already
+# in the tree through axum.
+tungstenite = "0.29"
+tokio = { version = "1.53", features = ["rt-multi-thread", "net", "time"] }
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
+tower = { version = "0.5", features = ["util"] }
+utoipa = "5.5"
+
+# Kapto crates, so dependents write `kapto-core.workspace = true`.
+kapto-core = { path = "crates/kapto-core", version = "0.0.0" }
+kapto-config = { path = "crates/kapto-config", version = "0.0.0" }
+kapto-transport = { path = "crates/kapto-transport", version = "0.0.0" }
+kapto-decode = { path = "crates/kapto-decode", version = "0.0.0" }
+kapto-capture = { path = "crates/kapto-capture", version = "0.0.0" }
+kapto-robot = { path = "crates/kapto-robot", version = "0.0.0" }
+kapto-qa = { path = "crates/kapto-qa", version = "0.0.0" }
+kapto-select = { path = "crates/kapto-select", version = "0.0.0" }
+kapto-viz = { path = "crates/kapto-viz", version = "0.0.0" }
+kapto-store = { path = "crates/kapto-store", version = "0.0.0" }
+kapto-upload = { path = "crates/kapto-upload", version = "0.0.0" }
+kapto-server = { path = "crates/kapto-server", version = "0.0.0" }
+kapto-cli = { path = "crates/kapto-cli", version = "0.0.0", default-features = false }
+kapto-py = { path = "crates/kapto-py", version = "0.0.0" }
+kapto-wasm = { path = "crates/kapto-wasm", version = "0.0.0" }
+kapto-testkit = { path = "crates/kapto-testkit", version = "0.0.0" }
+kapto-loadgen = { path = "tools/kapto-loadgen", version = "0.0.0" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints that mostly add noise without catching bugs.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+# No panicking shortcuts outside tests (clippy.toml allows them in tests).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+# Any `unsafe` block that is allowed must explain why it is sound.
+undocumented_unsafe_blocks = "deny"
+
+# Line numbers in backtraces, without full debug info, which made every test
+# binary several hundred MB. For a debugger session, build with
+# `CARGO_PROFILE_DEV_DEBUG=true`.
+[profile.dev]
+debug = "line-tables-only"
+
+# The checksum MCAP writes and checks over every chunk of a recording, in
+# tests too.
+[profile.dev.package.crc32fast]
+opt-level = 3
+
+# Learning an anomaly model is many small matrix products: unoptimised, a
+# second of learning takes about a minute, in tests and in a debug worker.
+# The products are compiled into `kapto-qa`, where they are used.
+[profile.dev.package.kapto-qa]
+opt-level = 3
+
+[profile.dev.package.nalgebra]
+opt-level = 3
