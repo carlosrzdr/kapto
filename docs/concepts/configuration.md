@@ -225,6 +225,26 @@ A length-prefixed message is stored with its header, exactly as received; a
 delimiter is not part of the message. Two streams can't listen on the same
 TCP port.
 
+A TCP stream whose messages are a camera's frames says so in a `camera`
+table, so the live view can show them *(planned)*: JPEG pictures, or raw
+ones of a fixed size and pixel layout. A raw camera's frames must fit
+`max_message_bytes`, and a fixed framing's `size` must be one frame. A ROS 2
+topic of type `sensor_msgs/msg/CompressedImage` or `sensor_msgs/msg/Image`
+is a camera by its type and needs no table.
+
+```toml
+[streams.front_camera]
+max_message_bytes = 2097152
+tcp = { listen = "0.0.0.0:7010", framing = { kind = "length_prefix", length_bytes = 4 } }
+camera = { format = "jpeg" }
+
+[streams.wrist_camera]
+max_message_bytes = 921600
+tcp = { listen = "0.0.0.0:7011", framing = { kind = "fixed", size = 921600 } }
+camera = { format = "raw", width = 640, height = 480, encoding = "rgb8" }
+# encoding: rgb8, bgr8, rgba8, bgra8 or mono8, as ROS 2 names them
+```
+
 A stream can be a ROS 2 topic instead, in a `ros2` table naming the topic and
 the type of its messages (`kapto topics`, in the `kapto-ros2` image, lists
 the topics your robot publishes, with their types):

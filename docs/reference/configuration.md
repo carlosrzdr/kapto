@@ -55,6 +55,18 @@ How many times a second the live view moves the robot: a display's refresh rate.
 | Environment variable | `KAPTO_VIEWER_DISPLAY_RATE` |
 | Flag | `--viewer-display-rate` |
 
+## `viewer.camera_max_fps`
+
+How many frames a second, at most, of each camera the recording hands to the live view: the newest each time. Recording keeps every frame whatever this is; lower it to spend less CPU and memory bandwidth on the live view.
+
+| | |
+|---|---|
+| Section and name | `[viewer]` `camera_max_fps` |
+| Accepts | a whole number of times per second from 1 to 1000 |
+| Default | `30` |
+| Environment variable | `KAPTO_VIEWER_CAMERA_MAX_FPS` |
+| Flag | none |
+
 ## `viewer.history`
 
 How much recent live data, in MiB, the viewer bridge keeps for the live view to look back over; the oldest goes first.
@@ -126,6 +138,18 @@ Unix socket the recording sends live samples to, for the viewer. Sending never w
 | Default | `tap.sock` inside the data directory |
 | Environment variable | `KAPTO_VIEWER_TAP_SOCKET` |
 | Flag | `--tap-socket` |
+
+## `viewer.frame_socket`
+
+Unix socket the recording sends cameras' frames to, for the viewer: frames are too large for `viewer.tap_socket`. Sending never waits: frames the viewer can't take yet are replaced by newer ones and counted. Defaults to `frames.sock` inside the data directory.
+
+| | |
+|---|---|
+| Section and name | `[viewer]` `frame_socket` |
+| Accepts | a non-empty path |
+| Default | `frames.sock` inside the data directory |
+| Environment variable | `KAPTO_VIEWER_FRAME_SOCKET` |
+| Flag | none |
 
 ## `capture.control_socket`
 

@@ -55,10 +55,11 @@ pub use session::{
 };
 pub use source::{Effective, Source};
 pub use streams::{
-    ByteOrder, DecoderDeclaration, Durability, FramingDeclaration, MAX_DATAGRAM_BYTES,
-    MAX_MESSAGE_BYTES, MsgFile, QosDeclaration, Reliability, Ros2Declaration, SequenceDeclaration,
-    SequenceType, StreamDeclaration, TcpDeclaration, TcpEndpointDeclaration, UdpDeclaration,
-    msg_files, parse_streams, parse_streams_with,
+    ByteOrder, CAMERA_MESSAGE_TYPES, CameraDeclaration, DecoderDeclaration, Durability,
+    FramingDeclaration, MAX_DATAGRAM_BYTES, MAX_MESSAGE_BYTES, MsgFile, PixelEncoding,
+    QosDeclaration, Reliability, Ros2Declaration, SequenceDeclaration, SequenceType,
+    StreamDeclaration, TcpDeclaration, TcpEndpointDeclaration, UdpDeclaration, msg_files,
+    parse_streams, parse_streams_with,
 };
 pub use suggest::closest;
 pub use upload::{DeleteLocal, UploadSettings, UploadWhen, Verification};

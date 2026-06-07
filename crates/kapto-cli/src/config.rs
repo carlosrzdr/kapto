@@ -236,12 +236,14 @@ server.bind                       127.0.0.1                                defau
 server.port                       7701                                     /config/kapto.toml:2
 viewer.stream_port                9877                                     default
 viewer.display_rate               60                                       default
+viewer.camera_max_fps             30                                       default
 viewer.history                    64                                       default
 viewer.history_age                600                                      default
 viewer.stop_grace                 5                                        default
 viewer.replay_cache_size          2048                                     default
 viewer.replay_cache_age           7                                        default
 viewer.tap_socket                 /home/u/.local/share/kapto/tap.sock      default
+viewer.frame_socket               /home/u/.local/share/kapto/frames.sock   default
 capture.control_socket            /home/u/.local/share/kapto/capture.sock  default
 capture.control_timeout           60                                       default
 capture.stop_grace                30                                       default

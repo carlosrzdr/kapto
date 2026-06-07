@@ -54,6 +54,9 @@ pub struct DeploymentConfig {
     pub viewer_history_age: Effective<Duration>,
     /// How many times a second the live view moves the robot.
     pub viewer_display_rate: Effective<u32>,
+    /// How many frames a second, at most, of each camera reach the live
+    /// view.
+    pub viewer_camera_max_fps: Effective<u32>,
     /// How much recent live data the viewer bridge keeps, in MiB.
     pub viewer_history_mib: Effective<u64>,
     /// How long the viewer bridge may take to stop.
@@ -64,6 +67,8 @@ pub struct DeploymentConfig {
     pub replay_cache_age_days: Effective<u32>,
     /// Unix socket the recording sends live samples to, for the viewer.
     pub tap_socket: Effective<PathBuf>,
+    /// Unix socket the recording sends cameras' frames to, for the viewer.
+    pub frame_socket: Effective<PathBuf>,
     /// Unix socket the capture process takes its orders on.
     pub control_socket: Effective<PathBuf>,
     /// How long capture keeps recording after `kapto serve` has gone.
@@ -171,6 +176,14 @@ impl DeploymentConfig {
                 Value::Hertz(rate) => Some(rate),
                 _ => None,
             }),
+            viewer_camera_max_fps: take(
+                &mut values,
+                "viewer.camera_max_fps",
+                |value| match value {
+                    Value::Hertz(rate) => Some(rate),
+                    _ => None,
+                },
+            ),
             viewer_history_mib: take(&mut values, "viewer.history", mebibytes),
             viewer_history_age: take(&mut values, "viewer.history_age", seconds),
             viewer_stop_grace: take(&mut values, "viewer.stop_grace", seconds),
@@ -184,6 +197,7 @@ impl DeploymentConfig {
                 },
             ),
             tap_socket: take(&mut values, "viewer.tap_socket", path),
+            frame_socket: take(&mut values, "viewer.frame_socket", path),
             control_socket: take(&mut values, "capture.control_socket", path),
             control_timeout: take(&mut values, "capture.control_timeout", seconds),
             capture_stop_grace: take(&mut values, "capture.stop_grace", seconds),
@@ -241,12 +255,14 @@ impl DeploymentConfig {
                     "server.port" => text(&self.server_port),
                     "viewer.stream_port" => text(&self.viewer_stream_port),
                     "viewer.display_rate" => text(&self.viewer_display_rate),
+                    "viewer.camera_max_fps" => text(&self.viewer_camera_max_fps),
                     "viewer.history" => text(&self.viewer_history_mib),
                     "viewer.history_age" => seconds_text(&self.viewer_history_age),
                     "viewer.stop_grace" => seconds_text(&self.viewer_stop_grace),
                     "viewer.replay_cache_size" => text(&self.replay_cache_size_mib),
                     "viewer.replay_cache_age" => text(&self.replay_cache_age_days),
                     "viewer.tap_socket" => display_path(&self.tap_socket),
+                    "viewer.frame_socket" => display_path(&self.frame_socket),
                     "capture.control_socket" => display_path(&self.control_socket),
                     "capture.control_timeout" => seconds_text(&self.control_timeout),
                     "capture.stop_grace" => seconds_text(&self.capture_stop_grace),
@@ -695,6 +711,7 @@ fn add_defaults(env: &dyn Fn(&str) -> Option<String>, values: &mut Values) {
     for (key, name) in [
         ("paths.packages", "packages"),
         ("viewer.tap_socket", "tap.sock"),
+        ("viewer.frame_socket", "frames.sock"),
         ("capture.control_socket", "capture.sock"),
     ] {
         values.entry(key).or_insert(Effective {
@@ -881,6 +898,27 @@ mod tests {
         let moved = env(&[("KAPTO_VIEWER_TAP_SOCKET", "/run/kapto/tap.sock")]);
         let config = resolve(None, &moved, &[]).unwrap();
         assert_eq!(config.tap_socket.value, Path::new("/run/kapto/tap.sock"));
+    }
+
+    #[test]
+    fn the_frame_socket_defaults_to_inside_the_data_directory_and_can_be_moved() {
+        let inside = env(&[("KAPTO_PATHS_DATA", "/data")]);
+        let config = resolve(None, &inside, &[]).unwrap();
+        assert_eq!(config.frame_socket.value, Path::new("/data/frames.sock"));
+        assert_eq!(config.frame_socket.source, Source::Default);
+        let file = file(
+            "[viewer]
+frame_socket = \"/run/kapto/frames.sock\"\n",
+        );
+        let moved = env(&[("KAPTO_VIEWER_FRAME_SOCKET", "/tmp/frames.sock")]);
+        let config = resolve(Some(&file), &inside, &[]).unwrap();
+        assert_eq!(
+            config.frame_socket.value,
+            Path::new("/run/kapto/frames.sock")
+        );
+        assert_eq!(config.frame_socket.source, line_source(2));
+        let config = resolve(Some(&file), &moved, &[]).unwrap();
+        assert_eq!(config.frame_socket.value, Path::new("/tmp/frames.sock"));
     }
 
     #[test]
@@ -1388,6 +1426,7 @@ mod tests {
         assert_eq!(config.viewer_stop_grace.value, Duration::from_secs(5));
         assert_eq!(config.control_timeout.value, Duration::from_secs(60));
         assert_eq!(config.viewer_display_rate.value, 60);
+        assert_eq!(config.viewer_camera_max_fps.value, 30);
         assert_eq!(config.viewer_history_mib.value, 64);
         assert_eq!(config.replay_cache_size_mib.value, 2048);
         assert_eq!(config.replay_cache_age_days.value, 7);
@@ -1397,12 +1436,13 @@ mod tests {
 
         let file = file(
             "[supervisor]\nrestart_delay = 0.5\nstable_after = 10\n\
-             [viewer]\ndisplay_rate = 30\nhistory = 256\nreplay_cache_age = 30\n\
+             [viewer]\ndisplay_rate = 30\ncamera_max_fps = 15\nhistory = 256\nreplay_cache_age = 30\n\
              [capture]\ncontrol_timeout = 20\nattach_meshes = true\n[worker]\nmax_attempts = 5\npause_while_recording = false\n",
         );
         let vars = env(&[
             ("KAPTO_CAPTURE_CONTROL_TIMEOUT", "2.5"),
             ("KAPTO_VIEWER_REPLAY_CACHE_AGE", "14"),
+            ("KAPTO_VIEWER_CAMERA_MAX_FPS", "10"),
         ]);
         let flags = [
             cli("supervisor.stable_after", "15", "--restart-stable-after"),
@@ -1412,6 +1452,8 @@ mod tests {
         assert_eq!(config.restart_delay.value, Duration::from_millis(500));
         assert_eq!(config.restart_delay.source, line_source(2));
         assert_eq!(config.viewer_display_rate.value, 30);
+        // The environment over the file.
+        assert_eq!(config.viewer_camera_max_fps.value, 10);
         assert_eq!(config.viewer_history_mib.value, 256);
         assert_eq!(config.replay_cache_age_days.value, 14);
         assert_eq!(config.replay_cache_size_mib.value, 512);
@@ -1437,7 +1479,7 @@ mod tests {
     #[test]
     fn times_rates_and_sizes_out_of_range_are_rejected() {
         let file = file(
-            "[supervisor]\nrestart_delay = 0\n[viewer]\ndisplay_rate = 0\nhistory = 1.5\n\
+            "[supervisor]\nrestart_delay = 0\n[viewer]\ndisplay_rate = 0\ncamera_max_fps = 0\nhistory = 1.5\n\
              stop_grace = \"5\"\nreplay_cache_age = 0\n[worker]\nmax_attempts = 0\npause_while_recording = \"no\"\n",
         );
         let vars = env(&[("KAPTO_CAPTURE_CONTROL_TIMEOUT", "5s")]);
@@ -1445,6 +1487,7 @@ mod tests {
         assert_eq!(
             codes(&errors),
             [
+                ErrorCode::ConfigInvalidValue,
                 ErrorCode::ConfigInvalidValue,
                 ErrorCode::ConfigInvalidValue,
                 ErrorCode::ConfigInvalidValue,

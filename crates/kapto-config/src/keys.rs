@@ -83,6 +83,12 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         default: DefaultValue::Fixed("60"),
     },
     Key {
+        path: "viewer.camera_max_fps",
+        value_type: ValueType::Hertz,
+        help: "How many frames a second, at most, of each camera the recording hands to the live view: the newest each time. Recording keeps every frame whatever this is; lower it to spend less CPU and memory bandwidth on the live view.",
+        default: DefaultValue::Fixed("30"),
+    },
+    Key {
         path: "viewer.history",
         value_type: ValueType::Mebibytes,
         help: "How much recent live data, in MiB, the viewer bridge keeps for the live view to look back over; the oldest goes first.",
@@ -117,6 +123,12 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         value_type: ValueType::Path,
         help: "Unix socket the recording sends live samples to, for the viewer. Sending never waits: samples the viewer can't take are dropped and counted. Defaults to `tap.sock` inside the data directory.",
         default: DefaultValue::Computed("`tap.sock` inside the data directory"),
+    },
+    Key {
+        path: "viewer.frame_socket",
+        value_type: ValueType::Path,
+        help: "Unix socket the recording sends cameras' frames to, for the viewer: frames are too large for `viewer.tap_socket`. Sending never waits: frames the viewer can't take yet are replaced by newer ones and counted. Defaults to `frames.sock` inside the data directory.",
+        default: DefaultValue::Computed("`frames.sock` inside the data directory"),
     },
     Key {
         path: "capture.control_socket",

@@ -42,6 +42,7 @@
 //! `ros2 = { topic = "/joint_states", type = "sensor_msgs/msg/JointState" }`;
 //! its decoder is then `kind = "cdr"`, of the topic's type.
 
+mod camera;
 mod msg_files;
 mod ros2;
 mod tcp;
@@ -62,6 +63,7 @@ use crate::file::ConfigFile;
 use crate::located::{at_key, at_line, line_of, syntax_error, unknown_key};
 use crate::suggest::closest;
 
+pub use camera::{CAMERA_MESSAGE_TYPES, CameraDeclaration, PixelEncoding};
 pub use kapto_decode::DecoderDeclaration;
 pub use msg_files::{MsgFile, msg_files};
 pub use ros2::{Durability, QosDeclaration, Reliability, Ros2Declaration};
@@ -91,9 +93,23 @@ pub struct StreamDeclaration {
     pub ros2: Option<Ros2Declaration>,
     /// How its payloads decode into named values, if declared.
     pub decoder: Option<DecoderDeclaration>,
+    /// What its frames are, for a TCP stream that is a camera.
+    pub camera: Option<CameraDeclaration>,
 }
 
 impl StreamDeclaration {
+    /// Whether its messages are a camera's frames, which the live view
+    /// shows as pictures: a ROS 2 topic of a camera's type
+    /// ([`CAMERA_MESSAGE_TYPES`]), or a TCP stream with a `camera` table.
+    #[must_use]
+    pub fn is_camera(&self) -> bool {
+        self.camera.is_some()
+            || self
+                .ros2
+                .as_ref()
+                .is_some_and(|topic| CAMERA_MESSAGE_TYPES.contains(&topic.message_type.as_str()))
+    }
+
     /// Whether its messages are kept for subscribers that come later, so
     /// one may be all it ever sends: a ROS 2 topic subscribed to with
     /// `durability = "transient_local"`, such as `/tf_static`. It needs no
@@ -159,6 +175,7 @@ const STREAM_KEYS: &[&str] = &[
     "tcp",
     "ros2",
     "decoder",
+    "camera",
 ];
 const DECODER_KEYS: &[&str] = &["kind", "type", "fields"];
 const FIELD_KEYS: &[&str] = &[
@@ -414,6 +431,14 @@ impl Reader<'_> {
             );
             self.invalid(table, "max_message_bytes", detail);
         }
+        let camera = self.table(table, &format!("{path}."), "camera");
+        let camera = camera.and_then(|camera| self.camera(camera, &path));
+        self.camera_fits(
+            table,
+            &path,
+            camera.as_ref(),
+            (tcp.as_ref(), max_message_bytes),
+        );
         let decoder = self.table(table, &format!("{path}."), "decoder");
         let topic = match (table.get("ros2"), &ros2) {
             (None, _) => Topic::No,
@@ -441,7 +466,53 @@ impl Reader<'_> {
             tcp,
             ros2,
             decoder,
+            camera,
         })
+    }
+
+    /// A camera's table is for a TCP stream, and its raw frames fit the
+    /// stream's messages.
+    fn camera_fits(
+        &mut self,
+        table: &dyn TableLike,
+        path: &str,
+        camera: Option<&CameraDeclaration>,
+        (tcp, max_message_bytes): (Option<&TcpDeclaration>, Option<u32>),
+    ) {
+        if table.get("camera").is_none() {
+            return;
+        }
+        if table.get("ros2").is_some() {
+            let detail = format!(
+                "`{path}.camera` is for a TCP stream: a ROS 2 topic is a camera by its type, {}",
+                CAMERA_MESSAGE_TYPES.join(" or ")
+            );
+            self.invalid(table, "camera", detail);
+        } else if table.get("tcp").is_none() {
+            let detail = format!(
+                "`{path}.camera` is for a TCP stream: a camera's frames don't fit in UDP datagrams"
+            );
+            self.invalid(table, "camera", detail);
+        }
+        let Some(bytes) = camera.and_then(CameraDeclaration::frame_bytes) else {
+            return;
+        };
+        if let Some(FramingDeclaration::Fixed(size)) = tcp.map(|tcp| &tcp.framing)
+            && u64::from(*size) != bytes
+        {
+            let detail = format!(
+                "`{path}.camera` frames are {bytes} bytes, but `tcp.framing.size` is {size}"
+            );
+            self.invalid(table, "camera", detail);
+        }
+        if let Some(max) = max_message_bytes
+            && u64::from(max) < bytes
+        {
+            let detail = format!(
+                "`{path}.camera` frames are {bytes} bytes, but `max_message_bytes` is {max}"
+            );
+            self.invalid(table, "camera", detail);
+        }
     }
 
     fn udp(
@@ -979,6 +1050,7 @@ mod tests {
                     tcp: None,
                     ros2: None,
                     decoder: None,
+                    camera: None,
                 },
                 StreamDeclaration {
                     id: "camera_info".parse().unwrap(),
@@ -990,7 +1062,104 @@ mod tests {
                     tcp: None,
                     ros2: None,
                     decoder: None,
+                    camera: None,
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tcp_stream_says_it_is_a_camera_of_jpeg_or_raw_frames() {
+        let streams = parse(
+            "[streams.front]\n\
+             tcp = { listen = \"0.0.0.0:7010\", framing = { kind = \"length_prefix\", length_bytes = 4 } }\n\
+             camera = { format = \"jpeg\" }\n\
+             [streams.wrist]\n\
+             max_message_bytes = 921600\n\
+             tcp = { listen = \"0.0.0.0:7011\", framing = { kind = \"length_prefix\", length_bytes = 4 } }\n\
+             camera = { format = \"raw\", width = 640, height = 480, encoding = \"rgb8\" }\n\
+             [streams.odometry]\n\
+             tcp = { listen = \"0.0.0.0:7012\", framing = { kind = \"fixed\", size = 8 } }\n",
+        )
+        .unwrap();
+        assert_eq!(streams[0].camera, Some(CameraDeclaration::Jpeg));
+        assert_eq!(
+            streams[1].camera,
+            Some(CameraDeclaration::Raw {
+                width: 640,
+                height: 480,
+                encoding: PixelEncoding::Rgb8,
+            })
+        );
+        assert_eq!(streams[1].camera.unwrap().frame_bytes(), Some(921_600));
+        let cameras: Vec<bool> = streams.iter().map(StreamDeclaration::is_camera).collect();
+        assert_eq!(cameras, [true, true, false]);
+    }
+
+    #[test]
+    fn a_ros_2_topic_is_a_camera_by_its_type_alone() {
+        let mut stream = parse("[streams.front]\n").unwrap().remove(0);
+        for (message_type, camera) in [
+            ("sensor_msgs/msg/CompressedImage", true),
+            ("sensor_msgs/msg/Image", true),
+            ("sensor_msgs/msg/CameraInfo", false),
+        ] {
+            stream.ros2 = Some(Ros2Declaration {
+                topic: "/camera".into(),
+                message_type: message_type.into(),
+                definition: String::new(),
+                qos: QosDeclaration::default(),
+            });
+            assert_eq!(stream.is_camera(), camera, "{message_type}");
+        }
+    }
+
+    #[test]
+    fn camera_mistakes_are_reported_with_their_lines() {
+        let listen = "tcp = { listen = \"0.0.0.0:7010\", framing = { kind = \"length_prefix\", length_bytes = 4 } }";
+        assert_eq!(
+            problems(&format!(
+                "[streams.a]\n{listen}\ncamera = {{ format = \"png\" }}\n\
+                 [streams.b]\nudp = {{ bind = \"0.0.0.0:9000\" }}\ncamera = {{ format = \"jpeg\" }}\n\
+                 [streams.c]\ntcp = {{ listen = \"0.0.0.0:7011\", framing = {{ kind = \"fixed\", size = 1000 }} }}\n\
+                 camera = {{ format = \"raw\", width = 640, height = 480, encoding = \"rgb8\" }}\n\
+                 [streams.d]\n{}\ncamera = {{ format = \"raw\", width = 640, encoding = \"yuv422\" }}\n\
+                 [streams.e]\n{}\ncamera = {{ format = \"jpeg\", width = 640 }}\n\
+                 [streams.f]\nmax_message_bytes = 1000\n{}\n\
+                 camera = {{ format = \"raw\", width = 640, height = 480, encoding = \"mono8\" }}\n\
+                 [streams.g]\n{}\ncamera = {{ format = \"raw\", width = 16384, height = 16384, encoding = \"rgba8\" }}\n",
+                listen.replace("7010", "7013"),
+                listen.replace("7010", "7014"),
+                listen.replace("7010", "7015"),
+                listen.replace("7010", "7016"),
+            )),
+            [
+                "config.invalid_value 3: Invalid configuration value: `streams.a.camera.format` must be one of \"jpeg\", \"raw\"",
+                "config.invalid_value 6: Invalid configuration value: `streams.b.camera` is for a TCP stream: a camera's frames don't fit in UDP datagrams",
+                "config.invalid_value 9: Invalid configuration value: `streams.c.camera` frames are 921600 bytes, but `tcp.framing.size` is 1000",
+                "config.invalid_value 12: Invalid configuration value: `streams.d.camera.encoding` must be one of \"rgb8\", \"bgr8\", \"rgba8\", \"bgra8\", \"mono8\"",
+                "config.invalid_value 12: Invalid configuration value: `streams.d.camera` of raw frames needs `height`",
+                "config.invalid_value 15: Invalid configuration value: `streams.e.camera.width` is for raw frames; a JPEG says its own",
+                "config.invalid_value 19: Invalid configuration value: `streams.f.camera` frames are 307200 bytes, but `max_message_bytes` is 1000",
+                "config.invalid_value 22: Invalid configuration value: `streams.g.camera` frames are 1073741824 bytes, more than the 33554432 a message may be",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_ros_2_topic_declaring_a_camera_table_is_told_its_type_says_so() {
+        let folder = package_with_msg_files("camera-table");
+        let errors = parse_in(
+            &folder,
+            "[streams.status]\nros2 = { topic = \"/status\", type = \"std_msgs/msg/Header\" }\n\
+             camera = { format = \"jpeg\" }\n",
+        )
+        .unwrap_err();
+        std::fs::remove_dir_all(folder).unwrap();
+        assert_eq!(
+            described(&errors),
+            [
+                "config.invalid_value 3: Invalid configuration value: `streams.status.camera` is for a TCP stream: a ROS 2 topic is a camera by its type, sensor_msgs/msg/CompressedImage or sensor_msgs/msg/Image"
             ]
         );
     }
@@ -1749,7 +1918,8 @@ ros2 = { topic = "robot/status", type = "std_msgs/msg/Header", qos = { reliabili
         let keys = STREAM_KEYS.iter().chain(SEQUENCE_KEYS).chain(UDP_KEYS);
         let keys = keys.chain(tcp::TCP_KEYS).chain(tcp::FRAMING_KEYS);
         let keys = keys.chain(ros2::ROS2_KEYS).chain(ros2::QOS_KEYS);
-        for key in keys.chain(DECODER_KEYS).chain(FIELD_KEYS) {
+        let keys = keys.chain(DECODER_KEYS).chain(FIELD_KEYS);
+        for key in keys.chain(camera::CAMERA_KEYS) {
             assert!(
                 remedy.contains(&format!("`{key}`")),
                 "the remedy doesn't name `{key}`"

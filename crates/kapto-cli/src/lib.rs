@@ -198,6 +198,12 @@ struct SettingFlags {
     /// How long one request may take (`upload.timeout_request`).
     #[arg(long, global = true, value_name = "SECONDS")]
     upload_timeout_request: Option<String>,
+    /// Frames a second, at most, of each camera sent to the live view (`viewer.camera_max_fps`).
+    #[arg(long, global = true, value_name = "HZ")]
+    camera_max_fps: Option<String>,
+    /// Unix socket cameras' frames are sent to, for the viewer (`viewer.frame_socket`).
+    #[arg(long, global = true, value_name = "PATH")]
+    frame_socket: Option<String>,
 }
 
 /// The flag that sets each deployment setting, as `(setting, flag)`.
@@ -256,6 +262,8 @@ pub const SETTING_FLAGS: &[(&str, &str)] = &[
     ("upload.backoff_max", "--upload-backoff-max"),
     ("upload.timeout_connect", "--upload-timeout-connect"),
     ("upload.timeout_request", "--upload-timeout-request"),
+    ("viewer.camera_max_fps", "--camera-max-fps"),
+    ("viewer.frame_socket", "--frame-socket"),
 ];
 
 impl SettingFlags {
@@ -323,6 +331,8 @@ impl SettingFlags {
             &self.upload_backoff_max,
             &self.upload_timeout_connect,
             &self.upload_timeout_request,
+            &self.camera_max_fps,
+            &self.frame_socket,
         ];
         SETTING_FLAGS
             .iter()
@@ -551,6 +561,8 @@ mod tests {
             upload_backoff_max: Some("upload-backoff-max".into()),
             upload_timeout_connect: Some("upload-timeout-connect".into()),
             upload_timeout_request: Some("upload-timeout-request".into()),
+            camera_max_fps: Some("camera-max-fps".into()),
+            frame_socket: Some("frame-socket".into()),
         };
         for flag in all.overrides() {
             assert_eq!(format!("--{}", flag.value), flag.flag, "{}", flag.key);
@@ -631,6 +643,8 @@ mod tests {
             upload_backoff_max: Some(String::new()),
             upload_timeout_connect: Some(String::new()),
             upload_timeout_request: Some(String::new()),
+            camera_max_fps: Some(String::new()),
+            frame_socket: Some(String::new()),
         };
         let mut covered: Vec<&str> = all.overrides().iter().map(|flag| flag.key).collect();
         let mut settings: Vec<&str> = DEPLOYMENT_KEYS.iter().map(|key| key.path).collect();
