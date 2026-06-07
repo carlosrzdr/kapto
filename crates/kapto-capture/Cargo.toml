@@ -17,8 +17,9 @@ serde.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-# `fs`: how much room the recordings' disk has left.
-rustix = { workspace = true, features = ["fs"] }
+# `fs`: how much room the recordings' disk has left. `net`: connecting to the
+# bridge's frame socket without waiting, and writing to it without `SIGPIPE`.
+rustix = { workspace = true, features = ["fs", "net"] }
 
 [dev-dependencies]
 kapto-testkit.workspace = true

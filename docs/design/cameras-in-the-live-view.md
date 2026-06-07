@@ -43,10 +43,14 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   of a fixed layout.
 - **The writer offers the newest frame.** As it writes a batch, the writer
   thread copies a camera's newest frame into a slot set aside for that
-  camera (two, of its `max_message_bytes`), at most
+  camera (three, of its `max_message_bytes`), at most
   `viewer.camera_max_fps` times a second (30 by default), and only into a
   slot the tap thread has finished with; otherwise the frame is skipped and
-  counted. Nothing happens on the receivers, and the copies are bounded by
+  counted. Three slots keep the newest frame the one that waits while the
+  bridge is slow: one is being sent, one waits, and the writer fills the
+  third, which then takes the waiting one's place. With two, the writer
+  would skip every newer frame, and the frame sent next would be as old
+  as the bridge's delay. Nothing happens on the receivers, and the copies are bounded by
   the cap, not the camera's rate.
 - **The tap thread sends it.** It writes each frame offered, with its
   stream and receive time, to the bridge's frame socket
@@ -80,7 +84,7 @@ JPEG, and sends it to each page over the live view's WebSocket.**
 - An operator sees each camera live beside the robot, at up to
   `viewer.camera_max_fps`, on any page, with the delay from its arrival
   shown as for the robot.
-- Capture holds two frames of each camera's size beside its rings, counted
+- Capture holds three frames of each camera's size beside its rings, counted
   in the memory it declares at start, and copies at most the cap's worth of
   frames a second, on the writer thread.
 - A second socket between capture and the bridge, with a setting of its
@@ -113,5 +117,9 @@ JPEG, and sends it to each page over the live view's WebSocket.**
 - **Raw frames as they are**, drawn on a canvas, capped at a lower rate:
   exact pixels and no encoder in the bridge, but tens of MB/s to a page,
   too much over a network.
+- **Two slots, and stale frames dropped.** The tap thread frees a waiting
+  frame older than one interval rather than send it, so the writer can
+  fill the slot with a newer one. No third frame of memory, but a camera
+  that pauses or stops would never show its last frame.
 - **Encoding in capture.** Turning raw frames into JPEG where they arrive
   would put milliseconds of work per frame on the recording path.

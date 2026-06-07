@@ -317,6 +317,65 @@ fn offering_messages_to_the_viewer_tap_never_allocates() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn offering_camera_frames_to_the_bridge_never_allocates() {
+    use std::io::Read;
+    use std::os::unix::net::UnixListener;
+    use std::time::{Duration, Instant};
+
+    use kapto_capture::Batch;
+    use kapto_capture::tap::frames::{FrameConfig, frames};
+    use kapto_core::RecvTime;
+
+    let path = std::env::temp_dir().join(format!("kapto-frames-alloc-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let bridge = UnixListener::bind(&path).unwrap();
+    let config = FrameConfig {
+        cameras: vec![(0, 1 << 20)],
+        min_interval: Duration::from_millis(1),
+    };
+    let (mut feed, mut sender, stats) = frames(&config, &path);
+    let mut batch = Batch::new(1, 1 << 20);
+    batch.push(0, &vec![7; 1 << 20]);
+    let mut offer = |feed: &mut kapto_capture::tap::frames::FrameFeed, frame: u64| {
+        batch.set_recv_time(RecvTime::from_nanos(frame * 2_000_000));
+        feed.offer(&batch);
+    };
+    // Before the tap thread runs, every slot fills and the rest are skipped.
+    let before = allocations();
+    for frame in 0..10 {
+        offer(&mut feed, frame);
+    }
+    let mut allocated = allocations() - before;
+    assert_eq!(stats.totals()[0].skipped, 7);
+
+    // The bridge reads and the tap thread sends on threads of their own,
+    // whose allocations aren't counted here.
+    std::thread::spawn(move || {
+        let (mut stream, _) = bridge.accept().unwrap();
+        let mut buffer = vec![0; 1 << 16];
+        while stream.read(&mut buffer).is_ok_and(|read| read > 0) {}
+    });
+    let sending = std::thread::spawn(move || {
+        while !sender.is_finished() {
+            sender.send_until(Instant::now() + Duration::from_millis(1));
+        }
+    });
+    let before = allocations();
+    for frame in 10..1_000 {
+        offer(&mut feed, frame);
+    }
+    allocated += allocations() - before;
+    drop(feed);
+    sending.join().unwrap();
+    let totals = stats.totals()[0];
+    assert_eq!(totals.offered, 1_000);
+    assert!(totals.sent > 0, "{totals:?}");
+    assert_eq!(allocated, 0, "offering frames allocated {allocated} times");
+    std::fs::remove_file(&path).unwrap();
+}
+
 #[test]
 fn keeping_messages_for_later_episodes_never_allocates() {
     use kapto_capture::{Batch, Kept, KeptStream};

@@ -12,9 +12,11 @@
 //! minimum and maximum since the last send) as a datagram that is dropped
 //! and counted when the viewer's socket is full or nothing listens on it.
 //! It also keeps each stream's newest decoded values ([`LatestValues`]) for
-//! the capture process's status.
+//! the capture process's status, and sends each camera's newest frame to the
+//! bridge over a socket of its own ([`frames`]).
 
 mod decimate;
+pub mod frames;
 mod latest;
 mod socket;
 pub mod wire;
