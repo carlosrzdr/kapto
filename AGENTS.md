@@ -298,6 +298,6 @@ configuration; four processes, threads for high-rate work; a Svelte UI
 embedded in the binary; ROS 2 through rcl (`r2r`), types loaded by name,
 only in the ROS 2 image; kept messages (`transient_local`) starting every
 episode; messages over a datagram's size (cameras) through rings of their
-own; uploads through one engine in the worker on `object_store`, state
+own, and to the live view over a stream socket of their own; uploads through one engine in the worker on `object_store`, state
 in `kapto.db`, `_SUCCESS` last, credentials by reference, RustFS for tests;
 Docker as the only build prerequisite, automation in `cargo xtask`.
