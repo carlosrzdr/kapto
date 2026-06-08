@@ -192,7 +192,16 @@ impl FrameFeed {
                 any = true;
             }
         }
-        if !any {
+        // Most batches have no frame due: they cost one look at each
+        // message, not two.
+        let early = self.interval / 8;
+        let due = |camera: &FeedCamera| {
+            camera.newest != usize::MAX && now.saturating_add(early) >= camera.due
+        };
+        if !any || !self.cameras.iter().any(due) {
+            for camera in &mut self.cameras {
+                camera.newest = usize::MAX;
+            }
             return;
         }
         for (position, (stream, message)) in batch.messages().enumerate() {
@@ -209,7 +218,7 @@ impl FrameFeed {
             // Frames a little early still count as due, so a camera at twice
             // the cap with some jitter is offered at the cap, not at a third
             // of its rate.
-            if now.saturating_add(self.interval / 8) < camera.due {
+            if now.saturating_add(early) < camera.due {
                 continue;
             }
             // The next one is due an interval after this one was, so the cap
@@ -335,6 +344,22 @@ impl FrameSender {
                         .fetch_add(1, Ordering::Relaxed);
                     self.cameras[camera].free(slot);
                 }
+            }
+        }
+    }
+
+    /// Stops sending: the frame being written and every frame still
+    /// waiting are counted as not sent.
+    pub fn finish(mut self) {
+        self.take_offered();
+        if let Some((camera, _, _)) = self.sending.take() {
+            self.stats.cameras[camera]
+                .not_sent
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        for (camera, counts) in self.cameras.iter_mut().zip(&self.stats.cameras) {
+            if camera.waiting.take().is_some() {
+                counts.not_sent.fetch_add(1, Ordering::Relaxed);
             }
         }
     }

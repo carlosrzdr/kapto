@@ -90,3 +90,15 @@ per_batch_ns = 3_000_000
 per_message_ns = 500
 per_kib_ns = 6_000
 reason = "Reads the recording's start, unpacks the package it carries and draws the robot once per episode, about 1 ms; decodes each message and merges it, and the robot's pose at 60 a second, into the replay view's steps: about 250 ns per message and 2.7 µs per KiB, 0.03 s per minute of a 1 kHz arm. Measured with each replay drawing its robot afresh, as the first replay of a package does. The sample arm has no meshes; a robot's meshes add reading them once and writing them into the view: the Franka Panda's 10.6 MB of COLLADA about 45 ms a reading. The worker keeps the robot it last drew whole for the next replay of the same package, which then reads no mesh."
+
+[stage.tap_offer]
+per_batch_ns = 400
+per_message_ns = 8
+per_kib_ns = 5
+reason = "Finds each stream's newest message in the batch and copies it into a free slot for the live view: one look at each message, one copy per stream."
+
+[stage.tap_offer_cameras]
+per_batch_ns = 400
+per_message_ns = 10
+per_kib_ns = 5
+reason = "As tap_offer, plus a look at each message for the cameras' newest frames; only a batch with a frame due (at most thirty a second per camera) looks again, to copy it."

@@ -175,3 +175,21 @@ fn a_bridge_that_goes_away_part_way_through_a_frame_counts_it_as_not_sent() {
     assert_eq!((totals.sent, totals.not_sent), (0, 1));
     std::fs::remove_file(&path).unwrap();
 }
+
+#[test]
+fn frames_left_when_sending_finishes_are_counted_as_not_sent() {
+    let path = socket_path("finish");
+    // Listening, never accepting nor reading.
+    let _bridge = UnixListener::bind(&path).unwrap();
+    let (mut feed, mut sender, stats) = frames(&config(4 << 20), &path);
+    feed.offer(&batch(1, 0, 4 << 20, 1));
+    sender.send_until(Instant::now() + Duration::from_millis(20));
+    feed.offer(&batch(1, 1, 4 << 20, 2));
+    feed.offer(&batch(2, 2, 1024, 3));
+    sender.finish();
+    let totals = stats.totals();
+    // The frame cut off, and the newest of each camera.
+    assert_eq!((totals[0].not_sent, totals[1].not_sent), (2, 1));
+    assert_eq!(totals[0].offered, totals[0].sent + totals[0].not_sent);
+    std::fs::remove_file(&path).unwrap();
+}

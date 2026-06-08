@@ -79,7 +79,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
     let mut station = Station::open(
         plan,
         &declarations,
-        &deployment.tap_socket.value,
+        live_view(&deployment),
         deployment.data_dir.value.clone(),
     )
     .map_err(|error| vec![error])?;
@@ -568,6 +568,16 @@ pub(crate) fn disk_limits(deployment: &DeploymentConfig) -> DiskLimits {
         warn_below: bytes(deployment.disk_warn_below_mib.value),
         stop_below: bytes(deployment.disk_stop_below_mib.value),
     }
+}
+
+/// Where the live view's samples and frames go, and how many frames a
+/// second of each camera: the settings `Station::open` takes.
+pub(crate) fn live_view(deployment: &DeploymentConfig) -> (&Path, &Path, u32) {
+    (
+        &deployment.tap_socket.value,
+        &deployment.frame_socket.value,
+        deployment.viewer_camera_max_fps.value,
+    )
 }
 
 /// In MiB, as the settings write it.

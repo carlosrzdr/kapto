@@ -12,7 +12,8 @@
 //! Threads: `cap-rx-udp-0` receives every UDP stream and `cap-rx-tcp-<n>`
 //! the n-th TCP stream, each into its own ring; `cap-writer` writes every
 //! ring to the episode, or while idle only offers each batch to the live
-//! view; `cap-tap` sends the live view's samples; the calling thread
+//! view; `cap-tap` sends the live view's samples and cameras' frames; the
+//! calling thread
 //! watches, samples the clocks and decides when the phase ends.
 //!
 //! The writer also keeps, in every phase, the newest messages of each
@@ -28,6 +29,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use kapto_capture::finalise::{RECORDING_FILE, Staged};
+use kapto_capture::tap::frames::FrameStats;
 use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
@@ -64,6 +66,8 @@ pub(crate) struct Station {
     transports: Vec<Box<dyn Transport>>,
     tap: Option<TapFeed>,
     tap_stats: Option<Arc<TapStats>>,
+    /// The cameras' counters, if the live view runs and a stream is one.
+    frame_stats: Option<Arc<FrameStats>>,
     tap_thread: Option<JoinHandle<()>>,
     /// Each stream's newest decoded values, while the live view runs.
     latest: Option<Arc<LatestValues>>,
@@ -143,6 +147,8 @@ pub(crate) struct Live<'a> {
     tcp: bool,
     /// The live view's counters, if it runs.
     tap: Option<&'a TapStats>,
+    /// The cameras' counters, if the live view runs and a stream is one.
+    frames: Option<&'a FrameStats>,
     /// Each stream's newest decoded values, if the live view runs.
     pub(crate) latest: Option<&'a LatestValues>,
     /// Where events go to be written into the episode's recording, while
@@ -154,8 +160,9 @@ pub(crate) struct Live<'a> {
 
 impl Station {
     /// Opens every input and starts the live view, which sends to
-    /// `tap_socket` for as long as the station is open. Without a socket the
-    /// station works without a live view.
+    /// `tap_socket`, and the cameras' frames to `frame_socket` at most
+    /// `camera_max_fps` a second each, for as long as the station is open.
+    /// Without a socket the station works without a live view.
     ///
     /// # Errors
     ///
@@ -163,7 +170,7 @@ impl Station {
     pub(crate) fn open(
         plan: Plan,
         declarations: &[StreamDeclaration],
-        tap_socket: &Path,
+        (tap_socket, frame_socket, camera_max_fps): (&Path, &Path, u32),
         data_dir: PathBuf,
     ) -> Result<Self, KaptoError> {
         let transports = plan
@@ -180,31 +187,42 @@ impl Station {
                 .max_message_len
                 .min(usize::try_from(MAX_DATAGRAM_BYTES).unwrap_or(usize::MAX))
         });
-        let (tap, tap_stats, tap_thread, latest) =
-            match viewer_tap::open(tap_socket, declarations, largest.max().unwrap_or(0)) {
-                Some(opened) => {
-                    let viewer = opened.tap;
-                    match thread::Builder::new()
-                        .name("cap-tap".into())
-                        .spawn(move || viewer.run())
-                    {
-                        Ok(handle) => (
-                            Some(opened.feed),
-                            Some(opened.stats),
-                            Some(handle),
-                            Some(opened.latest),
-                        ),
-                        Err(error) => {
-                            eprintln!(
-                                "warning: no live view: {}",
-                                thread_failed("cap-tap", &error.to_string()).message()
-                            );
-                            (None, None, None, None)
-                        }
+        let cameras = viewer_tap::Cameras {
+            streams: &plan.cameras,
+            socket: frame_socket,
+            max_fps: camera_max_fps,
+        };
+        let opened = viewer_tap::open(
+            tap_socket,
+            declarations,
+            largest.max().unwrap_or(0),
+            &cameras,
+        );
+        let (tap, tap_stats, frame_stats, tap_thread, latest) = match opened {
+            Some(opened) => {
+                let viewer = opened.tap;
+                match thread::Builder::new()
+                    .name("cap-tap".into())
+                    .spawn(move || viewer.run())
+                {
+                    Ok(handle) => (
+                        Some(opened.feed),
+                        Some(opened.stats),
+                        opened.frames,
+                        Some(handle),
+                        Some(opened.latest),
+                    ),
+                    Err(error) => {
+                        eprintln!(
+                            "warning: no live view: {}",
+                            thread_failed("cap-tap", &error.to_string()).message()
+                        );
+                        (None, None, None, None, None)
                     }
                 }
-                None => (None, None, None, None),
-            };
+            }
+            None => (None, None, None, None, None),
+        };
         Ok(Self {
             kept: Kept::new(&plan.kept),
             plan,
@@ -212,6 +230,7 @@ impl Station {
             transports,
             tap,
             tap_stats,
+            frame_stats,
             tap_thread,
             latest,
             package: None,
@@ -226,6 +245,11 @@ impl Station {
     /// The live view's counters, if it runs.
     pub(crate) fn tap_stats(&self) -> Option<&TapStats> {
         self.tap_stats.as_deref()
+    }
+
+    /// The cameras' counters, if the live view runs and a stream is one.
+    pub(crate) fn frame_stats(&self) -> Option<&FrameStats> {
+        self.frame_stats.as_deref()
     }
 
     /// Receives without recording, feeding only the live view, while
@@ -495,6 +519,7 @@ impl Station {
                 .iter()
                 .any(|input| matches!(input.source, Source::Tcp(_))),
             tap: self.tap_stats.as_deref(),
+            frames: self.frame_stats.as_deref(),
             latest: self.latest.as_deref(),
             kept: self.kept.held(),
         };
@@ -746,6 +771,16 @@ impl Live<'_> {
         if let Some(tap) = self.tap.filter(|tap| tap.sent() > 0) {
             let dropped = tap.viewer_slow() + tap.skipped();
             let _ = write!(line, "  viewer sent {} dropped {dropped}", tap.sent());
+        }
+        // Likewise once a viewer has taken a frame.
+        let frames = self.frames.map(FrameStats::totals).unwrap_or_default();
+        let sent: u64 = frames.iter().map(|camera| camera.sent).sum();
+        if sent > 0 {
+            let dropped: u64 = frames
+                .iter()
+                .map(|camera| camera.superseded + camera.skipped)
+                .sum();
+            let _ = write!(line, "  frames sent {sent} dropped {dropped}");
         }
         line
     }

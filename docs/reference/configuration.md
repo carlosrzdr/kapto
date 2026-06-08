@@ -65,7 +65,7 @@ How many frames a second, at most, of each camera the recording hands to the liv
 | Accepts | a whole number of times per second from 1 to 1000 |
 | Default | `30` |
 | Environment variable | `KAPTO_VIEWER_CAMERA_MAX_FPS` |
-| Flag | none |
+| Flag | `--camera-max-fps` |
 
 ## `viewer.history`
 
@@ -149,7 +149,7 @@ Unix socket the recording sends cameras' frames to, for the viewer: frames are t
 | Accepts | a non-empty path |
 | Default | `frames.sock` inside the data directory |
 | Environment variable | `KAPTO_VIEWER_FRAME_SOCKET` |
-| Flag | none |
+| Flag | `--frame-socket` |
 
 ## `capture.control_socket`
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Benchmarks of each stage of the recording path that runs on whole batches:
-//! handing a batch from receiver to writer, loss accounting, writing MCAP, and
-//! reading the clock.
+//! handing a batch from receiver to writer, loss accounting, writing MCAP,
+//! offering it to the live view, and reading the clock.
 //!
 //! Each stage runs across a grid of messages per batch and message sizes, so
 //! its cost can be split into a part per batch, per message and per byte.
@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use kapto_capture::loss::{ByteOrder, RateGap, SequenceField, SequenceWidth};
+use kapto_capture::tap::frames::{FrameConfig, frames};
+use kapto_capture::tap::{TapConfig, tap};
 use kapto_capture::{
     Accounting, Batch, ChannelSpec, Compression, LossCounters, LossDetection, Recording,
     RingConfig, StreamIndex, WriterConfig, ring,
@@ -199,6 +201,53 @@ fn mcap_write(c: &mut Criterion) {
     }
 }
 
+/// Offering a batch's newest message of each stream to the live view, the
+/// writer's part of the tap: alone, and with two of the streams cameras,
+/// whose newest frame is offered too when one is due (at most thirty times
+/// a second: the batches between only look for them). The tap thread's
+/// taking the offers isn't timed.
+fn tap_offer(c: &mut Criterion) {
+    for (name, cameras) in [("tap_offer", 0), ("tap_offer_cameras", 2)] {
+        let mut group = c.benchmark_group(name);
+        for (messages, size) in grid() {
+            group.throughput(Throughput::Elements(messages as u64));
+            group.bench_function(id(messages, size), |b| {
+                let (mut feed, mut drain, _) = tap(&TapConfig {
+                    slots: 16 * usize::from(STREAMS),
+                    max_message_len: size,
+                    streams: usize::from(STREAMS),
+                });
+                let config = FrameConfig {
+                    cameras: (0..cameras).map(|stream| (stream, size)).collect(),
+                    min_interval: Duration::from_secs(1) / 30,
+                };
+                // Nothing listens there: the frames are only offered.
+                let socket = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("bench-frames.sock");
+                let (frame_feed, sender, _) = frames(&config, &socket);
+                if cameras > 0 {
+                    feed.set_frames(frame_feed);
+                }
+                let mut next_sequence = vec![0_u32; usize::from(STREAMS)];
+                let batch = batch(messages, size, &mut next_sequence);
+                b.iter_custom(|iterations| {
+                    let mut timed = Duration::ZERO;
+                    for _ in 0..iterations {
+                        let start = Instant::now();
+                        feed.offer(black_box(&batch));
+                        timed += start.elapsed();
+                        drain.each(|_, _, bytes| {
+                            black_box(bytes);
+                        });
+                    }
+                    timed
+                });
+                drop(sender);
+            });
+        }
+        group.finish();
+    }
+}
+
 /// Reading the monotonic clock (once per batch) and converting a receive
 /// time to UTC (once per batch when writing).
 fn timestamps(c: &mut Criterion) {
@@ -211,5 +260,7 @@ fn timestamps(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(stages, hand_off, accounting, mcap_write, timestamps);
+criterion_group!(
+    stages, hand_off, accounting, mcap_write, tap_offer, timestamps
+);
 criterion_main!(stages);

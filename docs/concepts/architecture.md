@@ -301,6 +301,22 @@ counts are printed live once a viewer is reading, and at the end. The
 tap thread also keeps each stream's newest values, which capture's
 `status` answers with, so the web UI can show where each joint is.
 
+A camera's frames are far larger than a datagram, so they take a path of
+their own ([cameras in the live view](../design/cameras-in-the-live-view.md)).
+A stream is a camera when it is a ROS 2 topic of a camera's type or a TCP
+stream with a `camera` table. As it offers each batch, the writer copies
+each camera's newest frame into one of three slots set aside for it, at
+most `viewer.camera_max_fps` times a second (30 by default); the batches
+between only look for a frame. In what is left of each interval between
+its sends of samples, `cap-tap` writes the frames to the viewer's frame
+socket (`viewer.frame_socket`), a Unix stream socket, as a short header and
+the message as recorded: one frame at a time, finishing a frame cut off by
+the interval's end before any other, keeping only each camera's newest
+waiting. Frames the viewer is too slow for are replaced by newer ones and
+counted; with no viewer listening, they are counted as not sent, and the
+counts are printed live once a viewer takes a frame, and per camera at the
+end. The bridge doesn't read the frame socket yet *(planned)*.
+
 The **viewer bridge**, `kapto viz-bridge`, reads that socket and streams
 the robot moving to the web UI's live view, Kapto's own viewer
 ([the viewer's design](../design/a-viewer-of-our-own.md)). It is a process of

@@ -108,6 +108,9 @@ pub(crate) struct Plan {
     /// One per receiver thread: every UDP stream together, each TCP stream
     /// on its own, then every ROS 2 topic together.
     pub(crate) inputs: Vec<Input>,
+    /// The streams that are cameras, with their largest frame: the live
+    /// view gets their newest frames.
+    pub(crate) cameras: Vec<(StreamIndex, usize)>,
 }
 
 /// What one receiver thread receives, and the ring it fills.
@@ -178,6 +181,7 @@ pub(crate) fn plan(
         detections: Vec::new(),
         kept: kept_streams(declarations, settings),
         inputs: Vec::new(),
+        cameras: cameras(declarations, settings),
     };
     let mut sockets = Vec::new();
     let (mut udp_rate, mut udp_slot) = (0_u64, 1_u32);
@@ -348,6 +352,23 @@ fn kept_streams(declarations: &[StreamDeclaration], settings: &RecordSettings) -
                 depth: usize::try_from(topic.qos.depth).unwrap_or(usize::MAX),
                 max_message_len: usize::try_from(slot).unwrap_or(usize::MAX),
             })
+        })
+        .collect()
+}
+
+/// The streams that are cameras, with their largest frame.
+fn cameras(
+    declarations: &[StreamDeclaration],
+    settings: &RecordSettings,
+) -> Vec<(StreamIndex, usize)> {
+    (0..=StreamIndex::MAX)
+        .zip(declarations)
+        .filter(|(_, declaration)| declaration.is_camera())
+        .map(|(stream, declaration)| {
+            let bytes = declaration
+                .max_message_bytes
+                .unwrap_or(settings.default_max_message_bytes);
+            (stream, usize::try_from(bytes).unwrap_or(usize::MAX))
         })
         .collect()
 }
@@ -723,8 +744,8 @@ fn session(
     let mut station = Station::open(
         plan,
         &declarations,
-        &deployment.tap_socket.value,
-        deployment.data_dir.value,
+        crate::capture::live_view(&deployment),
+        deployment.data_dir.value.clone(),
     )
     .map_err(|error| vec![error])?;
     (station.package, station.carried) =
@@ -755,6 +776,11 @@ fn session(
     )?;
     if let Some(stats) = station.tap_stats() {
         println!("{}", viewer_tap::summary(stats));
+    }
+    if let Some(stats) = station.frame_stats() {
+        for line in viewer_tap::frames_summary(stats, &declarations) {
+            println!("{line}");
+        }
     }
     finished.receivers
 }

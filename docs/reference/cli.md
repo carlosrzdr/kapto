@@ -54,6 +54,8 @@
 | `--upload-backoff-max <SECONDS>` | The longest wait before a request is tried again (`upload.backoff_max`) |
 | `--upload-timeout-connect <SECONDS>` | How long connecting may take (`upload.timeout_connect`) |
 | `--upload-timeout-request <SECONDS>` | How long one request may take (`upload.timeout_request`) |
+| `--camera-max-fps <HZ>` | Frames a second, at most, of each camera sent to the live view (`viewer.camera_max_fps`) |
+| `--frame-socket <PATH>` | Unix socket cameras' frames are sent to, for the viewer (`viewer.frame_socket`) |
 | `-h`, `--help` | Print help |
 | `-V`, `--version` | Print the version (top level only) |
 

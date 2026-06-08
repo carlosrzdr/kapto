@@ -76,6 +76,7 @@ pub fn tap(config: &TapConfig) -> (TapFeed, TapDrain, Arc<TapStats>) {
         free: free_rx,
         newest: vec![usize::MAX; config.streams].into_boxed_slice(),
         stats: Arc::clone(&stats),
+        frames: None,
     };
     let drain = TapDrain {
         full: full_rx,
@@ -92,12 +93,24 @@ pub struct TapFeed {
     /// Per stream, the position of its newest message in the current batch.
     newest: Box<[usize]>,
     stats: Arc<TapStats>,
+    /// Where the cameras' newest frames are offered, if any stream is one.
+    frames: Option<frames::FrameFeed>,
 }
 
 impl TapFeed {
-    /// Offers the newest message of each stream in `batch`. Never allocates
-    /// or waits: with no free slot, the message is skipped and counted.
+    /// Offers each camera's newest frames to `frames` too, with every
+    /// batch.
+    pub fn set_frames(&mut self, frames: frames::FrameFeed) {
+        self.frames = Some(frames);
+    }
+
+    /// Offers the newest message of each stream in `batch`, and each
+    /// camera's newest frame if one is due. Never allocates or waits: with
+    /// no free slot, the message is skipped and counted.
     pub fn offer(&mut self, batch: &Batch) {
+        if let Some(frames) = &mut self.frames {
+            frames.offer(batch);
+        }
         self.newest.fill(usize::MAX);
         for (position, (stream, _)) in batch.messages().enumerate() {
             if let Some(newest) = self.newest.get_mut(usize::from(stream)) {
