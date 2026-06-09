@@ -1729,6 +1729,8 @@ name = "kapto-viz"
 version = "0.0.0"
 dependencies = [
  "criterion",
+ "jpeg-decoder",
+ "jpeg-encoder",
  "kapto-capture",
  "kapto-config",
  "kapto-core",

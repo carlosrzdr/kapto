@@ -227,8 +227,10 @@ TCP port.
 
 A TCP stream whose messages are a camera's frames says so in a `camera`
 table, so the live view can show them *(planned)*: JPEG pictures, or raw
-ones of a fixed size and pixel layout. A raw camera's frames must fit
-`max_message_bytes`, and a fixed framing's `size` must be one frame. A ROS 2
+ones of a fixed size and pixel layout. A raw camera's frames, with a length
+prefix's header, must fit `max_message_bytes`, and a fixed framing's `size`
+must be one frame. The live view finds each picture after the length
+prefix, which the recording keeps with every message. A ROS 2
 topic of type `sensor_msgs/msg/CompressedImage` or `sensor_msgs/msg/Image`
 is a camera by its type and needs no table.
 

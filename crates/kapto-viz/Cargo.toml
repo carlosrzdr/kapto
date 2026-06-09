@@ -15,6 +15,8 @@ kapto-core.workspace = true
 kapto-decode.workspace = true
 kapto-robot.workspace = true
 kapto-store.workspace = true
+# Raw camera pictures encoded for the browser, off the recording path.
+jpeg-encoder.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tungstenite.workspace = true
@@ -23,6 +25,7 @@ utoipa.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 criterion.workspace = true
+jpeg-decoder.workspace = true
 kapto-testkit.workspace = true
 serde_json.workspace = true
 tungstenite.workspace = true

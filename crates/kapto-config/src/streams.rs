@@ -505,11 +505,21 @@ impl Reader<'_> {
             );
             self.invalid(table, "camera", detail);
         }
+        // A length-prefixed message is stored with its header.
+        let header = match tcp.map(|tcp| &tcp.framing) {
+            Some(FramingDeclaration::LengthPrefix { header_bytes, .. }) => u64::from(*header_bytes),
+            _ => 0,
+        };
         if let Some(max) = max_message_bytes
-            && u64::from(max) < bytes
+            && u64::from(max) < bytes + header
         {
+            let with_header = if header > 0 {
+                format!(" and {header} of its length prefix")
+            } else {
+                String::new()
+            };
             let detail = format!(
-                "`{path}.camera` frames are {bytes} bytes, but `max_message_bytes` is {max}"
+                "`{path}.camera` frames are {bytes} bytes{with_header}, but `max_message_bytes` is {max}"
             );
             self.invalid(table, "camera", detail);
         }
@@ -1075,7 +1085,7 @@ mod tests {
              tcp = { listen = \"0.0.0.0:7010\", framing = { kind = \"length_prefix\", length_bytes = 4 } }\n\
              camera = { format = \"jpeg\" }\n\
              [streams.wrist]\n\
-             max_message_bytes = 921600\n\
+             max_message_bytes = 921604\n\
              tcp = { listen = \"0.0.0.0:7011\", framing = { kind = \"length_prefix\", length_bytes = 4 } }\n\
              camera = { format = \"raw\", width = 640, height = 480, encoding = \"rgb8\" }\n\
              [streams.odometry]\n\
@@ -1140,7 +1150,7 @@ mod tests {
                 "config.invalid_value 12: Invalid configuration value: `streams.d.camera.encoding` must be one of \"rgb8\", \"bgr8\", \"rgba8\", \"bgra8\", \"mono8\"",
                 "config.invalid_value 12: Invalid configuration value: `streams.d.camera` of raw frames needs `height`",
                 "config.invalid_value 15: Invalid configuration value: `streams.e.camera.width` is for raw frames; a JPEG says its own",
-                "config.invalid_value 19: Invalid configuration value: `streams.f.camera` frames are 307200 bytes, but `max_message_bytes` is 1000",
+                "config.invalid_value 19: Invalid configuration value: `streams.f.camera` frames are 307200 bytes and 4 of its length prefix, but `max_message_bytes` is 1000",
                 "config.invalid_value 22: Invalid configuration value: `streams.g.camera` frames are 1073741824 bytes, more than the 33554432 a message may be",
             ]
         );

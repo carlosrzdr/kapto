@@ -33,9 +33,10 @@ allow = [
     # cloud stores' TLS): permissive, attribution only.
     "CDLA-Permissive-2.0",
     # The Independent JPEG Group's licence, beside MIT or Apache-2.0, of
-    # `jpeg-encoder`, which the synthetic robot's camera encodes its frames
-    # with: permissive, asking whoever distributes it to say it is based on
-    # the IJG's work, which NOTICE does. Not in Kapto's binaries.
+    # `jpeg-encoder`, which the viewer bridge encodes raw cameras' pictures
+    # with, and the synthetic robot's camera its frames: permissive, asking
+    # whoever distributes it to say it is based on the IJG's work, which
+    # NOTICE does.
     "IJG",
 ]
 confidence-threshold = 0.93
