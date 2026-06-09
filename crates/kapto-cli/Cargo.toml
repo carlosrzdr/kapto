@@ -60,6 +60,8 @@ kapto-upload = { workspace = true, features = ["testing"] }
 proptest.workspace = true
 rmp-serde.workspace = true
 reqwest.workspace = true
+# A page of the live view, watching the viewer bridge run as a process.
+tungstenite.workspace = true
 
 [lints]
 workspace = true

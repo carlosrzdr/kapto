@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use kapto_core::{ClockSample, ErrorCode, KaptoError};
+use kapto_viz::picture::CameraKind;
 use kapto_viz::{Bridge, BridgeSettings, LiveRobot, Plots, StreamFields};
 
 use crate::SettingFlags;
@@ -52,6 +53,10 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
         streams,
         ..
     } = prepared;
+    let cameras: Vec<(u16, CameraKind)> = (0..=u16::MAX)
+        .zip(&streams)
+        .filter_map(|(stream, declaration)| Some((stream, CameraKind::of(declaration)?)))
+        .collect();
     let clock = ClockSample::now();
     let live = LiveRobot::new(&robot, kinematics, &map, streams.len(), clock);
     let plots = Plots::new(&StreamFields::of(&streams));
@@ -65,6 +70,8 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
         deployment.tap_socket.value.clone(),
     );
     settings.control_socket = Some(deployment.control_socket.value.clone());
+    settings.frame_socket = Some(deployment.frame_socket.value.clone());
+    settings.cameras = cameras;
     settings.display_interval =
         Duration::from_secs(1) / deployment.viewer_display_rate.value.max(1);
     settings.history_bytes = deployment.viewer_history_mib.value * 1024 * 1024;
@@ -79,6 +86,12 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
         "Live samples from capture: {}",
         settings.tap_socket.display()
     );
+    if !settings.cameras.is_empty() {
+        println!(
+            "Cameras' frames from capture: {}",
+            deployment.frame_socket.value.display()
+        );
+    }
 
     let stop = Arc::new(AtomicBool::new(false));
     if let Some(seconds) = args.duration {
@@ -99,5 +112,17 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
         "Read {} live samples; skipped {} of another version and {} unreadable",
         stats.samples, stats.other_version, stats.unreadable
     );
+    if let Some(cameras) = bridge.camera_totals() {
+        let stream = bridge.stream_stats();
+        println!(
+            "Read {} cameras' frames: {} shown, {} that can't be shown, {} connections that sent something else; pictures sent to pages {}, missed by slow pages {}",
+            cameras.frames,
+            cameras.shown,
+            cameras.unshown,
+            cameras.unreadable,
+            stream.pictures_sent,
+            stream.pictures_dropped
+        );
+    }
     Ok(())
 }

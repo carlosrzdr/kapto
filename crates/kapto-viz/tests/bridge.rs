@@ -536,6 +536,7 @@ fn another_site_s_page_is_refused_and_one_that_never_reads_costs_only_the_frames
         links: Vec::new(),
         streams: Vec::new(),
         history_s: 600,
+        cameras: Vec::new(),
     };
     let history = History::new(i64::MAX, usize::MAX);
     let stream = FrameStream::start(
@@ -763,6 +764,7 @@ fn a_page_streamed_to_without_pause_still_has_its_questions_answered() {
         links: Vec::new(),
         streams: Vec::new(),
         history_s: 600,
+        cameras: Vec::new(),
     };
     let stream = Arc::new(
         FrameStream::start(

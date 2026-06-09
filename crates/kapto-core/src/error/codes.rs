@@ -617,6 +617,12 @@ error_codes! {
         remedy: "Set viewer.tap_socket to a path of at most 107 bytes, in a folder Kapto may write, that isn't taken by another file. The recording and the viewer bridge must use the same path.",
     }
 
+    /// The viewer bridge can't listen on the recording's frame socket.
+    ViewerFrameSocketFailed = "viewer.frame_socket_failed" {
+        summary: "The viewer can't listen for cameras' frames",
+        remedy: "Set viewer.frame_socket to a path of at most 107 bytes, in a folder Kapto may write, that isn't taken by another file. The recording and the viewer bridge must use the same path.",
+    }
+
     /// The viewer bridge stopped being able to hand data to the viewer.
     ViewerLoggingFailed = "viewer.logging_failed" {
         summary: "The viewer stopped taking data",

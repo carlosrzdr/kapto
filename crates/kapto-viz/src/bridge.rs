@@ -2,7 +2,9 @@
 
 //! The viewer bridge: live samples in from the recording's tap, the
 //! robot's poses and every decoded value out to the web UI's live view, as
-//! a stream of frames, with what it streamed kept for pages looking back.
+//! a stream of frames, with what it streamed kept for pages looking back;
+//! and cameras' frames in from the recording's frame socket, their
+//! pictures out to the same pages.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -14,9 +16,11 @@ use kapto_core::clock::monotonic_now;
 use kapto_core::{ClockSample, ErrorCode, KaptoError};
 use kapto_robot::RobotModel;
 
+use crate::camera_frames::{self, CameraStats, CameraTotals};
 use crate::history::History;
 use crate::live::LiveRobot;
 use crate::marks::{Marks, watch_capture};
+use crate::picture::CameraKind;
 use crate::plots::Plots;
 use crate::stream::{Frame, FrameStream, Opening, OpeningStream, STREAM_VERSION, StreamStats};
 use crate::tap_reader::{TapReader, TapReaderStats};
@@ -36,6 +40,12 @@ pub struct BridgeSettings {
     pub ui_port: u16,
     /// The recording's live tap socket.
     pub tap_socket: PathBuf,
+    /// The recording's frame socket, where cameras' frames come; none
+    /// listened on without it, or without cameras.
+    pub frame_socket: Option<PathBuf>,
+    /// The streams that are cameras: each one's position among the streams
+    /// and how its frames are laid out.
+    pub cameras: Vec<(u16, CameraKind)>,
     /// The capture process's control socket, watched for events and
     /// episodes to show on the timeline; none shown without it.
     pub control_socket: Option<PathBuf>,
@@ -58,6 +68,8 @@ impl BridgeSettings {
             stream_port,
             ui_port,
             tap_socket,
+            frame_socket: None,
+            cameras: Vec::new(),
             control_socket: None,
             display_interval: Duration::from_millis(16),
             history_bytes: 64 * 1024 * 1024,
@@ -74,8 +86,11 @@ pub struct Bridge {
     display_interval: Duration,
     /// When the clocks were last read together.
     clock_read: Instant,
-    /// Set when the bridge stops, so watching capture stops too.
+    /// Set when the bridge stops, so watching capture and reading its
+    /// frames stop too.
     stop_watching: Arc<AtomicBool>,
+    /// What became of cameras' frames, if any stream is a camera.
+    cameras: Option<Arc<CameraStats>>,
 }
 
 impl Drop for Bridge {
@@ -92,7 +107,8 @@ impl Bridge {
     /// # Errors
     ///
     /// `viewer.listen_failed` if the stream's port can't be listened on,
-    /// `viewer.tap_socket_failed` if the tap socket can't be.
+    /// `viewer.tap_socket_failed` if the tap socket can't be,
+    /// `viewer.frame_socket_failed` if the frame socket can't be.
     pub fn start(
         settings: &BridgeSettings,
         robot: &RobotModel,
@@ -104,6 +120,7 @@ impl Bridge {
             links: robot.links.iter().map(|link| link.name.clone()).collect(),
             streams: OpeningStream::of(plots),
             history_s: settings.history_age.as_secs(),
+            cameras: settings.cameras.iter().map(|(stream, _)| *stream).collect(),
         };
         let age_ns = i64::try_from(settings.history_age.as_nanos()).unwrap_or(i64::MAX);
         let history = History::new(
@@ -128,6 +145,25 @@ impl Bridge {
                 .detail(error.to_string())
                 .context("socket", settings.tap_socket.display().to_string())
         })?;
+        let cameras = match &settings.frame_socket {
+            Some(path) if !settings.cameras.is_empty() => Some(
+                camera_frames::listen(
+                    path,
+                    settings.cameras.clone(),
+                    stream.photographer(),
+                    Arc::clone(&stop_watching),
+                )
+                .map_err(|error| {
+                    // The bridge won't start, so nothing else would stop
+                    // watching capture.
+                    stop_watching.store(true, Ordering::Relaxed);
+                    KaptoError::new(ErrorCode::ViewerFrameSocketFailed)
+                        .detail(error.to_string())
+                        .context("socket", path.display().to_string())
+                })?,
+            ),
+            _ => None,
+        };
         let mut bridge = Self {
             stream,
             reader,
@@ -135,6 +171,7 @@ impl Bridge {
             display_interval: settings.display_interval,
             clock_read: Instant::now(),
             stop_watching,
+            cameras,
         };
         // Show the robot at rest straight away.
         bridge.step()?;
@@ -145,6 +182,12 @@ impl Bridge {
     #[must_use]
     pub fn tap_stats(&self) -> TapReaderStats {
         self.reader.stats()
+    }
+
+    /// What became of cameras' frames so far, if any stream is a camera.
+    #[must_use]
+    pub fn camera_totals(&self) -> Option<CameraTotals> {
+        self.cameras.as_ref().map(|stats| stats.totals())
     }
 
     /// Where the robot's poses and plotted values are streamed.

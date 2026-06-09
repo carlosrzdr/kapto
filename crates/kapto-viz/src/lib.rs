@@ -9,6 +9,8 @@
 #[cfg(unix)]
 mod bridge;
 #[cfg(unix)]
+pub mod camera_frames;
+#[cfg(unix)]
 pub mod history;
 #[cfg(unix)]
 pub mod live;

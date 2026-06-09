@@ -1556,6 +1556,7 @@ dependencies = [
  "sha2 0.11.0",
  "signal-hook",
  "tokio",
+ "tungstenite",
 ]
 
 [[package]]

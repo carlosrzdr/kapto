@@ -315,7 +315,13 @@ the interval's end before any other, keeping only each camera's newest
 waiting. Frames the viewer is too slow for are replaced by newer ones and
 counted; with no viewer listening, they are counted as not sent, and the
 counts are printed live once a viewer takes a frame, and per camera at the
-end. The bridge doesn't read the frame socket yet *(planned)*.
+end. The bridge's `viz-cameras` thread reads them: it takes each picture
+out (a `CompressedImage`'s, an `Image`'s, a TCP camera's as declared),
+encodes a raw one as JPEG there, never in capture, and sends it to each
+page as a message of its own beside the frames, with each camera's newest
+kept for a page that connects. A frame that can't be shown, such as an
+encoding the bridge doesn't encode, is counted and named to the page. The
+live view doesn't draw pictures yet *(planned)*.
 
 The **viewer bridge**, `kapto viz-bridge`, reads that socket and streams
 the robot moving to the web UI's live view, Kapto's own viewer

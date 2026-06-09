@@ -39,7 +39,8 @@ The first message is text: JSON naming what the frames carry.
       ]
     }
   ],
-  "history_s": 600
+  "history_s": 600,
+  "cameras": [1]
 }
 ```
 
@@ -53,6 +54,9 @@ The first message is text: JSON naming what the frames carry.
   and clocks, which only ever climb, aren't.
 - `history_s` is how far back, in seconds, a page can look
   (`viewer.history_age`); less if `viewer.history` fills first.
+- `cameras` are the streams that are cameras, by their position in
+  `streams`: their pictures come as messages of their own
+  ([Pictures](#pictures)). Empty without a camera.
 
 ## Frames
 
@@ -90,6 +94,45 @@ Then each sample, summarising a stream's messages since its last sample:
 
 A spike between two samples still shows: it is the minimum or maximum of
 the sample that covers it.
+
+## Pictures
+
+A camera's newest picture comes as a binary message of its own, at most
+`viewer.camera_max_fps` a second per camera, as capture hands its frames to
+the bridge. A compressed picture (a `sensor_msgs/msg/CompressedImage`'s, or
+a TCP camera's JPEG) is the camera's own, byte for byte; a raw one (a
+`sensor_msgs/msg/Image`, or a TCP camera's pixels) is encoded as JPEG by the
+bridge, so what the page draws isn't exactly what was recorded, which keeps
+every frame as received. Right after the opening message, a page is sent
+each camera's newest picture, if there is one.
+
+| Bytes | Holds |
+|---|---|
+| 4 | `KVPC` |
+| 2 | The stream's version: 1 |
+| 2 | The camera's position in the opening message's `streams` |
+| 1 | Its format: 0 JPEG, 1 PNG |
+| 3 | Zero |
+| 4 | Its width in pixels, or 0 if not known without decoding it (a compressed picture) |
+| 4 | Its height, the same way |
+| 8 | When Kapto received the frame (signed) |
+| 8 | When the bridge sent the picture, on the same clock (signed) |
+| 4 | The picture's length, `N` |
+| `N` | The picture, which the browser's own decoder draws |
+
+A page tells a picture from a frame by its first four bytes; one that
+doesn't know `KVPC` skips it.
+
+When a camera's frame can't be shown, the page is told why, as text, once
+until it can be again:
+
+```json
+{"camera": {"stream": 1, "unshown": "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8"}}
+```
+
+and `"unshown": null` when the camera's pictures show again. A page
+connecting is told each camera that can't be shown right after the opening
+message.
 
 ## Looking back
 
@@ -175,6 +218,6 @@ rest, and is told them all again when it connects again.
 ## Losing frames
 
 The stream is lossy, like the tap it comes from. Each page has room for a
-few frames; a frame that doesn't fit is dropped for that page and counted,
-and the bridge never waits on a page. A page that stops reading for a few
+few frames, and a few pictures besides; one that doesn't fit is dropped for
+that page and counted, and the bridge never waits on a page. A page that stops reading for a few
 seconds is let go. Recording is never affected by any of it.

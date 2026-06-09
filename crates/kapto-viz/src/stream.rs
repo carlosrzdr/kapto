@@ -14,6 +14,10 @@
 //! a page can ask for any stretch of it, merged to the points it can show.
 //! So are the events and episodes of that time ([`Marks`]), which every
 //! page is told as they come.
+//!
+//! Cameras' pictures go to each page as messages of their own
+//! ([`picture_message`]), with room for a few per page like frames, and
+//! each camera's newest kept for a page that connects.
 
 use std::io::{self, ErrorKind};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
@@ -32,14 +36,22 @@ use tungstenite::{Bytes, Message, WebSocket};
 
 use crate::history::{History, MAX_POINTS, Record, SampleRecord, pose};
 use crate::marks::{Mark, Marks, message};
+use crate::picture::{Picture, PictureFormat};
 use crate::plots::Plots;
 
 /// What a frame starts with.
 pub const FRAME_MAGIC: &[u8; 4] = b"KVFR";
+/// What a camera's picture starts with.
+pub const PICTURE_MAGIC: &[u8; 4] = b"KVPC";
+/// The bytes of a picture message before the picture.
+pub const PICTURE_HEADER: usize = 40;
 /// The version of the stream: its opening message and its frames.
 pub const STREAM_VERSION: u16 = 1;
 /// Frames a page may have waiting before the next is dropped.
 const PAGE_QUEUE: usize = 4;
+/// Pictures a page may have waiting before the next is dropped: one or two
+/// per camera, so a page on a slow link misses pictures, not the robot.
+const PICTURE_QUEUE: usize = 4;
 /// Marks a page may have waiting before the next is dropped: they come a
 /// few a second at most, so only a page that stopped reading fills it.
 const MARKS_QUEUE: usize = 256;
@@ -68,6 +80,9 @@ pub struct Opening {
     pub streams: Vec<OpeningStream>,
     /// How far back the bridge keeps what it streamed, in seconds, at most.
     pub history_s: u64,
+    /// The streams that are cameras, by their position in `streams`: their
+    /// pictures come as messages of their own.
+    pub cameras: Vec<u16>,
 }
 
 /// One stream as the opening message names it.
@@ -203,15 +218,21 @@ pub struct StreamStats {
     pub refused: u64,
     /// Marks a page had no room for, and missed.
     pub marks_dropped: u64,
+    /// Pictures handed to a page.
+    pub pictures_sent: u64,
+    /// Pictures a page had no room for, and missed.
+    pub pictures_dropped: u64,
     /// What the history holds, roughly, in bytes.
     pub history_bytes: usize,
 }
 
-/// A connected page's queues: frames, and marks as text.
+/// A connected page's queues: frames, marks and what is said about
+/// cameras as text, and pictures.
 #[derive(Debug)]
 struct Page {
     frames: SyncSender<Bytes>,
     marks: SyncSender<String>,
+    pictures: SyncSender<Bytes>,
 }
 
 /// What the listener's threads share with the stream.
@@ -227,6 +248,19 @@ struct Shared {
     latest: Arc<Mutex<Option<Bytes>>>,
     history: Arc<Mutex<History>>,
     refused: Arc<AtomicU64>,
+    /// Each camera's newest picture, sent to each page as it connects, and
+    /// why a camera isn't shown, if it isn't: locked before `pages` when
+    /// both are.
+    cameras: Arc<Mutex<Cameras>>,
+    pictures_sent: Arc<AtomicU64>,
+    pictures_dropped: Arc<AtomicU64>,
+}
+
+/// What a page connecting is told of the cameras straight away.
+#[derive(Debug, Default)]
+struct Cameras {
+    newest: std::collections::BTreeMap<u16, Bytes>,
+    unshown: std::collections::BTreeMap<u16, String>,
 }
 
 /// The stream's listener and the pages connected to it.
@@ -266,6 +300,9 @@ impl FrameStream {
             marks: Arc::new(Mutex::new(marks)),
             marks_dropped: Arc::default(),
             refused: Arc::default(),
+            cameras: Arc::default(),
+            pictures_sent: Arc::default(),
+            pictures_dropped: Arc::default(),
         };
         let stop = Arc::new(AtomicBool::new(false));
         thread::Builder::new().name("viz-stream".into()).spawn({
@@ -317,6 +354,8 @@ impl FrameStream {
             dropped: self.dropped.load(Ordering::Relaxed),
             refused: self.shared.refused.load(Ordering::Relaxed),
             marks_dropped: self.shared.marks_dropped.load(Ordering::Relaxed),
+            pictures_sent: self.shared.pictures_sent.load(Ordering::Relaxed),
+            pictures_dropped: self.shared.pictures_dropped.load(Ordering::Relaxed),
             history_bytes: lock(&self.shared.history).bytes(),
         }
     }
@@ -354,6 +393,100 @@ impl FrameStream {
             shared: self.shared.clone(),
         }
     }
+
+    /// A handle handing the stream cameras' pictures.
+    #[must_use]
+    pub fn photographer(&self) -> Photographer {
+        Photographer {
+            shared: self.shared.clone(),
+        }
+    }
+}
+
+/// Hands cameras' pictures to the stream, from any thread.
+#[derive(Clone, Debug)]
+pub struct Photographer {
+    shared: Shared,
+}
+
+impl Photographer {
+    /// Keeps `message`, a [`picture_message`] of camera `stream`, as its
+    /// newest and hands it to every page with room for it. Never waits on
+    /// a page.
+    pub fn picture(&self, stream: u16, message: &Bytes) {
+        let mut cameras = lock(&self.shared.cameras);
+        cameras.newest.insert(stream, message.clone());
+        let (sent, dropped) = (&self.shared.pictures_sent, &self.shared.pictures_dropped);
+        lock(&self.shared.pages).retain(|page| match page.pictures.try_send(message.clone()) {
+            Ok(()) => {
+                sent.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+            Err(TrySendError::Full(_)) => {
+                dropped.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+            Err(TrySendError::Disconnected(_)) => false,
+        });
+    }
+
+    /// Tells every page why camera `stream` isn't shown, or, with `None`,
+    /// that it is again. Only a change is told.
+    pub fn unshown(&self, stream: u16, why: Option<&str>) {
+        let mut cameras = lock(&self.shared.cameras);
+        let said = cameras.unshown.get(&stream).map(String::as_str);
+        if said == why {
+            return;
+        }
+        match why {
+            Some(why) => cameras.unshown.insert(stream, why.to_owned()),
+            None => cameras.unshown.remove(&stream),
+        };
+        let text = unshown_message(stream, why);
+        lock(&self.shared.pages).retain(|page| match page.marks.try_send(text.clone()) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                self.shared.marks_dropped.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+            Err(TrySendError::Disconnected(_)) => false,
+        });
+    }
+}
+
+/// What a page is told of a camera that isn't shown, or is again, as text.
+fn unshown_message(stream: u16, why: Option<&str>) -> String {
+    serde_json::json!({"camera": {"stream": stream, "unshown": why}}).to_string()
+}
+
+/// A camera's picture as a page is sent it: which stream, its format and
+/// size, when Kapto received the frame and when the bridge sent it, in UTC
+/// nanoseconds, then the picture.
+#[must_use]
+pub fn picture_message(
+    stream: u16,
+    picture: &Picture<'_>,
+    received_utc_ns: i64,
+    sent_utc_ns: i64,
+) -> Bytes {
+    let (width, height) = picture.size.unwrap_or((0, 0));
+    let length = u32::try_from(picture.bytes.len()).unwrap_or(u32::MAX);
+    let mut bytes = Vec::with_capacity(PICTURE_HEADER + picture.bytes.len());
+    bytes.extend(PICTURE_MAGIC);
+    bytes.extend(STREAM_VERSION.to_le_bytes());
+    bytes.extend(stream.to_le_bytes());
+    bytes.push(match picture.format {
+        PictureFormat::Jpeg => 0,
+        PictureFormat::Png => 1,
+    });
+    bytes.extend([0; 3]);
+    bytes.extend(width.to_le_bytes());
+    bytes.extend(height.to_le_bytes());
+    bytes.extend(received_utc_ns.to_le_bytes());
+    bytes.extend(sent_utc_ns.to_le_bytes());
+    bytes.extend(length.to_le_bytes());
+    bytes.extend(picture.bytes);
+    Bytes::from(bytes)
 }
 
 impl Drop for FrameStream {
@@ -435,18 +568,36 @@ fn serve_page(
         let _ = queue.try_send(latest);
     }
     let (marks_queue, marks) = mpsc::sync_channel(MARKS_QUEUE);
-    let kept = {
+    let (pictures_queue, pictures) = mpsc::sync_channel(PICTURE_QUEUE);
+    let (kept, said) = {
         let kept = lock(&shared.marks);
+        let cameras = lock(&shared.cameras);
+        // Each camera's newest picture first, so the page shows it before
+        // the next arrives.
+        for picture in cameras.newest.values() {
+            let _ = pictures_queue.try_send(picture.clone());
+        }
         lock(&shared.pages).push(Page {
             frames: queue,
             marks: marks_queue,
+            pictures: pictures_queue,
         });
-        kept.all()
+        let said: Vec<String> = cameras
+            .unshown
+            .iter()
+            .map(|(stream, why)| unshown_message(*stream, Some(why)))
+            .collect();
+        (kept.all(), said)
     };
     if socket.send(Message::text(message(&kept))).is_err() {
         return Ok(());
     }
-    converse(&mut socket, (&frames, &marks), &shared.history);
+    for text in said {
+        if socket.send(Message::text(text)).is_err() {
+            return Ok(());
+        }
+    }
+    converse(&mut socket, (&frames, &marks, &pictures), &shared.history);
     let _ = socket.close(None);
     Ok(())
 }
@@ -472,7 +623,7 @@ enum Question {
 /// for one.
 fn converse(
     socket: &mut WebSocket<TcpStream>,
-    (frames, marks): (&Receiver<Bytes>, &Receiver<String>),
+    (frames, marks, pictures): (&Receiver<Bytes>, &Receiver<String>, &Receiver<Bytes>),
     history: &Mutex<History>,
 ) {
     loop {
@@ -487,6 +638,11 @@ fn converse(
         }
         while let Ok(mark) = marks.try_recv() {
             if socket.send(Message::text(mark)).is_err() {
+                return;
+            }
+        }
+        while let Ok(picture) = pictures.try_recv() {
+            if socket.send(Message::Binary(picture)).is_err() {
                 return;
             }
         }
