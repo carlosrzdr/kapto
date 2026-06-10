@@ -194,86 +194,139 @@ pub fn run_with_faults(
     config: &Config,
     stop: &AtomicBool,
     faults: &Faults,
-    mut report: impl FnMut(Duration, &Stats),
+    report: impl FnMut(Duration, &Stats),
 ) -> io::Result<(Stats, Duration)> {
+    Ok(prepare(config)?.run(stop, faults, report))
+}
+
+/// A run made ready to start: a camera's frames encoded and the sockets
+/// opened, which can take a while, so that it sends from its first tick
+/// once started.
+pub struct Prepared<'a> {
+    config: &'a Config,
+    frames: Option<camera::Frames>,
+    output: Output,
+}
+
+/// Makes a run of `config` ready to start with [`Prepared::run_until`].
+///
+/// # Errors
+///
+/// As [`run`].
+pub fn prepare(config: &Config) -> io::Result<Prepared<'_>> {
     let frames = config
         .camera
         .map(|(width, height)| camera::Frames::new(width, height, config.rate_hz))
         .transpose()?;
-    let mut output = Output::open(config)?;
-    let total_ticks = config.total_ticks();
+    let output = Output::open(config)?;
+    Ok(Prepared {
+        config,
+        frames,
+        output,
+    })
+}
 
-    let start = Instant::now();
-    let schedule = Schedule::new(start, config.rate_hz);
-    let half_period = schedule.offset(1) / 2;
-    let mut total = Stats::default();
-    let mut interval = Stats::default();
-    let mut next_report_second = 1;
-    let mut seq: u32 = 0;
-    let mut tick = 0;
+impl Prepared<'_> {
+    /// Runs as [`run_until`] does, from now.
+    ///
+    /// # Errors
+    ///
+    /// As [`run`].
+    pub fn run_until(
+        self,
+        stop: &AtomicBool,
+        report: impl FnMut(Duration, &Stats),
+    ) -> io::Result<(Stats, Duration)> {
+        Ok(self.run(stop, &Faults::new(), report))
+    }
 
-    while total_ticks.is_none_or(|total_ticks| tick < total_ticks) && !stop.load(Ordering::Relaxed)
-    {
-        let deadline = schedule.deadline(tick);
-        if Instant::now() > deadline + MAX_BEHIND {
-            let caught_up = ticks_elapsed(start.elapsed(), config.rate_hz) + 1;
-            let caught_up = total_ticks.map_or(caught_up, |total_ticks| caught_up.min(total_ticks));
-            let skipped = caught_up.saturating_sub(tick);
-            total.skipped_ticks += skipped;
-            interval.skipped_ticks += skipped;
-            tick = caught_up;
-            continue;
-        }
-        wait_until(deadline, config.spin);
-        let lateness = Instant::now().saturating_duration_since(deadline);
+    fn run(
+        self,
+        stop: &AtomicBool,
+        faults: &Faults,
+        mut report: impl FnMut(Duration, &Stats),
+    ) -> (Stats, Duration) {
+        let Self {
+            config,
+            frames,
+            mut output,
+        } = self;
+        let total_ticks = config.total_ticks();
 
-        let seconds = schedule.offset(tick).as_secs_f64();
-        let source_time_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| {
-                u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
-            });
-        let mut errors = 0;
-        for stream in 0..config.streams {
-            if let Some(frames) = &frames {
-                let frame = frames.frame(stream, tick);
-                if !output.send_frame(usize::from(stream), frame, source_time_ns) {
+        let start = Instant::now();
+        let schedule = Schedule::new(start, config.rate_hz);
+        let half_period = schedule.offset(1) / 2;
+        let mut total = Stats::default();
+        let mut interval = Stats::default();
+        let mut next_report_second = 1;
+        let mut seq: u32 = 0;
+        let mut tick = 0;
+
+        while total_ticks.is_none_or(|total_ticks| tick < total_ticks)
+            && !stop.load(Ordering::Relaxed)
+        {
+            let deadline = schedule.deadline(tick);
+            if Instant::now() > deadline + MAX_BEHIND {
+                let caught_up = ticks_elapsed(start.elapsed(), config.rate_hz) + 1;
+                let caught_up =
+                    total_ticks.map_or(caught_up, |total_ticks| caught_up.min(total_ticks));
+                let skipped = caught_up.saturating_sub(tick);
+                total.skipped_ticks += skipped;
+                interval.skipped_ticks += skipped;
+                tick = caught_up;
+                continue;
+            }
+            wait_until(deadline, config.spin);
+            let lateness = Instant::now().saturating_duration_since(deadline);
+
+            let seconds = schedule.offset(tick).as_secs_f64();
+            let source_time_ns = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |since| {
+                    u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+                });
+            let mut errors = 0;
+            for stream in 0..config.streams {
+                if let Some(frames) = &frames {
+                    let frame = frames.frame(stream, tick);
+                    if !output.send_frame(usize::from(stream), frame, source_time_ns) {
+                        errors += 1;
+                    }
+                    continue;
+                }
+                let mut joints = payload::joints_at(stream, seconds);
+                if !faults.shape(stream, seconds, &mut joints) {
+                    continue;
+                }
+                let sample = Sample {
+                    seq,
+                    source_time_ns,
+                    joints,
+                    gripper: payload::gripper_at(stream, seconds),
+                };
+                if !output.send(usize::from(stream), &sample) {
                     errors += 1;
                 }
-                continue;
             }
-            let mut joints = payload::joints_at(stream, seconds);
-            if !faults.shape(stream, seconds, &mut joints) {
-                continue;
-            }
-            let sample = Sample {
-                seq,
-                source_time_ns,
-                joints,
-                gripper: payload::gripper_at(stream, seconds),
-            };
-            if !output.send(usize::from(stream), &sample) {
-                errors += 1;
-            }
-        }
-        seq = seq.wrapping_add(1);
+            seq = seq.wrapping_add(1);
 
-        for stats in [&mut total, &mut interval] {
-            stats.ticks += 1;
-            stats.messages += u64::from(config.streams);
-            stats.send_errors += errors;
-            stats.late_ticks += u64::from(lateness > half_period);
-            stats.lateness.record(lateness);
-        }
-        tick += 1;
+            for stats in [&mut total, &mut interval] {
+                stats.ticks += 1;
+                stats.messages += u64::from(config.streams);
+                stats.send_errors += errors;
+                stats.late_ticks += u64::from(lateness > half_period);
+                stats.lateness.record(lateness);
+            }
+            tick += 1;
 
-        if schedule.offset(tick) >= Duration::from_secs(next_report_second) {
-            report(Duration::from_secs(next_report_second), &interval);
-            interval = Stats::default();
-            next_report_second += 1;
+            if schedule.offset(tick) >= Duration::from_secs(next_report_second) {
+                report(Duration::from_secs(next_report_second), &interval);
+                interval = Stats::default();
+                next_report_second += 1;
+            }
         }
+        (total, start.elapsed())
     }
-    Ok((total, start.elapsed()))
 }
 
 /// Whole ticks that fit in `elapsed` at `rate_hz`.

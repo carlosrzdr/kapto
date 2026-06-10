@@ -14,8 +14,10 @@
 //!
 //! A stream without a connection doesn't send: its messages are counted as
 //! send errors, as a robot would drop them. Listening, it takes a waiting
-//! connection at each message; connecting, it tries again at most once a
-//! second, so a missing receiver doesn't hold up the other streams.
+//! connection at each message; connecting, it tries again at the next
+//! message when it was refused (at once: nothing listens there yet), and at
+//! most once a second when it timed out, so a missing receiver doesn't hold
+//! up the other streams.
 
 use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -59,7 +61,8 @@ pub const FRAME_HEADER_BYTES: usize = 4;
 /// How long a connection attempt may hold up one tick.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(50);
 
-/// How long a stream without a connection waits before trying again.
+/// How long a stream whose connection attempt timed out, or whose
+/// receiver went away, waits before trying again.
 const RETRY_EVERY: Duration = Duration::from_secs(1);
 
 /// The open sockets of every stream.
@@ -214,9 +217,12 @@ impl Link {
     fn send(&mut self, frame: &[u8]) -> bool {
         let due = self.listener.is_some() || Instant::now() >= self.next_attempt;
         if self.stream.is_none() && due {
-            self.stream = self.establish();
-            if self.stream.is_none() {
-                self.next_attempt = Instant::now() + RETRY_EVERY;
+            match self.establish() {
+                Ok(stream) => self.stream = Some(stream),
+                // Refused at once: the receiver isn't listening yet, and
+                // asking again next time costs nothing.
+                Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {}
+                Err(_) => self.next_attempt = Instant::now() + RETRY_EVERY,
             }
         }
         let Some(stream) = &mut self.stream else {
@@ -232,16 +238,16 @@ impl Link {
     }
 
     /// A new connection: connected to the target, or accepted from it.
-    fn establish(&self) -> Option<TcpStream> {
+    fn establish(&self) -> io::Result<TcpStream> {
         let stream = match &self.listener {
-            None => TcpStream::connect_timeout(&self.target, CONNECT_TIMEOUT).ok()?,
+            None => TcpStream::connect_timeout(&self.target, CONNECT_TIMEOUT)?,
             // Nothing waiting is the usual answer, and no different from
             // a failed accept: there is no connection yet.
-            Some(listener) => listener.accept().ok()?.0,
+            Some(listener) => listener.accept()?.0,
         };
-        stream.set_nonblocking(false).ok()?;
+        stream.set_nonblocking(false)?;
         // Each message as it is sent, as a robot's control loop would.
-        stream.set_nodelay(true).ok()?;
-        Some(stream)
+        stream.set_nodelay(true)?;
+        Ok(stream)
     }
 }

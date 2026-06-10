@@ -90,7 +90,7 @@ fn run(flags: &SettingFlags, args: &ShowcaseArgs) -> Outcome<()> {
     write_files(&config, CONFIG).map_err(|error| vec![error])?;
     flags.config = Some(config.join("kapto.toml"));
     let folder = data_dir.join("showcase/arm7");
-    write_arm7(&folder, args.robot_port, RATE_HZ).map_err(|error| vec![error])?;
+    write_arm7(&folder, args.robot_port, RATE_HZ, None).map_err(|error| vec![error])?;
     // A model learned from the episodes the showcase records, not twenty:
     // other settings, so another settings version.
     let qa = format!(

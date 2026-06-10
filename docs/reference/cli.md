@@ -211,6 +211,7 @@ Try Kapto without a robot: run it with the built-in sample arm and a synthetic r
 |---|---|
 | `--robot-port <PORT>` | UDP port the synthetic robot sends to and Kapto receives on |
 | `--rate <HZ>` | Messages per second the synthetic robot sends |
+| `--no-camera <NO_CAMERA>` | Leave out the synthetic wrist camera, whose pictures (640x480 JPEG, 30 a second) Kapto receives over TCP on the port after the robot's |
 
 ## `kapto showcase`
 

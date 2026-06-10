@@ -332,14 +332,14 @@ test("pre-flight runs again from the page, and an episode it refuses is recorded
   await page.goto("/");
   await expect(page.getByText("Live, not recording")).toBeVisible();
   // The demo's robot sends before capture starts: its first run passes.
-  await expect(page.getByText(/All 3 checks passed/)).toBeVisible();
+  await expect(page.getByText(/All 4 checks passed/)).toBeVisible();
   const ran = page.waitForResponse((response) => response.url().endsWith("/api/preflight"));
   await page.getByRole("button", { name: "Run again" }).click();
   await expect(page.getByRole("button", { name: "Running…" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Record", exact: true })).toBeDisabled();
   expect((await ran).status()).toBe(200);
   await expect(page.getByRole("button", { name: "Run again" })).toBeEnabled();
-  await expect(page.getByText(/All 3 checks passed/)).toBeVisible();
+  await expect(page.getByText(/All 4 checks passed/)).toBeVisible();
 
   // What capture says while the arm sends nothing, and refuses unless it is
   // waived. The demo's arm always sends, so those answers are given here.

@@ -730,7 +730,9 @@ cargo run --release -p kapto-loadgen -- --streams 1 --duration 60
 `kapto demo` is `kapto serve` with a robot to show: it writes the sample
 arm (built into the binary) to the data directory, runs Kapto with it, and
 sends the arm's joint states from a synthetic robot thread (`demo-robot`)
-over UDP on the same machine.
+over UDP on the same machine, and a wrist camera's JPEG pictures from
+another (`demo-camera`, 640x480 at 30 a second) over TCP on the port after
+the robot's, declared a camera in the arm's `streams.toml` there.
 
 ```sh
 cargo run --release --bin kapto -- demo

@@ -85,6 +85,18 @@ fn the_demo_receives_its_robot_and_records_an_episode_through_the_api() {
     wait_until("messages written", || {
         number(&http(&port, "GET", "/api/status", "").1, "written") > 100
     });
+    // The wrist camera's pictures, beside the arm's joints.
+    wait_until("the camera's frames written", || {
+        let (_, body) = http(&port, "GET", "/api/status", "");
+        let status: serde_json::Value = serde_json::from_str(&body).unwrap();
+        status["capture"]["streams"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|stream| {
+                stream["stream"] == "wrist_camera" && stream["written"].as_u64() > Some(5)
+            })
+    });
     assert_eq!(http(&port, "POST", "/api/episodes/stop", "{}").0, 200);
     let (_, episodes) = http(&port, "GET", "/api/episodes", "");
     assert!(number(&episodes, "written") > 100, "{episodes}");

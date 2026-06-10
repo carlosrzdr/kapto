@@ -262,3 +262,33 @@ fn listening_over_tcp_messages_flow_once_kapto_connects_and_until_then_are_count
             .all(|(sample, seq)| sample.seq == seq)
     );
 }
+
+#[test]
+fn connecting_before_the_receiver_listens_it_connects_as_soon_as_it_does() {
+    // A port free now, listened on only after the generator has started.
+    let target = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let config = Config {
+        rate_hz: 100,
+        ..tcp_config(target, 1, Transport::TcpConnect)
+    };
+    let sending = thread::spawn(move || run(&config, |_, _| {}).unwrap().0);
+    thread::sleep(Duration::from_millis(300));
+    let listener = TcpListener::bind(target).unwrap();
+    let reader = thread::spawn(move || read_frames(listener.accept().unwrap().0));
+    let stats = sending.join().unwrap();
+    let received = reader.join().unwrap().len();
+    // Refused until then, and connected within a few messages of it: not
+    // a second later.
+    assert!(
+        stats.send_errors <= 40,
+        "{} messages unsent",
+        stats.send_errors
+    );
+    assert_eq!(
+        u64::try_from(received).unwrap() + stats.send_errors,
+        stats.ticks
+    );
+}

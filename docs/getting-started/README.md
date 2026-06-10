@@ -4,7 +4,8 @@
 
 `kapto demo` runs Kapto with a built-in sample robot: a seven-joint arm, and
 a synthetic robot inside Kapto that sends its joint positions 2000 times a
-second over UDP on the same machine. Open <http://localhost:7700> to see the
+second over UDP on the same machine, with a wrist camera's 640x480 pictures
+30 times a second over TCP beside them (`--no-camera` leaves it out). Open <http://localhost:7700> to see the
 arm move, each stream's counts, and a Record button; recorded episodes are
 listed beside it and stored in the data directory, and each one's **Replay**
 plays it again in the same view, on its own timeline, until **Back to live**.
