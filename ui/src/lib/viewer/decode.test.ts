@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { decodeMesh } from "./mesh";
-import { decodeFrame, decodeStretch } from "./stream";
+import { decodeFrame, decodePicture, decodeStretch } from "./stream";
 
 /** Little-endian bytes, written field after field as the specifications list them. */
 class Bytes {
@@ -140,5 +140,49 @@ describe("decodeStretch", () => {
     expect(decodeStretch(empty.buffer()).keptMs).toBeNull();
     const frame = new Bytes().text("KVFR").u16(1).u16(0).i64(0n).i64(0n).u32(0).u32(0);
     expect(() => decodeStretch(frame.buffer())).toThrow(/not a stretch/);
+  });
+});
+
+describe("decodePicture", () => {
+  const picture = (format: number, width: number, height: number, bytes: number[]) =>
+    new Bytes()
+      .text("KVPC")
+      .u16(1)
+      .u16(2)
+      .u8(format)
+      .u8(0)
+      .u8(0)
+      .u8(0)
+      .u32(width)
+      .u32(height)
+      .i64(1_772_700_400_123_000_000n)
+      .i64(1_772_700_400_135_000_000n)
+      .u32(bytes.length)
+      .buffer();
+
+  it("reads the camera, the picture's format and size, when it was received and its bytes", () => {
+    const read = decodePicture(
+      (() => {
+        const header = new Uint8Array(picture(0, 640, 480, [0xff, 0xd8, 0xff, 1]));
+        const whole = new Uint8Array(header.length + 4);
+        whole.set(header);
+        whole.set([0xff, 0xd8, 0xff, 1], header.length);
+        return whole.buffer;
+      })(),
+    );
+    expect(read.stream).toBe(2);
+    expect(read.type).toBe("image/jpeg");
+    expect(read.size).toEqual([640, 480]);
+    expect(read.receivedMs).toBe(1_772_700_400_123);
+    expect(read.sentMs - read.receivedMs).toBe(12);
+    expect([...read.bytes]).toEqual([0xff, 0xd8, 0xff, 1]);
+  });
+
+  it("has no size for a compressed picture, and refuses a frame or a format it doesn't know", () => {
+    const png = decodePicture(picture(1, 0, 0, []));
+    expect(png.type).toBe("image/png");
+    expect(png.size).toBeNull();
+    expect(() => decodePicture(picture(7, 0, 0, []))).toThrow(/format/);
+    expect(() => decodePicture(new Bytes().text("KVFR").u16(1).buffer())).toThrow(/not a picture/);
   });
 });

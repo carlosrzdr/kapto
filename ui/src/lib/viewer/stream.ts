@@ -1,7 +1,7 @@
 // The viewer bridge's stream, as `docs/reference/viewer-stream.md` gives
 // it: an opening message naming the links and values, then binary frames
-// with the robot's poses and each stream's extremes as they arrive, and
-// what happened as text.
+// with the robot's poses and each stream's extremes as they arrive,
+// cameras' pictures, and what happened as text.
 
 import type { Mark } from "./marks";
 
@@ -13,6 +13,30 @@ export interface Opening {
   streams: { name: string; values: { name: string; plotted: boolean }[] }[];
   /** How far back, in seconds, the bridge keeps what it streamed. */
   history_s: number;
+  /** The streams that are cameras, by their position in `streams`; absent from an older bridge. */
+  cameras?: number[];
+}
+
+/** A camera's picture. */
+export interface Picture {
+  /** The camera's position among the opening's streams. */
+  stream: number;
+  /** Its media type, which the browser decodes it as. */
+  type: "image/jpeg" | "image/png";
+  /** Its size in pixels, or null if not known without decoding it. */
+  size: [number, number] | null;
+  /** When Kapto received the frame, UTC milliseconds. */
+  receivedMs: number;
+  /** When the bridge sent it, the same way. */
+  sentMs: number;
+  /** The encoded picture, in the message's own buffer. */
+  bytes: Uint8Array<ArrayBuffer>;
+}
+
+/** What the bridge says of a camera: why its pictures can't be shown, or null once they can again. */
+export interface CameraSaid {
+  stream: number;
+  unshown: string | null;
 }
 
 /** One stream's sample: the extremes of the messages it summarises. */
@@ -41,6 +65,9 @@ export interface Frame {
 export const STREAM_VERSION = 1;
 
 const MAGIC = "KVFR";
+const PICTURE_MAGIC = "KVPC";
+/** The bytes of a picture message before the picture. */
+const PICTURE_HEADER = 40;
 
 /** UTC nanoseconds, as Kapto sends them, in milliseconds. */
 const milliseconds = (view: DataView, at: number) => Number(view.getBigInt64(at, true) / 1000n) / 1000;
@@ -78,6 +105,30 @@ export function decodeFrame(buffer: ArrayBuffer): Frame {
     samples.push({ stream, messages, firstMs, newestMs, extremes });
   }
   return { receivedMs: milliseconds(view, 8), sentMs: milliseconds(view, 16), poses, samples };
+}
+
+/** The picture in `buffer`; throws if it isn't one this page reads. */
+export function decodePicture(buffer: ArrayBuffer): Picture {
+  const view = new DataView(buffer);
+  const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 4));
+  if (magic !== PICTURE_MAGIC || view.getUint16(4, true) !== STREAM_VERSION) {
+    throw new Error(`not a picture this page reads: ${magic}`);
+  }
+  const format = view.getUint8(8);
+  if (format > 1) {
+    throw new Error(`a picture in a format this page doesn't know: ${format}`);
+  }
+  const width = view.getUint32(12, true);
+  const height = view.getUint32(16, true);
+  const length = view.getUint32(36, true);
+  return {
+    stream: view.getUint16(6, true),
+    type: format === 0 ? "image/jpeg" : "image/png",
+    size: width > 0 && height > 0 ? [width, height] : null,
+    receivedMs: milliseconds(view, 20),
+    sentMs: milliseconds(view, 28),
+    bytes: new Uint8Array(buffer, PICTURE_HEADER, length),
+  };
 }
 
 /** One part of a stretch of a stream: its samples merged. */
@@ -175,6 +226,10 @@ export function watchStream(
     onclosed: () => void;
     /** What happened: all the bridge keeps right after the opening, then each new one. */
     onmarks?: (marks: Mark[]) => void;
+    /** Each camera's picture as it comes: each one's newest right after the opening, then each new one. */
+    onpicture?: (picture: Picture) => void;
+    /** What the bridge says of a camera whose pictures can't be shown, or can again. */
+    oncamera?: (said: CameraSaid) => void;
   },
 ): Watched {
   let socket: WebSocket | null = null;
@@ -196,11 +251,14 @@ export function watchStream(
           const said = JSON.parse(message.data) as Partial<Opening> & {
             error?: { id: number | null; message: string };
             marks?: Mark[];
+            camera?: CameraSaid;
           };
           if (said.links !== undefined) {
             handlers.onopening(said as Opening);
           } else if (said.marks) {
             handlers.onmarks?.(said.marks);
+          } else if (said.camera) {
+            handlers.oncamera?.(said.camera);
           } else if (said.error) {
             const id = said.error.id;
             if (id !== null && waiting.has(id)) {
@@ -214,6 +272,8 @@ export function watchStream(
             const stretch = decodeStretch(message.data);
             waiting.get(stretch.id)?.resolve(stretch);
             waiting.delete(stretch.id);
+          } else if (kind === PICTURE_MAGIC) {
+            handlers.onpicture?.(decodePicture(message.data));
           } else {
             handlers.onframe(decodeFrame(message.data));
           }

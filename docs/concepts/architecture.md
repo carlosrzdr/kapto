@@ -321,7 +321,10 @@ encodes a raw one as JPEG there, never in capture, and sends it to each
 page as a message of its own beside the frames, with each camera's newest
 kept for a page that connects. A frame that can't be shown, such as an
 encoding the bridge doesn't encode, is counted and named to the page. The
-live view doesn't draw pictures yet *(planned)*.
+live view shows each camera's newest picture above the plots, with how long
+it took to reach the page: decoded by the browser, one at a time per
+camera, so a slow browser shows fewer pictures, never older ones; a camera
+that can't be shown says why instead.
 
 The **viewer bridge**, `kapto viz-bridge`, reads that socket and streams
 the robot moving to the web UI's live view, Kapto's own viewer

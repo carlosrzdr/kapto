@@ -6,10 +6,12 @@
 
   import { ApiFailure, getMesh, getReplayMesh, getReplayScene, getReplayWindow, getRobotScene } from "./api";
   import type { VocabularyKind } from "./api-types";
+  import CameraPanel from "./CameraPanel.svelte";
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
   import LivePlots from "./LivePlots.svelte";
   import MarkBar from "./MarkBar.svelte";
   import Timeline from "./Timeline.svelte";
+  import { camerasOf, Decoder, type Shown, withPicture, withSaid } from "./viewer/cameras";
   import { type Item, MarkLog } from "./viewer/marks";
   import {
     applyPlacement,
@@ -59,6 +61,23 @@
   let frames = $state(0);
   /** Each stream's plots, made from the stream's opening message. */
   let plots = $state.raw<PlotStream[]>([]);
+  /** Each camera with its newest picture, named by the stream's opening message. */
+  let cameras = $state.raw<Shown[]>([]);
+  /** Lets go of every camera's decoded picture. */
+  function dropPictures() {
+    for (const camera of cameras) {
+      camera.bitmap?.close();
+    }
+  }
+  /** Decodes each camera's pictures as they come, by the browser's own decoder. */
+  const pictures = new Decoder(
+    (picture) => createImageBitmap(new Blob([picture.bytes], { type: picture.type })),
+    (picture, bitmap, arrivedMs) => {
+      const shown = withPicture(cameras, picture, bitmap, arrivedMs);
+      cameras = shown.cameras;
+      shown.replaced?.close();
+    },
+  );
   /** The same plots filled from the bridge's last minutes, while looking back or showing more than the page keeps. */
   let lookedBack = $state.raw<PlotStream[] | null>(null);
   /** Whether the view is held at `cursorMs` rather than following now. */
@@ -614,6 +633,8 @@
         log.clear();
         items = [];
         plots = plotStreams(opening);
+        dropPictures();
+        cameras = camerasOf(opening);
         historyMs = opening.history_s * 1000;
         historySeconds = opening.history_s;
         // Once the opening has been read, the bridge takes questions.
@@ -648,6 +669,10 @@
         log.add(marks);
         items = [...log.items];
       },
+      onpicture: (picture) => pictures.add(picture, Date.now()),
+      oncamera: (said) => {
+        cameras = withSaid(cameras, said);
+      },
       onclosed: () => {
         closed = true;
         delays.length = 0;
@@ -658,6 +683,7 @@
     return () => {
       watched?.stop();
       watched = null;
+      dropPictures();
       clearInterval(shown);
       clearInterval(following);
       cancelAnimationFrame(frame);
@@ -706,7 +732,12 @@
     {said}
   </p>
 </div>
-<LivePlots streams={lookedBack ?? plots} {spanMs} endMs={paused ? cursorMs : null} />
+<div class="side" class:with-cameras={cameras.length > 0 && replay === null}>
+  {#if cameras.length > 0 && replay === null}
+    <CameraPanel {cameras} />
+  {/if}
+  <LivePlots streams={lookedBack ?? plots} {spanMs} endMs={paused ? cursorMs : null} />
+</div>
 </div>
 <Timeline
   {paused}
@@ -752,6 +783,16 @@
       grid-template-columns: 1fr;
       grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
     }
+  }
+  .side {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0.5rem;
+    min-width: 0;
+    min-height: 0;
+  }
+  .side.with-cameras {
+    grid-template-rows: auto minmax(0, 1fr);
   }
   .live {
     position: relative;

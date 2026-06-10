@@ -704,3 +704,48 @@ test("episodes go up to each destination, one that can't take them says why and 
   await expect(page.getByRole("region", { name: "Upload to nas" })).toContainText("upload.destination_unusable");
   expect(elsewhere).toEqual([]);
 });
+
+test("the demo's wrist camera is shown live beside the arm", async ({ page }) => {
+  const elsewhere = requestsLeavingTheMachine(page);
+  await page.goto("/");
+  const cameras = page.getByRole("region", { name: "Cameras" });
+  const picture = cameras.getByRole("img", { name: "wrist_camera, its newest picture" });
+  await expect(picture).toBeVisible({ timeout: 20_000 });
+  // Its pictures keep coming, decoded by the browser at the camera's size.
+  const figure = cameras.locator("figure").first();
+  const seen = Number(await figure.getAttribute("data-pictures"));
+  await expect.poll(async () => Number(await figure.getAttribute("data-pictures"))).toBeGreaterThan(seen + 10);
+  await expect.poll(() => picture.locator("canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBe(640);
+  await expect(figure.getByText(/^\d+ ms$/)).toBeVisible();
+  // Beside the robot, which still moves.
+  await expect(page.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible();
+  expect(elsewhere).toEqual([]);
+});
+
+test("a camera whose pictures can't be shown says why instead", async ({ page }) => {
+  const why = "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8";
+  // The bridge as it is when a camera sends an encoding it can't show: its
+  // pictures stop, and the page is told why.
+  await page.routeWebSocket(/:\d+\/$/, (page) => {
+    const bridge = page.connectToServer();
+    bridge.onMessage((message) => {
+      if (typeof message !== "string") {
+        if (message.subarray(0, 4).toString() === "KVPC") {
+          return;
+        }
+        page.send(message);
+        return;
+      }
+      page.send(message);
+      if (message.includes('"links"')) {
+        page.send(JSON.stringify({ camera: { stream: 1, unshown: why } }));
+      }
+    });
+  });
+  await page.goto("/");
+  const cameras = page.getByRole("region", { name: "Cameras" });
+  await expect(cameras.getByRole("status")).toHaveText(why, { timeout: 20_000 });
+  await expect(cameras.getByRole("img")).toHaveCount(0);
+  // The robot is shown all the same.
+  await expect(page.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible();
+});

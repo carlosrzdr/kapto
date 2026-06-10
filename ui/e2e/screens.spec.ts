@@ -467,3 +467,34 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
 
   nothingLeft();
 });
+
+test("a screenshot of a camera waiting for its pictures and of one that can't be shown", async ({ page }) => {
+  // The bridge as it is before the camera's first picture, then when the
+  // camera sends what can't be shown: its pictures held back here.
+  const toPage: { say?: (text: string) => void } = {};
+  await page.routeWebSocket(/:\d+\/$/, (route) => {
+    const bridge = route.connectToServer();
+    toPage.say = (text) => route.send(text);
+    bridge.onMessage((message) => {
+      if (typeof message !== "string" && message.subarray(0, 4).toString() === "KVPC") {
+        return;
+      }
+      route.send(message);
+    });
+  });
+  const nothingLeft = await open(page);
+  const cameras = page.getByRole("region", { name: "Cameras" });
+  await expect(cameras.getByText("Waiting for pictures…")).toBeVisible({ timeout: 30_000 });
+  await shot(cameras, "live-camera-waiting");
+  toPage.say?.(
+    JSON.stringify({
+      camera: {
+        stream: 1,
+        unshown: "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8",
+      },
+    }),
+  );
+  await expect(cameras.getByRole("status")).toBeVisible();
+  await shot(cameras, "live-camera-unshown");
+  nothingLeft();
+});
