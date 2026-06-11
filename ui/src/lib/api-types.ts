@@ -488,6 +488,26 @@ export interface EventVocabulary {
   problems: ApiError[];
 }
 
+/** What became of a camera's frames on their way to the live view. */
+export interface LiveViewCounts {
+  /** Frames not sent because no viewer bridge was listening. */
+  not_sent: number;
+  /**
+   * Frames offered: the camera's newest, at most `viewer.camera_max_fps`
+   * a second.
+   */
+  offered: number;
+  /** Frames the viewer bridge took. */
+  sent: number;
+  /** Offered frames skipped because the live view held every slot. */
+  skipped: number;
+  /**
+   * Frames replaced by newer ones before they could be sent: the
+   * viewer bridge was slower than the camera.
+   */
+  superseded: number;
+}
+
 /** A position and an orientation. */
 export interface Placement {
   /** A unit quaternion: x, y, z, then w. */
@@ -1016,6 +1036,11 @@ export interface Storage {
 export interface StreamCounts {
   /** Messages Kapto discarded. */
   dropped_by_us: number;
+  /**
+   * For a camera, what became of its frames on their way to the live
+   * view since capture started; absent for other streams.
+   */
+  live_view?: null | LiveViewCounts;
   /** Messages the source sent that never arrived. */
   lost_upstream: number;
   /** Messages received. */

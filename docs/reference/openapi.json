@@ -2662,6 +2662,49 @@
           }
         }
       },
+      "LiveViewCounts": {
+        "type": "object",
+        "description": "What became of a camera's frames on their way to the live view.",
+        "required": [
+          "offered",
+          "skipped",
+          "superseded",
+          "not_sent",
+          "sent"
+        ],
+        "properties": {
+          "not_sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Frames not sent because no viewer bridge was listening.",
+            "minimum": 0
+          },
+          "offered": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Frames offered: the camera's newest, at most `viewer.camera_max_fps`\na second.",
+            "minimum": 0
+          },
+          "sent": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Frames the viewer bridge took.",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Offered frames skipped because the live view held every slot.",
+            "minimum": 0
+          },
+          "superseded": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Frames replaced by newer ones before they could be sent: the\nviewer bridge was slower than the camera.",
+            "minimum": 0
+          }
+        }
+      },
       "Placement": {
         "type": "object",
         "description": "A position and an orientation.",
@@ -4004,6 +4047,17 @@
             "format": "int64",
             "description": "Messages Kapto discarded.",
             "minimum": 0
+          },
+          "live_view": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LiveViewCounts",
+                "description": "For a camera, what became of its frames on their way to the live\nview since capture started; absent for other streams."
+              }
+            ]
           },
           "lost_upstream": {
             "type": "integer",

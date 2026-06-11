@@ -719,6 +719,8 @@ test("the demo's wrist camera is shown live beside the arm", async ({ page }) =>
   await expect(figure.getByText(/^\d+ ms$/)).toBeVisible();
   // Beside the robot, which still moves.
   await expect(page.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible();
+  // Its stream says what became of its frames on their way to the page.
+  await expect(page.getByText(/^Live view: .+ of .+ frames sent/)).toBeVisible();
   expect(elsewhere).toEqual([]);
 });
 

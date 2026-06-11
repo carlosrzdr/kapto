@@ -54,23 +54,25 @@ impl Capture {
             &["--preflight", "warn"]
         };
         let port = free_udp_port();
+        let streams = format!(
+            "[streams.joints]\nrate_hz = 1000\nudp = {{ bind = \"127.0.0.1:{port}\" }}\n\
+             sequence = {{ offset = 0, type = \"u32\" }}\n\
+             [streams.joints.decoder]\nkind = \"struct\"\n\
+             [[streams.joints.decoder.fields]]\nname = \"sequence\"\ntype = \"u32\"\noffset = 0\n"
+        );
+        Self::declaring(folder, &streams, &port, &[warn, flags].concat())
+    }
+
+    /// Starts `kapto capture` on the one stream `declared`, the robot
+    /// sending to UDP `port`, and waits until it receives.
+    fn declaring(folder: &Path, declared: &str, port: &str, flags: &[&str]) -> Self {
         let streams = folder.join("streams.toml");
-        std::fs::write(
-            &streams,
-            format!(
-                "[streams.joints]\nrate_hz = 1000\nudp = {{ bind = \"127.0.0.1:{port}\" }}\n\
-                 sequence = {{ offset = 0, type = \"u32\" }}\n\
-                 [streams.joints.decoder]\nkind = \"struct\"\n\
-                 [[streams.joints.decoder.fields]]\nname = \"sequence\"\ntype = \"u32\"\noffset = 0\n"
-            ),
-        )
-        .unwrap();
+        std::fs::write(&streams, declared).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_kapto"))
             .args(["capture", "--streams"])
             .arg(&streams)
             .arg("--data-dir")
             .arg(folder.join("data"))
-            .args(warn)
             .args(flags)
             .env_clear()
             .stdout(Stdio::piped())
@@ -95,7 +97,7 @@ impl Capture {
             child: Some(child),
             folder: folder.to_path_buf(),
             robot: UdpSocket::bind("127.0.0.1:0").unwrap(),
-            port,
+            port: port.to_owned(),
             next: 0,
         }
     }
@@ -950,4 +952,55 @@ fn pre_flight_runs_at_start_and_on_demand_and_never_while_recording() {
     );
     capture.send(1);
     capture.stop();
+}
+
+#[test]
+fn a_cameras_frames_on_their_way_to_the_live_view_are_counted_in_the_status() {
+    use std::io::Write;
+    use std::net::TcpStream;
+
+    let folder = scratch("camera-status");
+    let [port] = common::free_tcp_ports();
+    let declared = format!(
+        "[streams.wrist_camera]\nrate_hz = 30\nmax_message_bytes = 65536\n\
+         tcp = {{ listen = \"127.0.0.1:{port}\", framing = {{ kind = \"length_prefix\", length_bytes = 4 }} }}\n\
+         camera = {{ format = \"jpeg\" }}\n"
+    );
+    // No viewer bridge listens on the frame socket.
+    let frames = folder.join("frames.sock");
+    let frame_socket = frames.to_str().unwrap();
+    let capture = Capture::declaring(
+        &folder,
+        &declared,
+        &port,
+        &[
+            "--preflight",
+            "warn",
+            "--frame-socket",
+            frame_socket,
+            "--camera-max-fps",
+            "100",
+        ],
+    );
+    let status = capture.wait_for("no frames yet", |_| true);
+    assert_eq!(
+        status.streams[0].live_view.map(|camera| camera.offered),
+        Some(0)
+    );
+
+    let mut camera = TcpStream::connect(("127.0.0.1", port.parse::<u16>().unwrap())).unwrap();
+    for _ in 0..10 {
+        let jpeg = [0xff, 0xd8, 0xff, 0xe0];
+        camera.write_all(&4_u32.to_le_bytes()).unwrap();
+        camera.write_all(&jpeg).unwrap();
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    let status = capture.wait_for("each frame offered and not sent", |status| {
+        status.streams[0]
+            .live_view
+            .is_some_and(|camera| camera.offered >= 5 && camera.not_sent == camera.offered)
+    });
+    let camera = status.streams[0].live_view.unwrap();
+    assert_eq!((camera.sent, camera.skipped), (0, 0), "{camera:?}");
+    assert!(capture.stop().status.success());
 }

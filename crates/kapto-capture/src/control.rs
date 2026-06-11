@@ -308,6 +308,27 @@ pub struct StreamStatus {
     /// How long ago those values were decoded, in milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub values_age_ms: Option<u64>,
+    /// For a camera, what became of its frames on their way to the live
+    /// view. Older capture processes leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_view: Option<LiveViewCounts>,
+}
+
+/// What became of a camera's frames on their way to the live view, since
+/// the capture process started.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveViewCounts {
+    /// Frames offered: each camera's newest, at most `viewer.camera_max_fps`
+    /// a second.
+    pub offered: u64,
+    /// Offered frames skipped because the live view held every slot.
+    pub skipped: u64,
+    /// Frames replaced by newer ones before they could be sent.
+    pub superseded: u64,
+    /// Frames not sent because no viewer bridge was listening.
+    pub not_sent: u64,
+    /// Frames the viewer bridge took.
+    pub sent: u64,
 }
 
 /// A request waiting for the capture process's answer.

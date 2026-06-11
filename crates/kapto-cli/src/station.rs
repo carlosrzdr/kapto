@@ -29,7 +29,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use kapto_capture::finalise::{RECORDING_FILE, Staged};
-use kapto_capture::tap::frames::FrameStats;
+use kapto_capture::tap::frames::{FrameStats, FrameTotals};
 use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
@@ -783,6 +783,16 @@ impl Live<'_> {
             let _ = write!(line, "  frames sent {sent} dropped {dropped}");
         }
         line
+    }
+
+    /// What became of camera `stream`'s frames on their way to the live
+    /// view, if it is a camera and the live view runs.
+    pub(crate) fn live_view(&self, stream: &StreamId) -> Option<FrameTotals> {
+        let spec = self.specs.iter().find(|spec| &spec.id == stream)?;
+        self.frames?
+            .totals()
+            .into_iter()
+            .find(|camera| camera.stream == spec.stream)
     }
 
     /// Each stream's counts so far, with drops read from where they happen.

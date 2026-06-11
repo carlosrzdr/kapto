@@ -101,4 +101,23 @@ describe("StreamTable", () => {
     const rate = screen.getByRole("row", { name: /arm_joints/ }).querySelectorAll("td")[0];
     expect(rate?.classList.contains("problem")).toBe(false);
   });
+
+  it("says under a camera what became of its frames on their way to the live view, only what happened", () => {
+    const camera = {
+      stream: "wrist_camera",
+      received: 210,
+      written: 0,
+      dropped_by_us: 0,
+      lost_upstream: 0,
+      live_view: { offered: 200, skipped: 0, superseded: 30, not_sent: 4, sent: 166 },
+    };
+    render(StreamTable, { streams: [arm, camera], rates: {}, recording: false });
+    expect(
+      screen.getByText(
+        "Live view: 166 of 200 frames sent · 30 replaced by newer ones while the viewer was slow · 4 while no viewer listened",
+      ),
+    ).toBeTruthy();
+    // Only the camera has such a line.
+    expect(screen.getAllByText(/^Live view:/)).toHaveLength(1);
+  });
 });

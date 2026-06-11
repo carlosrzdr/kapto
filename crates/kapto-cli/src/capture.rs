@@ -35,7 +35,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use kapto_capture::control::{
-    Announcement, ControlServer, NewEvent, Pending, Request, Response, Status, StreamStatus,
+    Announcement, ControlServer, LiveViewCounts, NewEvent, Pending, Request, Response, Status,
+    StreamStatus,
 };
 use kapto_capture::disk::{DiskLimits, DiskWatch, Room};
 use kapto_capture::tap::LatestValues;
@@ -488,6 +489,13 @@ fn status(
                         .as_ref()
                         .map(|newest| u64::try_from(newest.age.as_millis()).unwrap_or(u64::MAX)),
                     values: newest.map(|newest| newest.values),
+                    live_view: live.live_view(id).map(|camera| LiveViewCounts {
+                        offered: camera.offered,
+                        skipped: camera.skipped,
+                        superseded: camera.superseded,
+                        not_sent: camera.not_sent,
+                        sent: camera.sent,
+                    }),
                 }
             })
             .collect(),

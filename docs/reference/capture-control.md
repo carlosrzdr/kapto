@@ -48,7 +48,12 @@ each stream's `received`, `written`, `dropped_by_us` and `lost_upstream`
 over that time. A stream the live view has decoded also has `values`, its
 newest decoded values (field after field, array elements in order), and
 `values_age_ms`, how long ago they were decoded; they are sampled for
-display about sixty times a second, not taken from every message.
+display about sixty times a second, not taken from every message. A camera
+also has `live_view`: what became of its frames on their way to the live
+view since the capture process started, as `offered` (its newest, at most
+`viewer.camera_max_fps` a second), `skipped` (the live view held every
+slot), `superseded` (replaced by a newer frame before it could be sent),
+`not_sent` (no viewer bridge listening) and `sent`.
 
 `abort` ends the episode like `stop`, then deletes it instead of finalising
 it: it was never moved out of staging, so nothing ever took it for an

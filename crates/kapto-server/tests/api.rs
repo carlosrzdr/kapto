@@ -19,7 +19,9 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request as HttpRequest, StatusCode, header};
-use kapto_capture::control::{ControlServer, Request, Response, Status, StreamStatus};
+use kapto_capture::control::{
+    ControlServer, LiveViewCounts, Request, Response, Status, StreamStatus,
+};
 use kapto_capture::disk::DiskLimits;
 use kapto_capture::finalise::Staged;
 use kapto_core::{EpisodeId, ErrorCode, KaptoError};
@@ -160,15 +162,31 @@ fn recording(request: &Request) -> Response {
         Request::Status => Response::Status(Status {
             episode: Some("20260310T120000.000Z-1a2b3c4d".into()),
             seconds: 7,
-            streams: vec![StreamStatus {
-                stream: "arm_joints".into(),
-                received: 14_000,
-                written: 13_990,
-                dropped_by_us: 10,
-                lost_upstream: 2,
-                values: Some(vec![0.5, -1.25, 0.04]),
-                values_age_ms: Some(12),
-            }],
+            streams: vec![
+                StreamStatus {
+                    stream: "arm_joints".into(),
+                    received: 14_000,
+                    written: 13_990,
+                    dropped_by_us: 10,
+                    lost_upstream: 2,
+                    values: Some(vec![0.5, -1.25, 0.04]),
+                    values_age_ms: Some(12),
+                    live_view: None,
+                },
+                StreamStatus {
+                    stream: "wrist_camera".into(),
+                    received: 210,
+                    written: 210,
+                    live_view: Some(LiveViewCounts {
+                        offered: 200,
+                        skipped: 1,
+                        superseded: 30,
+                        not_sent: 4,
+                        sent: 165,
+                    }),
+                    ..StreamStatus::default()
+                },
+            ],
             preflight: Some(silent_arm(true)),
         }),
         Request::Start {
@@ -217,7 +235,13 @@ async fn the_status_is_capture_s_with_its_newest_values_pre_flight_and_where_the
             "capture": {
                 "episode": "20260310T120000.000Z-1a2b3c4d",
                 "seconds": 7,
-                "streams": [{"stream": "arm_joints", "received": 14000, "written": 13990, "dropped_by_us": 10, "lost_upstream": 2}],
+                "streams": [
+                    {"stream": "arm_joints", "received": 14000, "written": 13990, "dropped_by_us": 10, "lost_upstream": 2},
+                    {
+                        "stream": "wrist_camera", "received": 210, "written": 210, "dropped_by_us": 0, "lost_upstream": 0,
+                        "live_view": {"offered": 200, "skipped": 1, "superseded": 30, "not_sent": 4, "sent": 165}
+                    }
+                ],
                 "values": [{"stream": "arm_joints", "values": [0.5, -1.25, 0.04], "age_ms": 12}],
                 "preflight": {
                     "ran_at": "2026-03-15T20:00:00.000Z",

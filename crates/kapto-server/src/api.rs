@@ -259,6 +259,7 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         EventSent,
         SentEvent,
         StreamCounts,
+        LiveViewCounts,
         EpisodeQuality,
         EpisodeEvents,
         CheckResult,
@@ -377,6 +378,27 @@ pub struct StreamCounts {
     pub dropped_by_us: u64,
     /// Messages the source sent that never arrived.
     pub lost_upstream: u64,
+    /// For a camera, what became of its frames on their way to the live
+    /// view since capture started; absent for other streams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_view: Option<LiveViewCounts>,
+}
+
+/// What became of a camera's frames on their way to the live view.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct LiveViewCounts {
+    /// Frames offered: the camera's newest, at most `viewer.camera_max_fps`
+    /// a second.
+    pub offered: u64,
+    /// Offered frames skipped because the live view held every slot.
+    pub skipped: u64,
+    /// Frames replaced by newer ones before they could be sent: the
+    /// viewer bridge was slower than the camera.
+    pub superseded: u64,
+    /// Frames not sent because no viewer bridge was listening.
+    pub not_sent: u64,
+    /// Frames the viewer bridge took.
+    pub sent: u64,
 }
 
 /// Where the live view's stream is, on the host the API was reached on.
@@ -674,6 +696,13 @@ fn counts(stream: control::StreamStatus) -> StreamCounts {
         written: stream.written,
         dropped_by_us: stream.dropped_by_us,
         lost_upstream: stream.lost_upstream,
+        live_view: stream.live_view.map(|camera| LiveViewCounts {
+            offered: camera.offered,
+            skipped: camera.skipped,
+            superseded: camera.superseded,
+            not_sent: camera.not_sent,
+            sent: camera.sent,
+        }),
     }
 }
 
@@ -1195,6 +1224,8 @@ impl From<ListedEpisode> for EpisodeSummary {
                     written: stream.written,
                     dropped_by_us: stream.dropped_by_us,
                     lost_upstream: stream.lost_upstream,
+                    // What the live view showed isn't kept with an episode.
+                    live_view: None,
                 })
                 .collect(),
         }
