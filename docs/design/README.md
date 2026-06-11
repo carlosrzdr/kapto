@@ -20,6 +20,7 @@ without other documents, and always describe the design as it is.
 | [Kept messages](kept-messages-start-each-episode.md) | A stream's kept messages start each episode |
 | [Large messages](large-messages-in-rings-of-their-own.md) | Large messages go through rings of their own |
 | [Cameras in the live view](cameras-in-the-live-view.md) | Each camera's newest frame over a stream socket of its own; the bridge turns raw frames into JPEG |
+| [Cameras in replay](cameras-in-replay.md) | Each frame read from the recording by its MCAP indexes, on request; every frame can be stepped through |
 
 ## Writing one
 
