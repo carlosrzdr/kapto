@@ -16,6 +16,7 @@ pub mod reader;
 pub mod recover;
 pub mod ring;
 pub mod salvage;
+pub mod seek;
 #[cfg(unix)]
 pub mod tap;
 pub mod writer;
