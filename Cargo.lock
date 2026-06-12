@@ -1651,6 +1651,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "futures-util",
+ "jpeg-decoder",
  "kapto-capture",
  "kapto-config",
  "kapto-core",

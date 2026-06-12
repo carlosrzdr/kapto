@@ -143,6 +143,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/episodes/{id}/replay/window", get(replay_window))
         .route("/api/episodes/{id}/replay/scene", get(replay_scene))
         .route("/api/episodes/{id}/replay/meshes/{n}", get(replay_mesh))
+        .route(
+            "/api/episodes/{id}/cameras/{camera}/frames",
+            get(camera_frames),
+        )
+        .route(
+            "/api/episodes/{id}/cameras/{camera}/frames/{n}",
+            get(camera_picture),
+        )
         .route("/api/episodes/start", post(start))
         .route("/api/episodes/stop", post(stop))
         .route("/api/episodes/abort", post(abort))
@@ -217,6 +225,8 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         replay_window,
         replay_scene,
         replay_mesh,
+        camera_frames,
+        camera_picture,
         start,
         stop,
         abort,
@@ -268,6 +278,7 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         StatisticSummary,
         ReplayStatus,
         ReplayOpening,
+        crate::cameras::CameraFrames,
         replays::ReplayStream,
         replays::ReplayValue,
         ReplayState,
@@ -559,6 +570,7 @@ impl From<KaptoError> for Failure {
             | ErrorCode::ViewerMeshNotFound
             | ErrorCode::ViewerReplayNotReady
             | ErrorCode::ViewerReplayWithoutRobot
+            | ErrorCode::ViewerCameraNotFound
             | ErrorCode::ProfileNotFound
             | ErrorCode::TaskNotFound
             | ErrorCode::UploadNoDestination => StatusCode::NOT_FOUND,
@@ -575,6 +587,7 @@ impl From<KaptoError> for Failure {
             | ErrorCode::ConfigInvalidSyntax
             | ErrorCode::RobotMeshUnreadable
             | ErrorCode::RobotMeshInvalid
+            | ErrorCode::ViewerPictureUnshown
             | ErrorCode::UploadNothingToRetry
             | ErrorCode::UploadDestinationUnusable
             | ErrorCode::UploadCredentialsMissing => StatusCode::CONFLICT,
@@ -869,6 +882,86 @@ async fn replay_mesh(
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
+    );
+    Ok(response)
+}
+
+/// When each frame of one of a finalised episode's cameras was received,
+/// read from its recording by the recording's indexes: frame `n` is the
+/// `n`-th. Needs no replay made.
+#[utoipa::path(
+    get,
+    path = "/api/episodes/{id}/cameras/{camera}/frames",
+    params(
+        ("id" = String, Path, description = "The episode's ID, as `/api/episodes` lists it."),
+        ("camera" = String, Path, description = "The camera's stream, as the replay's opening lists it.")
+    ),
+    responses(
+        (status = 200, body = crate::cameras::CameraFrames),
+        (status = 400, description = "The ID isn't an episode ID", body = ApiError),
+        (status = 404, description = "No finalised episode has this ID, or it has no such camera", body = ApiError),
+        (status = 500, description = "Its recording can't be read by its indexes", body = ApiError)
+    )
+)]
+async fn camera_frames(
+    State(state): State<Arc<ApiState>>,
+    axum::extract::Path((id, camera)): axum::extract::Path<(String, String)>,
+) -> Result<Json<crate::cameras::CameraFrames>, Failure> {
+    let data_dir = state.data_dir.clone();
+    tokio::task::spawn_blocking(move || crate::cameras::frames(&data_dir, &id, &camera))
+        .await
+        .map_err(|error| {
+            Failure::from(KaptoError::new(ErrorCode::RecordingUnreadable).detail(error.to_string()))
+        })?
+        .map(Json)
+        .map_err(Failure::from)
+}
+
+/// Frame `n` of one of a finalised episode's cameras, as a picture the
+/// browser draws: a compressed one as recorded, a raw one encoded as JPEG.
+#[utoipa::path(
+    get,
+    path = "/api/episodes/{id}/cameras/{camera}/frames/{n}",
+    params(
+        ("id" = String, Path, description = "The episode's ID, as `/api/episodes` lists it."),
+        ("camera" = String, Path, description = "The camera's stream, as the replay's opening lists it."),
+        ("n" = usize, Path, description = "The frame's number, from 0, as its frames list them.")
+    ),
+    responses(
+        (status = 200, description = "The frame's picture, JPEG or PNG", content_type = "image/jpeg", body = Vec<u8>),
+        (status = 400, description = "The ID isn't an episode ID, or the number isn't a number", body = ApiError),
+        (status = 404, description = "No finalised episode has this ID, or it has no such camera or frame", body = ApiError),
+        (status = 409, description = "The frame can't be shown, and the message says why", body = ApiError),
+        (status = 500, description = "Its recording can't be read by its indexes", body = ApiError)
+    )
+)]
+async fn camera_picture(
+    State(state): State<Arc<ApiState>>,
+    axum::extract::Path((id, camera, n)): axum::extract::Path<(String, String, String)>,
+) -> Result<Response, Failure> {
+    let n = n.parse::<usize>().map_err(|_| {
+        Failure::from(
+            KaptoError::new(ErrorCode::ApiInvalidRequest)
+                .detail(format!("`{n}` isn't a frame's number")),
+        )
+    })?;
+    let data_dir = state.data_dir.clone();
+    let (media_type, bytes) =
+        tokio::task::spawn_blocking(move || crate::cameras::picture(&data_dir, &id, &camera, n))
+            .await
+            .map_err(|error| {
+                Failure::from(
+                    KaptoError::new(ErrorCode::RecordingUnreadable).detail(error.to_string()),
+                )
+            })?
+            .map_err(Failure::from)?;
+    let mut response = Body::from(bytes).into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(media_type));
+    // A recorded frame doesn't change while the browser keeps it.
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=3600"),
     );
     Ok(response)
 }

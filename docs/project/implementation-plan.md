@@ -640,6 +640,7 @@ need, without ever costing capture anything. The views are Kapto's own
 | M5-01 `feat(capture): pre-roll and post-roll` | Bounded per-stream history kept while idle; spliced into episode at start; per-stream tail (CAP-7) | Pre-roll content equals last N s sent; memory bound | Memory budget declared at startup (PERF-5b). **Open question:** how pre-roll messages count in an episode's numbers and in `episode.json`: inside its counts, or as separate pre-roll and post-roll counts, and whether the episode's start time is the command or the first pre-roll message |
 | M5-03 `test(fault): power-cut VM job` | Nightly QEMU job: record, hard reset, verify loss ≤ fsync window | Nightly result | How the durability claim is proven |
 | M5-07b `feat(server): resource history` | Each process's CPU and memory samples kept in SQLite runtime state (after M5-08), and shown in the web UI over time and for the span of any episode; never written into `episode.json` or the manifest, which hold only what was recorded (EFF-8) | Samples survive a restart of serve; an episode's span shows the samples taken during it; old samples are removed past the retention limit | **Open question:** how long samples are kept and at what resolution (e.g. one a second for a day, then thinned), as settings with defaults |
+| M5-07c `refactor(server): the API in files by area` | `crates/kapto-server/src/api.rs` (about 1,700 lines) split into a module per area (status and processes, episodes, replays and cameras, profiles and tasks, uploads, settings), the router and `Failure` kept together; its tests (about 2,800 lines) split the same way with their shared helpers in one place. Behaviour unchanged | The existing tests, unchanged but moved; the OpenAPI document regenerated identical | — |
 | M5-08j `fix(worker): learning that an episode ended` | Once in four runs of `cargo xtask ui screenshots`: the worker logged `waiting while an episode is recorded` and never `carrying on` once the episode ended, so it never verified, checked or uploaded it, and the screenshots timed out waiting for it to be checked. `wrk-watch` asks capture's control socket once a second with a 1 s read timeout, and a timed-out answer would itself have logged `carrying on`; where it was held (connecting, writing, the scheduler rather than the watch) isn't known yet. Find it, e.g. with a write timeout and a log of each watch failure, and a test that holds capture's control socket mid-answer | The worker carries on within seconds of an episode ending whatever capture's socket does; fails without | — |
 | M5-08i `perf(worker): job costs in profile traces` (with the profiling tooling) | Per-job spans in `profiling` builds so `profile trace` reports a cost per episode-minute for each job kind (PROF-4 worker part) | `profile trace` on a scenario reports a cost per episode-minute for each job kind | — |
 | M5-09 `test(fault): isolation suite` | NFR-1 fault injection for worker, server, bridge; a small tmpfs filled during an episode, which capture finalises before it is full and never leaves corrupt (the disk limits of M5-06, there tested with configured limits and a pretend disk) | Fault suite | Exit: power-cut and kill -9 lose ≤ fsync window; disk-full ends clean |
@@ -673,7 +674,6 @@ V4L2 (M15-01) move here rather than waiting for Phase B.
 | M6b-04b `perf(capture): ros 2 cameras within a core` | Recording the reference load as ROS 2 topics with two 1080p cameras at 60 fps beside it takes 1.02–1.13 cores on the maintainer's laptop (`cargo xtask bench ros2 --cameras 2`), over the one-core target, with every message written. The two threads receiving the joint states (`cap-rx-ros2` and its middleware listener) take 2.6 times what they do without cameras, doing the same work; the cameras' own receivers take 0.01 each and the writer 0.24–0.28, lz4 on frames included. Find whether it is the machine (clock speed with more cores busy, under `powersave`) or Kapto, on the reference PC first, and what `capture.compression = "none"` saves | `bench ros2 --cameras 2` within a core over each middleware, on the reference PC | Capture's CPU with ROS 2 cameras |
 | M6b-04c `fix(capture): no loss counted for joint states that frames delayed` | With two 60 fps cameras on ROS 2, 179–339 of 1,920,000 joint states are counted lost though every one arrived: frames delay their delivery past what the settling window allows (three periods and the receiver's batch wait). Over UDP and TCP with cameras, none | `bench ros2 --cameras 2` counts none lost over each middleware | — |
 | M6b-04d `fix(capture): a camera's first frame` | In two hand-made runs, two ROS 2 cameras each sending 1,200 frames, the second camera's recording had 1,199, counted as nothing lost, as a missing first frame leaves no silence to measure; the benchmark's runs had every frame. Find whether a frame is published before Kapto's subscription has matched it, and what the generator's wait for subscribers misses | The second camera's frames complete in a loop of runs | — |
-| M6b-06c `feat(server): cameras' frames of an episode` | `GET /api/episodes/{id}/cameras/{camera}/frames` (every frame's receive time) and `…/frames/{n}` (its picture, raw ones as JPEG), cameras named in the replay's opening, the frame index cached per episode | Handler and cause-code tests; regenerated OpenAPI | — |
 | M6b-06d `feat(ui): cameras in replay` | The replay player shows each camera's frame at the cursor, asking for the next only once the one before has come while playing, and steps frame by frame (every frame recorded), synced with the robot and plots on the receive-time timeline | Vitest: the frame at a time; Playwright: step through frames; screenshots | Replaying a camera |
 
 ### WP M8: `docker run` robot + one-command demo
@@ -953,7 +953,7 @@ reference.
 
 **Critical path**, taken in turn, one PR at a time:
 
-1. The cameras: M6b-06c and M6b-06d (frames shown live beside the
+1. The cameras: M6b-06d (frames shown live beside the
    robot and in replay); then M6b-04b to M6b-04d (capture's CPU, counted loss and a
    first frame with ROS 2 cameras).
 2. Layouts: M4-06 (the package's own) and M4-06b (the operator's, arranged
@@ -962,7 +962,8 @@ reference.
 4. The worker noticing when an episode ends: M5-08j; and `kapto record`
    stopping cleanly over Zenoh: M6-05c.
 
-The other work packages wait until then; M6-08 when there is room.
+The other work packages wait until then; M6-08 and M5-07c when there is
+room.
 
 **Settled approaches** the work above builds on:
 

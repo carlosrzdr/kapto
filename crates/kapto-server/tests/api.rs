@@ -1690,6 +1690,8 @@ fn the_openapi_document_describes_every_route_and_its_error_body() {
             "/api/episodes/start",
             "/api/episodes/stop",
             "/api/episodes/{id}",
+            "/api/episodes/{id}/cameras/{camera}/frames",
+            "/api/episodes/{id}/cameras/{camera}/frames/{n}",
             "/api/episodes/{id}/events",
             "/api/episodes/{id}/qa",
             "/api/episodes/{id}/replay",
@@ -2462,7 +2464,9 @@ async fn a_replays_opening_names_its_links_and_values_and_gives_its_span_once_ma
                     {"name": "sequence", "plotted": false},
                     {"name": "joint_positions[0]", "plotted": true}
                 ]
-            }]
+            }],
+            // A recording that can't be read for its cameras has none.
+            "cameras": []
         })
     );
 

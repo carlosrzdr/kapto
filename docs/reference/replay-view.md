@@ -41,7 +41,14 @@ holds, as the viewer stream's opening message does. `GET
 `/api/episodes/{id}/replay/meshes/{n}` each of its meshes, as
 `/api/robot/scene` and its meshes give the robot loaded now; a recording
 without a robot is answered with `viewer.replay_without_robot`, a mesh
-that couldn't be read with `robot.mesh_unreadable`. A stretch outside the episode, no
+that couldn't be read with `robot.mesh_unreadable`. The opening also lists
+the episode's `cameras` by name; a camera's frames don't come from the
+replay view but from the recording itself, by its indexes, and need no
+replay made: `GET /api/episodes/{id}/cameras/{camera}/frames` gives every
+frame's receive time in order, and `…/frames/{n}` frame `n` as a picture
+(JPEG as recorded, or a raw frame encoded as JPEG; `viewer.picture_unshown`
+with the reason if it can't be shown, `viewer.camera_not_found` for a
+camera or frame the episode doesn't have). A stretch outside the episode, no
 points or more than 10 000 are refused with `api.invalid_request`; a
 replay not made yet with `viewer.replay_not_ready`, and a view that can't
 be read with `viewer.replay_unreadable`.

@@ -326,6 +326,13 @@ it took to reach the page: decoded by the browser, one at a time per
 camera, so a slow browser shows fewer pictures, never older ones; a camera
 that can't be shown says why instead.
 
+In replay, a camera's frames are read from the recording itself, not from
+the replay view ([cameras in replay](../design/cameras-in-replay.md)): the
+server finds every frame's receive time in the recording's MCAP indexes,
+without reading a frame, keeps them for the cameras asked about last, and
+reads one frame by reading only the chunk that holds it, encoding a raw one
+as JPEG as the bridge does.
+
 The **viewer bridge**, `kapto viz-bridge`, reads that socket and streams
 the robot moving to the web UI's live view, Kapto's own viewer
 ([the viewer's design](../design/a-viewer-of-our-own.md)). It is a process of

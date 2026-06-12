@@ -623,6 +623,18 @@ error_codes! {
         remedy: "Set viewer.frame_socket to a path of at most 107 bytes, in a folder Kapto may write, that isn't taken by another file. The recording and the viewer bridge must use the same path.",
     }
 
+    /// An episode has no such camera, or the camera no such frame.
+    ViewerCameraNotFound = "viewer.camera_not_found" {
+        summary: "The episode has no such camera or frame",
+        remedy: "Ask for a camera the episode's replay opening lists, and a frame numbered from 0 below the count its frames give.",
+    }
+
+    /// A recorded camera's frame can't be shown in the web UI.
+    ViewerPictureUnshown = "viewer.picture_unshown" {
+        summary: "The camera's frame can't be shown",
+        remedy: "The message says why: a picture neither JPEG nor PNG, a raw encoding other than rgb8, bgr8, rgba8, bgra8 or mono8, or a frame that isn't what the camera's stream declares. The frame is recorded as received all the same; export the episode to look at it with another tool.",
+    }
+
     /// The viewer bridge stopped being able to hand data to the viewer.
     ViewerLoggingFailed = "viewer.logging_failed" {
         summary: "The viewer stopped taking data",

@@ -368,6 +368,169 @@
         }
       }
     },
+    "/api/episodes/{id}/cameras/{camera}/frames": {
+      "get": {
+        "tags": [],
+        "summary": "When each frame of one of a finalised episode's cameras was received,\nread from its recording by the recording's indexes: frame `n` is the\n`n`-th. Needs no replay made.",
+        "operationId": "camera_frames",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The episode's ID, as `/api/episodes` lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "camera",
+            "in": "path",
+            "description": "The camera's stream, as the replay's opening lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CameraFrames"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ID isn't an episode ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No finalised episode has this ID, or it has no such camera",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Its recording can't be read by its indexes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{id}/cameras/{camera}/frames/{n}": {
+      "get": {
+        "tags": [],
+        "summary": "Frame `n` of one of a finalised episode's cameras, as a picture the\nbrowser draws: a compressed one as recorded, a raw one encoded as JPEG.",
+        "operationId": "camera_picture",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The episode's ID, as `/api/episodes` lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "camera",
+            "in": "path",
+            "description": "The camera's stream, as the replay's opening lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "description": "The frame's number, from 0, as its frames list them.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The frame's picture, JPEG or PNG",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ID isn't an episode ID, or the number isn't a number",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No finalised episode has this ID, or it has no such camera or frame",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The frame can't be shown, and the message says why",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Its recording can't be read by its indexes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/episodes/{id}/events": {
       "get": {
         "tags": [],
@@ -1575,6 +1738,28 @@
           "remedy": {
             "type": "string",
             "description": "What to do about it."
+          }
+        }
+      },
+      "CameraFrames": {
+        "type": "object",
+        "description": "A camera's frames in an episode.",
+        "required": [
+          "camera",
+          "times_utc_ns"
+        ],
+        "properties": {
+          "camera": {
+            "type": "string",
+            "description": "The camera's stream."
+          },
+          "times_utc_ns": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "When each frame was received, UTC nanoseconds, in order: frame `n`\nis the `n`-th."
           }
         }
       },
@@ -3009,9 +3194,17 @@
           "start_utc_ns",
           "end_utc_ns",
           "links",
-          "streams"
+          "streams",
+          "cameras"
         ],
         "properties": {
+          "cameras": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The streams that are cameras, by name, in declaration order: their\nframes come from `/api/episodes/{id}/cameras/{camera}/frames`. Empty\nif the files the recording carries can't be read."
+          },
           "end_utc_ns": {
             "type": "integer",
             "format": "int64",

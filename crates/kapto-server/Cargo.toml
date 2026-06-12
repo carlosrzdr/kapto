@@ -36,6 +36,8 @@ utoipa.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# Reading back a raw camera's frames as the API encodes them.
+jpeg-decoder.workspace = true
 kapto-testkit.workspace = true
 # A WebSocket client for the event stream's tests; both already come with axum.
 futures-util = { version = "0.3", default-features = false }

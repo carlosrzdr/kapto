@@ -25,6 +25,8 @@ once a second. A page from another site may not open it
 | POST | `/api/episodes/start` | Start recording an episode. Answers once it is being recorded. |
 | POST | `/api/episodes/stop` | Stop recording. Answers once the episode is finalised, and listed. |
 | GET | `/api/episodes/{id}` | One finalised episode in full: its streams' counts, files, buffers, how quickly it reached the disk, and the wall clock while it was recorded. |
+| GET | `/api/episodes/{id}/cameras/{camera}/frames` | When each frame of one of a finalised episode's cameras was received, read from its recording by the recording's indexes: frame `n` is the `n`-th. Needs no replay made. |
+| GET | `/api/episodes/{id}/cameras/{camera}/frames/{n}` | Frame `n` of one of a finalised episode's cameras, as a picture the browser draws: a compressed one as recorded, a raw one encoded as JPEG. |
 | GET | `/api/episodes/{id}/events` | What happened in one finalised episode: its events, in the order its recording holds them, and the stretches it began but never ended. Before the worker has read them, `read` is `false` and there are none. |
 | GET | `/api/episodes/{id}/qa` | What the quality checks found on one finalised episode: whether it was accepted, the settings it was checked with, and each check's result. Before the worker has checked it, `accepted` is `null` and there are no results. |
 | GET | `/api/episodes/{id}/replay` | Where one finalised episode's replay is: not made, queued, being made, ready with what it lacks, or failed with why. It asks for nothing: `POST` does. |

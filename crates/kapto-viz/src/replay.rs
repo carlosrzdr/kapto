@@ -25,6 +25,7 @@ use kapto_store::records::EPISODE_RECORD;
 
 use crate::live::LiveRobot;
 use crate::page_scene::{self, RobotScene};
+use crate::picture::CameraKind;
 use crate::plots::{Plots, StreamFields};
 use crate::stream::OpeningStream;
 use crate::view::{ViewContents, ViewWriter};
@@ -365,6 +366,24 @@ fn carried_manifest(
 /// one recorded without a package, the only file it carries. None if it
 /// carries none. The `.msg` files of its ROS 2 messages are the ones the
 /// recording carries beside it, not those of the package as it is now.
+/// The streams of the recording at `recording` that are cameras, by the
+/// `streams.toml` it carries: each one's name and how its frames are laid
+/// out, in declaration order.
+///
+/// # Errors
+///
+/// `recording.unreadable` if the recording can't be read, or a carried
+/// file's error if it can't be parsed.
+pub fn recorded_cameras(recording: &Path) -> Result<Vec<(String, CameraKind)>, KaptoError> {
+    let start = read_start(recording)?;
+    let manifest = carried_manifest(&start, recording)?;
+    let streams = carried_streams(&start, recording, manifest.as_ref())?;
+    Ok(streams
+        .iter()
+        .filter_map(|stream| Some((stream.id.to_string(), CameraKind::of(stream)?)))
+        .collect())
+}
+
 fn carried_streams(
     start: &RecordingStart,
     recording: &Path,

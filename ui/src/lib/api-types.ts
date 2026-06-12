@@ -23,6 +23,17 @@ export interface ApiError {
   remedy: string;
 }
 
+/** A camera's frames in an episode. */
+export interface CameraFrames {
+  /** The camera's stream. */
+  camera: string;
+  /**
+   * When each frame was received, UTC nanoseconds, in order: frame `n`
+   * is the `n`-th.
+   */
+  times_utc_ns: number[];
+}
+
 /** What the capture process is doing. */
 export interface CaptureStatus {
   /** The episode being recorded, if one is. */
@@ -642,6 +653,12 @@ export interface ProfilesOverview {
  * holds, as the live stream's opening message does for the live view.
  */
 export interface ReplayOpening {
+  /**
+   * The streams that are cameras, by name, in declaration order: their
+   * frames come from `/api/episodes/{id}/cameras/{camera}/frames`. Empty
+   * if the files the recording carries can't be read.
+   */
+  cameras: string[];
   /** When its last was. */
   end_utc_ns: number;
   /** Each link's name, in the order a stretch gives its pose. */

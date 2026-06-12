@@ -36,6 +36,6 @@ pub use live::LiveRobot;
 #[cfg(unix)]
 pub use plots::{Plots, StreamFields};
 #[cfg(unix)]
-pub use replay::{DrawnRobots, ReplaySettings, Replayed, write_replay};
+pub use replay::{DrawnRobots, ReplaySettings, Replayed, recorded_cameras, write_replay};
 #[cfg(unix)]
 pub use tap_reader::{TapReader, TapReaderStats};

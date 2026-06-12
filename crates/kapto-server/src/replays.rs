@@ -122,6 +122,10 @@ pub struct ReplayOpening {
     pub links: Vec<String>,
     /// Each stream, by its number in a stretch, with its values.
     pub streams: Vec<ReplayStream>,
+    /// The streams that are cameras, by name, in declaration order: their
+    /// frames come from `/api/episodes/{id}/cameras/{camera}/frames`. Empty
+    /// if the files the recording carries can't be read.
+    pub cameras: Vec<String>,
 }
 
 /// One stream of a replay.
@@ -171,6 +175,9 @@ pub fn opening(data_dir: &Path, id: &str) -> Result<ReplayOpening, KaptoError> {
                     .collect(),
             })
             .collect(),
+        // A recording whose cameras can't be listed still replays its
+        // robot; asking for a camera's frames says what is wrong.
+        cameras: crate::cameras::cameras(data_dir, id).unwrap_or_default(),
     })
 }
 

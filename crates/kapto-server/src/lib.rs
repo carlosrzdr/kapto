@@ -4,6 +4,7 @@
 
 #[cfg(unix)]
 pub mod api;
+pub mod cameras;
 #[cfg(unix)]
 pub mod episode;
 pub mod episode_events;
