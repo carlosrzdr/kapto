@@ -36,6 +36,10 @@ const JOINT_NAMES: [&str; JOINTS + 1] = [
 /// How many messages each topic keeps for a slow subscriber.
 const DEPTH: usize = 1000;
 
+/// How long a subscriber is given, once this publisher counts it, to
+/// match the publisher in turn.
+const MATCH_SETTLE: Duration = Duration::from_millis(500);
+
 /// How many frames a camera's topic keeps: frames are large and a late
 /// one is worth less than the next.
 const FRAMES_KEPT: usize = 10;
@@ -125,9 +129,10 @@ impl Publishers {
         }
     }
 
-    /// Returns once every topic has a subscriber, or fails naming those
-    /// still without one after `limit`. Discovery runs on the middleware's
-    /// own threads, so asking is enough.
+    /// Returns once every topic has a subscriber, and the subscriber has
+    /// had time to match this publisher too, or fails naming those still
+    /// without one after `limit`. Discovery runs on the middleware's own
+    /// threads, so asking is enough.
     pub(crate) fn wait_for_subscribers(&self, limit: Duration) -> io::Result<()> {
         let deadline = Instant::now() + limit;
         loop {
@@ -139,6 +144,12 @@ impl Publishers {
                 .map(|(_, name)| name.as_str())
                 .collect();
             if missing.is_empty() {
+                // Each side learns of the other on its own: a publisher can
+                // count a subscriber that hasn't matched it yet, and a
+                // message published meanwhile never reaches it. The first
+                // message would then be lost with nothing to tell, so the
+                // other side is given time to match too.
+                std::thread::sleep(MATCH_SETTLE);
                 return Ok(());
             }
             if Instant::now() >= deadline {
