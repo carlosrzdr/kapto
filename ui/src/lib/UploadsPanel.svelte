@@ -78,7 +78,7 @@
       <li aria-label={destination.name}>
         <div class="head">
           <strong>{destination.name}</strong>
-          <button type="button" disabled={tested === "testing"} onclick={() => void test(destination.name)}>
+          <button type="button" disabled={tested === "testing"} aria-busy={tested === "testing"} onclick={() => void test(destination.name)}>
             {tested === "testing" ? "Testing…" : "Test"}
           </button>
         </div>
@@ -230,9 +230,5 @@
     color: var(--text);
     font: inherit;
     font-size: var(--text-sm);
-  }
-  button:disabled {
-    opacity: 0.6;
-    cursor: progress;
   }
 </style>

@@ -73,7 +73,4 @@
     color: var(--text);
     font: inherit;
   }
-  select:disabled {
-    opacity: 0.6;
-  }
 </style>

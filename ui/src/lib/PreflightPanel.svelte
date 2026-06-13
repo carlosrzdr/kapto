@@ -53,7 +53,7 @@
 {/if}
 {#if !recording}
   <div class="actions">
-    <button type="button" disabled={running || busy} onclick={onrun}>
+    <button type="button" disabled={running || busy} aria-busy={running} onclick={onrun}>
       {running ? "Running…" : "Run again"}
     </button>
     {#if failed.length > 0}
@@ -126,9 +126,5 @@
   }
   button.anyway {
     border-color: var(--warning);
-  }
-  button:disabled {
-    opacity: 0.6;
-    cursor: progress;
   }
 </style>

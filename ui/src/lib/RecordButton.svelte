@@ -4,20 +4,23 @@
     recording: boolean;
     /** A request is on its way: the button waits for its answer. */
     busy: boolean;
-    /** Can't be pressed for now, e.g. while pre-flight runs; it still says what it would do. */
-    held?: boolean;
+    /** Why it can't be pressed for now, if it can't, e.g. while pre-flight runs; it still says what it would do. */
+    held?: string | null;
     onstart: () => void;
     onstop: () => void;
   }
 
-  let { recording, busy, held = false, onstart, onstop }: Props = $props();
+  let { recording, busy, held = null, onstart, onstop }: Props = $props();
+  const does = $derived(recording ? "Stop recording (R)" : "Record an episode (R)");
 </script>
 
 <button
   type="button"
   class:recording
-  title={recording ? "Stop recording (R)" : "Record an episode (R)"}
-  disabled={busy || held}
+  title={held && !busy ? `${does}: ${held}` : does}
+  disabled={busy || held !== null}
+  aria-busy={busy}
+  aria-describedby={held && !busy ? "record-held" : undefined}
   onclick={() => (recording ? onstop() : onstart())}
 >
   {#if busy}
@@ -27,6 +30,9 @@
     {recording ? "Stop" : "Record"}
   {/if}
 </button>
+{#if held && !busy}
+  <span id="record-held" class="visually-hidden">{held}</span>
+{/if}
 
 <style>
   button {
@@ -47,9 +53,5 @@
     background: var(--danger-fill);
     border-color: var(--danger-fill);
     color: var(--on-danger);
-  }
-  button:disabled {
-    opacity: 0.6;
-    cursor: progress;
   }
 </style>

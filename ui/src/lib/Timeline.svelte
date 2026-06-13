@@ -148,10 +148,6 @@
     font-size: var(--text-sm);
     cursor: pointer;
   }
-  button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
   .track {
     flex: 1;
     display: flex;

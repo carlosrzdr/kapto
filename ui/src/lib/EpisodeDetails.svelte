@@ -405,10 +405,6 @@
     font: inherit;
     cursor: pointer;
   }
-  .replay:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
   .folder {
     font-family: var(--font-data);
     font-size: var(--text-xs);

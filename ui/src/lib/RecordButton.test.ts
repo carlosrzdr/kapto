@@ -22,8 +22,22 @@ describe("RecordButton", () => {
     expect(button.disabled).toBe(true);
   });
 
-  it("held, can't be pressed but still says what it would do", () => {
-    render(RecordButton, { recording: false, busy: false, held: true, onstart: vi.fn(), onstop: vi.fn() });
-    expect((screen.getByRole("button", { name: "Record" }) as HTMLButtonElement).disabled).toBe(true);
+  it("held, can't be pressed but still says what it would do, and why not", () => {
+    const why = "Kapto can't reach the capture process, so nothing can be recorded";
+    render(RecordButton, { recording: false, busy: false, held: why, onstart: vi.fn(), onstop: vi.fn() });
+    const button = screen.getByRole("button", { name: "Record" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe(`Record an episode (R): ${why}`);
+    // Read out with it by a screen reader.
+    expect(screen.getByRole("button", { description: why })).toBe(button);
+    expect(button.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("waiting for its answer, says so and isn't held for another reason", () => {
+    render(RecordButton, { recording: false, busy: true, held: "Pre-flight is running", onstart: vi.fn(), onstop: vi.fn() });
+    const button = screen.getByRole("button", { name: "Starting…" });
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.title).toBe("Record an episode (R)");
+    expect(button.getAttribute("aria-describedby")).toBeNull();
   });
 });

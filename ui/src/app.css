@@ -129,6 +129,29 @@ select:not(:disabled),
 summary {
   cursor: pointer;
 }
+/* A control that can't be used now looks it, whatever its own colours, and
+   its cursor says not now. One waiting for an answer it asked for says so
+   in its words and with aria-busy, and its cursor waits. (`html` puts this
+   above a component's own colours.) */
+html :is(button, select):disabled {
+  border-color: var(--line);
+  background: var(--raised);
+  color: var(--muted);
+  opacity: 1;
+  cursor: not-allowed;
+}
+html :is(button, select)[aria-busy="true"]:disabled {
+  cursor: progress;
+}
+/* Read by screen readers, not shown: what a control's look leaves out. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 /* An icon sits beside its button's words. */
 button {
   display: inline-flex;

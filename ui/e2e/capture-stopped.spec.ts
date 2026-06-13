@@ -16,6 +16,11 @@ test("with the capture process stopped, the page says why and can't record", asy
   const record = page.getByRole("banner").getByRole("button", { name: "Record" });
   await expect(record).toBeDisabled();
   await expect(record).toHaveText("Record");
+  // It says why, on hover and to a screen reader, and looks it can't be pressed.
+  const why = "Kapto can't reach the capture process, so nothing can be recorded";
+  await expect(record).toHaveAccessibleDescription(why);
+  await expect(record).toHaveAttribute("title", `Record an episode (R): ${why}`);
+  await expect(record).toHaveCSS("cursor", "not-allowed");
   await expect(page.getByText("Capture not reachable")).toBeVisible();
   // Where the robot would be: why it isn't, and what to do.
   const noView = page.getByRole("status").filter({ hasText: "No live view" });

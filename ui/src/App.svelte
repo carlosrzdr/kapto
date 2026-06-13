@@ -634,7 +634,11 @@
     <RecordButton
       {recording}
       {busy}
-      held={preflightRunning || status === null}
+      held={status === null
+        ? "Kapto can't reach the capture process, so nothing can be recorded"
+        : preflightRunning
+          ? "Pre-flight is running; recording can start once it ends"
+          : null}
       onstart={() => act(() => startEpisode(choice))}
       onstop={() => act(stopEpisode)}
     />

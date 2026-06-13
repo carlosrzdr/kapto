@@ -141,10 +141,6 @@
     font: inherit;
     cursor: pointer;
   }
-  button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
   .said {
     color: var(--muted);
   }
