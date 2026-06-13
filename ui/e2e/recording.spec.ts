@@ -507,7 +507,15 @@ test("events marked from the page and sent through the API show on the timeline,
       json: { code: "events.unknown_kind", message: "The kind of event isn't one that may be sent.", remedy: "Add it to events.toml." },
     }),
   );
+  // Where the key goes, should it be taken by something else than the
+  // marks: once in a while it sent nothing here.
+  const focused = await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 200) ?? "none");
+  test.info().annotations.push({ type: "focused before pressing 1", description: focused });
+  const asked = page.waitForRequest((request) => request.url().endsWith("/api/episodes/events"), { timeout: 5_000 });
   await page.keyboard.press("1");
+  await asked.catch(() => {
+    throw new Error(`pressing 1 sent no event; the focus was on ${focused}`);
+  });
   await expect(marks.getByText("The kind of event isn't one that may be sent. Add it to events.toml.")).toBeVisible();
   await page.unroute("**/api/episodes/events");
 
