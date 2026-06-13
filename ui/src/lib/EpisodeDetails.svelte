@@ -260,7 +260,8 @@
         {#each quality.checks as check (check.check)}
           <tr>
             <th scope="row" title="Version {check.version}">
-              {check.check} <span class="kind">{check.kind}</span>
+              {#each breakable(check.check) as piece, index (index)}{piece}<wbr />{/each}
+              <span class="kind">{check.kind}</span>
             </th>
             <td class:problem={check.verdict === "failed"}>{verdicts[check.verdict] ?? check.verdict}</td>
             <td class="found">
@@ -339,7 +340,7 @@
     <tbody>
       {#each episode.streams as stream (stream.stream)}
         <tr>
-          <th scope="row">{stream.stream}</th>
+          <th scope="row">{#each breakable(stream.stream) as piece, index (index)}{piece}<wbr />{/each}</th>
           <td title={stream.carried ? "kept from before the episode, written at its start" : undefined}>
             {count(stream.written)}{stream.carried ? ` + ${count(stream.carried)} kept` : ""}
           </td>
@@ -356,8 +357,9 @@
 </section>
 
 <style>
+  /* In line with its row's text above. */
   section {
-    padding: 0.5rem 0 0.75rem;
+    padding: 0.5rem var(--space-2) 0.75rem;
   }
   dl {
     display: grid;
@@ -463,5 +465,10 @@
   .found {
     color: var(--muted);
     font-size: var(--text-sm);
+  }
+  /* Prose wraps between words; a word too long for a narrow panel breaks
+     rather than pushing the table past it. */
+  .found {
+    overflow-wrap: anywhere;
   }
 </style>

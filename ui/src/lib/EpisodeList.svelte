@@ -195,10 +195,11 @@
   }
   button {
     display: grid;
-    grid-template-columns: 1fr auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
     gap: 0.75rem;
     width: 100%;
-    padding: 0.35rem 0;
+    /* Its highlight reaches the panel's edges; its text stays off them. */
+    padding: 0.35rem var(--space-2);
     border: none;
     background: none;
     color: inherit;

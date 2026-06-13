@@ -56,7 +56,7 @@
     margin-bottom: 0.75rem;
   }
   button {
-    padding: 0.4rem 0.75rem;
+    padding: 0.4rem 0.6rem;
     border: none;
     border-bottom: 2px solid transparent;
     background: none;

@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
+import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
 
 const open = (page: Page, tab: RegExp) => page.getByRole("tab", { name: tab }).click();
@@ -814,3 +815,42 @@ test("a replayed camera steps through every frame recorded, and says why one can
   await expect(cameras.getByRole("status")).toContainText("yuv422");
   expect(elsewhere).toEqual([]);
 });
+
+test("nothing in the side panel is cut off, at a laptop's width or a tablet's", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("Live, not recording")).toBeVisible();
+  // An episode to open, with its details and uploads.
+  const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
+  expect((await page.request.post("/api/episodes/start", json)).status()).toBe(201);
+  await page.waitForTimeout(1_500);
+  expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
+  for (const size of [
+    { width: 1400, height: 900 },
+    { width: 1024, height: 768 },
+  ]) {
+    await page.setViewportSize(size);
+    const at = `at ${size.width}×${size.height}`;
+    await open(page, /^Live/);
+    await expect(page.getByRole("row", { name: /wrist_camera/ })).toBeVisible();
+    await fitsPanel(page, `in the Live tab ${at}`);
+    await open(page, /^Episodes/);
+    const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+    if ((await episode.getByRole("button", { expanded: true }).count()) === 0) {
+      await episode.getByTitle("Show this episode in full").click();
+    }
+    await expect(page.getByRole("region", { name: /^Episode / })).toBeVisible();
+    await fitsPanel(page, `in the Episodes tab, an episode open, ${at}`);
+    await open(page, /^Uploads/);
+    await fitsPanel(page, `in the Uploads tab ${at}`);
+    await open(page, /^Robot/);
+    await fitsPanel(page, `in the Robot tab ${at}`);
+    await open(page, /^System/);
+    const settings = page.locator("summary").filter({ hasText: /settings, \d+ changed/ });
+    if ((await page.getByRole("searchbox").count()) === 0) {
+      await settings.click();
+    }
+    await expect(page.getByRole("searchbox")).toBeVisible();
+    await fitsPanel(page, `in the System tab, its settings open, ${at}`);
+  }
+});
+

@@ -809,6 +809,13 @@
     padding: 1rem;
     height: calc(100vh - 7rem);
   }
+  /* On a smaller screen (a tablet beside the robot), the panel gets the
+     room its tables need. */
+  @media (max-width: 80rem) {
+    main {
+      grid-template-columns: minmax(0, 3fr) minmax(24rem, 2fr);
+    }
+  }
   .viewer {
     display: flex;
     flex-direction: column;
@@ -834,6 +841,11 @@
   }
   aside {
     overflow-y: auto;
+  }
+  /* Room on its right, so nothing ends against the panel's edge or under
+     its scrollbar. */
+  [role="tabpanel"] {
+    padding-right: var(--space-2);
   }
   .unknown {
     color: var(--muted);
