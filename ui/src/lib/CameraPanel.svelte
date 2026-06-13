@@ -4,9 +4,11 @@
   interface Props {
     /** Each camera with its newest picture. */
     cameras: Shown[];
+    /** In a replay, moves to camera `stream`'s frame `step` frames on (negative: back). */
+    onstep?: (stream: number, step: number) => void;
   }
 
-  let { cameras }: Props = $props();
+  let { cameras, onstep }: Props = $props();
 
   /** Draws `bitmap` on the canvas, sized to it, and again as it changes. */
   function draw(canvas: HTMLCanvasElement, bitmap: ImageBitmap) {
@@ -26,14 +28,27 @@
       {#if camera.unshown}
         <p class="unshown" role="status">{camera.unshown}</p>
       {:else if camera.bitmap}
-        <div class="picture" role="img" aria-label={`${camera.name}, its newest picture`}>
+        <div
+          class="picture"
+          role="img"
+          aria-label={camera.frame ? `${camera.name}, frame ${camera.frame.n + 1}` : `${camera.name}, its newest picture`}
+        >
           <canvas use:draw={camera.bitmap}></canvas>
         </div>
       {:else}
         <p class="waiting">Waiting for pictures…</p>
       {/if}
+      {#if onstep}
+        <div class="steps">
+          <button type="button" title="The frame before" aria-label={`${camera.name}: the frame before`} onclick={() => onstep(camera.stream, -1)}>‹</button>
+          <button type="button" title="The frame after" aria-label={`${camera.name}: the frame after`} onclick={() => onstep(camera.stream, 1)}>›</button>
+        </div>
+      {/if}
       <figcaption>
         <span class="name">{camera.name}</span>
+        {#if camera.frame}
+          <span class="delay">frame {camera.frame.n + 1} of {camera.frame.of}</span>
+        {/if}
         {#if camera.delayMs !== null && !camera.unshown}
           <span
             class="delay"
@@ -97,5 +112,22 @@
   }
   .delay {
     color: var(--muted);
+  }
+  .steps {
+    position: absolute;
+    right: 0.4rem;
+    bottom: 0.4rem;
+    display: flex;
+    gap: 0.25rem;
+  }
+  .steps button {
+    min-width: 1.6rem;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--control-line);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--background) 70%, transparent);
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
   }
 </style>

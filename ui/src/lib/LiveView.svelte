@@ -4,7 +4,16 @@
   import * as THREE from "three";
   import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-  import { ApiFailure, getMesh, getReplayMesh, getReplayScene, getReplayWindow, getRobotScene } from "./api";
+  import {
+    ApiFailure,
+    getCameraFrames,
+    getCameraPicture,
+    getMesh,
+    getReplayMesh,
+    getReplayScene,
+    getReplayWindow,
+    getRobotScene,
+  } from "./api";
   import type { VocabularyKind } from "./api-types";
   import CameraPanel from "./CameraPanel.svelte";
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
@@ -13,6 +22,7 @@
   import Timeline from "./Timeline.svelte";
   import { camerasOf, Decoder, type Shown, withPicture, withSaid } from "./viewer/cameras";
   import { type Item, MarkLog } from "./viewer/marks";
+  import { frameAt, replayCamera, type ReplayCamera, steppedTo } from "./viewer/replay-cameras";
   import {
     applyPlacement,
     browserStore,
@@ -69,6 +79,111 @@
       camera.bitmap?.close();
     }
   }
+  /** A replay's cameras: each one's frame times once known, and the frame each shows. */
+  let replayCameras: (ReplayCamera | undefined)[] = [];
+  let replayShown = $state.raw<Shown[]>([]);
+  /** The replay's cameras whose frame is being fetched: one at a time each. */
+  const fetching = new Set<number>();
+
+  /** Shows `opened`'s cameras, each from its first frame time, once the API gives them. */
+  function openCameras(opened: Replaying) {
+    closeCameras();
+    replayShown = opened.opening.cameras.map((name, stream) => ({
+      stream,
+      name,
+      bitmap: null,
+      delayMs: null,
+      unshown: null,
+      pictures: 0,
+      frame: null,
+    }));
+    opened.opening.cameras.forEach((name, index) => {
+      getCameraFrames(opened.id, name)
+        .then((frames) => {
+          if (replay?.id === opened.id) {
+            replayCameras[index] = replayCamera(frames);
+            showFrames();
+          }
+        })
+        .catch((error: unknown) => sayUnshown(index, error));
+    });
+  }
+
+  function closeCameras() {
+    for (const camera of replayShown) {
+      camera.bitmap?.close();
+    }
+    replayCameras = [];
+    replayShown = [];
+  }
+
+  function sayUnshown(index: number, error: unknown) {
+    const why = error instanceof Error ? error.message : String(error);
+    replayShown = replayShown.map((each) => (each.stream === index ? { ...each, unshown: why } : each));
+  }
+
+  /**
+   * Fetches each camera's frame at the moment shown, unless it shows
+   * already or one is on its way: then, once it has come, the frame at the
+   * moment shown by then. Playing, a slow link shows fewer frames, never
+   * late ones.
+   */
+  function showFrames() {
+    const opened = replay;
+    const at = cursorMs;
+    if (!opened || at === null) {
+      return;
+    }
+    replayCameras.forEach((camera, index) => {
+      const shown = replayShown[index];
+      if (!camera || !shown || fetching.has(index)) {
+        return;
+      }
+      const n = frameAt(camera, at);
+      if (n < 0 || shown.frame?.n === n) {
+        return;
+      }
+      fetching.add(index);
+      const frame = { n, of: camera.timesMs.length };
+      getCameraPicture(opened.id, camera.name, n)
+        .then((picture) => createImageBitmap(picture))
+        .then((bitmap) => {
+          if (replay?.id !== opened.id) {
+            bitmap.close();
+            return;
+          }
+          const before = replayShown[index]?.bitmap;
+          replayShown = replayShown.map((each) =>
+            each.stream === index ? { ...each, bitmap, unshown: null, pictures: each.pictures + 1, frame } : each,
+          );
+          before?.close();
+        })
+        .catch((error: unknown) => {
+          // Not asked for again until the moment shown moves to another frame.
+          replayShown = replayShown.map((each) =>
+            each.stream === index ? { ...each, unshown: error instanceof Error ? error.message : String(error), frame } : each,
+          );
+        })
+        .finally(() => {
+          fetching.delete(index);
+          showFrames();
+        });
+    });
+  }
+
+  /** Moves to camera `index`'s frame `step` frames on from the one shown, and holds there. */
+  function stepCamera(index: number, step: number) {
+    const camera = replayCameras[index];
+    if (!camera || cursorMs === null) {
+      return;
+    }
+    const to = steppedTo(camera, cursorMs, step);
+    if (to !== null) {
+      hold();
+      seek(to);
+    }
+  }
+
   /** Decodes each camera's pictures as they come, by the browser's own decoder. */
   const pictures = new Decoder(
     (picture) => createImageBitmap(new Blob([picture.bytes], { type: picture.type })),
@@ -252,12 +367,14 @@
     playing = false;
     // A moment after its end opens it at its start.
     const at = opened.atMs === null || opened.atMs > end ? start : openedAt(opened.atMs, start);
+    openCameras(opened);
     seek(at);
     play();
   }
 
   /** Back to the live robot once the replay is left. */
   function leaveReplay() {
+    closeCameras();
     drawRobotOf(null);
     keptMs = null;
     backToNow();
@@ -277,6 +394,14 @@
         leaveReplay();
       }
     });
+  });
+
+  // The replay's cameras follow the moment shown.
+  $effect(() => {
+    const at = cursorMs;
+    if (replay && at !== null) {
+      untrack(showFrames);
+    }
   });
 
   // Where the replay is, for the bar above it.
@@ -684,6 +809,7 @@
       watched?.stop();
       watched = null;
       dropPictures();
+      closeCameras();
       clearInterval(shown);
       clearInterval(following);
       cancelAnimationFrame(frame);
@@ -732,9 +858,11 @@
     {said}
   </p>
 </div>
-<div class="side" class:with-cameras={cameras.length > 0 && replay === null}>
-  {#if cameras.length > 0 && replay === null}
+<div class="side" class:with-cameras={replay === null ? cameras.length > 0 : replayShown.length > 0}>
+  {#if replay === null && cameras.length > 0}
     <CameraPanel {cameras} />
+  {:else if replay !== null && replayShown.length > 0}
+    <CameraPanel cameras={replayShown} onstep={stepCamera} />
   {/if}
   <LivePlots streams={lookedBack ?? plots} {spanMs} endMs={paused ? cursorMs : null} />
 </div>

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 
 import CameraPanel from "./CameraPanel.svelte";
@@ -43,4 +43,26 @@ describe("CameraPanel", () => {
     expect(screen.getByRole("status").textContent).toContain("16UC1");
     expect(screen.queryAllByRole("img")).toHaveLength(0);
   });
+
+  it("in a replay, says which frame shows and steps to the one before or after", async () => {
+    const onstep = vi.fn();
+    render(CameraPanel, {
+      cameras: [camera({ bitmap: bitmap(640, 480), frame: { n: 11, of: 300 }, pictures: 1 })],
+      onstep,
+    });
+    expect(screen.getByText("frame 12 of 300")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "wrist_camera, frame 12" })).toBeTruthy();
+    await fireEvent.click(screen.getByRole("button", { name: "wrist_camera: the frame after" }));
+    await fireEvent.click(screen.getByRole("button", { name: "wrist_camera: the frame before" }));
+    expect(onstep.mock.calls).toEqual([
+      [1, 1],
+      [1, -1],
+    ]);
+  });
+
+  it("offers no steps in the live view", () => {
+    render(CameraPanel, { cameras: [camera({ bitmap: bitmap(640, 480) })] });
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
 });
+

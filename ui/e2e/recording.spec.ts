@@ -751,3 +751,58 @@ test("a camera whose pictures can't be shown says why instead", async ({ page })
   // The robot is shown all the same.
   await expect(page.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible();
 });
+
+test("a replayed camera steps through every frame recorded, and says why one can't be shown", async ({ page }) => {
+  // Making the replay waits for the worker's other jobs.
+  test.setTimeout(120_000);
+  const elsewhere = requestsLeavingTheMachine(page);
+  await page.goto("/");
+  await expect(page.getByText("Live, not recording")).toBeVisible();
+  const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
+  expect((await page.request.post("/api/episodes/start", json)).status()).toBe(201);
+  await page.waitForTimeout(3_000);
+  expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
+
+  await open(page, /^Episodes/);
+  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  await episode.getByTitle("Show this episode in full").click();
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  const bar = page.getByRole("status", { name: "Replay" });
+  await expect(bar).toContainText(/Episode over/, { timeout: 90_000 });
+
+  // Held on its last moment, the camera shows its frame then: its last,
+  // or the one before if the camera sent last, after the arm's last message.
+  const cameras = page.getByRole("region", { name: "Cameras" });
+  const caption = cameras.getByText(/^frame \d+ of \d+$/);
+  await expect(caption).toBeVisible();
+  await page.waitForTimeout(500);
+  const [last, of] = ((await caption.textContent()) ?? "").match(/\d+/g)?.map(Number) ?? [];
+  expect(of! - last!).toBeLessThanOrEqual(1);
+  // About thirty a second for three seconds: every frame recorded.
+  expect(of).toBeGreaterThan(60);
+  await cameras.getByRole("button", { name: "wrist_camera: the frame before" }).click();
+  await expect(caption).toHaveText(`frame ${(last ?? 0) - 1} of ${of}`);
+  await expect(cameras.getByRole("img", { name: `wrist_camera, frame ${(last ?? 0) - 1}` })).toBeVisible();
+  await cameras.getByRole("button", { name: "wrist_camera: the frame before" }).click();
+  await expect(caption).toHaveText(`frame ${(last ?? 0) - 2} of ${of}`);
+  await cameras.getByRole("button", { name: "wrist_camera: the frame after" }).click();
+  await expect(caption).toHaveText(`frame ${(last ?? 0) - 1} of ${of}`);
+  // Stepping holds the replay where the frame is.
+  await expect(bar).not.toContainText("Playing");
+
+  // A frame that can't be shown says why. The demo's always can, so that
+  // answer is given here.
+  await page.route("**/cameras/*/frames/*", (route) =>
+    route.fulfill({
+      status: 409,
+      json: {
+        code: "viewer.picture_unshown",
+        message: "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8",
+        remedy: "The message says why.",
+      },
+    }),
+  );
+  await cameras.getByRole("button", { name: "wrist_camera: the frame before" }).click();
+  await expect(cameras.getByRole("status")).toContainText("yuv422");
+  expect(elsewhere).toEqual([]);
+});

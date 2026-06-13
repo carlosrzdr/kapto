@@ -331,7 +331,9 @@ the replay view ([cameras in replay](../design/cameras-in-replay.md)): the
 server finds every frame's receive time in the recording's MCAP indexes,
 without reading a frame, keeps them for the cameras asked about last, and
 reads one frame by reading only the chunk that holds it, encoding a raw one
-as JPEG as the bridge does.
+as JPEG as the bridge does. The player shows each camera's frame at the
+moment shown, asking for the next only once the one before has come, and
+steps through every frame recorded, holding the replay where each is.
 
 The **viewer bridge**, `kapto viz-bridge`, reads that socket and streams
 the robot moving to the web UI's live view, Kapto's own viewer

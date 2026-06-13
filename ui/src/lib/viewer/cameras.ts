@@ -16,6 +16,8 @@ export interface Shown {
   unshown: string | null;
   /** Pictures shown, for the page's tests. */
   pictures: number;
+  /** In a replay, which frame shows, numbered from 0, of how many. */
+  frame?: { n: number; of: number } | null;
 }
 
 /** The cameras the opening names, none shown yet. */

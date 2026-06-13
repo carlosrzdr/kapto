@@ -4,6 +4,7 @@
 import {
   API_VERSION,
   type ApiError,
+  type CameraFrames,
   type EpisodeDetail,
   type EpisodeEvents,
   type EpisodeQuality,
@@ -232,6 +233,17 @@ export const getReplayMesh = (id: string, n: number): Promise<ArrayBuffer> =>
  * A stretch of a made replay, from `fromMs` to `toMs` (UTC milliseconds),
  * merged into `points` parts, in the binary form `viewer/stream.ts` reads.
  */
+/** When each frame of one of episode `id`'s cameras was received. */
+export const getCameraFrames = (id: string, camera: string): Promise<CameraFrames> =>
+  request<CameraFrames>(`/api/episodes/${encodeURIComponent(id)}/cameras/${encodeURIComponent(camera)}/frames`);
+
+/** Frame `n` of one of episode `id`'s cameras, as a picture the browser decodes. */
+export async function getCameraPicture(id: string, camera: string, n: number): Promise<Blob> {
+  const path = `/api/episodes/${encodeURIComponent(id)}/cameras/${encodeURIComponent(camera)}/frames/${n}`;
+  const bytes = await binary(path);
+  return new Blob([bytes]);
+}
+
 export function getReplayWindow(id: string, fromMs: number, toMs: number, points: number): Promise<ArrayBuffer> {
   // Nanoseconds don't fit a JavaScript number exactly: written by hand,
   // whole milliseconds outward, so a stretch ending at the episode's first
