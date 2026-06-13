@@ -391,3 +391,45 @@ fn a_replay_stopped_part_way_leaves_no_file_behind() {
     assert!(!out.exists());
     assert!(!folder.0.join("episode.view.partial").exists());
 }
+
+#[test]
+fn a_replay_spans_every_message_even_a_cameras_after_the_arms_last() {
+    let folder = TempDir::new("replay-span");
+    let path = folder.0.join("recording.mcap");
+    let clock = ClockMap::new(ClockSample {
+        mono: RecvTime::from_nanos(0),
+        utc_ns: START_UTC_NS,
+        uncertainty: Duration::ZERO,
+    });
+    let streams = [
+        ChannelSpec::from((0, "arm_joints".parse().unwrap())),
+        ChannelSpec::from((1, "wrist_camera".parse().unwrap())),
+    ];
+    let mut recording =
+        Recording::create(&path, &streams, &clock, &WriterConfig::default()).unwrap();
+    recording
+        .attach("streams.toml", "text/plain", 0, &arm7("streams.toml"))
+        .unwrap();
+    let counters = LossCounters::new(2);
+    for n in 0..10_u32 {
+        let payload = message(n, 0.1);
+        let mut batch = Batch::new(1, payload.len());
+        batch.push(0, &payload);
+        batch.set_recv_time(RecvTime::from_nanos(u64::from(n) * PERIOD_NS));
+        recording.write(&batch, &counters).unwrap();
+    }
+    // The camera's last frame, after the arm's last message.
+    let mut batch = Batch::new(1, 16);
+    batch.push(1, &[0xff, 0xd8, 0xff, 0xe0]);
+    batch.set_recv_time(RecvTime::from_nanos(20 * PERIOD_NS));
+    recording.write(&batch, &counters).unwrap();
+    recording.finish(&clock).unwrap();
+
+    let (view, replayed, _) = replayed(&path, &folder.0);
+    let period = i64::try_from(PERIOD_NS).unwrap();
+    assert_eq!(view.about().start_utc_ns, START_UTC_NS);
+    assert_eq!(view.about().end_utc_ns, START_UTC_NS + 20 * period);
+    // Only the arm's messages are shown.
+    assert_eq!(view.about().messages, 10);
+    assert_eq!(replayed.messages, 10);
+}

@@ -295,8 +295,13 @@ impl Player {
 
     /// Adds the values of a message of stream `topic` received at
     /// `log_time`, and the robot's pose if it is time to. A message of a
-    /// stream without a decoder, or that doesn't decode, is passed over.
+    /// stream without a decoder, or that doesn't decode, only counts in
+    /// the span.
     fn play(&mut self, topic: &str, log_time: u64, data: &[u8]) -> Result<(), KaptoError> {
+        // Every message is in the episode's span, shown or not: a camera's
+        // frames are played from the recording beside the view.
+        self.view
+            .received(i64::try_from(log_time).unwrap_or(i64::MAX));
         let Some(&index) = self.by_id.get(topic) else {
             return Ok(());
         };

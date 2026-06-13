@@ -177,6 +177,14 @@ impl ViewWriter {
         self.add(record)
     }
 
+    /// Notes a message received at `time` that has nothing to show, such
+    /// as a camera's frame: the view's span still covers it, so it runs
+    /// from the episode's first message to its last.
+    pub fn received(&mut self, time: i64) {
+        self.origin.get_or_insert(time);
+        self.end = self.end.max(time);
+    }
+
     /// Adds the robot's pose at `time`: every link's, in link order.
     ///
     /// # Errors

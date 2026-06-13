@@ -33,7 +33,8 @@ that many parts as the viewer stream merges a
 [look back](viewer-stream.md#looking-back). `GET
 /api/episodes/{id}/replay/window?from=&to=&points=` does so and answers
 with the look back's binary form (question number 0), its span the
-episode's first and last message; the events are those
+episode's first and last message of any stream, shown or not (a camera's
+frames included); the events are those
 `/api/episodes/{id}/events` lists. `GET /api/episodes/{id}/replay/opening`
 gives the footer's span, `links` and `streams`, which name what a stretch
 holds, as the viewer stream's opening message does. `GET
