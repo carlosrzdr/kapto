@@ -14,6 +14,9 @@
   --background: #0b0c0d;
   --panel: #151718;
   --raised: #1f2224;
+  /* Behind the robot and the cameras' pictures, a shade off the page so
+     the view reads as its own surface. */
+  --viewer: #0d1011;
   /* Text: 18:1 and 7.7:1 on the background. */
   --text: #f2f4f5;
   --muted: #9ca3a8;

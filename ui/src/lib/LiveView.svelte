@@ -929,7 +929,7 @@
     min-height: 0;
     border-radius: var(--radius);
     overflow: hidden;
-    background: #0d1011;
+    background: var(--viewer);
   }
   .tools {
     position: absolute;

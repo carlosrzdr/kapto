@@ -75,7 +75,7 @@
     max-height: 18rem;
     border-radius: var(--radius);
     overflow: hidden;
-    background: #0d1011;
+    background: var(--viewer);
   }
   .picture {
     width: 100%;
