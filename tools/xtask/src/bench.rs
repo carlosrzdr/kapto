@@ -86,6 +86,11 @@ pub(crate) struct SystemArgs {
     /// Each camera's frame size, e.g. 1920x1080.
     #[arg(long, default_value = "1920x1080", value_parser = frame_size)]
     camera_size: (u16, u16),
+    /// Keep the recording in `target/bench/` once it is measured. Without
+    /// it the recording is removed, as one with cameras takes gigabytes; the
+    /// reports stay.
+    #[arg(long)]
+    keep_recordings: bool,
     #[command(flatten)]
     place: PlaceArgs,
 }
@@ -108,6 +113,11 @@ pub(crate) struct HeadroomArgs {
     /// How long the load runs, in seconds.
     #[arg(long, default_value_t = 60)]
     seconds: u32,
+    /// Keep the recording in `target/bench/` once it is measured. Without
+    /// it the recording is removed, as one with cameras takes gigabytes; the
+    /// reports stay.
+    #[arg(long)]
+    keep_recordings: bool,
     #[command(flatten)]
     place: PlaceArgs,
 }
@@ -194,7 +204,13 @@ pub(crate) fn system(root: &Path, args: &SystemArgs) -> ExitCode {
         tap_socket: None,
         decoded: false,
     };
-    checked(root, "system", &spec, Targets::Reference)
+    checked(
+        root,
+        "system",
+        &spec,
+        Targets::Reference,
+        args.keep_recordings,
+    )
 }
 
 /// Twice the reference load, which must still be recorded completely.
@@ -210,10 +226,16 @@ pub(crate) fn headroom(root: &Path, args: &HeadroomArgs) -> ExitCode {
         tap_socket: None,
         decoded: false,
     };
-    checked(root, "headroom", &spec, Targets::Headroom)
+    checked(
+        root,
+        "headroom",
+        &spec,
+        Targets::Headroom,
+        args.keep_recordings,
+    )
 }
 
-fn checked(root: &Path, kind: &str, spec: &Spec, targets: Targets) -> ExitCode {
+fn checked(root: &Path, kind: &str, spec: &Spec, targets: Targets, keep: bool) -> ExitCode {
     let outcome = build(root, spec.place).and_then(|()| {
         let run = record_load(root, &work_dir(root, kind), spec)?;
         if !run.generator.kept_up() {
@@ -232,6 +254,7 @@ fn checked(root: &Path, kind: &str, spec: &Spec, targets: Targets) -> ExitCode {
         };
         let report = Report::new(targets, Machine::this(spec.place), load, run.measured);
         write_reports(&run.work, &serde_json::to_string_pretty(&report), &report.markdown())?;
+        tidy(&run.work, keep);
         Ok(report)
     });
     match outcome {
@@ -388,6 +411,21 @@ fn build(root: &Path, place: Place) -> Result<(), String> {
         Ok(())
     } else {
         Err("the release build failed".to_owned())
+    }
+}
+
+/// Removes the recording a run left in `work` once it is measured, unless
+/// asked to keep it; the reports beside it stay. A minute with cameras
+/// records gigabytes, and runs add up.
+pub(super) fn tidy(work: &Path, keep: bool) {
+    let data = work.join("data");
+    if keep {
+        eprintln!("The recording is kept in {}", data.display());
+    } else if std::fs::remove_dir_all(&data).is_ok() {
+        eprintln!(
+            "The recording is removed now it is measured (--keep-recordings keeps it); the reports are in {}",
+            work.display()
+        );
     }
 }
 

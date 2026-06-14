@@ -57,6 +57,11 @@ pub(crate) struct Ros2Args {
     /// Each camera's frame size, e.g. 1920x1080.
     #[arg(long, default_value = "1920x1080", value_parser = super::frame_size)]
     camera_size: (u16, u16),
+    /// Keep the recording in `target/bench/` once it is measured. Without
+    /// it the recording is removed, as one with cameras takes gigabytes; the
+    /// reports stay.
+    #[arg(long)]
+    keep_recordings: bool,
 }
 
 impl Ros2Args {
@@ -164,14 +169,19 @@ pub(crate) fn run(root: &Path, args: &Ros2Args) -> ExitCode {
     if std::env::var_os("ROS_DISTRO").is_none() {
         let script = format!(
             "cargo xtask bench ros2 --streams {} --seconds {} --middleware {} \
-             --cameras {} --camera-fps {} --camera-size {}x{}",
+             --cameras {} --camera-fps {} --camera-size {}x{}{}",
             args.streams,
             args.seconds,
             args.middleware.name(),
             args.cameras,
             args.camera_fps,
             args.camera_size.0,
-            args.camera_size.1
+            args.camera_size.1,
+            if args.keep_recordings {
+                " --keep-recordings"
+            } else {
+                ""
+            }
         );
         return match image::build(root).and_then(|()| image::run_in(root, args.middleware, &script))
         {
@@ -289,12 +299,12 @@ fn measure_load(root: &Path, args: &Ros2Args) -> Result<Ros2Report, String> {
         measured(&work.join("data"), &recording)?,
     );
     let report = Ros2Report::new(report, args.middleware, bridge);
-    eprintln!("The recorded episode is in {}", work.display());
     write_reports(
         &work,
         &serde_json::to_string_pretty(&report),
         &report.markdown(),
     )?;
+    super::tidy(&work, args.keep_recordings);
     Ok(report)
 }
 
