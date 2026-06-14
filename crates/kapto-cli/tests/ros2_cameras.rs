@@ -14,29 +14,42 @@
     reason = "test helpers fail the test loudly when the setup itself breaks"
 )]
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use kapto_loadgen::camera::Frames;
 use kapto_loadgen::{Config, Transport, run};
 
+/// Held by the tests whose synthetic cameras publish on its topics, which
+/// would otherwise reach each other's recordings.
+static SYNTHETIC_CAMERAS: Mutex<()> = Mutex::new(());
+
 /// A folder of its own for `test`, with a `streams.toml` declaring one
 /// camera topic of `message_type`, its frames up to 2 MiB.
 fn package(test: &str, topic: &str, message_type: &str) -> PathBuf {
+    package_of(test, &[("camera", topic)], message_type)
+}
+
+/// A folder of its own for `test`, with a `streams.toml` declaring a camera
+/// stream per name and topic, of `message_type`, its frames up to 2 MiB.
+fn package_of(test: &str, cameras: &[(&str, &str)], message_type: &str) -> PathBuf {
     let folder =
         std::env::temp_dir().join(format!("kapto-ros2-cameras-{}-{test}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
-    std::fs::write(
-        folder.join("streams.toml"),
-        format!(
-            "[streams.camera]\nrate_hz = 30\nmax_message_bytes = 2097152\n\
+    let mut streams = String::new();
+    for (name, topic) in cameras {
+        let _ = write!(
+            streams,
+            "[streams.{name}]\nrate_hz = 30\nmax_message_bytes = 2097152\n\
              ros2 = {{ topic = \"{topic}\", type = \"{message_type}\", \
              qos = {{ reliability = \"reliable\", depth = 10 }} }}\n"
-        ),
-    )
-    .unwrap();
+        );
+    }
+    std::fs::write(folder.join("streams.toml"), streams).unwrap();
     folder
 }
 
@@ -70,11 +83,16 @@ fn episode(folder: &Path, recording: Child) -> PathBuf {
 
 /// Every message recorded on the `camera` channel, in order.
 fn camera_messages(episode: &Path) -> Vec<Vec<u8>> {
+    messages_on(episode, "camera")
+}
+
+/// Every message recorded on `channel`, in order.
+fn messages_on(episode: &Path, channel: &str) -> Vec<Vec<u8>> {
     let bytes = std::fs::read(episode.join("recording.mcap")).unwrap();
     mcap::MessageStream::new(&bytes)
         .unwrap()
         .map(Result::unwrap)
-        .filter(|message| message.channel.topic == "camera")
+        .filter(|message| message.channel.topic == channel)
         .map(|message| message.data.into_owned())
         .collect()
 }
@@ -146,6 +164,9 @@ impl<'a> Cdr<'a> {
 
 #[test]
 fn compressed_camera_frames_are_recorded_whole_every_one_from_the_first() {
+    let _cameras = SYNTHETIC_CAMERAS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let topic = "/camera/image_raw/compressed";
     let folder = package("compressed", topic, "sensor_msgs/msg/CompressedImage");
     let recording = record(&folder, "10");
@@ -177,6 +198,59 @@ fn compressed_camera_frames_are_recorded_whole_every_one_from_the_first() {
     }
     bag_info_says(&episode, "sensor_msgs/msg/CompressedImage", messages.len());
     let _ = std::fs::remove_dir_all(folder);
+}
+
+#[test]
+fn two_cameras_each_have_every_frame_from_the_first_run_after_run() {
+    // Each side of a ROS 2 connection learns of the other on its own: a
+    // frame published before Kapto's subscription has matched the camera
+    // never arrives, and a missing first frame leaves no silence to count
+    // as lost. So each run is checked for its first frames, several times.
+    let _cameras = SYNTHETIC_CAMERAS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let topics = [
+        ("camera_0", "/camera/image_raw/compressed"),
+        ("camera_1", "/camera_1/image_raw/compressed"),
+    ];
+    let frames = Frames::new(320, 240, 30).unwrap();
+    for run_number in 1..=5 {
+        let folder = package_of(
+            &format!("two-{run_number}"),
+            &topics,
+            "sensor_msgs/msg/CompressedImage",
+        );
+        let recording = record(&folder, "8");
+        let cameras = Config {
+            target: "127.0.0.1:9".parse().unwrap(),
+            streams: 2,
+            rate_hz: 30,
+            duration: Some(Duration::from_secs(1)),
+            spin: Duration::from_micros(100),
+            transport: Transport::Ros2,
+            wait_for_subscribers: Some(Duration::from_secs(6)),
+            camera: Some((320, 240)),
+        };
+        let (sent, _) = run(&cameras, |_, _| {}).unwrap();
+        assert_eq!(sent.send_errors, 0);
+        let episode = episode(&folder, recording);
+        for (stream, (name, _)) in (0..).zip(topics) {
+            let messages = messages_on(&episode, name);
+            assert_eq!(
+                messages.len(),
+                30,
+                "run {run_number}: every frame of {name}"
+            );
+            let mut first = Cdr::new(&messages[0]);
+            first.header();
+            first.string();
+            assert!(
+                first.bytes() == frames.frame(stream, 0),
+                "run {run_number}: {name} starts from its first frame"
+            );
+        }
+        let _ = std::fs::remove_dir_all(folder);
+    }
 }
 
 /// Publishes 60 raw 640x480 RGB frames on `topic` at 30 a second, once it
