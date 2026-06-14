@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! What the benchmark reads: the `/proc` files of the recording process and
-//! the load generator's output. Parsing is kept here,
+//! What the benchmark reads: the `/proc` files of the recording process, the
+//! machine's clock, temperature and load, and the load generator's output. Parsing is kept here,
 //! free of I/O, so it is tested on captured text.
 
 use std::collections::BTreeMap;
@@ -22,6 +22,35 @@ pub(crate) struct Sample {
     pub(crate) ticks: BTreeMap<String, u64>,
     /// The process's peak resident memory so far, in KiB.
     pub(crate) peak_rss_kib: u64,
+    /// The whole machine at the same moment.
+    pub(crate) machine: MachineSample,
+}
+
+/// The whole machine at one moment: what can make the same work cost more
+/// from one run to the next. Each part is `None` where it can't be read, as
+/// in a virtual machine.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct MachineSample {
+    /// The cores' clock, averaged over them, in MHz.
+    pub(crate) cpu_mhz: Option<f64>,
+    /// The CPU's temperature, in °C.
+    pub(crate) cpu_celsius: Option<f64>,
+    /// CPU ticks the machine has spent busy, and in all, since it booted.
+    pub(crate) ticks: Option<(u64, u64)>,
+}
+
+/// The machine over a run, from its samples.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
+pub(crate) struct MachineMeasured {
+    /// The cores' clock, averaged over the run, in MHz.
+    pub(crate) cpu_mhz_mean: Option<f64>,
+    /// Its lowest reading.
+    pub(crate) cpu_mhz_lowest: Option<f64>,
+    /// The CPU's hottest reading, in °C.
+    pub(crate) cpu_celsius_peak: Option<f64>,
+    /// How many cores the whole machine kept busy on average, recording
+    /// included.
+    pub(crate) busy_cores_mean: Option<f64>,
 }
 
 /// Reads `/proc/<pid>`, or `None` once the process is gone.
@@ -40,7 +69,107 @@ pub(crate) fn sample(pid: u32, at: Duration) -> Option<Sample> {
         at: at.as_secs_f64(),
         ticks,
         peak_rss_kib: status_kib(&status, "VmHWM:").unwrap_or(0),
+        machine: machine_sample(),
     })
+}
+
+/// Reads the cores' clocks, the thermal zones and `/proc/stat`.
+fn machine_sample() -> MachineSample {
+    let read = |path: &Path| std::fs::read_to_string(path).unwrap_or_default();
+    let in_dir = |dir: &str, prefix: &str| -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(prefix))
+            })
+            .collect()
+    };
+    let clocks: Vec<String> = in_dir("/sys/devices/system/cpu", "cpu")
+        .iter()
+        .map(|cpu| read(&cpu.join("cpufreq/scaling_cur_freq")))
+        .collect();
+    let zones: Vec<(String, String)> = in_dir("/sys/class/thermal", "thermal_zone")
+        .iter()
+        .map(|zone| (read(&zone.join("type")), read(&zone.join("temp"))))
+        .collect();
+    MachineSample {
+        cpu_mhz: mean_mhz(&clocks),
+        cpu_celsius: cpu_celsius(&zones),
+        ticks: machine_ticks(&read(Path::new("/proc/stat"))),
+    }
+}
+
+/// The mean of `scaling_cur_freq` readings, in kHz each, as MHz; files that
+/// are empty or not a number (a core without frequency scaling) left out.
+pub(crate) fn mean_mhz(readings: &[String]) -> Option<f64> {
+    let khz: Vec<f64> = readings
+        .iter()
+        .filter_map(|reading| reading.trim().parse::<f64>().ok())
+        .collect();
+    (!khz.is_empty()).then(|| khz.iter().sum::<f64>() / khz.len() as f64 / 1_000.0)
+}
+
+/// The CPU's temperature from thermal zones' `type` and `temp` (in m°C): the
+/// package's sensor if there is one, else a zone named for the CPU.
+pub(crate) fn cpu_celsius(zones: &[(String, String)]) -> Option<f64> {
+    let reading = |wanted: &dyn Fn(&str) -> bool| {
+        zones
+            .iter()
+            .filter(|(kind, _)| wanted(&kind.trim().to_ascii_lowercase()))
+            .find_map(|(_, temp)| temp.trim().parse::<f64>().ok())
+    };
+    reading(&|kind| kind == "x86_pkg_temp")
+        .or_else(|| reading(&|kind| kind.contains("cpu")))
+        .map(|millidegrees| millidegrees / 1_000.0)
+}
+
+/// Busy and total ticks from the `cpu` line of `/proc/stat`: idle and
+/// waiting for I/O are not busy; guest time is already in user time.
+pub(crate) fn machine_ticks(stat: &str) -> Option<(u64, u64)> {
+    let line = stat.lines().find(|line| line.starts_with("cpu "))?;
+    let fields: Vec<u64> = line
+        .split_whitespace()
+        .skip(1)
+        .take(8)
+        .map(str::parse)
+        .collect::<Result<_, _>>()
+        .ok()?;
+    let [user, nice, system, idle, iowait, irq, softirq, steal] = fields[..] else {
+        return None;
+    };
+    let busy = user + nice + system + irq + softirq + steal;
+    Some((busy, busy + idle + iowait))
+}
+
+/// The machine over the samples of a run.
+pub(crate) fn machine_between(samples: &[Sample]) -> MachineMeasured {
+    let clocks: Vec<f64> = samples.iter().filter_map(|s| s.machine.cpu_mhz).collect();
+    let busy_cores = match (samples.first(), samples.last()) {
+        (Some(first), Some(last)) => first
+            .machine
+            .ticks
+            .zip(last.machine.ticks)
+            .filter(|_| last.at > first.at)
+            .map(|((busy_from, _), (busy_to, _))| {
+                busy_to.saturating_sub(busy_from) as f64 / TICKS_PER_SECOND / (last.at - first.at)
+            }),
+        _ => None,
+    };
+    MachineMeasured {
+        cpu_mhz_mean: (!clocks.is_empty())
+            .then(|| clocks.iter().sum::<f64>() / clocks.len() as f64),
+        cpu_mhz_lowest: clocks.iter().copied().reduce(f64::min),
+        cpu_celsius_peak: samples
+            .iter()
+            .filter_map(|s| s.machine.cpu_celsius)
+            .reduce(f64::max),
+        busy_cores_mean: busy_cores,
+    }
 }
 
 /// User plus system CPU ticks from a `/proc/.../stat` line. The thread name
@@ -139,6 +268,7 @@ mod tests {
                 ("cap-rx-udp-0".to_owned(), receiver),
             ]),
             peak_rss_kib: 0,
+            machine: MachineSample::default(),
         };
         let (threads, total) = cores_between(&sample(1.0, 100, 50), &sample(3.0, 140, 110));
         assert!((threads["cap-writer"] - 0.2).abs() < 1e-9);
@@ -161,5 +291,60 @@ mod tests {
         );
         assert!(!totals.kept_up());
         assert_eq!(generator_totals("     1 s  32000 msg"), None);
+    }
+
+    #[test]
+    fn the_cores_clock_is_their_mean_leaving_out_cores_that_say_nothing() {
+        let readings = ["2800000\n", "1200000\n", "", "n/a"].map(str::to_owned);
+        assert_eq!(mean_mhz(&readings), Some(2_000.0));
+        assert_eq!(mean_mhz(&[String::new()]), None);
+    }
+
+    #[test]
+    fn the_cpus_temperature_is_its_packages_sensor_else_one_named_for_it() {
+        let zone = |kind: &str, temp: &str| (format!("{kind}\n"), format!("{temp}\n"));
+        let laptop = [
+            zone("acpitz", "90000"),
+            zone("TCPU", "61000"),
+            zone("x86_pkg_temp", "64500"),
+        ];
+        assert_eq!(cpu_celsius(&laptop), Some(64.5));
+        let board = [zone("soc-thermal", "70000"), zone("cpu-thermal", "52000")];
+        assert_eq!(cpu_celsius(&board), Some(52.0));
+        assert_eq!(cpu_celsius(&[zone("iwlwifi_1", "40000")]), None);
+    }
+
+    #[test]
+    fn the_machines_busy_ticks_leave_out_idle_and_waiting_for_io() {
+        let stat = "cpu  100 20 30 1000 40 5 6 7 0 0\ncpu0 50 10 15 500 20 2 3 3 0 0\n";
+        assert_eq!(machine_ticks(stat), Some((168, 1208)));
+        assert_eq!(machine_ticks("intr 1 2 3"), None);
+    }
+
+    #[test]
+    fn the_machine_over_a_run_is_its_mean_clock_lowest_clock_hottest_reading_and_busy_cores() {
+        let sample = |at, mhz, celsius, busy| Sample {
+            at,
+            machine: MachineSample {
+                cpu_mhz: Some(mhz),
+                cpu_celsius: Some(celsius),
+                ticks: Some((busy, busy * 4)),
+            },
+            ..Sample::default()
+        };
+        let run = [
+            sample(1.0, 3_000.0, 60.0, 1_000),
+            sample(2.0, 1_400.0, 81.0, 1_150),
+            sample(3.0, 2_200.0, 75.0, 1_300),
+        ];
+        let machine = machine_between(&run);
+        assert_eq!(machine.cpu_mhz_mean, Some(2_200.0));
+        assert_eq!(machine.cpu_mhz_lowest, Some(1_400.0));
+        assert_eq!(machine.cpu_celsius_peak, Some(81.0));
+        assert_eq!(machine.busy_cores_mean, Some(1.5));
+        assert_eq!(
+            machine_between(&[Sample::default()]),
+            MachineMeasured::default()
+        );
     }
 }

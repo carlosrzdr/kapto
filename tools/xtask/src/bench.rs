@@ -667,6 +667,7 @@ fn measured(data: &Path, samples: &[Sample]) -> Result<Measured, String> {
         cpu_cores_peak: cpu_peak,
         threads: threads.into_iter().collect(),
         memory_peak_mib: last.peak_rss_kib as f64 / 1024.0,
+        machine: measure::machine_between(samples),
     })
 }
 

@@ -7,6 +7,8 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
+use super::measure::MachineMeasured;
+
 /// The machine a benchmark ran on, so results from different machines are
 /// never compared by mistake.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -96,6 +98,9 @@ pub(crate) struct Measured {
     /// Average CPU per thread, by thread name.
     pub(crate) threads: Vec<(String, f64)>,
     pub(crate) memory_peak_mib: f64,
+    /// What the machine was doing meanwhile: the same work costs more on a
+    /// slower clock, a hot CPU or a busy machine.
+    pub(crate) machine: MachineMeasured,
 }
 
 /// One target and whether it was met.
@@ -224,8 +229,37 @@ impl Report {
         for (thread, cores) in &measured.threads {
             let _ = writeln!(page, "| `{thread}` | {cores:.3} |");
         }
+        page.push_str(&machine_while_recording(measured));
         page
     }
+}
+
+/// What the machine was doing while recording, each part `unknown` where it
+/// couldn't be read.
+fn machine_while_recording(measured: &Measured) -> String {
+    let machine = &measured.machine;
+    let ghz = |mhz: Option<f64>| {
+        mhz.map_or("unknown".to_owned(), |mhz| {
+            format!("{:.2} GHz", mhz / 1_000.0)
+        })
+    };
+    let celsius = machine
+        .cpu_celsius_peak
+        .map_or("unknown".to_owned(), |celsius| format!("{celsius:.0} °C"));
+    let busy = machine
+        .busy_cores_mean
+        .map_or("unknown".to_owned(), |busy| {
+            format!(
+                "{busy:.2} cores, {:.2} of them besides recording",
+                (busy - measured.cpu_cores_mean).max(0.0)
+            )
+        });
+    format!(
+        "\n## The machine while recording\n\nCPU clock {} on average, {} at its lowest. \
+         CPU at {celsius} at its hottest. Busy on average: {busy}.\n",
+        ghz(machine.cpu_mhz_mean),
+        ghz(machine.cpu_mhz_lowest),
+    )
 }
 
 fn checks(load: &Load, measured: &Measured) -> Vec<Check> {
@@ -298,6 +332,12 @@ mod tests {
                 cpu_cores_peak: cores * 1.5,
                 threads: vec![("cap-rx-udp-0".to_owned(), cores * 0.6)],
                 memory_peak_mib: memory_mib,
+                machine: MachineMeasured {
+                    cpu_mhz_mean: Some(2_150.0),
+                    cpu_mhz_lowest: Some(1_400.0),
+                    cpu_celsius_peak: Some(81.4),
+                    busy_cores_mean: Some(1.5),
+                },
             },
         )
     }
@@ -389,5 +429,19 @@ mod tests {
         );
         assert!(page.contains("| Every message sent is written; none dropped by Kapto | 1919999 of 1920000 written, 1 dropped | **no** |"));
         assert!(page.contains("| `cap-rx-udp-0` | 0.180 |"));
+        assert!(page.contains(
+            "CPU clock 2.15 GHz on average, 1.40 GHz at its lowest. CPU at 81 °C at its \
+             hottest. Busy on average: 1.50 cores, 1.20 of them besides recording."
+        ));
+    }
+
+    #[test]
+    fn the_machines_state_that_couldnt_be_read_is_said_to_be_unknown() {
+        let mut run = report(0, 7, 0.3, 120.0);
+        run.measured.machine = MachineMeasured::default();
+        assert!(run.markdown().contains(
+            "CPU clock unknown on average, unknown at its lowest. CPU at unknown at its \
+             hottest. Busy on average: unknown."
+        ));
     }
 }

@@ -595,6 +595,7 @@ mod tests {
                 cpu_cores_peak: recording,
                 threads: Vec::new(),
                 memory_peak_mib: 100.0,
+                machine: measure::MachineMeasured::default(),
             },
         );
         let delay_ms = delay.map(|p95| Delays {
