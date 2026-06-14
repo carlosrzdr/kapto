@@ -34,6 +34,36 @@ export function time(utcNs: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/**
+ * A time axis's labels, written as the rest of the page writes times: each
+ * tick at `seconds` (since the Unix epoch, local time) to the precision its
+ * spacing `step` needs (`14:46:05`, `14:46`, `14:46:05.25`), with its date
+ * (`2026-10-26`) under the first tick and under each where the date changes.
+ */
+export function axisTimes(seconds: number[], step: number): string[] {
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+  // As many decimals as the step has: 0.5 s needs one, 0.25 s two.
+  const decimals = [0, 1, 2].find((places) => Math.abs(step * 10 ** places - Math.round(step * 10 ** places)) < 1e-6) ?? 3;
+  let lastDate = "";
+  return seconds.map((at) => {
+    const date = new Date(at * 1000);
+    const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    let clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    if (step < 60) {
+      clock += `:${pad(date.getSeconds())}`;
+    }
+    if (decimals > 0) {
+      clock += `.${pad(date.getMilliseconds(), 3).slice(0, decimals)}`;
+    }
+    if (step >= 86_400) {
+      clock = day;
+    }
+    const label = day !== lastDate && step < 86_400 ? `${clock}\n${day}` : clock;
+    lastDate = day;
+    return label;
+  });
+}
+
 /** Bytes in binary units: `87203840` → `83 MiB`, `1610612736` → `1.5 GiB`. */
 export function bytes(value: number): string {
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];

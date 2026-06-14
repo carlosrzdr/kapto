@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate } from "./format";
+import { axisTimes, breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate } from "./format";
 
 describe("format", () => {
   it("shows durations as minutes and seconds, with hours only when needed", () => {
@@ -59,3 +59,31 @@ describe("format", () => {
     expect(plain("refused")).toBe("refused");
   });
 });
+
+describe("axisTimes", () => {
+  // Local times, as the page shows them: built from the parts, so the test
+  // holds in any time zone.
+  const at = (day: number, hours: number, minutes: number, seconds: number, ms = 0) =>
+    new Date(2026, 9, day, hours, minutes, seconds, ms).getTime() / 1000;
+
+  it("writes each tick in 24-hour time, the date under the first only", () => {
+    expect(axisTimes([at(26, 14, 45, 50), at(26, 14, 45, 55), at(26, 14, 46, 0)], 5)).toEqual([
+      "14:45:50\n2026-10-26",
+      "14:45:55",
+      "14:46:00",
+    ]);
+  });
+
+  it("drops the seconds for ticks minutes apart, and the time for ticks days apart", () => {
+    expect(axisTimes([at(26, 9, 0, 0), at(26, 9, 30, 0)], 1_800)).toEqual(["09:00\n2026-10-26", "09:30"]);
+    expect(axisTimes([at(26, 0, 0, 0), at(27, 0, 0, 0)], 86_400)).toEqual(["2026-10-26", "2026-10-27"]);
+  });
+
+  it("writes fractions of a second for ticks closer than a second, and the date again past midnight", () => {
+    expect(axisTimes([at(26, 23, 59, 59, 750), at(27, 0, 0, 0)], 0.25)).toEqual([
+      "23:59:59.75\n2026-10-26",
+      "00:00:00.00\n2026-10-27",
+    ]);
+  });
+});
+

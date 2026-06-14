@@ -3,6 +3,7 @@
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
 
+  import { axisTimes } from "./format";
   import type { PlotStream } from "./viewer/plots";
   import { SERIES, token } from "./theme";
 
@@ -70,7 +71,8 @@
             legend: { show: false },
             cursor: { show: false },
             scales: { x: { time: true } },
-            axes: [axis, { ...axis, size: 56 }],
+            // Times as the rest of the page writes them, not uPlot's own.
+            axes: [{ ...axis, values: (_, ticks, _axis, _space, step) => axisTimes(ticks, step) }, { ...axis, size: 56 }],
           },
           [[], ...field.values.flatMap(() => [[], []])],
           element,
