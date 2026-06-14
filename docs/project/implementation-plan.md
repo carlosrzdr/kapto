@@ -621,7 +621,6 @@ need, without ever costing capture anything. The views are Kapto's own
 |---|---|---|---|
 | M4-06 `feat(viz): a package's own layout` | A robot package's own arrangement of the live view and replays, or one generated from its roles (VIS-5) | Snapshot of the generated layout per sample package | — |
 | M4-06b `feat(ui): your own layouts` | The operator puts together the view they want (VIS-11): which cameras, which plots (any decoded field, by stream and name, with its min/max band), the health panels and the 3D view, arranged and sized in the web UI without editing files. The layout in use is kept in the browser, so each operator's screen stays as they left it; *Save as default* writes it to a file in the config folder that every browser starts from; *Reset* goes back to the package's layout (M4-06). A layout that names a stream or field the package no longer has shows the rest and says what is missing. The editor lists every stream, marking one declared without a decoder as recorded only, with nothing to plot, so its absence from the plots is explained. Builds on M4-06 | Vitest for the editor; Playwright: build a layout, reload and find it again, save it as default and find it in a new browser context, failure path with a field the package lacks; handler and cause-code tests for saving; screenshots | **Open question:** (1) where the default is kept: a file (proposed: `layouts/<package id>.toml` in the config folder, so it is reviewed, copied and backed up like the rest of the configuration) or SQLite, which holds runtime state only, so keeping a layout there needs that rule's design changed first; (2) one default per robot package or one for everything |
-| M4-07g `test(ui): the console at a tablet's width` | From the UI audit: screenshots are only taken at 1400×900. Take them at 1024×768 too, as a tablet beside the robot would show it, and fix what doesn't fit; decide whether controls there need the 44 px a finger needs rather than the 24 px they have | Screenshots at both widths | The console on a tablet |
 | M4-08 `feat(robot): display mesh decimation` | `meshopt` simplification above a triangle budget; original kept for collision (ADD-17) | Triangle budget respected; bounding box preserved within tolerance | — |
 
 ### WP M5: Durability + pre-flight *(parallel after Gate 1)*
@@ -1014,3 +1013,8 @@ room.
     needs every message's receive time, which only capture's threads see:
     a running spread per stream in the writer, or none until there is a
     measured need.
+11. **Controls for a finger.** Controls are 1.75rem (26 px) tall, above
+    WCAG's 24 px but under the 44 px a finger needs on a tablet beside the
+    robot. Proposed: `--control-height` at 44 px under `@media (pointer:
+    coarse)`, desktop unchanged; tried on a real tablet first, as the
+    headless browser doesn't report a coarse pointer reliably.

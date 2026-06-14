@@ -498,3 +498,28 @@ test("a screenshot of a camera waiting for its pictures and of one that can't be
   await shot(cameras, "live-camera-unshown");
   nothingLeft();
 });
+
+// The console on a tablet beside the robot, held sideways: each tab whole.
+test("a screenshot of each tab at a tablet's width", async ({ page }) => {
+  test.setTimeout(180_000);
+  const nothingLeft = await open(page);
+  await page.setViewportSize({ width: 1024, height: 768 });
+  const stream = page.getByRole("row", { name: /arm_joints/ });
+  await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
+  await page.waitForTimeout(3_000);
+  await shot(page, "tablet-live");
+  await viewer(page, false);
+  await tab(page, /^Episodes/);
+  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  await episode.getByTitle("Show this episode in full").click();
+  await expect(page.getByRole("region", { name: /^Episode / })).toBeVisible();
+  await shot(page, "tablet-episode");
+  await tab(page, /^Uploads/);
+  await shot(page, "tablet-uploads");
+  await tab(page, /^Robot/);
+  await shot(page, "tablet-robot");
+  await tab(page, /^System/);
+  await page.locator("details").filter({ hasText: /settings, / }).locator("summary").click();
+  await shot(page, "tablet-system");
+  nothingLeft();
+});

@@ -922,6 +922,14 @@
   .side.with-cameras {
     grid-template-rows: auto minmax(0, 1fr);
   }
+  /* Stacked under the robot, as on a tablet: the cameras beside the plots,
+     within the row's height, never over the controls below. */
+  @media (max-width: 70rem) {
+    .side.with-cameras {
+      grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+      grid-template-rows: minmax(0, 1fr);
+    }
+  }
   .live {
     position: relative;
     width: 100%;

@@ -65,14 +65,18 @@
   .cameras {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    align-content: start;
     gap: 0.5rem;
     min-width: 0;
+    /* Within the space it is given, when that is bounded. */
+    max-height: 100%;
+    overflow: hidden;
   }
   figure {
     position: relative;
     margin: 0;
     aspect-ratio: 4 / 3;
-    max-height: 18rem;
+    max-height: min(18rem, 100%);
     border-radius: var(--radius);
     overflow: hidden;
     background: var(--viewer);
