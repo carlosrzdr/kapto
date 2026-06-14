@@ -22,10 +22,13 @@ test("with the capture process stopped, the page says why and can't record", asy
   await expect(record).toHaveAttribute("title", `Record an episode (R): ${why}`);
   await expect(record).toHaveCSS("cursor", "not-allowed");
   await expect(page.getByText("Capture not reachable")).toBeVisible();
-  // Where the robot would be: why it isn't, and what to do.
+  // Where the robot would be: that it can't be shown, pointing at why,
+  // which the page says once.
   const noView = page.getByRole("status").filter({ hasText: "No live view" });
-  await expect(noView).toContainText("Can't reach the capture process");
+  await expect(noView).toContainText("the message above says why");
   await expect(noView).toContainText("tries again by itself");
+  await expect(noView).not.toContainText("Can't reach the capture process");
+  await expect(page.getByText(/Check that `kapto capture` is running/)).toHaveCount(1);
   await expect(page.getByText("Not known while Kapto can't reach the capture process.")).toBeVisible();
   // The disk is still known without capture.
   await expect(page.getByText(/ free of /)).toBeVisible();

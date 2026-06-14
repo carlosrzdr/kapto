@@ -684,9 +684,9 @@
         <!-- Where the robot would be: what keeps it away and what to do. -->
         <div class="no-view" role="status">
           {#if problem}
+            <!-- The banner above says what is wrong and what to do: said once. -->
             <h2>No live view</h2>
-            <p>{plain(problem.message)}</p>
-            <p class="remedy">{problem.remedy}</p>
+            <p>Nothing to show until Kapto can ask the capture process what it receives: the message above says why, and what to do.</p>
             <p class="remedy">The page tries again by itself every few seconds.</p>
           {:else}
             <p>Connecting to Kapto…</p>
