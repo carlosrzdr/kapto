@@ -619,8 +619,8 @@ need, without ever costing capture anything. The views are Kapto's own
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M4-06 `feat(viz): a package's own layout` | A robot package's own arrangement of the live view and replays, or one generated from its roles (VIS-5) | Snapshot of the generated layout per sample package | — |
-| M4-06b `feat(ui): your own layouts` | The operator puts together the view they want (VIS-11): which cameras, which plots (any decoded field, by stream and name, with its min/max band), the health panels and the 3D view, arranged and sized in the web UI without editing files. The layout in use is kept in the browser, so each operator's screen stays as they left it; *Save as default* writes it to a file in the config folder that every browser starts from; *Reset* goes back to the package's layout (M4-06). A layout that names a stream or field the package no longer has shows the rest and says what is missing. The editor lists every stream, marking one declared without a decoder as recorded only, with nothing to plot, so its absence from the plots is explained. Builds on M4-06 | Vitest for the editor; Playwright: build a layout, reload and find it again, save it as default and find it in a new browser context, failure path with a field the package lacks; handler and cause-code tests for saving; screenshots | **Open question:** (1) where the default is kept: a file (proposed: `layouts/<package id>.toml` in the config folder, so it is reviewed, copied and backed up like the rest of the configuration) or SQLite, which holds runtime state only, so keeping a layout there needs that rule's design changed first; (2) one default per robot package or one for everything |
+| M4-06 `feat(viz): a package's own layout` | The live view and replays arranged by a layout ([design](../design/layouts.md)): columns of panels (`robot`, `camera`, `plot` by field or role, `health`, `events`) from the package's `layout.toml`, carried in the recording, or made from what the package declares when it has none; panels naming what the package lacks shown as placeholders; columns stacked below 70rem; the file's reference page and cause codes (VIS-5) | Snapshot of the generated layout per sample package; parsing with each mistake reported at its line; Vitest: each panel kind and a placeholder; Playwright: the sample arm's view unchanged; screenshots | A package's own layout |
+| M4-06b `feat(ui): your own layouts` | The operator puts together the view they want (VIS-11, [design](../design/layouts.md)): panels added from the package's streams, cameras and roles (a stream without a decoder listed as recorded only), removed, moved between columns and resized, without editing files. The layout in use is kept in the browser per package; *Save as default* writes `layouts/<package id>.toml` in the config folder through the API, read by every browser; *Reset* goes back to the package's layout. Builds on M4-06 | Vitest for the editor; Playwright: build a layout, reload and find it again, save it as default and find it in a new browser context, failure path with a field the package lacks; handler and cause-code tests for saving; screenshots | Arranging your own view |
 | M4-08 `feat(robot): display mesh decimation` | `meshopt` simplification above a triangle budget; original kept for collision (ADD-17) | Triangle budget respected; bounding box preserved within tolerance | — |
 
 ### WP M5: Durability + pre-flight *(parallel after Gate 1)*
@@ -953,9 +953,10 @@ reference.
 
 **Critical path**, taken in turn, one PR at a time:
 
-1. The cameras: M6b-06f (frames shown live beside the
-   robot and in replay); then M6b-04b to M6b-04d (capture's CPU, counted loss and a
-   first frame with ROS 2 cameras).
+1. The cameras: M6b-04c (loss counted with ROS 2 cameras though nothing
+   was lost), M6b-04b (capture's CPU with ROS 2 cameras, not reproduced in
+   later runs; measured on the reference PC), M6b-04d (confirming the first
+   frame) and M6b-06f (the events flow failing now and then).
 2. Layouts: M4-06 (the package's own) and M4-06b (the operator's, arranged
    in the UI).
 3. The one-command demo with uploads to RustFS: M8-04.

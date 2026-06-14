@@ -299,6 +299,8 @@ embedded in the binary; ROS 2 through rcl (`r2r`), types loaded by name,
 only in the ROS 2 image; kept messages (`transient_local`) starting every
 episode; messages over a datagram's size (cameras) through rings of their
 own, to the live view over a stream socket of their own, and in replay
-read from the recording by its indexes, frame by frame; uploads through one engine in the worker on `object_store`, state
+read from the recording by its indexes, frame by frame; layouts as
+columns of panels in TOML, the operator's own over the config folder's
+default per package over the package's own over one made from its roles; uploads through one engine in the worker on `object_store`, state
 in `kapto.db`, `_SUCCESS` last, credentials by reference, RustFS for tests;
 Docker as the only build prerequisite, automation in `cargo xtask`.
