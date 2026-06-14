@@ -26,7 +26,7 @@ use kapto_store::{LossDetectionKind, StreamSummary};
 
 use crate::batch::{Batch, StreamIndex};
 
-pub use rate::{RateGap, RateGapDetector};
+pub use rate::{RateGap, RateGapDetector, Sent};
 pub use sequence::{ByteOrder, SequenceField, SequenceTracker, SequenceWidth};
 
 /// How a stream's upstream loss can be detected.
@@ -164,10 +164,43 @@ pub struct Accounting {
 #[derive(Clone, Debug)]
 enum Detector {
     Sequence(SequenceField, SequenceTracker),
-    /// With the number of its messages in the batch being counted, so the
-    /// detector sees each batch once, however many runs the stream has in it.
-    RateGap(RateGapDetector, u64),
+    /// With its messages in the batch being counted, so the detector sees
+    /// each batch once, however many runs the stream has in it.
+    RateGap(RateGapDetector, InBatch),
     Undetectable,
+}
+
+/// One rate-gap stream's messages in the batch being counted.
+#[derive(Clone, Copy, Debug, Default)]
+struct InBatch {
+    count: u64,
+    /// When they were sent, until one of them doesn't say.
+    sent: Option<Sent>,
+    unstamped: bool,
+}
+
+impl InBatch {
+    fn add(&mut self, sent: Option<u64>) {
+        self.count += 1;
+        match (sent, &mut self.sent) {
+            (None, _) => self.unstamped = true,
+            (Some(time), Some(sent)) => {
+                sent.first_ns = sent.first_ns.min(time);
+                sent.last_ns = sent.last_ns.max(time);
+            }
+            (Some(time), None) => {
+                self.sent = Some(Sent {
+                    first_ns: time,
+                    last_ns: time,
+                });
+            }
+        }
+    }
+
+    /// When they were sent, if every one of them says.
+    fn sent(&self) -> Option<Sent> {
+        if self.unstamped { None } else { self.sent }
+    }
 }
 
 /// What one run of messages from one stream adds to its counters.
@@ -192,7 +225,9 @@ impl Accounting {
                     LossDetection::Sequence(field) => {
                         Detector::Sequence(field, SequenceTracker::new(field.width))
                     }
-                    LossDetection::RateGap(gap) => Detector::RateGap(RateGapDetector::new(gap), 0),
+                    LossDetection::RateGap(gap) => {
+                        Detector::RateGap(RateGapDetector::new(gap), InBatch::default())
+                    }
                     LossDetection::Undetectable => Detector::Undetectable,
                 };
             }
@@ -206,7 +241,7 @@ impl Accounting {
     /// Counts every message of a batch just received. Never allocates.
     pub fn count(&mut self, batch: &Batch) {
         let mut run: Option<Run> = None;
-        for (stream, payload) in batch.messages() {
+        for (index, (stream, payload)) in batch.messages().enumerate() {
             let mut current = match run {
                 Some(current) if current.stream == stream => current,
                 _ => {
@@ -229,6 +264,10 @@ impl Accounting {
                         current.lost += tracker.observe(number);
                     }
                 }
+                Some(Detector::RateGap(_, in_batch)) => {
+                    current.decoded += 1;
+                    in_batch.add(batch.source_time(index));
+                }
                 _ => current.decoded += 1,
             }
             run = Some(current);
@@ -244,9 +283,10 @@ impl Accounting {
     fn observe_rate_gaps(&mut self, time: RecvTime) {
         for (counters, detector) in self.counters.streams.iter().zip(self.detectors.iter_mut()) {
             if let Detector::RateGap(detector, in_batch) = detector
-                && *in_batch > 0
+                && in_batch.count > 0
             {
-                let lost = detector.observe(time, std::mem::take(in_batch));
+                let lost = detector.observe_sent(time, in_batch.count, in_batch.sent());
+                *in_batch = InBatch::default();
                 counters.lost_upstream.fetch_add(lost, Ordering::Relaxed);
             }
         }
@@ -266,9 +306,6 @@ impl Accounting {
 
     fn flush(&mut self, run: Run) {
         let index = usize::from(run.stream);
-        if let Some(Detector::RateGap(_, in_batch)) = self.detectors.get_mut(index) {
-            *in_batch += run.received;
-        }
         let Some(counters) = self.counters.streams.get(index) else {
             return;
         };
@@ -348,6 +385,45 @@ mod tests {
         }
         assert_eq!(counters.totals(1).received, 4_000);
         assert_eq!(counters.totals(1).lost_upstream, 0);
+    }
+
+    /// Joint states at 2 kHz in batches of 4, sent on time, delivered 6 ms
+    /// later from 100 ms on; `stamp` says whether a message carries its
+    /// sending time. What the stream counts lost.
+    fn delivered_late(stamp: impl Fn(u64) -> bool) -> u64 {
+        let counters = Arc::new(LossCounters::new(1));
+        let rate = LossDetection::RateGap(RateGap::for_rate(2_000));
+        let mut accounting = Accounting::new(Arc::clone(&counters), &[(0, rate)]);
+        for batch_index in 0..2_000_u64 {
+            let mut batch = Batch::new(4, 8);
+            for n in 0..4 {
+                let message = batch_index * 4 + n;
+                if stamp(message) {
+                    batch.push_with_source_time(0, b"x", 1 + message * 500_000);
+                } else {
+                    batch.push(0, b"x");
+                }
+            }
+            let delay = if batch_index < 50 { 0 } else { 6_000_000 };
+            batch.set_recv_time(RecvTime::from_nanos(batch_index * 2_000_000 + delay));
+            accounting.count(&batch);
+        }
+        accounting.settle();
+        counters.totals(0).lost_upstream
+    }
+
+    #[test]
+    fn a_rate_gap_stream_whose_messages_say_when_they_were_sent_is_judged_by_it() {
+        assert_eq!(delivered_late(|_| true), 0);
+    }
+
+    #[test]
+    fn a_batch_with_a_message_not_saying_when_it_was_sent_is_judged_by_receive_time() {
+        // One message in four stamped: the delay reads as missing messages,
+        // as it does with none stamped.
+        let none = delivered_late(|_| false);
+        assert!(none > 0);
+        assert_eq!(delivered_late(|message| message % 4 == 0), none);
     }
 
     #[test]

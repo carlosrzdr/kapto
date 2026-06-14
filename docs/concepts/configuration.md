@@ -291,10 +291,12 @@ number counts as lost. With only a rate, loss is estimated from silences
 longer than three periods: once a second has passed, the periods since the
 silence began, less every message that arrived since, count as lost when
 more than three periods and the 2 ms a batch waits to fill: fewer can be a
-message's delay on the way changing. A
-middleware that holds messages back and delivers them in a burst, as ROS 2's
-can, then makes up for the silence it caused, and loss shows up to that
-second late. `loss_settle_ms = 250` waits a quarter of a second instead; it
+message arriving late in its batch, or the robot sending late and catching
+up. Silences are measured on when the messages were sent when every message
+says, as ROS 2's do, so a delay on the way that changes isn't taken for
+loss; otherwise on when they arrived. A middleware that holds messages
+back and delivers them in a burst, as ROS 2's can, then makes up for the
+silence it caused, and loss shows up to that second late. `loss_settle_ms = 250` waits a quarter of a second instead; it
 is only for a stream with a rate and no sequence. With neither, upstream
 loss can't be detected.
 To be recorded, though, a stream needs a rate, which sizes its buffers;

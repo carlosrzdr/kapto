@@ -2,6 +2,13 @@
 
 //! Upstream loss inferred from silences in a stream that has no sequence
 //! numbers but a declared rate.
+//!
+//! A silence is judged by when the stream's messages were sent, when their
+//! source stamps them (as ROS 2 does every message), and otherwise by when
+//! they were received. Sending times are exact: a message delayed on the way
+//! but sent on time leaves no silence, however long its delay, whereas by
+//! receive times a delay that grows across a silence reads as messages
+//! missing.
 
 use std::time::Duration;
 
@@ -46,6 +53,17 @@ impl RateGap {
     }
 }
 
+/// When a batch's messages of one stream were sent, as their source stamped
+/// them: its first's and its last's time, in nanoseconds of the source's
+/// clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sent {
+    /// The first message's sending time.
+    pub first_ns: u64,
+    /// The last message's.
+    pub last_ns: u64,
+}
+
 /// Follows when one stream's messages arrive and estimates how many a
 /// silence swallowed, once the messages it only delayed have had time to
 /// arrive.
@@ -54,24 +72,35 @@ pub struct RateGapDetector {
     period_ns: u128,
     min_gap_ns: u128,
     /// The most periods a settled silence can read as missing with none
-    /// lost, from when its first and last messages were received.
+    /// lost, from when its first and last messages were received or sent.
     unsure_periods: u128,
     settle_ns: u128,
-    /// The previous batch that held this stream: when its last message is
-    /// placed, at the rate after its receive time, and how many it held.
-    last: Option<(u128, u64)>,
+    /// The previous batch that held this stream.
+    last: Option<Mark>,
     /// The silence being settled, if one is.
     open: Option<Settling>,
+}
+
+/// A batch of the stream, on the clock it is judged by.
+#[derive(Clone, Copy, Debug)]
+struct Mark {
+    /// When its last message was sent, or is placed at the rate after its
+    /// receive time.
+    last_ns: u128,
+    /// When it was received.
+    recv_ns: u128,
+    /// Whether it is judged by sending times.
+    by_sent: bool,
 }
 
 /// A silence whose loss is not counted yet.
 #[derive(Clone, Copy, Debug)]
 struct Settling {
-    /// The last message before it.
+    /// The last message before it, on the clock it is judged by.
     from_ns: u128,
     /// Messages received since.
     received: u64,
-    /// When it is counted.
+    /// When it is counted, by the receive clock.
     until_ns: u128,
 }
 
@@ -102,31 +131,62 @@ impl RateGapDetector {
     /// up for the silence it ended. A stream arriving at its rate never
     /// shows a silence, however it is batched.
     pub fn observe(&mut self, time: RecvTime, count: u64) -> u64 {
-        let time = u128::from(time.as_nanos());
-        let this_last = time + u128::from(count.saturating_sub(1)) * self.period_ns;
-        let Some((previous_last, _)) = self.last.replace((this_last, count)) else {
+        self.observe_sent(time, count, None)
+    }
+
+    /// As [`RateGapDetector::observe`], with when the batch's messages were
+    /// sent if every one of them says: then its silences are judged by
+    /// sending times, which a delay on the way doesn't change. A sending
+    /// time that jumps (the source's clock set) is never taken for loss:
+    /// the stream is followed afresh from there.
+    pub fn observe_sent(&mut self, time: RecvTime, count: u64, sent: Option<Sent>) -> u64 {
+        let recv = u128::from(time.as_nanos());
+        let (first, last, by_sent) = match sent {
+            Some(sent) => (u128::from(sent.first_ns), u128::from(sent.last_ns), true),
+            None => (
+                recv,
+                recv + u128::from(count.saturating_sub(1)) * self.period_ns,
+                false,
+            ),
+        };
+        let mark = Mark {
+            last_ns: last,
+            recv_ns: recv,
+            by_sent,
+        };
+        let Some(previous) = self.last.replace(mark) else {
             return 0;
         };
-        let gap = time.saturating_sub(previous_last);
+        // On another clock than the batch before, or a sending time that
+        // moved on by more than its arrival could account for: nothing to
+        // compare, so start again.
+        let jumped = by_sent
+            && (first.abs_diff(previous.last_ns)).abs_diff(recv.saturating_sub(previous.recv_ns))
+                > self.settle_ns;
+        if previous.by_sent != by_sent || jumped || first + self.settle_ns < previous.last_ns {
+            self.open = None;
+            return 0;
+        }
+        let gap = first.saturating_sub(previous.last_ns);
         if let Some(open) = &mut self.open {
             open.received += count;
-            if time < open.until_ns {
+            if recv < open.until_ns {
                 return 0;
             }
             // A batch only a little late is jitter: placed on schedule, so
             // its lateness isn't counted as messages missing.
             let end = if gap < self.min_gap_ns {
-                previous_last + u128::from(count) * self.period_ns
+                previous.last_ns + u128::from(count) * self.period_ns
             } else {
-                this_last
+                last
             };
             return self.settle_at(end);
         }
         if gap >= self.min_gap_ns {
             self.open = Some(Settling {
-                from_ns: previous_last,
+                from_ns: previous.last_ns,
                 received: count,
-                until_ns: time + self.settle_ns,
+                until_ns: recv + self.settle_ns,
             });
         }
         0
@@ -137,7 +197,7 @@ impl RateGapDetector {
     /// when the episode ends.
     pub fn settle(&mut self) -> u64 {
         match self.last {
-            Some((last, _)) if self.open.is_some() => self.settle_at(last),
+            Some(last) if self.open.is_some() => self.settle_at(last.last_ns),
             _ => 0,
         }
     }
@@ -147,11 +207,10 @@ impl RateGapDetector {
             return 0;
         };
         let expected = (end_ns.saturating_sub(open.from_ns) + self.period_ns / 2) / self.period_ns;
-        // The window is measured between arrivals, so a message's delay on
-        // the way changing from its start to its end, and a stream's
-        // message arriving later in its batch than the batch's time, read
-        // as periods missing: as much as jitter and a batch's wait cover
-        // is never counted.
+        // By receive times, a message arriving later in its batch than the
+        // batch's time reads as periods missing; by sending times, a source
+        // waking late and catching up does the same: as much as jitter and
+        // a batch's wait cover is never counted.
         let missing = expected.saturating_sub(u128::from(open.received));
         let lost = if missing > self.unsure_periods {
             missing
@@ -324,5 +383,145 @@ mod tests {
         assert_eq!(detector.observe(at(110), 1), 0);
         assert_eq!(detector.observe(at(140), 1), 0);
         assert_eq!(at_rate(&mut detector, 141, 145), 29);
+    }
+
+    /// One message sent at `sent_ms`, its own batch, received at
+    /// `recv_ns`: what it counts lost.
+    fn stamped(detector: &mut RateGapDetector, sent_ms: u64, recv_ns: u64) -> u64 {
+        let sent = Sent {
+            first_ns: sent_ms * MS,
+            last_ns: sent_ms * MS,
+        };
+        detector.observe_sent(RecvTime::from_nanos(recv_ns), 1, Some(sent))
+    }
+
+    /// Messages sent one a millisecond over `sent`, each received `delay` ns
+    /// later: what they count lost.
+    fn stamped_at_rate(
+        detector: &mut RateGapDetector,
+        sent: std::ops::Range<u64>,
+        delay: u64,
+    ) -> u64 {
+        sent.map(|ms| stamped(detector, ms, ms * MS + delay)).sum()
+    }
+
+    #[test]
+    fn a_delay_on_the_way_growing_across_a_silence_is_no_loss_when_sending_times_say() {
+        // Sent at its rate throughout, but from 101 ms delivered 6 ms later
+        // than before, as a camera's frames hold the middleware back.
+        let recv = |ms: u64| if ms <= 100 { ms * MS } else { ms * MS + 6 * MS };
+        let mut by_sent = RateGapDetector::new(RateGap::for_rate(1_000));
+        let lost: u64 = (0..1_300)
+            .map(|ms| stamped(&mut by_sent, ms, recv(ms)))
+            .sum();
+        assert_eq!(lost + by_sent.settle(), 0);
+        // By receive times alone the same stream reads as 6 missing.
+        let mut by_recv = RateGapDetector::new(RateGap::for_rate(1_000));
+        let lost: u64 = (0..1_300)
+            .map(|ms| by_recv.observe(RecvTime::from_nanos(recv(ms)), 1))
+            .sum();
+        assert_eq!(lost + by_recv.settle(), 6);
+    }
+
+    #[test]
+    fn messages_sent_on_time_but_arriving_together_are_not_lost() {
+        let mut detector = RateGapDetector::new(RateGap::for_rate(1_000));
+        stamped_at_rate(&mut detector, 0..100, 0);
+        // Ten sent a millisecond apart, held back and delivered as one.
+        let sent = Sent {
+            first_ns: 100 * MS,
+            last_ns: 109 * MS,
+        };
+        assert_eq!(detector.observe_sent(at(124), 10, Some(sent)), 0);
+        assert_eq!(stamped_at_rate(&mut detector, 110..1_300, 15 * MS), 0);
+        assert_eq!(detector.settle(), 0);
+    }
+
+    #[test]
+    fn a_silence_in_the_sending_times_is_counted_whatever_the_delay() {
+        let mut detector = RateGapDetector::new(RateGap::for_rate(1_000));
+        stamped_at_rate(&mut detector, 0..101, 0);
+        assert_eq!(stamped_at_rate(&mut detector, 110..1_300, 0), 9);
+        // Delivered 3 ms sooner after the silence, which by receive times
+        // would hide 3 of them.
+        let mut sooner = RateGapDetector::new(RateGap::for_rate(1_000));
+        stamped_at_rate(&mut sooner, 0..101, 3 * MS);
+        assert_eq!(stamped_at_rate(&mut sooner, 110..1_300, 0), 9);
+    }
+
+    #[test]
+    fn a_source_clock_set_forward_or_back_is_not_counted_as_loss() {
+        let hour = 3_600_000;
+        let mut forward = RateGapDetector::new(RateGap::for_rate(1_000));
+        stamped_at_rate(&mut forward, 0..101, 0);
+        let lost: u64 = (101..1_300)
+            .map(|ms| stamped(&mut forward, hour + ms, ms * MS))
+            .sum();
+        assert_eq!(lost + forward.settle(), 0);
+        let mut back = RateGapDetector::new(RateGap::for_rate(1_000));
+        (0..101).for_each(|ms| {
+            stamped(&mut back, hour + ms, ms * MS);
+        });
+        let lost: u64 = (101..1_300).map(|ms| stamped(&mut back, ms, ms * MS)).sum();
+        assert_eq!(lost + back.settle(), 0);
+    }
+
+    #[test]
+    fn a_stream_that_starts_stamping_its_messages_is_followed_afresh() {
+        let mut detector = RateGapDetector::new(RateGap::for_rate(1_000));
+        at_rate(&mut detector, 0, 100);
+        // Stamped from 110 ms: the silence before is on neither clock alone,
+        // so it isn't judged; the stream is followed on its sending times.
+        assert_eq!(stamped_at_rate(&mut detector, 110..1_300, 0), 0);
+        let lost = stamped_at_rate(&mut detector, 1_310..2_500, 0);
+        assert_eq!(lost + detector.settle(), 10);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn a_stream_sent_at_its_rate_never_shows_loss_however_late_it_arrives(
+            delays in proptest::collection::vec(0_u64..50_000_000, 1..2_000),
+            batch in 1_usize..16,
+        ) {
+            // Sent one a millisecond; each batch arrives up to 50 ms late,
+            // but never before the batch it follows.
+            let mut detector = RateGapDetector::new(RateGap::for_rate(1_000));
+            let mut lost = 0;
+            let mut recv = 0;
+            for (n, chunk) in delays.chunks(batch).enumerate() {
+                let first = (n * batch) as u64 * MS;
+                let last = first + (chunk.len() as u64 - 1) * MS;
+                recv = recv.max(last + chunk[0]);
+                let sent = Sent { first_ns: first, last_ns: last };
+                lost += detector.observe_sent(
+                    RecvTime::from_nanos(recv),
+                    chunk.len() as u64,
+                    Some(sent),
+                );
+            }
+            proptest::prop_assert_eq!(lost + detector.settle(), 0);
+        }
+
+        #[test]
+        fn a_source_waking_late_and_catching_up_never_shows_loss(
+            wakes in proptest::collection::vec((0_u8..50, 0_u64..2_000_000), 1..4_000),
+        ) {
+            // At 2 kHz, now and then sending up to the batch's wait late,
+            // then the messages it owes at once, as a control loop does.
+            let gap = RateGap {
+                batch_latency: Duration::from_millis(2),
+                ..RateGap::for_rate(2_000)
+            };
+            let mut detector = RateGapDetector::new(gap);
+            let mut lost = 0;
+            let mut sent = 0;
+            for (n, &(chance, late)) in (0_u64..).zip(&wakes) {
+                let late = if chance == 0 { late } else { 0 };
+                sent = (n * 500_000 + late).max(sent);
+                let stamp = Sent { first_ns: sent, last_ns: sent };
+                lost += detector.observe_sent(RecvTime::from_nanos(sent), 1, Some(stamp));
+            }
+            proptest::prop_assert_eq!(lost + detector.settle(), 0);
+        }
     }
 }

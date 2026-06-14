@@ -93,7 +93,11 @@ nothing, and the count follows numbers that wrap around or restart from zero.
 For a stream without sequence numbers but with a declared rate, it is
 estimated from silences lasting several periods, each counted once the
 messages it only delayed have had time to arrive (a second, or the stream's
-`loss_settle_ms`), and when its receiver ends. A stream with neither
+`loss_settle_ms`), and when its receiver ends. Silences are measured on the
+messages' sending times when they carry them (ROS 2's source timestamps),
+which a delay on the way doesn't move, and otherwise on their receive times;
+a sending time that jumps, as a source's clock being set does, starts the
+stream's count afresh. A stream with neither
 can't tell its upstream loss, and its counter stays at zero.
 
 The writer thread stores what it takes from the rings in an **MCAP**

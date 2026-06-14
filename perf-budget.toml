@@ -37,6 +37,12 @@ per_message_ns = 60
 per_kib_ns = 50
 reason = "Counts each message and checks each stream's silence once per batch."
 
+[stage.accounting_rate_gap_stamped]
+per_batch_ns = 200
+per_message_ns = 60
+per_kib_ns = 50
+reason = "As accounting_rate_gap, reading each message's sending time to judge its stream's silences by when it was sent."
+
 [stage.mcap_write_uncompressed]
 per_batch_ns = 1_000
 per_message_ns = 800

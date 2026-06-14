@@ -40,16 +40,22 @@ const STREAMS: u16 = 16;
 
 /// A batch of `messages` messages of `size` bytes, round-robin over the
 /// streams, each starting with its stream's next sequence number (u32, little
-/// endian) taken from `next_sequence`.
-fn batch(messages: usize, size: usize, next_sequence: &mut [u32]) -> Batch {
+/// endian) taken from `next_sequence`; if `stamped`, each saying when it was
+/// sent, as ROS 2 messages do.
+fn batch(messages: usize, size: usize, next_sequence: &mut [u32], stamped: bool) -> Batch {
     let mut batch = Batch::new(messages, size);
     let mut payload = vec![0_u8; size];
     for index in 0..messages {
         let stream = StreamIndex::try_from(index % usize::from(STREAMS)).unwrap();
         let sequence = &mut next_sequence[usize::from(stream)];
         payload[..4].copy_from_slice(&sequence.to_le_bytes());
+        if stamped {
+            let sent = u64::from(*sequence) * 500_000 + 1;
+            batch.push_with_source_time(stream, &payload, sent);
+        } else {
+            batch.push(stream, &payload);
+        }
         *sequence = sequence.wrapping_add(1);
-        batch.push(stream, &payload);
     }
     batch.set_recv_time(monotonic_now());
     batch
@@ -98,7 +104,8 @@ fn hand_off(c: &mut Criterion) {
 }
 
 /// Counting a batch with sequence-number detection (which reads each
-/// message's number) and with rate-gap detection.
+/// message's number) and with rate-gap detection, on receive times and on
+/// the sending times the messages carry.
 fn accounting(c: &mut Criterion) {
     let sequence = LossDetection::Sequence(SequenceField {
         offset: 0,
@@ -106,9 +113,10 @@ fn accounting(c: &mut Criterion) {
         byte_order: ByteOrder::Little,
     });
     let rate_gap = LossDetection::RateGap(RateGap::for_rate(2_000));
-    for (name, detection) in [
-        ("accounting_sequence", sequence),
-        ("accounting_rate_gap", rate_gap),
+    for (name, detection, stamped) in [
+        ("accounting_sequence", sequence, false),
+        ("accounting_rate_gap", rate_gap, false),
+        ("accounting_rate_gap_stamped", rate_gap, true),
     ] {
         let mut group = c.benchmark_group(name);
         for (messages, size) in grid() {
@@ -121,7 +129,7 @@ fn accounting(c: &mut Criterion) {
                 // A fresh batch each time, so sequence numbers keep rising as
                 // they do in a real recording; building it isn't timed.
                 b.iter_batched_ref(
-                    || batch(messages, size, &mut next_sequence),
+                    || batch(messages, size, &mut next_sequence, stamped),
                     |batch| accounting.count(batch),
                     BatchSize::SmallInput,
                 );
@@ -174,7 +182,7 @@ fn mcap_write(c: &mut Criterion) {
                 let mut recording = Some(open());
                 let mut written = 0;
                 let mut next_sequence = vec![0_u32; usize::from(STREAMS)];
-                let batch = batch(messages, size, &mut next_sequence);
+                let batch = batch(messages, size, &mut next_sequence, false);
                 b.iter_custom(|iterations| {
                     let mut timed = Duration::ZERO;
                     for _ in 0..iterations {
@@ -228,7 +236,7 @@ fn tap_offer(c: &mut Criterion) {
                     feed.set_frames(frame_feed);
                 }
                 let mut next_sequence = vec![0_u32; usize::from(STREAMS)];
-                let batch = batch(messages, size, &mut next_sequence);
+                let batch = batch(messages, size, &mut next_sequence, false);
                 b.iter_custom(|iterations| {
                     let mut timed = Duration::ZERO;
                     for _ in 0..iterations {
