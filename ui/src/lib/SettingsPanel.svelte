@@ -25,6 +25,20 @@
     ),
   );
   const filtering = $derived(words.length > 0 || changedOnly);
+
+  /** The settings shown, by their section (the part of the name before its first dot), in order. */
+  const sections = $derived(
+    shown.reduce<{ name: string; settings: typeof shown }[]>((grouped, setting) => {
+      const name = setting.key.split(".")[0] ?? setting.key;
+      const last = grouped.at(-1);
+      if (last?.name === name) {
+        last.settings.push(setting);
+      } else {
+        grouped.push({ name, settings: [setting] });
+      }
+      return grouped;
+    }, []),
+  );
 </script>
 
 <details>
@@ -55,17 +69,24 @@
         <th scope="col">Value and where it came from</th>
       </tr>
     </thead>
-    <tbody>
-      {#each shown as setting (setting.key)}
-        <tr class:changed={!setting.default} title={setting.help}>
-          <th scope="row">{#each breakable(setting.key) as piece, index (index)}{piece}<wbr />{/each}</th>
-          <td>
-            <span class="value">{#each breakable(setting.value) as piece, index (index)}{piece}<wbr />{/each}</span>
-            <span class="source">{setting.source}</span>
-          </td>
+    {#each sections as section (section.name)}
+      <tbody>
+        <tr class="section">
+          <th scope="rowgroup" colspan="2">{section.name}</th>
         </tr>
-      {/each}
-    </tbody>
+        {#each section.settings as setting (setting.key)}
+          <tr class:changed={!setting.default} title={setting.help}>
+            <th scope="row"
+              >{#each breakable(setting.key) as piece, index (index)}{piece}<wbr />{/each}{#if !setting.default}{" "}<span class="mark">changed</span>{/if}</th
+            >
+            <td>
+              <span class="value">{#each breakable(setting.value) as piece, index (index)}{piece}<wbr />{/each}</span>
+              <span class="source">{setting.source}</span>
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    {/each}
   </table>
   <p class="note">Settings are read when Kapto starts; change them in the file, then start Kapto again.</p>
 </details>
@@ -155,6 +176,22 @@
     display: block;
     /* Not `anywhere`: that lets the table squeeze the column mid-word. */
     overflow-wrap: break-word;
+  }
+  /* A section's heading: as the panel's own headings, a step above its rows. */
+  .section th {
+    padding-top: var(--space-3);
+    font-family: var(--font-ui);
+    font-weight: 500;
+    color: var(--muted);
+  }
+  /* Changed: said in words as well as by the row's colour. */
+  .mark {
+    padding: 0 0.3rem;
+    border: 1px solid currentColor;
+    border-radius: var(--radius);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    white-space: nowrap;
   }
   .source {
     display: block;

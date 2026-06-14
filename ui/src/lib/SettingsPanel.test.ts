@@ -33,11 +33,13 @@ describe("SettingsPanel", () => {
     expect(screen.getByText(/not found, so not read/)).toBeTruthy();
   });
 
+  /** Each setting listed, by name, past the sections' headings. */
   function rows(): string[] {
     return screen
       .getAllByRole("row")
-      .slice(1)
-      .map((row) => row.querySelector("th")?.textContent ?? "");
+      .map((row) => row.querySelector('th[scope="row"]'))
+      .filter((th) => th !== null)
+      .map((th) => th.childNodes[0] ? (th.textContent ?? "").replace(/\s*changed$/, "") : "");
   }
 
   it("shows only the settings whose name, value or source holds every word searched for", async () => {
@@ -63,4 +65,18 @@ describe("SettingsPanel", () => {
     expect(screen.getByText("No setting matches “log” among those changed.")).toBeTruthy();
     expect(screen.queryByRole("table", { name: "Settings" })).toBeNull();
   });
+
+  it("groups the settings by section and marks each changed one in words, not by colour alone", async () => {
+    render(SettingsPanel, { settings });
+    await fireEvent.click(screen.getByText(/4 settings/));
+    const sections = screen.getAllByRole("rowheader").filter((th) => th.getAttribute("scope") === "rowgroup");
+    expect(sections.map((th) => th.textContent)).toEqual(["server", "log", "worker"]);
+    // The row's name, as a screen reader reads it, says so.
+    expect(screen.getByRole("row", { name: /^server\.port changed 7701/ })).toBeTruthy();
+    expect(screen.getByRole("row", { name: /^log\.level info/ })).toBeTruthy();
+    // A section with nothing to show is left out.
+    await fireEvent.click(screen.getByRole("checkbox", { name: "Changed only" }));
+    expect(screen.queryByText("log", { selector: "th" })).toBeNull();
+  });
 });
+
