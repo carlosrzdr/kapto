@@ -974,7 +974,10 @@ fn layout_section() -> String {
          How the live view and replays are arranged: columns side by side, each a\n\
          stack of panels, the timeline always under them. Below a width of 70rem\n\
          the columns stack, in order. A package without one is shown with a layout\n\
-         made from what it declares. At most {MAX_PANELS} panels: beyond, the page can't\n\
+         made from what it declares: the robot on the left if a joint of it moves;\n\
+         on the right each camera, a plot per group of roles (the joints' positions\n\
+         first), a plot per stream of the fields no role covers, and the streams'\n\
+         health. At most {MAX_PANELS} panels: beyond, the page can't\n\
          keep its frame rate. A panel naming a stream, field or role the package\n\
          doesn't have is shown as a placeholder saying what is missing.\n\n\
          ```toml\n{LAYOUT_EXAMPLE}```\n\n\

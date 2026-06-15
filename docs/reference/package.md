@@ -102,7 +102,10 @@ max_dropped = 0
 How the live view and replays are arranged: columns side by side, each a
 stack of panels, the timeline always under them. Below a width of 70rem
 the columns stack, in order. A package without one is shown with a layout
-made from what it declares. At most 24 panels: beyond, the page can't
+made from what it declares: the robot on the left if a joint of it moves;
+on the right each camera, a plot per group of roles (the joints' positions
+first), a plot per stream of the fields no role covers, and the streams'
+health. At most 24 panels: beyond, the page can't
 keep its frame rate. A panel naming a stream, field or role the package
 doesn't have is shown as a placeholder saying what is missing.
 

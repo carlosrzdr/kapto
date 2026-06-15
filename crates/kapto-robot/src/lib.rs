@@ -7,6 +7,7 @@
 //! format it came from.
 
 pub mod kinematics;
+pub mod layout;
 pub mod lint;
 pub mod mapping;
 pub mod mesh;
@@ -17,6 +18,7 @@ pub mod transform;
 pub mod urdf;
 
 pub use kinematics::Kinematics;
+pub use layout::{Declared, DeclaredStream, Missing, made_layout, missing};
 pub use lint::{Finding, LintReport, RULES, Rule, Severity, lint};
 pub use mapping::{JointMap, MappedJoint, ValueSource};
 pub use mesh::{Mesh, MeshFile, UpAxis, load_mesh};

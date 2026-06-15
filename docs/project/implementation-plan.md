@@ -619,8 +619,7 @@ need, without ever costing capture anything. The views are Kapto's own
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M4-06a `feat(robot): the layout made from what a package declares` | The layout a package without `layout.toml` gets ([design](../design/layouts.md)): the robot if its URDF moves, each camera, a plot per role group (joints first), then each decoded stream's other fields, the streams' health; the same package always gives the same layout. And a layout checked against its package: each panel naming a stream, field or role the package lacks listed as missing, for the page to show as a placeholder. The file itself (`layout.toml`, its parsing, cause codes and reference) is in place | Snapshot of the generated layout per sample package; a panel per kind found missing | — |
-| M4-06 `feat(viz): a package's own layout` | The live view and replays arranged by the package's layout, its own carried in the recording or the one made from it (VIS-5): columns of panels with their widths and heights, placeholders for what the package lacks, columns stacked below 70rem; served with the package's status. Builds on M4-06a | Vitest: each panel kind and a placeholder; Playwright: the sample arm's view unchanged; screenshots | A package's own layout |
+| M4-06 `feat(viz): a package's own layout` | The live view and replays arranged by the package's layout, its own carried in the recording or the one made from it (VIS-5): columns of panels with their widths and heights, placeholders for what the package lacks, columns stacked below 70rem; served with the package's status, with the panels naming what the package lacks (`kapto_robot::missing`) | Vitest: each panel kind and a placeholder; Playwright: the sample arm's view unchanged; screenshots | A package's own layout |
 | M4-06b `feat(ui): your own layouts` | The operator puts together the view they want (VIS-11, [design](../design/layouts.md)): panels added from the package's streams, cameras and roles (a stream without a decoder listed as recorded only), removed, moved between columns and resized, without editing files. The layout in use is kept in the browser per package; *Save as default* writes `layouts/<package id>.toml` in the config folder through the API, read by every browser; *Reset* goes back to the package's layout. Builds on M4-06 | Vitest for the editor; Playwright: build a layout, reload and find it again, save it as default and find it in a new browser context, failure path with a field the package lacks; handler and cause-code tests for saving; screenshots | Arranging your own view |
 | M4-08 `feat(robot): display mesh decimation` | `meshopt` simplification above a triangle budget; original kept for collision (ADD-17) | Triangle budget respected; bounding box preserved within tolerance | — |
 
@@ -955,8 +954,7 @@ reference.
 1. The cameras: M6b-04b (capture's CPU with ROS 2 cameras, not reproduced
    in later runs; measured on the reference PC) and M6b-06f (the events flow
    failing now and then).
-2. Layouts: M4-06a (the layout made from a package), M4-06 (the
-   package's own, shown) and M4-06b (the operator's, arranged
+2. Layouts: M4-06 (the package's own, shown) and M4-06b (the operator's, arranged
    in the UI).
 3. The one-command demo with uploads to RustFS: M8-04.
 4. The worker noticing when an episode ends: M5-08j; and `kapto record`

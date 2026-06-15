@@ -17,6 +17,7 @@
 //! naming what the package lacks is shown as a placeholder rather than
 //! refused.
 
+use std::fmt::{self, Write as _};
 use std::str::FromStr;
 
 use kapto_core::{ErrorCode, KaptoError, Role};
@@ -148,6 +149,47 @@ pub enum PlotField {
     Field(FieldReference),
     /// Whatever field the package's mapping gives the role.
     Role(Role),
+}
+
+impl fmt::Display for PlotField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Field(field) => write!(f, "{field}"),
+            Self::Role(role) => write!(f, "role:{}", role.as_str()),
+        }
+    }
+}
+
+impl Layout {
+    /// The layout as `layout.toml` holds it, which reads back the same.
+    #[must_use]
+    pub fn to_toml(&self) -> String {
+        let mut text = String::new();
+        for (index, column) in self.columns.iter().enumerate() {
+            if index > 0 {
+                text.push('\n');
+            }
+            let _ = write!(text, "[[columns]]\nwidth = {}\npanels = [\n", column.width);
+            for panel in &column.panels {
+                let what = match &panel.kind {
+                    PanelKind::Robot => "kind = \"robot\"".to_owned(),
+                    PanelKind::Camera { stream } => {
+                        format!("kind = \"camera\", stream = \"{stream}\"")
+                    }
+                    PanelKind::Plot { fields } => {
+                        let fields: Vec<String> =
+                            fields.iter().map(|field| format!("\"{field}\"")).collect();
+                        format!("kind = \"plot\", fields = [{}]", fields.join(", "))
+                    }
+                    PanelKind::Health => "kind = \"health\"".to_owned(),
+                    PanelKind::Events => "kind = \"events\"".to_owned(),
+                };
+                let _ = writeln!(text, "  {{ {what}, height = {} }},", panel.height);
+            }
+            text.push_str("]\n");
+        }
+        text
+    }
 }
 
 impl FromStr for PlotField {
@@ -454,6 +496,12 @@ panels = [
             )),
             ["config.invalid_value 2: a plot draws at most 16 fields, not 17"]
         );
+    }
+
+    #[test]
+    fn a_layout_written_out_reads_back_the_same() {
+        let layout = parse_layout(&file(LAYOUT_EXAMPLE)).unwrap();
+        assert_eq!(parse_layout(&file(&layout.to_toml())).unwrap(), layout);
     }
 
     #[test]
