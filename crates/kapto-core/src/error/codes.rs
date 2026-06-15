@@ -204,7 +204,14 @@ error_codes! {
     /// `package.toml` has a key Kapto doesn't know.
     PackageUnknownKey = "package.unknown_key" {
         summary: "Unknown key in package.toml",
-        remedy: "Remove the key or correct its spelling. `package.toml` accepts `id`, `version`, `name`, `vendor`, `description`, `contact`, `urdf`, `streams` and `mapping`.",
+        remedy: "Remove the key or correct its spelling. `package.toml` accepts `id`, `version`, `name`, `vendor`, `description`, `contact`, `urdf`, `streams`, `mapping` and `layout`.",
+    }
+
+    /// A layout has a key that isn't one of a layout's, a column's or a
+    /// panel's.
+    LayoutUnknownKey = "layout.unknown_key" {
+        summary: "Unknown key in a layout",
+        remedy: "Remove the key or correct its spelling. A layout holds `[[columns]]` tables, each with `width` and `panels`; a panel has `kind`, `height`, and `stream` for a camera or `fields` for a plot. The robot package format reference (docs/reference/package.md) describes them.",
     }
 
     /// A robot package's `qa.toml` has a key that isn't a setting.

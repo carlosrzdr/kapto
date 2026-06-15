@@ -36,6 +36,7 @@ urdf = "urdf/arm7.urdf"
 | `urdf` | yes | The robot description, relative to the package folder, e.g. `urdf/arm7.urdf`. |
 | `streams` | no | What the robot sends, relative to the package folder. `streams.toml` by default. |
 | `mapping` | no | Which decoded value drives which joint, relative to the package folder. `mapping.toml` by default. |
+| `layout` | no | How the live view and replays are arranged, relative to the package folder. `layout.toml` by default; without it, a layout is made from what the package declares. |
 
 Paths are relative to the package folder and may not lead out of it.
 
@@ -96,6 +97,48 @@ max_dropped = 0
 | `anomalies.autoencoder.variance` | no | How much of the spread of the statistics the model keeps, from 0.5 to 1: the more, the closer it follows the episodes learned from. `0.9` by default. |
 | `anomalies.autoencoder.retrain_after` | no | How many new accepted episodes of the package and task make it learn again, from 1 to 10000. `10` by default. |
 
+## `layout.toml`
+
+How the live view and replays are arranged: columns side by side, each a
+stack of panels, the timeline always under them. Below a width of 70rem
+the columns stack, in order. A package without one is shown with a layout
+made from what it declares. At most 24 panels: beyond, the page can't
+keep its frame rate. A panel naming a stream, field or role the package
+doesn't have is shown as a placeholder saying what is missing.
+
+```toml
+[[columns]]
+width = 3
+panels = [
+  { kind = "robot", height = 3 },
+  { kind = "camera", stream = "wrist_camera" },
+]
+
+[[columns]]
+width = 2
+panels = [
+  { kind = "plot", fields = ["arm_joints.joint_positions"], height = 2 },
+  { kind = "plot", fields = ["role:gripper.opening"] },
+  { kind = "health" },
+]
+```
+
+Each `[[columns]]` table:
+
+| Key | Required | Meaning |
+|---|---|---|
+| `width` | no | Its width relative to the other columns', a whole number from 1 to 12. 1 if not given. |
+| `panels` | yes | Its panels from top to bottom, each an inline table with a `kind`. |
+
+Each panel:
+
+| Key | Required | Meaning |
+|---|---|---|
+| `kind` | yes | What it shows: `robot` (the 3D view), `camera` (one camera stream), `plot` (fields over time), `health` (the streams' counts) or `events` (the timeline's marks as a list). |
+| `height` | no | Its height relative to the other panels' in its column, a whole number from 1 to 12. 1 if not given. |
+| `stream` | no | A `camera` panel's stream, by its ID. Only for `camera`, which needs it. |
+| `fields` | no | A `plot` panel's fields, 1 to 16: each a stream's field, `stream.field` or `stream.field[3]`, or a role, `role:gripper.opening`. Only for `plot`, which needs them. |
+
 ## Identity
 
 A version of a package is identified by its `id` and `version`, and by
@@ -143,6 +186,7 @@ it can, with something missing. The command fails on errors only;
 | `decoder.invalid_layout` | error | Every stream's decoder fields are valid. |
 | `mapping.unknown_key` | error | `mapping.toml` has only keys Kapto knows. |
 | `qa.unknown_key` | error | `qa.toml` has only the quality checks' settings, each in the table named after its check. |
+| `layout.unknown_key` | error | The layout, if the package has one, has only columns of panels and their keys. |
 | `mapping.unknown_joint` | error | Every joint `mapping.toml` maps is a moving joint of the robot. |
 | `mapping.unknown_field` | error | Every field `mapping.toml` names is decoded by its stream, and is a number. |
 | `mapping.unit_mismatch` | error | Every mapped field's unit fits its joint: radians for turning joints, metres for sliding ones. |

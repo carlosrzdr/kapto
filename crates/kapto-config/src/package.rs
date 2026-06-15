@@ -27,7 +27,7 @@ use crate::reader::{FileKey, Reader};
 pub const PACKAGE_FILE: &str = "package.toml";
 
 /// Every key of `package.toml`, in the order they are documented.
-pub const PACKAGE_KEYS: [FileKey; 9] = [
+pub const PACKAGE_KEYS: [FileKey; 10] = [
     FileKey {
         name: "id",
         required: true,
@@ -73,6 +73,11 @@ pub const PACKAGE_KEYS: [FileKey; 9] = [
         required: false,
         help: "Which decoded value drives which joint, relative to the package folder. `mapping.toml` by default.",
     },
+    FileKey {
+        name: "layout",
+        required: false,
+        help: "How the live view and replays are arranged, relative to the package folder. `layout.toml` by default; without it, a layout is made from what the package declares.",
+    },
 ];
 
 /// A whole `package.toml`.
@@ -96,6 +101,8 @@ pub struct PackageManifest {
     pub streams: PathBuf,
     /// The field-to-joint mapping, relative to the package folder.
     pub mapping: PathBuf,
+    /// The layout, relative to the package folder; it may be absent.
+    pub layout: PathBuf,
 }
 
 /// Reads the package description in `file`.
@@ -124,6 +131,7 @@ pub fn parse_package_manifest(file: &ConfigFile) -> Result<PackageManifest, Vec<
     let urdf = path(&mut reader, "urdf");
     let streams = path(&mut reader, "streams");
     let mapping = path(&mut reader, "mapping");
+    let layout = path(&mut reader, "layout");
     if !reader.errors.is_empty() {
         return Err(reader.errors);
     }
@@ -138,6 +146,7 @@ pub fn parse_package_manifest(file: &ConfigFile) -> Result<PackageManifest, Vec<
             urdf,
             streams: streams.unwrap_or_else(|| PathBuf::from("streams.toml")),
             mapping: mapping.unwrap_or_else(|| PathBuf::from("mapping.toml")),
+            layout: layout.unwrap_or_else(|| PathBuf::from(crate::layout::LAYOUT_FILE)),
         }),
         // Each missing one was reported above.
         _ => Err(reader.errors),
@@ -212,6 +221,7 @@ mod tests {
                 urdf: PathBuf::from("urdf/arm7.urdf"),
                 streams: PathBuf::from("streams.toml"),
                 mapping: PathBuf::from("mapping.toml"),
+                layout: PathBuf::from("layout.toml"),
             }
         );
     }
@@ -221,7 +231,8 @@ mod tests {
         let manifest = parse(
             "id = \"cobot\"\nversion = \"2024.3-rc1\"\nname = \"A cobot\"\nvendor = \"Acme\"\n\
              description = \"Six joints.\"\ncontact = \"robots@acme.example\"\n\
-             urdf = \"robot.urdf\"\nstreams = \"config/streams.toml\"\nmapping = \"./config/mapping.toml\"\n",
+             urdf = \"robot.urdf\"\nstreams = \"config/streams.toml\"\nmapping = \"./config/mapping.toml\"\n\
+             layout = \"views/arm.toml\"\n",
         )
         .unwrap();
         assert_eq!(manifest.name.as_deref(), Some("A cobot"));
@@ -230,6 +241,7 @@ mod tests {
         assert_eq!(manifest.contact.as_deref(), Some("robots@acme.example"));
         assert_eq!(manifest.streams, Path::new("config/streams.toml"));
         assert_eq!(manifest.mapping, Path::new("./config/mapping.toml"));
+        assert_eq!(manifest.layout, Path::new("views/arm.toml"));
     }
 
     #[test]

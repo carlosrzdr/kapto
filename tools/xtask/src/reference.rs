@@ -962,6 +962,37 @@ fn profiles() -> String {
     page
 }
 
+/// The package page's section on `layout.toml`.
+fn layout_section() -> String {
+    use kapto_config::{
+        LAYOUT_COLUMN_KEYS, LAYOUT_EXAMPLE, LAYOUT_FILE, LAYOUT_PANEL_KEYS, MAX_PANELS,
+    };
+    let mut page = String::new();
+    let _ = write!(
+        page,
+        "\n## `{LAYOUT_FILE}`\n\n\
+         How the live view and replays are arranged: columns side by side, each a\n\
+         stack of panels, the timeline always under them. Below a width of 70rem\n\
+         the columns stack, in order. A package without one is shown with a layout\n\
+         made from what it declares. At most {MAX_PANELS} panels: beyond, the page can't\n\
+         keep its frame rate. A panel naming a stream, field or role the package\n\
+         doesn't have is shown as a placeholder saying what is missing.\n\n\
+         ```toml\n{LAYOUT_EXAMPLE}```\n\n\
+         Each `[[columns]]` table:\n\n\
+         | Key | Required | Meaning |\n|---|---|---|\n"
+    );
+    for key in LAYOUT_COLUMN_KEYS {
+        let required = if key.required { "yes" } else { "no" };
+        let _ = writeln!(page, "| `{}` | {required} | {} |", key.name, cell(key.help));
+    }
+    page.push_str("\nEach panel:\n\n| Key | Required | Meaning |\n|---|---|---|\n");
+    for key in LAYOUT_PANEL_KEYS {
+        let required = if key.required { "yes" } else { "no" };
+        let _ = writeln!(page, "| `{}` | {required} | {} |", key.name, cell(key.help));
+    }
+    page
+}
+
 fn package() -> String {
     use kapto_config::{PACKAGE_FILE, PACKAGE_KEYS, QA_FILE, QA_KEYS};
 
@@ -1004,6 +1035,7 @@ fn package() -> String {
         let required = if key.required { "yes" } else { "no" };
         let _ = writeln!(page, "| `{}` | {required} | {} |", key.name, cell(key.help));
     }
+    page.push_str(&layout_section());
     page.push_str(
         "\n## Identity\n\n\
          A version of a package is identified by its `id` and `version`, and by\n\

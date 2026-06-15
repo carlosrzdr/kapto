@@ -25,8 +25,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use kapto_config::{
-    PACKAGE_FILE, PackageManifest, QA_FILE, QaSettings, parse_package_manifest, parse_qa,
-    read_config_file,
+    Layout, PACKAGE_FILE, PackageManifest, QA_FILE, QaSettings, parse_layout,
+    parse_package_manifest, parse_qa, read_config_file,
 };
 use kapto_core::{ErrorCode, KaptoError};
 use sha2::{Digest, Sha256};
@@ -91,6 +91,26 @@ impl Package {
         match read_config_file(&self.qa(), false).map_err(|error| vec![error])? {
             Some(file) => parse_qa(&file),
             None => Ok(QaSettings::default()),
+        }
+    }
+
+    /// The layout's path: `layout.toml` unless `package.toml` names
+    /// another; it may be absent.
+    #[must_use]
+    pub fn layout(&self) -> PathBuf {
+        self.folder.join(&self.manifest.layout)
+    }
+
+    /// The package's own layout, or `None` if it has none.
+    ///
+    /// # Errors
+    ///
+    /// The problems of the layout's file, each with its line;
+    /// `config.unreadable` if it can't be read.
+    pub fn own_layout(&self) -> Result<Option<Layout>, Vec<KaptoError>> {
+        match read_config_file(&self.layout(), false).map_err(|error| vec![error])? {
+            Some(file) => parse_layout(&file).map(Some),
+            None => Ok(None),
         }
     }
 }

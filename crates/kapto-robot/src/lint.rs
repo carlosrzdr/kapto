@@ -141,6 +141,11 @@ pub const RULES: &[Rule] = &[
         checks: "`qa.toml` has only the quality checks' settings, each in the table named after its check.",
     },
     Rule {
+        code: ErrorCode::LayoutUnknownKey,
+        severity: Severity::Error,
+        checks: "The layout, if the package has one, has only columns of panels and their keys.",
+    },
+    Rule {
         code: ErrorCode::MappingUnknownJoint,
         severity: Severity::Error,
         checks: "Every joint `mapping.toml` maps is a moving joint of the robot.",
@@ -240,6 +245,9 @@ fn lint_contents(package: &Package, search_paths: &[PathBuf], found: &mut Found<
         }
     }
     if let Err(errors) = package.qa_settings() {
+        found.all(&errors);
+    }
+    if let Err(errors) = package.own_layout() {
         found.all(&errors);
     }
 }

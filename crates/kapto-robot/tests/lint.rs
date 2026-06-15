@@ -105,7 +105,7 @@ fn only(report: &LintReport, code: ErrorCode, file: Option<&str>, line: Option<u
 }
 
 /// The codes the tests below break the arm for, one test each.
-const TESTED: [ErrorCode; 22] = [
+const TESTED: [ErrorCode; 23] = [
     ErrorCode::PackageNotFound,
     ErrorCode::PackageUnknownKey,
     ErrorCode::ConfigInvalidSyntax,
@@ -124,6 +124,7 @@ const TESTED: [ErrorCode; 22] = [
     ErrorCode::DecoderInvalidLayout,
     ErrorCode::MappingUnknownKey,
     ErrorCode::QaUnknownKey,
+    ErrorCode::LayoutUnknownKey,
     ErrorCode::MappingUnknownJoint,
     ErrorCode::MappingUnknownField,
     ErrorCode::MappingUnitMismatch,
@@ -452,6 +453,39 @@ fn an_unknown_setting_in_qa_toml() {
         ErrorCode::QaUnknownKey,
         Some("qa.toml"),
         Some(10),
+    );
+}
+
+#[test]
+fn a_mistake_in_the_layout_is_found_at_its_line() {
+    let fixture = Fixture::new("layout-mistake");
+    fixture.write(
+        "layout.toml",
+        b"[[columns]]\npanels = [\n  { kind = \"health\" },\n  { kind = \"robot\", heigth = 2 },\n]\n",
+    );
+    only(
+        &fixture.lint(),
+        ErrorCode::LayoutUnknownKey,
+        Some("layout.toml"),
+        Some(4),
+    );
+}
+
+#[test]
+fn a_layout_the_package_names_is_read_from_where_it_says() {
+    let fixture = Fixture::new("own-layout-named");
+    fixture
+        .append("package.toml", "layout = \"views/arm.toml\"\n")
+        .write(
+            "views/arm.toml",
+            b"[[columns]]\npanels = [{ kind = \"health\" }]\n",
+        );
+    assert_eq!(fixture.lint().findings, []);
+    let package = kapto_robot::load_package(&fixture.0).unwrap();
+    let layout = package.own_layout().unwrap().unwrap();
+    assert_eq!(
+        layout.columns[0].panels[0].kind,
+        kapto_config::PanelKind::Health
     );
 }
 
