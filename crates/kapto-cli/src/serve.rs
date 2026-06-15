@@ -80,7 +80,12 @@ pub(crate) fn serve(flags: &SettingFlags, args: &ServeArgs) -> ExitCode {
 /// web UI draws it, from the files serve was given.
 fn robot(args: &ServeArgs, packages: &Path) -> Outcome<(Arc<RobotOverview>, Arc<Scene>)> {
     let prepared = prepare(&args.robot, &args.streams, &args.mapping, packages)?;
-    let overview = overview(&prepared, [&args.robot, &args.streams, &args.mapping]);
+    let package = crate::record::loaded_package(&args.streams);
+    let overview = overview(
+        &prepared,
+        [&args.robot, &args.streams, &args.mapping],
+        package.as_ref(),
+    );
     Ok((Arc::new(overview), Arc::new(Scene::of(&prepared.robot))))
 }
 

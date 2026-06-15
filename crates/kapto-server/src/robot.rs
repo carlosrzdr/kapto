@@ -22,9 +22,48 @@ pub struct RobotOverview {
     pub joints: Vec<RobotJoint>,
     /// The streams Kapto receives, in the order they are declared.
     pub streams: Vec<RobotStream>,
+    /// How the live view is arranged.
+    pub layout: ViewLayout,
     /// Problems that don't stop Kapto, such as a mesh that isn't there or
     /// a joint nothing drives.
     pub warnings: Vec<ApiError>,
+}
+
+/// How the live view or a replay is arranged: columns side by side, each a
+/// stack of panels, as `docs/reference/package.md` describes `layout.toml`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ViewLayout {
+    /// Where it comes from: `package` (the package's `layout.toml`) or
+    /// `made` (made from what the package declares).
+    pub source: String,
+    /// Its columns, left to right.
+    pub columns: Vec<ViewColumn>,
+}
+
+/// A column of panels.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ViewColumn {
+    /// Its width relative to the other columns'.
+    pub width: u8,
+    /// Its panels, top to bottom.
+    pub panels: Vec<ViewPanel>,
+}
+
+/// One panel of a column.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ViewPanel {
+    /// What it shows: `robot`, `camera`, `plot`, `health` or `events`.
+    pub kind: String,
+    /// Its height relative to the other panels' in its column.
+    pub height: u8,
+    /// A camera panel's stream.
+    pub stream: Option<String>,
+    /// A plot's fields, each `stream.field`, `stream.field[3]` or
+    /// `role:gripper.opening`.
+    pub fields: Vec<String>,
+    /// What it names that the package doesn't have, each a phrase; shown in
+    /// its place when not empty.
+    pub missing: Vec<String>,
 }
 
 /// The files a robot was loaded from.

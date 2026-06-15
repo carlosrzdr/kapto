@@ -673,7 +673,9 @@ kapto serve ─┬─ kapto capture      (cap-rx-*, cap-writer, cap-tap, cap-con
 (`http://127.0.0.1:7700/api` by default): Kapto's version, what capture is
 doing, the robot and its streams as serve loaded them (`/api/robot`: each
 joint with its limits and the decoded value that drives it, each stream
-with its input, rate and fields), what each process is doing and costs
+with its input, rate and fields, and the layout the live view is arranged
+by: the package's `layout.toml`, or one made from its roles, cameras and
+fields, each panel with what it names that the package lacks), what each process is doing and costs
 (`/api/processes`, which answers even while capture doesn't), the
 settings it runs with and where each came from (`/api/settings`), how much room the data directory
 has and what its episodes take (`/api/storage`), the finalised episodes

@@ -165,6 +165,90 @@ fn the_api_describes_the_robot_its_joints_and_streams_as_serve_loaded_them() {
     assert_eq!(positions["count"], 7);
     assert_eq!(positions["unit"], "rad");
     assert_eq!(robot["warnings"], serde_json::json!([]));
+
+    // Not in a package, so arranged by the layout made from its files.
+    let layout = &robot["layout"];
+    assert_eq!(layout["source"], "made");
+    assert_eq!(layout["columns"][0]["panels"][0]["kind"], "robot");
+    let side = layout["columns"][1]["panels"].as_array().unwrap();
+    assert_eq!(side[0]["fields"][0], "role:joints.joint_1.position");
+    assert_eq!(side.last().unwrap()["kind"], "health");
+    assert!(
+        side.iter()
+            .all(|panel| panel["missing"] == serde_json::json!([]))
+    );
+}
+
+/// The sample arm as a package of its own in `folder`, with `layout` as its
+/// `layout.toml`, served: its files are what serve is given.
+fn serve_package(folder: &std::path::Path, layout: &str) -> Serve {
+    let arm7 = root().join("packages/arm7");
+    let streams = streams(folder);
+    for file in ["mapping.toml", "urdf/arm7.urdf"] {
+        let to = folder.join(file);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(arm7.join(file), to).unwrap();
+    }
+    std::fs::write(
+        folder.join("package.toml"),
+        "id = \"arm7\"\nversion = \"0.1.0\"\nurdf = \"urdf/arm7.urdf\"\n",
+    )
+    .unwrap();
+    std::fs::write(folder.join("layout.toml"), layout).unwrap();
+    Serve::start_robot(
+        folder,
+        &folder.join("urdf/arm7.urdf"),
+        &streams,
+        &folder.join("mapping.toml"),
+        &[],
+    )
+}
+
+fn robot_of(serve: &Serve) -> serde_json::Value {
+    serve.wait_for("Kapto is running: ", 1);
+    let (code, body) = serve.http("GET", "/api/robot", None);
+    assert_eq!(code, 200, "{body}");
+    serde_json::from_str(&body).unwrap()
+}
+
+#[test]
+fn the_live_view_is_arranged_by_the_packages_own_layout_saying_what_it_lacks() {
+    let folder = scratch("own-layout");
+    let serve = serve_package(
+        &folder,
+        "[[columns]]\nwidth = 2\npanels = [\n  { kind = \"camera\", stream = \"wrist_camera\" },\n  \
+         { kind = \"plot\", fields = [\"role:gripper.opening\"], height = 2 },\n]\n",
+    );
+    let robot = robot_of(&serve);
+    let layout = &robot["layout"];
+    assert_eq!(layout["source"], "package");
+    let panels = layout["columns"][0]["panels"].as_array().unwrap();
+    assert_eq!(layout["columns"][0]["width"], 2);
+    assert_eq!(panels[0]["stream"], "wrist_camera");
+    assert_eq!(
+        panels[0]["missing"],
+        serde_json::json!(["no stream `wrist_camera`"])
+    );
+    assert_eq!(panels[1]["height"], 2);
+    assert_eq!(panels[1]["missing"], serde_json::json!([]));
+}
+
+#[test]
+fn a_layout_with_a_mistake_is_a_warning_and_the_made_layout_is_used() {
+    let folder = scratch("broken-layout");
+    let serve = serve_package(
+        &folder,
+        "[[columns]]\npanels = [{ kind = \"robot\", heigth = 2 }]\n",
+    );
+    let robot = robot_of(&serve);
+    assert_eq!(robot["layout"]["source"], "made");
+    let codes: Vec<&str> = robot["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .collect();
+    assert_eq!(codes, ["layout.unknown_key"]);
 }
 
 #[test]

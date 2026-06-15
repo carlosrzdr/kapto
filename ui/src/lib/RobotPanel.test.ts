@@ -28,6 +28,7 @@ const robot: RobotOverview = {
       ],
     },
   ],
+  layout: { source: "made", columns: [{ width: 3, panels: [{ kind: "robot", height: 1, fields: [], missing: [] }] }] },
   warnings: [
     {
       code: "mapping.joint_unmapped",

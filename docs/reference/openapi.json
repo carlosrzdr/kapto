@@ -3473,6 +3473,7 @@
           "links",
           "joints",
           "streams",
+          "layout",
           "warnings"
         ],
         "properties": {
@@ -3486,6 +3487,10 @@
               "$ref": "#/components/schemas/RobotJoint"
             },
             "description": "Its joints, in the order the description declares them."
+          },
+          "layout": {
+            "$ref": "#/components/schemas/ViewLayout",
+            "description": "How the live view is arranged."
           },
           "links": {
             "type": "integer",
@@ -4584,6 +4589,93 @@
           "kapto": {
             "type": "string",
             "description": "Kapto's version."
+          }
+        }
+      },
+      "ViewColumn": {
+        "type": "object",
+        "description": "A column of panels.",
+        "required": [
+          "width",
+          "panels"
+        ],
+        "properties": {
+          "panels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewPanel"
+            },
+            "description": "Its panels, top to bottom."
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its width relative to the other columns'.",
+            "minimum": 0
+          }
+        }
+      },
+      "ViewLayout": {
+        "type": "object",
+        "description": "How the live view or a replay is arranged: columns side by side, each a\nstack of panels, as `docs/reference/package.md` describes `layout.toml`.",
+        "required": [
+          "source",
+          "columns"
+        ],
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewColumn"
+            },
+            "description": "Its columns, left to right."
+          },
+          "source": {
+            "type": "string",
+            "description": "Where it comes from: `package` (the package's `layout.toml`) or\n`made` (made from what the package declares)."
+          }
+        }
+      },
+      "ViewPanel": {
+        "type": "object",
+        "description": "One panel of a column.",
+        "required": [
+          "kind",
+          "height",
+          "fields",
+          "missing"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A plot's fields, each `stream.field`, `stream.field[3]` or\n`role:gripper.opening`."
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its height relative to the other panels' in its column.",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "What it shows: `robot`, `camera`, `plot`, `health` or `events`."
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What it names that the package doesn't have, each a phrase; shown in\nits place when not empty."
+          },
+          "stream": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A camera panel's stream."
           }
         }
       },

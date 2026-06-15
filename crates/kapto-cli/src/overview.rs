@@ -6,18 +6,28 @@
 use std::path::Path;
 
 use kapto_config::{
-    DecoderDeclaration, FieldReference, MappingDeclaration, StreamDeclaration,
+    DecoderDeclaration, FieldReference, Layout, MappingDeclaration, PanelKind, StreamDeclaration,
     TcpEndpointDeclaration,
 };
+use kapto_core::KaptoError;
 use kapto_decode::PathFormat;
-use kapto_robot::{JointKind, RobotModel};
+use kapto_robot::{Declared, JointKind, Package, RobotModel, made_layout, missing};
 use kapto_server::api::ApiError;
-use kapto_server::robot::{RobotField, RobotFiles, RobotJoint, RobotOverview, RobotStream};
+use kapto_server::robot::{
+    RobotField, RobotFiles, RobotJoint, RobotOverview, RobotStream, ViewColumn, ViewLayout,
+    ViewPanel,
+};
 
 use crate::viz_bridge::Prepared;
 
-/// The overview of `prepared`, loaded from `files` (URDF, streams, mapping).
-pub(crate) fn overview(prepared: &Prepared, [urdf, streams, mapping]: [&Path; 3]) -> RobotOverview {
+/// The overview of `prepared`, loaded from `files` (URDF, streams, mapping),
+/// arranged by `package`'s layout if it is in one that has its own.
+pub(crate) fn overview(
+    prepared: &Prepared,
+    [urdf, streams, mapping]: [&Path; 3],
+    package: Option<&Package>,
+) -> RobotOverview {
+    let (layout, layout_problems) = view_layout(prepared, package);
     RobotOverview {
         name: prepared.robot.name.clone(),
         files: RobotFiles {
@@ -28,7 +38,74 @@ pub(crate) fn overview(prepared: &Prepared, [urdf, streams, mapping]: [&Path; 3]
         links: prepared.robot.links.len(),
         joints: joints(&prepared.robot, &prepared.mapping),
         streams: prepared.streams.iter().map(stream).collect(),
-        warnings: prepared.warnings().map(ApiError::from).collect(),
+        layout,
+        warnings: prepared
+            .warnings()
+            .chain(&layout_problems)
+            .map(ApiError::from)
+            .collect(),
+    }
+}
+
+/// The live view's layout: the package's own if it has one that reads,
+/// else one made from what is declared, with what each panel names that
+/// isn't there; and the problems of a layout that doesn't read.
+fn view_layout(prepared: &Prepared, package: Option<&Package>) -> (ViewLayout, Vec<KaptoError>) {
+    let declared = Declared::new(Some(&prepared.robot), &prepared.streams, &prepared.mapping);
+    let (own, problems) = match package.map(Package::own_layout) {
+        Some(Ok(own)) => (own, Vec::new()),
+        Some(Err(problems)) => (None, problems),
+        None => (None, Vec::new()),
+    };
+    let source = if own.is_some() { "package" } else { "made" };
+    let layout = own.unwrap_or_else(|| made_layout(&declared));
+    (view_of(&layout, &declared, source), problems)
+}
+
+/// `layout` as the API shows it, each panel with what it lacks of `declared`.
+pub(crate) fn view_of(layout: &Layout, declared: &Declared, source: &str) -> ViewLayout {
+    let lacking = missing(layout, declared);
+    let columns = layout
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(column, each)| ViewColumn {
+            width: each.width,
+            panels: each
+                .panels
+                .iter()
+                .enumerate()
+                .map(|(place, panel)| {
+                    let (kind, stream, fields) = match &panel.kind {
+                        PanelKind::Robot => ("robot", None, Vec::new()),
+                        PanelKind::Camera { stream } => {
+                            ("camera", Some(stream.clone()), Vec::new())
+                        }
+                        PanelKind::Plot { fields } => (
+                            "plot",
+                            None,
+                            fields.iter().map(ToString::to_string).collect(),
+                        ),
+                        PanelKind::Health => ("health", None, Vec::new()),
+                        PanelKind::Events => ("events", None, Vec::new()),
+                    };
+                    ViewPanel {
+                        kind: kind.to_owned(),
+                        height: panel.height,
+                        stream,
+                        fields,
+                        missing: lacking
+                            .iter()
+                            .find(|found| found.column == column && found.panel == place)
+                            .map_or_else(Vec::new, |found| found.what.clone()),
+                    }
+                })
+                .collect(),
+        })
+        .collect();
+    ViewLayout {
+        source: source.to_owned(),
+        columns,
     }
 }
 

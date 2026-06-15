@@ -764,6 +764,8 @@ export interface RobotOverview {
   files: RobotFiles;
   /** Its joints, in the order the description declares them. */
   joints: RobotJoint[];
+  /** How the live view is arranged. */
+  layout: ViewLayout;
   /** How many links it has. */
   links: number;
   /** The robot's name in its description. */
@@ -1180,6 +1182,48 @@ export interface Version {
   api: number;
   /** Kapto's version. */
   kapto: string;
+}
+
+/** A column of panels. */
+export interface ViewColumn {
+  /** Its panels, top to bottom. */
+  panels: ViewPanel[];
+  /** Its width relative to the other columns'. */
+  width: number;
+}
+
+/**
+ * How the live view or a replay is arranged: columns side by side, each a
+ * stack of panels, as `docs/reference/package.md` describes `layout.toml`.
+ */
+export interface ViewLayout {
+  /** Its columns, left to right. */
+  columns: ViewColumn[];
+  /**
+   * Where it comes from: `package` (the package's `layout.toml`) or
+   * `made` (made from what the package declares).
+   */
+  source: string;
+}
+
+/** One panel of a column. */
+export interface ViewPanel {
+  /**
+   * A plot's fields, each `stream.field`, `stream.field[3]` or
+   * `role:gripper.opening`.
+   */
+  fields: string[];
+  /** Its height relative to the other panels' in its column. */
+  height: number;
+  /** What it shows: `robot`, `camera`, `plot`, `health` or `events`. */
+  kind: string;
+  /**
+   * What it names that the package doesn't have, each a phrase; shown in
+   * its place when not empty.
+   */
+  missing: string[];
+  /** A camera panel's stream. */
+  stream?: string | null;
 }
 
 /** Where the live view's stream is, on the host the API was reached on. */
