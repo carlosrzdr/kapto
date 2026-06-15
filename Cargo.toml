@@ -47,7 +47,7 @@ jpeg-encoder = { version = "0.6", default-features = false, features = ["std"] }
 # Checking those frames in the tests with a decoder that isn't the encoder.
 jpeg-decoder = { version = "0.3", default-features = false }
 libc = "0.2"
-mcap = "0.25"
+mcap = "0.26"
 mesh-loader = "0.1"
 # Storage for uploads: S3 and S3-compatible, GCS, Azure, a local folder
 # and memory, from Apache Arrow (docs/design/uploads.md). The cloud stores bring an HTTP

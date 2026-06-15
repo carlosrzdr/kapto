@@ -276,11 +276,12 @@ fn writing_camera_frames_allocates_no_more_than_their_chunks_need() {
     std::fs::remove_file(&path).unwrap();
 
     // A 1 MiB frame fills the default 1 MiB chunk, so the MCAP library's
-    // allocations for each chunk (its compressor and message index) come
-    // with each frame: about 9 measured, at a camera's 30 a second. The
-    // receiver and the ring never allocate for one (above).
+    // allocations for each chunk (its compressor, the lz4 frame header it
+    // holds, its CRC writer and message index) come with each frame: about
+    // 26 measured, at a camera's 30 a second. The receiver and the ring
+    // never allocate for one (above).
     assert!(
-        allocations <= written * 16,
+        allocations <= written * 32,
         "{allocations} allocations writing {written} frames"
     );
 }
