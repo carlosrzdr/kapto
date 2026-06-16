@@ -14,8 +14,8 @@ use kapto_decode::PathFormat;
 use kapto_robot::{Declared, JointKind, Package, RobotModel, made_layout, missing};
 use kapto_server::api::ApiError;
 use kapto_server::robot::{
-    RobotField, RobotFiles, RobotJoint, RobotOverview, RobotStream, ViewColumn, ViewLayout,
-    ViewPanel,
+    RobotField, RobotFiles, RobotJoint, RobotOverview, RobotRole, RobotStream, ViewColumn,
+    ViewLayout, ViewPanel,
 };
 
 use crate::viz_bridge::Prepared;
@@ -38,6 +38,15 @@ pub(crate) fn overview(
         links: prepared.robot.links.len(),
         joints: joints(&prepared.robot, &prepared.mapping),
         streams: prepared.streams.iter().map(stream).collect(),
+        roles: prepared
+            .mapping
+            .all_roles()
+            .into_iter()
+            .map(|(role, field)| RobotRole {
+                role: role.as_str().to_owned(),
+                field: field.to_string(),
+            })
+            .collect(),
         layout,
         warnings: prepared
             .warnings()

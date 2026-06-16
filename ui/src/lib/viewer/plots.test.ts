@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { plotStreams, SampleBuffer } from "./plots";
+import { type PlotStream, plotStreams, resolvePlot, SampleBuffer } from "./plots";
 import type { Opening } from "./stream";
 
 /** A sample of two values: the first at `value`, the second at its double. */
@@ -62,5 +62,43 @@ describe("plotStreams", () => {
       ["gripper", [3]],
     ]);
     expect(arm!.samples.values).toBe(4);
+  });
+});
+
+describe("resolvePlot", () => {
+  /** The sample arm's stream as the page plots it: seven joint positions, then the gripper. */
+  const arm: PlotStream = {
+    name: "arm_joints",
+    index: 0,
+    fields: [
+      {
+        name: "joint_positions",
+        values: [2, 3, 4, 5, 6, 7, 8],
+        names: Array.from({ length: 7 }, (_, place) => `joint_positions[${place}]`),
+      },
+      { name: "gripper", values: [9], names: ["gripper"] },
+    ],
+    samples: new SampleBuffer(10),
+  };
+  const base: PlotStream = { name: "base", index: 1, fields: [{ name: "speed", values: [0], names: ["speed"] }], samples: new SampleBuffer(1) };
+  const roles = { "gripper.opening": "arm_joints.gripper", "joints.joint_2.position": "arm_joints.joint_positions[1]" };
+
+  it("draws a whole field, one value of an array, or a role's field, each stream's together", () => {
+    const parts = resolvePlot(
+      ["arm_joints.joint_positions[6]", "base.speed", "role:gripper.opening", "role:joints.joint_2.position"],
+      roles,
+      [arm, base],
+    );
+    expect(parts.map((part) => [part.stream.name, part.values, part.labels])).toEqual([
+      ["arm_joints", [8, 9, 3], ["joint_positions[6]", "gripper.opening", "joints.joint_2.position"]],
+      ["base", [0], ["speed"]],
+    ]);
+    expect(resolvePlot(["arm_joints.joint_positions"], roles, [arm])[0]?.values).toEqual([2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it("leaves out what names nothing plotted: no such stream, field, value or role", () => {
+    expect(
+      resolvePlot(["wrist.force", "arm_joints.torque", "arm_joints.joint_positions[7]", "role:gripper.force"], roles, [arm]),
+    ).toEqual([]);
   });
 });

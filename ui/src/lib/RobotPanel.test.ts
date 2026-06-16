@@ -28,6 +28,7 @@ const robot: RobotOverview = {
       ],
     },
   ],
+  roles: [{ role: "gripper.opening", field: "arm_joints.gripper" }],
   layout: { source: "made", columns: [{ width: 3, panels: [{ kind: "robot", height: 1, fields: [], missing: [] }] }] },
   warnings: [
     {

@@ -12,6 +12,7 @@ export function token(name: string, fallback: string): string {
 /**
  * Colours for series of data and kinds of event, in order: distinct from
  * one another and readable on the dark surfaces, none of them the state
- * colours, which keep their meaning.
+ * colours, which keep their meaning. The same as the `--series-<n>` tokens
+ * of `app.css`, for what CSS colours.
  */
 export const SERIES = ["#38bdf8", "#fbbf24", "#a78bfa", "#2dd4bf", "#f472b6", "#a3e635", "#fb923c", "#e879f9"];

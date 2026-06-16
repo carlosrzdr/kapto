@@ -57,8 +57,8 @@ use crate::quality::{
 };
 use crate::replays::{self, ReplayOpening, ReplayState, ReplayStatus};
 use crate::robot::{
-    RobotField, RobotFiles, RobotJoint, RobotOverview, RobotStream, ViewColumn, ViewLayout,
-    ViewPanel,
+    RobotField, RobotFiles, RobotJoint, RobotOverview, RobotRole, RobotStream, ViewColumn,
+    ViewLayout, ViewPanel,
 };
 use crate::scene::{Placement, RobotScene, Scene, SceneLink, SceneReach, SceneShape, SceneVisual};
 use crate::sessions::{self, ProfileSummary, ProfilesOverview, TaskSummary, TasksOverview};
@@ -253,6 +253,7 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         RobotJoint,
         RobotStream,
         RobotField,
+        RobotRole,
         ViewLayout,
         ViewColumn,
         ViewPanel,

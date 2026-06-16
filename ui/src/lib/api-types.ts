@@ -770,6 +770,11 @@ export interface RobotOverview {
   links: number;
   /** The robot's name in its description. */
   name: string;
+  /**
+   * What each decoded value is for: every role the mapping gives a
+   * field, written roles first, then each mapped joint's.
+   */
+  roles: RobotRole[];
   /** The streams Kapto receives, in the order they are declared. */
   streams: RobotStream[];
   /**
@@ -777,6 +782,17 @@ export interface RobotOverview {
    * a joint nothing drives.
    */
   warnings: ApiError[];
+}
+
+/** A role and the decoded value that plays it. */
+export interface RobotRole {
+  /**
+   * The value that plays it, e.g. `arm_joints.gripper` or
+   * `arm_joints.joint_positions[0]`.
+   */
+  field: string;
+  /** The role, e.g. `gripper.opening` or `joints.joint_1.position`. */
+  role: string;
 }
 
 /** The robot as the page draws it. */

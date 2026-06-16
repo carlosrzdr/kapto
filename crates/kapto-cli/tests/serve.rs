@@ -166,6 +166,16 @@ fn the_api_describes_the_robot_its_joints_and_streams_as_serve_loaded_them() {
     assert_eq!(positions["unit"], "rad");
     assert_eq!(robot["warnings"], serde_json::json!([]));
 
+    let roles = robot["roles"].as_array().unwrap();
+    assert_eq!(
+        roles[0],
+        serde_json::json!({ "role": "gripper.opening", "field": "arm_joints.gripper" })
+    );
+    assert!(roles.contains(&serde_json::json!({
+        "role": "joints.joint_1.position",
+        "field": "arm_joints.joint_positions[0]"
+    })));
+
     // Not in a package, so arranged by the layout made from its files.
     let layout = &robot["layout"];
     assert_eq!(layout["source"], "made");

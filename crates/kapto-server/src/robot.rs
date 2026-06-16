@@ -22,11 +22,24 @@ pub struct RobotOverview {
     pub joints: Vec<RobotJoint>,
     /// The streams Kapto receives, in the order they are declared.
     pub streams: Vec<RobotStream>,
+    /// What each decoded value is for: every role the mapping gives a
+    /// field, written roles first, then each mapped joint's.
+    pub roles: Vec<RobotRole>,
     /// How the live view is arranged.
     pub layout: ViewLayout,
     /// Problems that don't stop Kapto, such as a mesh that isn't there or
     /// a joint nothing drives.
     pub warnings: Vec<ApiError>,
+}
+
+/// A role and the decoded value that plays it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RobotRole {
+    /// The role, e.g. `gripper.opening` or `joints.joint_1.position`.
+    pub role: String,
+    /// The value that plays it, e.g. `arm_joints.gripper` or
+    /// `arm_joints.joint_positions[0]`.
+    pub field: String,
 }
 
 /// How the live view or a replay is arranged: columns side by side, each a

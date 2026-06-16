@@ -3473,6 +3473,7 @@
           "links",
           "joints",
           "streams",
+          "roles",
           "layout",
           "warnings"
         ],
@@ -3501,6 +3502,13 @@
             "type": "string",
             "description": "The robot's name in its description."
           },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RobotRole"
+            },
+            "description": "What each decoded value is for: every role the mapping gives a\nfield, written roles first, then each mapped joint's."
+          },
           "streams": {
             "type": "array",
             "items": {
@@ -3514,6 +3522,24 @@
               "$ref": "#/components/schemas/ApiError"
             },
             "description": "Problems that don't stop Kapto, such as a mesh that isn't there or\na joint nothing drives."
+          }
+        }
+      },
+      "RobotRole": {
+        "type": "object",
+        "description": "A role and the decoded value that plays it.",
+        "required": [
+          "role",
+          "field"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "The value that plays it, e.g. `arm_joints.gripper` or\n`arm_joints.joint_positions[0]`."
+          },
+          "role": {
+            "type": "string",
+            "description": "The role, e.g. `gripper.opening` or `joints.joint_1.position`."
           }
         }
       },

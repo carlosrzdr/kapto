@@ -130,3 +130,49 @@ export function plotStreams(opening: Opening): PlotStream[] {
     })
     .filter((stream) => stream.fields.length > 0);
 }
+
+/** What one plot panel draws of one stream: some of its values, each with its label. */
+export interface PlotPart {
+  stream: PlotStream;
+  /** The values' positions in the stream's samples. */
+  values: number[];
+  /** Each value's label: the role it plays, or its name. */
+  labels: string[];
+}
+
+/**
+ * What a layout's plot panel draws: each of `fields` (`stream.field`,
+ * `stream.field[3]` or `role:gripper.opening`, a role's field found in
+ * `roles`) among the values `streams` plot, grouped by stream in the order
+ * first named. A field naming nothing plotted is left out, as the panel
+ * says what its layout lacks.
+ */
+export function resolvePlot(fields: string[], roles: Record<string, string>, streams: PlotStream[]): PlotPart[] {
+  const parts: PlotPart[] = [];
+  for (const named of fields) {
+    const role = named.startsWith("role:") ? named.slice("role:".length) : null;
+    const reference = role === null ? named : roles[role];
+    const match = reference?.match(/^([^.]+)\.([^[]+)(?:\[(\d+)\])?$/);
+    const stream = streams.find((each) => each.name === match?.[1]);
+    const field = stream?.fields.find((each) => each.name === match?.[2]);
+    if (!match || !stream || !field) {
+      continue;
+    }
+    const picked = match[3] === undefined ? field.names.map((_, place) => place) : [Number(match[3])];
+    for (const place of picked) {
+      const value = field.values[place];
+      const name = field.names[place];
+      if (value === undefined || name === undefined) {
+        continue;
+      }
+      let part = parts.find((each) => each.stream === stream);
+      if (!part) {
+        part = { stream, values: [], labels: [] };
+        parts.push(part);
+      }
+      part.values.push(value);
+      part.labels.push(role ?? name);
+    }
+  }
+  return parts;
+}
