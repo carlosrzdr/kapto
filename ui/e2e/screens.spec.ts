@@ -156,7 +156,9 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
   await expect(episode).toContainText("not checked yet");
   await shot(aside, "episodes-not-checked");
-  await page.unroute(listing);
+  // Let go once a request held now has been answered: one answered after
+  // fails, and the list stops asking.
+  await page.unrouteAll({ behavior: "wait" });
   await expect(episode).toContainText("accepted", { timeout: 30_000 });
   await shot(aside, "episodes");
   await episode.getByTitle("Show this episode in full").click();
@@ -209,8 +211,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await episode.getByTitle("Show this episode in full").click();
   await expect(details).toContainText("rejected: a gate failed");
   await shot(aside, "episode-rejected");
-  await page.unroute(listing);
-  await page.unroute("**/api/episodes/*/qa");
+  await page.unrouteAll({ behavior: "wait" });
   await page.getByRole("combobox", { name: "Quality" }).selectOption("all");
   await episode.getByTitle("Show this episode in full").click();
   await episode.getByTitle("Show this episode in full").click();
