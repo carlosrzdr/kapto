@@ -117,10 +117,11 @@
   .delay {
     color: var(--muted);
   }
+  /* At the top, clear of the caption however narrow the camera is. */
   .steps {
     position: absolute;
+    top: 0.4rem;
     right: 0.4rem;
-    bottom: 0.4rem;
     display: flex;
     gap: 0.25rem;
   }

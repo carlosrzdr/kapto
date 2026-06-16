@@ -68,7 +68,6 @@ width = 2
 panels = [
   { kind = \"plot\", fields = [\"role:joints.joint_1.position\", \"role:joints.joint_2.position\", \"role:joints.joint_3.position\", \"role:joints.joint_4.position\", \"role:joints.joint_5.position\", \"role:joints.joint_6.position\", \"role:joints.joint_7.position\", \"role:joints.gripper.position\"], height = 1 },
   { kind = \"plot\", fields = [\"role:gripper.opening\"], height = 1 },
-  { kind = \"health\", height = 1 },
 ]
 "
     );
@@ -84,7 +83,10 @@ fn the_ros2_sample_arm_is_made_the_same_way_from_its_topics() {
         matches!(&side[0].kind, PanelKind::Plot { fields } if fields[0].to_string() == "role:joints.joint_1.position"),
         "{text}"
     );
-    assert_eq!(side.last().unwrap().kind, PanelKind::Health);
+    assert!(
+        side.iter().all(|panel| panel.kind != PanelKind::Health),
+        "{text}"
+    );
 }
 
 /// A robot that doesn't move, two cameras, and a stream of 40 fields.
@@ -128,19 +130,12 @@ fn a_robot_that_doesnt_move_gets_no_3d_view_and_each_camera_comes_first() {
         .collect();
     assert_eq!(
         kinds,
-        [
-            "camera",
-            "camera",
-            "plot of 16",
-            "plot of 16",
-            "plot",
-            "health"
-        ]
+        ["camera", "camera", "plot of 16", "plot of 16", "plot"]
     );
 }
 
 #[test]
-fn a_package_declaring_more_than_a_page_can_draw_keeps_the_first_panels_and_its_health() {
+fn a_package_declaring_more_than_a_page_can_draw_keeps_the_first_panels() {
     let mut many = rig();
     many.robot_moves = true;
     many.streams.extend((0..30).map(|n| DeclaredStream {
@@ -157,7 +152,7 @@ fn a_package_declaring_more_than_a_page_can_draw_keeps_the_first_panels_and_its_
         .collect();
     assert_eq!(panels.len(), MAX_PANELS);
     assert_eq!(panels[0], &PanelKind::Robot);
-    assert_eq!(panels.last(), Some(&&PanelKind::Health));
+    assert!(matches!(panels.last(), Some(PanelKind::Camera { .. })));
 }
 
 #[test]

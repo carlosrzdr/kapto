@@ -16,13 +16,19 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
   const seen = Number(await live.getAttribute("data-frames"));
   await expect.poll(async () => Number(await live.getAttribute("data-frames"))).toBeGreaterThan(seen + 10);
-  // Beside it, a plot per decoded field; counters and clocks aren't plotted.
-  const plots = page.getByRole("region", { name: "Live plots" });
-  await expect(plots.getByText("joint_positions", { exact: true })).toBeVisible();
-  await expect(plots.getByText("gripper", { exact: true })).toBeVisible();
-  await expect(plots.getByText("sequence", { exact: true })).toHaveCount(0);
+  // Beside it, arranged by the layout made from the package: the camera,
+  // a plot of the joints' positions and one of the gripper, by their
+  // roles; counters and clocks aren't plotted.
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const jointPlot = panels.getByRole("region", { name: /^Plot of role:joints\.joint_1\.position/ });
+  await expect(jointPlot.getByText("joints · position", { exact: true })).toBeVisible();
+  await expect(jointPlot.getByText("joint_1", { exact: true })).toBeVisible();
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+  await expect(panels.getByRole("region", { name: /sequence/ })).toHaveCount(0);
+  // The streams' counts are beside the view, in the console, not in it.
+  await expect(panels.getByRole("table")).toHaveCount(0);
   // The live tab: streams and storage.
-  const stream = page.getByRole("row", { name: /arm_joints/ });
+  const stream = page.locator("aside").getByRole("row", { name: /arm_joints/ });
   const received = stream.getByRole("cell").nth(1);
   await expect(received).not.toHaveText("0");
   // Arriving at the rate the demo declares.
@@ -714,6 +720,35 @@ test("episodes go up to each destination, one that can't take them says why and 
   expect(elsewhere).toEqual([]);
 });
 
+test("a package's own layout arranges the view, a panel naming what the package lacks saying so", async ({ page }) => {
+  // The demo's package as if its layout.toml put the plots first and named
+  // a camera it doesn't have.
+  await page.route("**/api/robot", async (route) => {
+    const response = await route.fetch();
+    const robot = (await response.json()) as { layout: object };
+    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], missing: [], ...more });
+    robot.layout = {
+      source: "package",
+      columns: [
+        { width: 2, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("camera", { stream: "head_camera", missing: ["no stream `head_camera`"] })] },
+        { width: 3, panels: [panel("robot", { height: 2 }), panel("events")] },
+      ],
+    };
+    await route.fulfill({ response, json: robot });
+  });
+  await page.goto("/");
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  await expect(panels.getByRole("note")).toHaveText(
+    "The camera head_camera can't be shown: the robot package has no stream `head_camera`. Change the package's layout.toml, or what it declares.",
+  );
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+  // The robot, moved to the second column, still moves.
+  await expect(panels.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(panels.getByRole("region", { name: "What happened" })).toBeVisible();
+  // Nothing the layout leaves out is shown: not the demo's wrist camera.
+  await expect(panels.getByRole("region", { name: "Cameras" })).toHaveCount(0);
+});
+
 test("the demo's wrist camera is shown live beside the arm", async ({ page }) => {
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
@@ -729,7 +764,7 @@ test("the demo's wrist camera is shown live beside the arm", async ({ page }) =>
   // Beside the robot, which still moves.
   await expect(page.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible();
   // Its stream says what became of its frames on their way to the page.
-  await expect(page.getByText(/^Live view: .+ of .+ frames sent/)).toBeVisible();
+  await expect(page.locator("aside").getByText(/^Live view: .+ of .+ frames sent/)).toBeVisible();
   expect(elsewhere).toEqual([]);
 });
 
@@ -831,7 +866,7 @@ test("nothing in the side panel is cut off, at a laptop's width or a tablet's", 
     await page.setViewportSize(size);
     const at = `at ${size.width}×${size.height}`;
     await open(page, /^Live/);
-    await expect(page.getByRole("row", { name: /wrist_camera/ })).toBeVisible();
+    await expect(page.locator("aside").getByRole("row", { name: /wrist_camera/ })).toBeVisible();
     await fitsPanel(page, `in the Live tab ${at}`);
     await open(page, /^Episodes/);
     const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();

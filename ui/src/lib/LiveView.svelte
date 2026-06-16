@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
-  import { onMount, untrack } from "svelte";
+  import { onMount, type Snippet, untrack } from "svelte";
   import * as THREE from "three";
   import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
@@ -14,11 +14,11 @@
     getReplayWindow,
     getRobotScene,
   } from "./api";
-  import type { VocabularyKind } from "./api-types";
+  import type { RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
   import CameraPanel from "./CameraPanel.svelte";
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
-  import LivePlots from "./LivePlots.svelte";
   import MarkBar from "./MarkBar.svelte";
+  import PlotPanel from "./PlotPanel.svelte";
   import Timeline from "./Timeline.svelte";
   import { camerasOf, Decoder, type Shown, withPicture, withSaid } from "./viewer/cameras";
   import { type Item, MarkLog } from "./viewer/marks";
@@ -39,6 +39,7 @@
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
+  import { time } from "./format";
   import { shortcut } from "./keys";
   import { token } from "./theme";
 
@@ -51,9 +52,61 @@
     onplayed?: (played: Played) => void;
     /** Asked to leave the replay for the live view. */
     onleave?: () => void;
+    /** How the view is arranged, once known; the robot alone until then. */
+    layout?: ViewLayout | null;
+    /** Each role and the value that plays it, for plots that name roles. */
+    roles?: RobotRole[];
+    /** What a `health` panel shows: the streams' counts. */
+    health?: Snippet;
   }
 
-  let { port, replay = null, onplayed = () => {}, onleave = () => {} }: Props = $props();
+  let {
+    port,
+    replay = null,
+    onplayed = () => {},
+    onleave = () => {},
+    layout = null,
+    roles = [],
+    health,
+  }: Props = $props();
+
+  /** The robot alone, until the layout is known. */
+  const ROBOT_ONLY: ViewLayout = {
+    source: "made",
+    columns: [{ width: 1, panels: [{ kind: "robot", height: 1, fields: [], missing: [] }] }],
+  };
+  const columns = $derived((layout ?? ROBOT_ONLY).columns);
+  const roleFields = $derived(Object.fromEntries(roles.map((each) => [each.role, each.field])));
+  /** Where the robot's view waits while no panel shows it. */
+  let home = $state<HTMLDivElement | null>(null);
+
+  /**
+   * Shows the robot's view in a panel. It is made once and moved, never
+   * made again: its 3D scene draws into the one canvas it was made with.
+   */
+  function adopt(slot: HTMLElement) {
+    const view = container;
+    if (view) {
+      slot.append(view);
+    }
+    return () => {
+      if (view && view.parentElement === slot) {
+        home?.append(view);
+      }
+    };
+  }
+
+  /** What a panel is, in words, for its placeholder. */
+  function named(panel: ViewPanel): string {
+    switch (panel.kind) {
+      case "camera":
+        return `The camera ${panel.stream ?? ""}`;
+      case "plot":
+        return `The plot of ${panel.fields.join(", ")}`;
+      default:
+        return `The ${panel.kind} panel`;
+    }
+  }
   /** The replay's plots, made from its opening. */
   let replayPlots = $state.raw<PlotStream[]>([]);
   /** Whether the replay was recorded without a robot, so only its plots are shown. */
@@ -823,7 +876,7 @@
 <svelte:window onkeydown={viewKey} />
 
 <div class="view">
-<div class="split">
+<div class="home" hidden bind:this={home}>
 <div
   class="live"
   bind:this={container}
@@ -858,14 +911,51 @@
     {said}
   </p>
 </div>
-<div class="side" class:with-cameras={replay === null ? cameras.length > 0 : replayShown.length > 0}>
-  {#if replay === null && cameras.length > 0}
-    <CameraPanel {cameras} />
-  {:else if replay !== null && replayShown.length > 0}
-    <CameraPanel cameras={replayShown} onstep={stepCamera} />
-  {/if}
-  <LivePlots streams={lookedBack ?? plots} {spanMs} endMs={paused ? cursorMs : null} />
 </div>
+<div class="columns" role="group" aria-label="The view's panels">
+  {#each columns as column, place (place)}
+    <div class={`column grow-${column.width}`}>
+      {#each column.panels as panel, at (at)}
+        <div class={`panel grow-${panel.height}`}>
+          {#if panel.missing.length > 0}
+            <div class="placeholder" role="note">
+              <p>{named(panel)} can't be shown: the robot package has {panel.missing.join("; ")}.</p>
+              <p class="remedy">Change the package's layout.toml, or what it declares.</p>
+            </div>
+          {:else if panel.kind === "robot"}
+            <div class="slot" {@attach adopt}></div>
+          {:else if panel.kind === "camera"}
+            {@const shown = (replay === null ? cameras : replayShown).filter((camera) => camera.name === panel.stream)}
+            {#if shown.length > 0}
+              <CameraPanel cameras={shown} onstep={replay === null ? undefined : stepCamera} />
+            {:else}
+              <p class="waiting">Waiting for {panel.stream}</p>
+            {/if}
+          {:else if panel.kind === "plot"}
+            <PlotPanel
+              fields={panel.fields}
+              roles={roleFields}
+              streams={lookedBack ?? plots}
+              {spanMs}
+              endMs={paused ? cursorMs : null}
+            />
+          {:else if panel.kind === "health"}
+            {@render health?.()}
+          {:else if panel.kind === "events"}
+            <section class="events" aria-label="What happened">
+              <ol>
+                {#each (replay ? replay.items : items).slice(-50).reverse() as item, index (index)}
+                  <li><time>{time(item.startMs * 1e6)}</time> {item.label}</li>
+                {:else}
+                  <li class="none">Nothing marked yet</li>
+                {/each}
+              </ol>
+            </section>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/each}
 </div>
 <Timeline
   {paused}
@@ -898,37 +988,110 @@
     height: 100%;
     min-height: 0;
   }
-  .split {
+  .columns {
     flex: 1;
-    display: grid;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    display: flex;
     gap: 0.5rem;
-    height: 100%;
     min-height: 0;
   }
-  @media (max-width: 70rem) {
-    .split {
-      grid-template-columns: 1fr;
-      grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
-    }
-  }
-  .side {
-    display: grid;
-    grid-template-rows: minmax(0, 1fr);
+  .column {
+    display: flex;
+    flex-direction: column;
+    flex-basis: 0;
     gap: 0.5rem;
     min-width: 0;
     min-height: 0;
   }
-  .side.with-cameras {
-    grid-template-rows: auto minmax(0, 1fr);
+  .panel {
+    display: flex;
+    flex-direction: column;
+    flex-basis: 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
-  /* Stacked under the robot, as on a tablet: the cameras beside the plots,
-     within the row's height, never over the controls below. */
+  .panel > :global(*) {
+    flex: 1;
+    min-height: 0;
+  }
+  .grow-1 {
+    flex-grow: 1;
+  }
+  .grow-2 {
+    flex-grow: 2;
+  }
+  .grow-3 {
+    flex-grow: 3;
+  }
+  .grow-4 {
+    flex-grow: 4;
+  }
+  .grow-5 {
+    flex-grow: 5;
+  }
+  .grow-6 {
+    flex-grow: 6;
+  }
+  .grow-7 {
+    flex-grow: 7;
+  }
+  .grow-8 {
+    flex-grow: 8;
+  }
+  .grow-9 {
+    flex-grow: 9;
+  }
+  .grow-10 {
+    flex-grow: 10;
+  }
+  .grow-11 {
+    flex-grow: 11;
+  }
+  .grow-12 {
+    flex-grow: 12;
+  }
+  /* Narrower, as on a tablet: the columns one under another, each one's
+     panels side by side, never over the controls below. */
   @media (max-width: 70rem) {
-    .side.with-cameras {
-      grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-      grid-template-rows: minmax(0, 1fr);
+    .columns {
+      flex-direction: column;
     }
+    .column {
+      flex-direction: row;
+    }
+  }
+  .slot {
+    display: flex;
+  }
+  .placeholder,
+  .waiting,
+  .events {
+    padding: 0.5rem 0.75rem;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: var(--text-sm);
+    overflow-y: auto;
+  }
+  .placeholder p,
+  .waiting {
+    margin: 0 0 0.4rem;
+  }
+  .remedy {
+    font-size: var(--text-xs);
+  }
+  .events {
+    border-style: solid;
+  }
+  .events ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .events time {
+    margin-right: 0.4rem;
+    font-family: var(--font-data);
+    font-size: var(--text-xs);
   }
   .live {
     position: relative;

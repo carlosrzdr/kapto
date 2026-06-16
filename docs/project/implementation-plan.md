@@ -619,7 +619,6 @@ need, without ever costing capture anything. The views are Kapto's own
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M4-06 `feat(viz): a package's own layout` | The live view arranged by the layout `/api/robot` now gives (VIS-5, [design](../design/layouts.md)): columns of panels with their widths and heights, a plot drawing its fields or roles, a placeholder saying what a panel's `missing` lists, columns stacked below 70rem; the sample arm's view as before | Vitest: each panel kind and a placeholder; Playwright: the sample arm's view unchanged, and a package layout naming a missing camera; screenshots | A package's own layout |
 | M4-06c `feat(viz): replays arranged as recorded` | A replay arranged by the layout its recording carries: the worker reads the recording's `layout.toml`, or makes one from the declarations it carries, with the panels naming what the recording lacks, and the replay's scene says it | A replay of a recording with its own layout and of one without; Playwright: a replay arranged as its episode was recorded | — |
 | M4-06b `feat(ui): your own layouts` | The operator puts together the view they want (VIS-11, [design](../design/layouts.md)): panels added from the package's streams, cameras and roles (a stream without a decoder listed as recorded only), removed, moved between columns and resized, without editing files. The layout in use is kept in the browser per package; *Save as default* writes `layouts/<package id>.toml` in the config folder through the API, read by every browser; *Reset* goes back to the package's layout. Builds on M4-06 | Vitest for the editor; Playwright: build a layout, reload and find it again, save it as default and find it in a new browser context, failure path with a field the package lacks; handler and cause-code tests for saving; screenshots | Arranging your own view |
 | M4-08 `feat(robot): display mesh decimation` | `meshopt` simplification above a triangle budget; original kept for collision (ADD-17) | Triangle budget respected; bounding box preserved within tolerance | — |
@@ -955,8 +954,7 @@ reference.
 1. The cameras: M6b-04b (capture's CPU with ROS 2 cameras, not reproduced
    in later runs; measured on the reference PC) and M6b-06f (the events flow
    failing now and then).
-2. Layouts: M4-06 (the package's own, shown), M4-06c (replays arranged
-   as recorded) and M4-06b (the operator's, arranged
+2. Layouts: M4-06c (replays arranged as recorded) and M4-06b (the operator's, arranged
    in the UI).
 3. The one-command demo with uploads to RustFS: M8-04.
 4. The worker noticing when an episode ends: M5-08j; and `kapto record`

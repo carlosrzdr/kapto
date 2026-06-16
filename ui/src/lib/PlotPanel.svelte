@@ -4,7 +4,7 @@
   import "uplot/dist/uPlot.min.css";
 
   import { axisTimes } from "./format";
-  import { type PlotPart, type PlotStream, resolvePlot } from "./viewer/plots";
+  import { type PlotPart, type PlotStream, resolvePlot, shortLabels } from "./viewer/plots";
   import { SERIES, token } from "./theme";
 
   interface Props {
@@ -25,6 +25,12 @@
   const DRAWS_PER_SECOND = 30;
 
   const parts = $derived(resolvePlot(fields, roles, streams));
+  /** The key: each value's label, short, with its colour's place in its stream's chart. */
+  const key = $derived.by(() => {
+    const short = shortLabels(parts.flatMap((part) => part.labels));
+    const places = parts.flatMap((part) => part.labels.map((_, place) => place % SERIES.length));
+    return { heading: short.heading, entries: short.labels.map((label, index) => ({ label, place: places[index] ?? 0 })) };
+  });
   let holder = $state<HTMLDivElement | null>(null);
 
   onMount(() => {
@@ -60,6 +66,8 @@
             ...size(),
             series,
             bands,
+            // Room on the right for the time axis's last label, however narrow.
+            padding: [8, 24, 0, 0],
             legend: { show: false },
             cursor: { show: false },
             scales: { x: { time: true } },
@@ -121,10 +129,11 @@
 
 <section class="plot" aria-label={`Plot of ${fields.join(", ")}`}>
   <ul class="labels">
-    {#each parts as part (part.stream.name)}
-      {#each part.labels as label, place (place)}
-        <li class={`series-${place % SERIES.length}`}>{label}</li>
-      {/each}
+    {#if key.heading}
+      <li class="heading">{key.heading}</li>
+    {/if}
+    {#each key.entries as entry, index (index)}
+      <li class={`series-${entry.place}`}>{entry.label}</li>
     {/each}
   </ul>
   {#if parts.length === 0}
@@ -154,7 +163,10 @@
     color: var(--muted);
     font-size: var(--text-xs);
   }
-  .labels li::before {
+  .labels .heading {
+    color: var(--text);
+  }
+  .labels li:not(.heading)::before {
     content: "";
     display: inline-block;
     width: 0.6rem;

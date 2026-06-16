@@ -182,7 +182,7 @@ fn the_api_describes_the_robot_its_joints_and_streams_as_serve_loaded_them() {
     assert_eq!(layout["columns"][0]["panels"][0]["kind"], "robot");
     let side = layout["columns"][1]["panels"].as_array().unwrap();
     assert_eq!(side[0]["fields"][0], "role:joints.joint_1.position");
-    assert_eq!(side.last().unwrap()["kind"], "health");
+    assert_eq!(side.last().unwrap()["fields"][0], "role:gripper.opening");
     assert!(
         side.iter()
             .all(|panel| panel["missing"] == serde_json::json!([]))

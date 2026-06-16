@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type PlotStream, plotStreams, resolvePlot, SampleBuffer } from "./plots";
+import { type PlotStream, plotStreams, resolvePlot, SampleBuffer, shortLabels } from "./plots";
 import type { Opening } from "./stream";
 
 /** A sample of two values: the first at `value`, the second at its double. */
@@ -100,5 +100,21 @@ describe("resolvePlot", () => {
     expect(
       resolvePlot(["wrist.force", "arm_joints.torque", "arm_joints.joint_positions[7]", "role:gripper.force"], roles, [arm]),
     ).toEqual([]);
+  });
+});
+
+describe("shortLabels", () => {
+  it("says what every label shares once, each keeping what tells it apart", () => {
+    expect(shortLabels(["joints.joint_1.position", "joints.joint_2.position", "joints.gripper.position"])).toEqual({
+      heading: "joints · position",
+      labels: ["joint_1", "joint_2", "gripper"],
+    });
+    expect(shortLabels(["gripper.opening", "gripper.force"])).toEqual({ heading: "gripper", labels: ["opening", "force"] });
+  });
+
+  it("keeps a single label, and labels sharing nothing, as they are", () => {
+    expect(shortLabels(["gripper.opening"])).toEqual({ heading: "", labels: ["gripper.opening"] });
+    expect(shortLabels(["joint_positions[0]", "gripper"])).toEqual({ heading: "", labels: ["joint_positions[0]", "gripper"] });
+    expect(shortLabels(["a.b", "a.b"])).toEqual({ heading: "a", labels: ["b", "b"] });
   });
 });

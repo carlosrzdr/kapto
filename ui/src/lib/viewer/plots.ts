@@ -176,3 +176,31 @@ export function resolvePlot(fields: string[], roles: Record<string, string>, str
   }
   return parts;
 }
+
+/**
+ * Labels made short for a panel's key: the dot-separated segments every
+ * label shares at its start and end (`joints.` and `.position` of
+ * `joints.joint_1.position`) said once as the heading, each label keeping
+ * what tells it apart. A single label, or labels sharing nothing, are kept.
+ */
+export function shortLabels(labels: string[]): { heading: string; labels: string[] } {
+  const split = labels.map((label) => label.split("."));
+  const shortest = Math.min(...split.map((segments) => segments.length));
+  if (labels.length < 2) {
+    return { heading: "", labels };
+  }
+  const same = (at: (segments: string[]) => string | undefined) => split.every((segments) => at(segments) === at(split[0]!));
+  let start = 0;
+  while (start < shortest - 1 && same((segments) => segments[start])) {
+    start++;
+  }
+  let end = 0;
+  while (end < shortest - 1 - start && same((segments) => segments[segments.length - 1 - end])) {
+    end++;
+  }
+  const first = split[0]!;
+  return {
+    heading: [...first.slice(0, start), ...first.slice(first.length - end)].join(" · "),
+    labels: split.map((segments) => segments.slice(start, segments.length - end).join(".")),
+  };
+}

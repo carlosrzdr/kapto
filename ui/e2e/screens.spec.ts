@@ -14,7 +14,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   // Live, once the stream's rate is known and the viewer has drawn the arm.
   // The browser draws the viewer in software here, which slows the page's
   // first readings.
-  const stream = page.getByRole("row", { name: /arm_joints/ });
+  const stream = page.locator("aside").getByRole("row", { name: /arm_joints/ });
   await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(5_000);
   await shot(page, "live");
@@ -505,7 +505,7 @@ test("a screenshot of each tab at a tablet's width", async ({ page }) => {
   test.setTimeout(180_000);
   const nothingLeft = await open(page);
   await page.setViewportSize({ width: 1024, height: 768 });
-  const stream = page.getByRole("row", { name: /arm_joints/ });
+  const stream = page.locator("aside").getByRole("row", { name: /arm_joints/ });
   await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(3_000);
   await shot(page, "tablet-live");

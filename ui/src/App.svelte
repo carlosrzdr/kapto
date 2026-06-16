@@ -591,6 +591,18 @@
   });
 </script>
 
+<!-- The streams' counts: in the side panel, and in the view's health panels. -->
+{#snippet streamTable()}
+  <StreamTable
+    streams={status?.capture.streams ?? []}
+    known={status !== null}
+    {rates}
+    {recording}
+    declared={Object.fromEntries((robot?.streams ?? []).map((s) => [s.name, s.rate_hz]))}
+    kept={Object.fromEntries((robot?.streams ?? []).map((s) => [s.name, s.kept]))}
+  />
+{/snippet}
+
 <svelte:window onkeydown={appKey} />
 
 {#if fatal}
@@ -679,7 +691,15 @@
         />
       {/if}
       {#if status}
-        <LiveView port={status.viewer.stream_port} replay={replaying} onplayed={played} onleave={backToLive} />
+        <LiveView
+          port={status.viewer.stream_port}
+          replay={replaying}
+          onplayed={played}
+          onleave={backToLive}
+          layout={robot?.layout ?? null}
+          roles={robot?.roles ?? []}
+          health={streamTable}
+        />
       {:else}
         <!-- Where the robot would be: what keeps it away and what to do. -->
         <div class="no-view" role="status">
@@ -749,14 +769,7 @@
             onrecordanyway={(waive) => act(() => startEpisode(choice, waive))}
           />
           <h2>Streams</h2>
-          <StreamTable
-            streams={status?.capture.streams ?? []}
-            known={status !== null}
-            {rates}
-            {recording}
-            declared={Object.fromEntries((robot?.streams ?? []).map((s) => [s.name, s.rate_hz]))}
-            kept={Object.fromEntries((robot?.streams ?? []).map((s) => [s.name, s.kept]))}
-          />
+          {@render streamTable()}
           <h2>Storage</h2>
           <StorageSummary {storage} {writing} />
         {/if}

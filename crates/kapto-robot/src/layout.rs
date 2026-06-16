@@ -78,9 +78,10 @@ impl Declared {
 
 /// The layout made from what a package declares: the robot on the left if
 /// it moves; on the right each camera, a plot per group of roles (the
-/// joints' positions first), a plot per stream of its fields no role
-/// covers, and the streams' health. The same declarations always give the
-/// same layout, and never more panels than a page can draw.
+/// joints' positions first), and a plot per stream of its fields no role
+/// covers. The streams' health isn't among them: the console shows it
+/// beside the view. The same declarations always give the same layout, and
+/// never more panels than a page can draw.
 #[must_use]
 pub fn made_layout(declared: &Declared) -> Layout {
     let robot = usize::from(declared.robot_moves);
@@ -95,9 +96,7 @@ pub fn made_layout(declared: &Declared) -> Layout {
         .chain(field_plots(declared))
         .map(panel)
         .collect();
-    // Room for the health panel, which comes last.
-    side.truncate(MAX_PANELS - robot - 1);
-    side.push(panel(PanelKind::Health));
+    side.truncate(MAX_PANELS - robot);
     let mut columns = Vec::new();
     if declared.robot_moves {
         columns.push(Column {

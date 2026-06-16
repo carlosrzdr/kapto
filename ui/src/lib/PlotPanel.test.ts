@@ -22,12 +22,22 @@ describe("PlotPanel", () => {
       streams: [arm],
     });
     const plot = screen.getByRole("region", { name: "Plot of arm_joints.joint_positions, role:gripper.opening" });
-    expect(Array.from(plot.querySelectorAll("li"), (item) => item.textContent)).toEqual([
+    expect(Array.from(plot.querySelectorAll("li:not(.heading)"), (item) => item.textContent)).toEqual([
       "joint_positions[0]",
       "joint_positions[1]",
       "gripper.opening",
     ]);
     expect(screen.queryByText(/Waiting for/)).toBeNull();
+  });
+
+  it("says once what the roles it draws share", () => {
+    render(PlotPanel, {
+      fields: ["role:joints.joint_1.position", "role:joints.joint_2.position"],
+      roles: { "joints.joint_1.position": "arm_joints.joint_positions[0]", "joints.joint_2.position": "arm_joints.joint_positions[1]" },
+      streams: [arm],
+    });
+    const items = Array.from(document.querySelectorAll("li"), (item) => item.textContent);
+    expect(items).toEqual(["joints · position", "joint_1", "joint_2"]);
   });
 
   it("says what it waits for until a stream it draws has opened", () => {

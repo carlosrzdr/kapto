@@ -76,8 +76,9 @@ declares.**
   4. **Made from what the package declares**: the robot if its URDF moves;
      each camera; a plot per role group, joints first
      (`joints.*.position`), then the package's other roles, then each
-     decoded stream's other fields; the streams' health. The same package
-     always gives the same layout.
+     decoded stream's other fields. Not the streams' health, which the
+     console shows beside the view. The same package always gives the same
+     layout.
 - **Reading one.** A layout that doesn't parse is reported with its file
   and line (`config.*` cause codes) and the next one is used. A panel
   naming what the package doesn't have is shown as a placeholder saying
@@ -102,8 +103,9 @@ declares.**
 - A new file kind (`layout.toml`, `layouts/<id>.toml`) with its reference
   page, cause codes for its mistakes, and an API endpoint to save the
   default.
-- The live view's fixed arrangement becomes the generated layout of the
-  sample arm, so nothing changes for it.
+- The live view's fixed arrangement gives way to the generated layout:
+  the sample arm's view is arranged by its roles (its joints' positions
+  and its gripper), no longer by one stream's fields picked from a list.
 
 ## Alternatives considered
 
