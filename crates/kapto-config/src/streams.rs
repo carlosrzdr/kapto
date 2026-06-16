@@ -69,6 +69,9 @@ pub use msg_files::{MsgFile, msg_files};
 pub use ros2::{Durability, QosDeclaration, Reliability, Ros2Declaration};
 pub use tcp::{FramingDeclaration, TcpDeclaration, TcpEndpointDeclaration};
 
+/// Units of time: a field in one is a clock, which only ever climbs.
+const TIME_UNITS: &[&str] = &["ns", "us", "µs", "ms", "s"];
+
 /// One stream as declared.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StreamDeclaration {
@@ -108,6 +111,37 @@ impl StreamDeclaration {
                 .ros2
                 .as_ref()
                 .is_some_and(|topic| CAMERA_MESSAGE_TYPES.contains(&topic.message_type.as_str()))
+    }
+
+    /// Its decoded fields that aren't plotted, by name: its sequence number
+    /// and its clocks (fields in units of time), which only ever climb and
+    /// say nothing about the robot.
+    #[must_use]
+    pub fn unplotted_fields(&self) -> Vec<String> {
+        let Some(decoder) = &self.decoder else {
+            return Vec::new();
+        };
+        let sequence = self.sequence.as_ref().and_then(|sequence| match decoder {
+            // The field a fixed layout has at the offset its sequence is at.
+            DecoderDeclaration::Struct(layout) => layout
+                .fields
+                .iter()
+                .find(|field| field.offset == usize::from(sequence.offset) && field.count == 1)
+                .map(|field| field.name.clone()),
+            DecoderDeclaration::Path(_) | DecoderDeclaration::Cdr(_) => None,
+        });
+        decoder
+            .fields()
+            .into_iter()
+            .filter(|field| {
+                Some(&field.name) == sequence.as_ref()
+                    || field
+                        .unit
+                        .as_deref()
+                        .is_some_and(|unit| TIME_UNITS.contains(&unit))
+            })
+            .map(|field| field.name)
+            .collect()
     }
 
     /// Whether its messages are kept for subscribers that come later, so

@@ -32,6 +32,8 @@ pub struct DeclaredStream {
     /// Its decoded fields, each with how many values it holds; none without
     /// a decoder.
     pub fields: Vec<(String, usize)>,
+    /// Those of its fields that aren't plotted: counters and clocks.
+    pub unplotted: Vec<String>,
 }
 
 impl Declared {
@@ -62,6 +64,7 @@ impl Declared {
                             .map(|field| (field.name, field.count))
                             .collect()
                     }),
+                    unplotted: stream.unplotted_fields(),
                 })
                 .collect(),
             roles: mapping.all_roles(),
@@ -147,8 +150,8 @@ fn role_plots(roles: &[(Role, FieldReference)]) -> Vec<PanelKind> {
         .collect()
 }
 
-/// A plot per decoded stream that isn't a camera, of its fields no role
-/// covers.
+/// A plot per decoded stream that isn't a camera, of its plotted fields no
+/// role covers.
 fn field_plots(declared: &Declared) -> Vec<PanelKind> {
     declared
         .streams
@@ -159,10 +162,11 @@ fn field_plots(declared: &Declared) -> Vec<PanelKind> {
                 .fields
                 .iter()
                 .filter(|(field, _)| {
-                    !declared
-                        .roles
-                        .iter()
-                        .any(|(_, source)| source.stream == stream.id && source.field == *field)
+                    !stream.unplotted.contains(field)
+                        && !declared
+                            .roles
+                            .iter()
+                            .any(|(_, source)| source.stream == stream.id && source.field == *field)
                 })
                 .map(|(field, _)| {
                     PlotField::Field(FieldReference {
@@ -248,6 +252,12 @@ fn lacking_field(field: &FieldReference, declared: &Declared) -> Option<String> 
             field.stream, field.field
         ));
     };
+    if stream.unplotted.contains(&field.field) {
+        return Some(format!(
+            "`{}.{}` only ever climbs, so isn't plotted",
+            field.stream, field.field
+        ));
+    }
     match field.index {
         Some(index) if index >= *count => Some(format!(
             "`{}.{}` holds {count} values, so no `[{index}]`",

@@ -54,7 +54,7 @@ fn made(declared: &Declared) -> String {
 }
 
 #[test]
-fn the_sample_arm_is_shown_moving_with_its_joints_gripper_and_other_fields_plotted() {
+fn the_sample_arm_is_shown_moving_with_its_joints_and_gripper_plotted_but_not_its_counters() {
     assert_eq!(
         made(&declared("arm7")),
         "[[columns]]
@@ -68,7 +68,6 @@ width = 2
 panels = [
   { kind = \"plot\", fields = [\"role:joints.joint_1.position\", \"role:joints.joint_2.position\", \"role:joints.joint_3.position\", \"role:joints.joint_4.position\", \"role:joints.joint_5.position\", \"role:joints.joint_6.position\", \"role:joints.joint_7.position\", \"role:joints.gripper.position\"], height = 1 },
   { kind = \"plot\", fields = [\"role:gripper.opening\"], height = 1 },
-  { kind = \"plot\", fields = [\"arm_joints.sequence\", \"arm_joints.source_time\"], height = 1 },
   { kind = \"health\", height = 1 },
 ]
 "
@@ -94,6 +93,7 @@ fn rig() -> Declared {
         id: id.to_owned(),
         camera: true,
         fields: Vec::new(),
+        unplotted: Vec::new(),
     };
     Declared {
         robot_moves: false,
@@ -104,6 +104,7 @@ fn rig() -> Declared {
                 id: "rig".to_owned(),
                 camera: false,
                 fields: (0..40).map(|n| (format!("load_{n}"), 1)).collect(),
+                unplotted: Vec::new(),
             },
         ],
         roles: Vec::new(),
@@ -146,6 +147,7 @@ fn a_package_declaring_more_than_a_page_can_draw_keeps_the_first_panels_and_its_
         id: format!("camera_{n}"),
         camera: true,
         fields: Vec::new(),
+        unplotted: Vec::new(),
     }));
     let made = made_layout(&many);
     let panels: Vec<&PanelKind> = made
@@ -169,6 +171,7 @@ panels = [
   { kind = \"plot\", fields = [\"role:joints.joint_1.position\", \"role:gripper.force\"] },
   { kind = \"plot\", fields = [\"arm_joints.torques\", \"base.speed\", \"arm_joints.joint_positions[7]\"] },
   { kind = \"plot\", fields = [\"arm_joints.joint_positions[6]\"] },
+  { kind = \"plot\", fields = [\"arm_joints.sequence\"] },
   { kind = \"health\" },
   { kind = \"events\" },
 ]
@@ -200,6 +203,11 @@ panels = [
                     "no stream `base`".to_owned(),
                     "`arm_joints.joint_positions` holds 7 values, so no `[7]`".to_owned(),
                 ],
+            },
+            Missing {
+                column: 0,
+                panel: 6,
+                what: vec!["`arm_joints.sequence` only ever climbs, so isn't plotted".to_owned()],
             },
         ]
     );

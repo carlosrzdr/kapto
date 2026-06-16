@@ -4,7 +4,7 @@
 //! are plotted. Fields that only ever climb, such as a sequence number or
 //! the robot's own clock, aren't: they say nothing about the robot.
 
-use kapto_config::{DecoderDeclaration, StreamDeclaration};
+use kapto_config::StreamDeclaration;
 
 /// One stream's decoded fields, as the live plots name them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,9 +16,6 @@ pub struct StreamFields {
     /// The fields not plotted, by name.
     pub not_plotted: Vec<String>,
 }
-
-/// Units of time: a field in one is a clock, which only ever climbs.
-const TIME_UNITS: &[&str] = &["ns", "us", "µs", "ms", "s"];
 
 impl StreamFields {
     /// Each stream's decoded fields, to plot, but for its sequence number
@@ -39,41 +36,16 @@ impl StreamFields {
                     .and_then(|decoder| decoder.compile().ok())
                     .map(|decoder| decoder.fields().to_vec())
                     .unwrap_or_default();
-                let sequence = sequence_field(stream);
                 Self {
                     stream: stream.id.to_string(),
                     fields: decoded
                         .iter()
                         .map(|field| (field.name.clone(), field.count))
                         .collect(),
-                    not_plotted: decoded
-                        .iter()
-                        .filter(|field| {
-                            Some(&field.name) == sequence.as_ref()
-                                || field
-                                    .unit
-                                    .as_deref()
-                                    .is_some_and(|unit| TIME_UNITS.contains(&unit))
-                        })
-                        .map(|field| field.name.clone())
-                        .collect(),
+                    not_plotted: stream.unplotted_fields(),
                 }
             })
             .collect()
-    }
-}
-
-/// The decoder field that is the stream's sequence number: the one of a
-/// fixed layout at the offset `streams.toml` declares it at.
-fn sequence_field(stream: &StreamDeclaration) -> Option<String> {
-    let offset = usize::from(stream.sequence.as_ref()?.offset);
-    match stream.decoder.as_ref()? {
-        DecoderDeclaration::Struct(layout) => layout
-            .fields
-            .iter()
-            .find(|field| field.offset == offset && field.count == 1)
-            .map(|field| field.name.clone()),
-        DecoderDeclaration::Path(_) | DecoderDeclaration::Cdr(_) => None,
     }
 }
 
