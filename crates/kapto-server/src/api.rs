@@ -36,7 +36,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use kapto_capture::control::{self, ControlClient, Request};
 use kapto_capture::disk::DiskLimits;
@@ -50,6 +50,7 @@ use crate::episode::{
     EpisodeFile, EpisodePackage, EpisodeProfile, EpisodeRecovered, EpisodeStream, EpisodeTask,
 };
 use crate::episode_events::{self, EpisodeEvents};
+use crate::layouts::Layouts;
 use crate::preflight::{PreflightCheck, PreflightRequest, PreflightRun};
 use crate::processes::{ProcessState, ProcessStatus, Processes};
 use crate::quality::{
@@ -57,8 +58,8 @@ use crate::quality::{
 };
 use crate::replays::{self, ReplayOpening, ReplayState, ReplayStatus};
 use crate::robot::{
-    RobotField, RobotFiles, RobotJoint, RobotOverview, RobotRole, RobotStream, ViewColumn,
-    ViewLayout, ViewPanel,
+    ColumnInput, LayoutInput, PanelInput, RobotField, RobotFiles, RobotJoint, RobotOverview,
+    RobotRole, RobotStream, ViewColumn, ViewLayout, ViewPanel,
 };
 use crate::scene::{Placement, RobotScene, Scene, SceneLink, SceneReach, SceneShape, SceneVisual};
 use crate::sessions::{self, ProfileSummary, ProfilesOverview, TaskSummary, TasksOverview};
@@ -86,6 +87,8 @@ pub struct ApiState {
     pub robot: Arc<RobotOverview>,
     /// The robot as the web UI draws it, and the mesh files it uses.
     pub scene: Arc<Scene>,
+    /// The layouts the live view may be arranged by, as they change.
+    pub layouts: Layouts,
     /// The settings serve runs with.
     pub settings: Arc<SettingsOverview>,
     /// The configuration folder, where profiles and tasks are saved.
@@ -121,6 +124,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/processes", get(processes))
         .route("/api/storage", get(storage))
         .route("/api/robot", get(robot))
+        .route("/api/layout", put(save_layout).delete(remove_layout))
         .route("/api/robot/scene", get(scene))
         .route("/api/robot/meshes/{n}", get(mesh))
         .route("/api/settings", get(settings))
@@ -205,6 +209,8 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         processes,
         storage,
         robot,
+        save_layout,
+        remove_layout,
         scene,
         mesh,
         settings,
@@ -257,6 +263,9 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         ViewLayout,
         ViewColumn,
         ViewPanel,
+        LayoutInput,
+        ColumnInput,
+        PanelInput,
         RobotScene,
         SceneLink,
         SceneReach,
@@ -589,6 +598,8 @@ impl From<KaptoError> for Failure {
             | ErrorCode::ProfileUnavailable
             | ErrorCode::ProfileUnknownKey
             | ErrorCode::TaskUnknownKey
+            | ErrorCode::LayoutUnknownKey
+            | ErrorCode::LayoutWithoutPackage
             | ErrorCode::EventsUnknownKind
             | ErrorCode::ConfigInvalidValue
             | ErrorCode::ConfigInvalidSyntax
@@ -767,7 +778,67 @@ async fn storage(State(state): State<Arc<ApiState>>) -> Result<Json<Storage>, Fa
 /// and decoded fields, and problems that don't stop Kapto.
 #[utoipa::path(get, path = "/api/robot", responses((status = 200, body = RobotOverview)))]
 async fn robot(State(state): State<Arc<ApiState>>) -> Json<RobotOverview> {
-    Json(RobotOverview::clone(&state.robot))
+    let mut robot = RobotOverview::clone(&state.robot);
+    if let Some(layout) = state.layouts.current() {
+        robot.layout = layout;
+    }
+    Json(robot)
+}
+
+/// Save a layout as the default for the robot package Kapto runs, read by
+/// every browser: written to `layouts/<package id>.toml` in the
+/// configuration folder, checked as `layout.toml` is. Answers with it as
+/// `/api/robot` now gives it, each panel with what the package lacks.
+#[utoipa::path(
+    put,
+    path = "/api/layout",
+    request_body = LayoutInput,
+    responses(
+        (status = 200, body = ViewLayout),
+        (status = 400, description = "The body isn't a layout", body = ApiError),
+        (status = 409, description = "The layout breaks a rule of layout.toml, or Kapto runs no robot package", body = ApiError),
+        (status = 500, description = "The file can't be written", body = ApiError)
+    )
+)]
+async fn save_layout(
+    State(state): State<Arc<ApiState>>,
+    request: Result<Json<LayoutInput>, JsonRejection>,
+) -> Result<Json<ViewLayout>, Failure> {
+    let Json(input) = request.map_err(|rejection| invalid(&rejection))?;
+    let layouts = state.layouts.clone();
+    on_disk(move || layouts.save(&input)).await
+}
+
+/// Remove the default layout saved for the robot package Kapto runs: the
+/// live view is arranged by the package's own layout again, or the one
+/// made from it. Answers with it.
+#[utoipa::path(
+    delete,
+    path = "/api/layout",
+    responses(
+        (status = 200, body = ViewLayout),
+        (status = 409, description = "Kapto runs no robot package", body = ApiError),
+        (status = 500, description = "The file can't be removed", body = ApiError)
+    )
+)]
+async fn remove_layout(State(state): State<Arc<ApiState>>) -> Result<Json<ViewLayout>, Failure> {
+    let layouts = state.layouts.clone();
+    on_disk(move || layouts.remove()).await
+}
+
+/// Runs `work`, which reads or writes files, off the API's threads; its
+/// first problem is the answer if it has any.
+async fn on_disk(
+    work: impl FnOnce() -> Result<ViewLayout, Vec<KaptoError>> + Send + 'static,
+) -> Result<Json<ViewLayout>, Failure> {
+    let done = tokio::task::spawn_blocking(work).await.map_err(|error| {
+        Failure::from(KaptoError::new(ErrorCode::LayoutWriteFailed).detail(error.to_string()))
+    })?;
+    done.map(Json).map_err(|problems| {
+        Failure::from(problems.into_iter().next().unwrap_or_else(|| {
+            KaptoError::new(ErrorCode::LayoutWriteFailed).detail("no reason given".to_owned())
+        }))
+    })
 }
 
 /// The robot as the web UI draws it: each link, in the order its poses are

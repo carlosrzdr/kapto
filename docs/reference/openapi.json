@@ -1289,6 +1289,102 @@
         }
       }
     },
+    "/api/layout": {
+      "put": {
+        "tags": [],
+        "summary": "Save a layout as the default for the robot package Kapto runs, read by\nevery browser: written to `layouts/<package id>.toml` in the\nconfiguration folder, checked as `layout.toml` is. Answers with it as\n`/api/robot` now gives it, each panel with what the package lacks.",
+        "operationId": "save_layout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewLayout"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't a layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The layout breaks a rule of layout.toml, or Kapto runs no robot package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The file can't be written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "summary": "Remove the default layout saved for the robot package Kapto runs: the\nlive view is arranged by the package's own layout again, or the one\nmade from it. Answers with it.",
+        "operationId": "remove_layout",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewLayout"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Kapto runs no robot package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The file can't be removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/preflight": {
       "post": {
         "tags": [],
@@ -1882,6 +1978,29 @@
             "type": "integer",
             "format": "int32",
             "description": "The check's version: results of different versions aren't alike.",
+            "minimum": 0
+          }
+        }
+      },
+      "ColumnInput": {
+        "type": "object",
+        "description": "A column of a layout to be saved.",
+        "required": [
+          "width",
+          "panels"
+        ],
+        "properties": {
+          "panels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PanelInput"
+            },
+            "description": "Its panels, top to bottom."
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its width relative to the other columns', from 1 to 12.",
             "minimum": 0
           }
         }
@@ -2847,6 +2966,22 @@
           }
         }
       },
+      "LayoutInput": {
+        "type": "object",
+        "description": "A layout as the page sends it to be saved: what [`ViewLayout`] gives,\nwithout what the API works out.",
+        "required": [
+          "columns"
+        ],
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ColumnInput"
+            },
+            "description": "Its columns, left to right."
+          }
+        }
+      },
       "LiveViewCounts": {
         "type": "object",
         "description": "What became of a camera's frames on their way to the live view.",
@@ -2887,6 +3022,40 @@
             "format": "int64",
             "description": "Frames replaced by newer ones before they could be sent: the\nviewer bridge was slower than the camera.",
             "minimum": 0
+          }
+        }
+      },
+      "PanelInput": {
+        "type": "object",
+        "description": "A panel of a layout to be saved.",
+        "required": [
+          "kind",
+          "height"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A plot's fields: `stream.field`, `stream.field[3]` or\n`role:gripper.opening`."
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its height relative to the other panels' in its column, from 1 to 12.",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "`robot`, `camera`, `plot`, `health` or `events`."
+          },
+          "stream": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A camera panel's stream."
           }
         }
       },

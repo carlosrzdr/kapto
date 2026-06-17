@@ -10,7 +10,8 @@ use utoipa::ToSchema;
 use crate::api::ApiError;
 
 pub use kapto_viz::page_layout::{
-    RobotRole, ViewColumn, ViewLayout, ViewPanel, arranged, roles_of,
+    ColumnInput, LayoutInput, PanelInput, RobotRole, ViewColumn, ViewLayout, ViewPanel, arranged,
+    roles_of,
 };
 
 /// The robot and its streams, as `kapto serve` loaded them.

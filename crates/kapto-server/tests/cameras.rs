@@ -24,6 +24,7 @@ use kapto_core::{ClockMap, ClockSample, EpisodeId, ErrorCode, RecvTime};
 use kapto_server::Processes;
 use kapto_server::api::{ApiState, CaptureAnnouncements, router};
 use kapto_server::index;
+use kapto_server::layouts::Layouts;
 use kapto_server::robot::RobotOverview;
 use kapto_server::scene::Scene;
 use kapto_server::settings::SettingsOverview;
@@ -40,6 +41,7 @@ fn state(folder: &Path) -> ApiState {
         processes: Arc::new(Processes::new("serve", &["capture", "viz-bridge"])),
         robot: Arc::new(RobotOverview::default()),
         scene: Arc::new(Scene::default()),
+        layouts: Layouts::default(),
         settings: Arc::new(SettingsOverview::default()),
         config_folder: folder.join("config"),
         package: None,

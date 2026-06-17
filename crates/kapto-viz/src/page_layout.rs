@@ -57,6 +57,111 @@ pub struct ViewPanel {
     pub missing: Vec<String>,
 }
 
+/// A layout as the page sends it to be saved: what [`ViewLayout`] gives,
+/// without what the API works out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct LayoutInput {
+    /// Its columns, left to right.
+    pub columns: Vec<ColumnInput>,
+}
+
+/// A column of a layout to be saved.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ColumnInput {
+    /// Its width relative to the other columns', from 1 to 12.
+    pub width: u8,
+    /// Its panels, top to bottom.
+    pub panels: Vec<PanelInput>,
+}
+
+/// A panel of a layout to be saved.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PanelInput {
+    /// `robot`, `camera`, `plot`, `health` or `events`.
+    pub kind: String,
+    /// Its height relative to the other panels' in its column, from 1 to 12.
+    pub height: u8,
+    /// A camera panel's stream.
+    #[serde(default)]
+    pub stream: Option<String>,
+    /// A plot's fields: `stream.field`, `stream.field[3]` or
+    /// `role:gripper.opening`.
+    #[serde(default)]
+    pub fields: Vec<String>,
+}
+
+impl LayoutInput {
+    /// The layout as `layout.toml` would hold it, checked by the same rules
+    /// as `file` would be.
+    ///
+    /// # Errors
+    ///
+    /// Every problem, as reading the file would give it.
+    pub fn to_layout(&self, file: &std::path::Path) -> Result<Layout, Vec<KaptoError>> {
+        let mut problems = Vec::new();
+        let columns = self
+            .columns
+            .iter()
+            .map(|column| kapto_config::Column {
+                width: column.width,
+                panels: column
+                    .panels
+                    .iter()
+                    .filter_map(|panel| {
+                        let kind = match panel.kind.as_str() {
+                            "robot" => PanelKind::Robot,
+                            "camera" => PanelKind::Camera {
+                                stream: panel.stream.clone().unwrap_or_default(),
+                            },
+                            "plot" => PanelKind::Plot {
+                                fields: panel
+                                    .fields
+                                    .iter()
+                                    .filter_map(|field| {
+                                        let parsed = field.parse().ok();
+                                        if parsed.is_none() {
+                                            problems.push(invalid(format!(
+                                                "`{field}` isn't a field, `stream.field` or `role:name.of.role`"
+                                            )));
+                                        }
+                                        parsed
+                                    })
+                                    .collect(),
+                            },
+                            "health" => PanelKind::Health,
+                            "events" => PanelKind::Events,
+                            other => {
+                                problems.push(invalid(format!(
+                                    "`{other}` isn't a kind of panel: robot, camera, plot, health or events"
+                                )));
+                                return None;
+                            }
+                        };
+                        Some(kapto_config::Panel {
+                            kind,
+                            height: panel.height,
+                        })
+                    })
+                    .collect(),
+            })
+            .collect();
+        if !problems.is_empty() {
+            return Err(problems);
+        }
+        // Written out and read back, so a layout saved is held to every rule
+        // a layout.toml is.
+        let text = Layout { columns }.to_toml();
+        kapto_config::parse_layout(&kapto_config::ConfigFile {
+            path: file.to_owned(),
+            contents: text,
+        })
+    }
+}
+
+fn invalid(detail: String) -> KaptoError {
+    KaptoError::new(kapto_core::ErrorCode::ConfigInvalidValue).detail(detail)
+}
+
 /// The layout to arrange by: `own` if it reads, else the one made from
 /// `declared`; with the problems of an own layout that doesn't read.
 #[must_use]

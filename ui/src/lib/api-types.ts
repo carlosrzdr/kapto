@@ -88,6 +88,14 @@ export interface CheckResult {
   version: number;
 }
 
+/** A column of a layout to be saved. */
+export interface ColumnInput {
+  /** Its panels, top to bottom. */
+  panels: PanelInput[];
+  /** Its width relative to the other columns', from 1 to 12. */
+  width: number;
+}
+
 /** How uploads to one destination are going. */
 export interface DestinationStatus extends UploadDestination {
   /** The bytes sent of the episodes going up to it. */
@@ -499,6 +507,15 @@ export interface EventVocabulary {
   problems: ApiError[];
 }
 
+/**
+ * A layout as the page sends it to be saved: what [`ViewLayout`] gives,
+ * without what the API works out.
+ */
+export interface LayoutInput {
+  /** Its columns, left to right. */
+  columns: ColumnInput[];
+}
+
 /** What became of a camera's frames on their way to the live view. */
 export interface LiveViewCounts {
   /** Frames not sent because no viewer bridge was listening. */
@@ -517,6 +534,21 @@ export interface LiveViewCounts {
    * viewer bridge was slower than the camera.
    */
   superseded: number;
+}
+
+/** A panel of a layout to be saved. */
+export interface PanelInput {
+  /**
+   * A plot's fields: `stream.field`, `stream.field[3]` or
+   * `role:gripper.opening`.
+   */
+  fields?: string[];
+  /** Its height relative to the other panels' in its column, from 1 to 12. */
+  height: number;
+  /** `robot`, `camera`, `plot`, `health` or `events`. */
+  kind: string;
+  /** A camera panel's stream. */
+  stream?: string | null;
 }
 
 /** A position and an orientation. */

@@ -31,6 +31,18 @@ use crate::reader::{FileKey, Reader};
 /// A package's layout, beside its `package.toml` unless that names another.
 pub const LAYOUT_FILE: &str = "layout.toml";
 
+/// The folder of the configuration folder holding each package's default
+/// layout, as `<package id>.toml`.
+pub const LAYOUTS_FOLDER: &str = "layouts";
+
+/// Where the default layout of package `id` is saved in `config_folder`.
+#[must_use]
+pub fn default_layout_path(config_folder: &std::path::Path, id: &str) -> std::path::PathBuf {
+    config_folder
+        .join(LAYOUTS_FOLDER)
+        .join(format!("{id}.toml"))
+}
+
 /// The most panels a layout may have: beyond, the page can't keep its frame
 /// rate.
 pub const MAX_PANELS: usize = 24;

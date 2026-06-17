@@ -28,6 +28,7 @@ use kapto_core::{EpisodeId, ErrorCode, KaptoError};
 use kapto_server::api::{ApiError, ApiState, CaptureAnnouncements, openapi_json, router};
 use kapto_server::index;
 use kapto_server::jobs::REPLAY;
+use kapto_server::layouts::Layouts;
 use kapto_server::replays::view_file;
 use kapto_server::robot::RobotOverview;
 use kapto_server::scene::{MESH_MAGIC, RobotScene, Scene};
@@ -52,6 +53,7 @@ fn state(folder: &Path) -> ApiState {
         processes: Arc::new(Processes::new("serve", &["capture", "viz-bridge"])),
         robot: Arc::new(RobotOverview::default()),
         scene: Arc::new(Scene::default()),
+        layouts: Layouts::default(),
         settings: Arc::new(SettingsOverview::default()),
         config_folder: folder.join("config"),
         package: Some("arm7".to_owned()),
@@ -1704,6 +1706,7 @@ fn the_openapi_document_describes_every_route_and_its_error_body() {
             "/api/episodes/{id}/uploads/retry",
             "/api/event-kinds",
             "/api/events",
+            "/api/layout",
             "/api/preflight",
             "/api/processes",
             "/api/profiles",
@@ -2108,6 +2111,7 @@ async fn the_robot_s_scene_lists_each_link_in_order_with_its_shapes_and_each_mes
     let folder = scratch("scene");
     let state = ApiState {
         scene: Arc::new(Scene::of(&cell(&folder.join("robot")))),
+        layouts: Layouts::default(),
         ..state(&folder)
     };
     let (status, scene) = call(state, "GET", "/api/robot/scene", None).await;
@@ -2176,6 +2180,7 @@ async fn a_mesh_is_sent_as_the_triangles_the_mesh_loader_reads() {
     let folder = scratch("mesh");
     let state = ApiState {
         scene: Arc::new(Scene::of(&cell(&folder.join("robot")))),
+        layouts: Layouts::default(),
         ..state(&folder)
     };
     let (status, kind, bytes) = get_bytes(state, "/api/robot/meshes/0").await;
@@ -2213,6 +2218,7 @@ async fn a_mesh_the_scene_lacks_or_can_t_read_is_refused_with_its_cause() {
     let scene = Arc::new(Scene::of(&cell(&folder.join("robot"))));
     let state = || ApiState {
         scene: Arc::clone(&scene),
+        layouts: Layouts::default(),
         ..state(&folder)
     };
     for (uri, expected, code) in [
@@ -2775,4 +2781,185 @@ async fn a_destination_is_tested_as_an_upload_uses_it_and_one_that_cant_be_says_
         (status, error["code"].clone()),
         (StatusCode::NOT_FOUND, json!("upload.no_destination"))
     );
+}
+
+/// The API of a serve running the package `arm7`, which has one stream of
+/// joints, its configuration folder in `folder`, arranged by the robot
+/// alone unless a default is saved.
+fn arranged(folder: &Path, package: Option<&str>) -> ApiState {
+    let declared = kapto_robot::Declared {
+        robot_moves: true,
+        streams: vec![kapto_robot::DeclaredStream {
+            id: "arm_joints".to_owned(),
+            camera: false,
+            fields: vec![("gripper".to_owned(), 1)],
+            unplotted: Vec::new(),
+        }],
+        roles: Vec::new(),
+    };
+    let own: kapto_server::robot::ViewLayout = serde_json::from_value(
+        json!({"source": "made", "columns": [{"width": 1, "panels": [
+            {"kind": "robot", "height": 1, "stream": null, "fields": [], "missing": []}
+        ]}]}),
+    )
+    .unwrap();
+    let (layouts, problems) = Layouts::load(&folder.join("config"), package, declared, own);
+    assert_eq!(problems.len(), 0);
+    ApiState {
+        layouts,
+        ..state(folder)
+    }
+}
+
+const SAVED: &str = r#"{"columns": [
+    {"width": 2, "panels": [{"kind": "plot", "height": 3, "fields": ["arm_joints.gripper"]}]},
+    {"width": 1, "panels": [{"kind": "camera", "height": 1, "stream": "wrist_camera"}, {"kind": "robot", "height": 1}]}
+]}"#;
+
+#[tokio::test]
+async fn a_layout_saved_as_default_is_written_for_the_package_and_given_from_then_on() {
+    let folder = scratch("layout-saved");
+    let api = arranged(&folder, Some("arm7"));
+    let (status, body) = call(
+        api.clone(),
+        "PUT",
+        "/api/layout",
+        Some(("application/json", SAVED)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["source"], "default");
+    assert_eq!(body["columns"][0]["panels"][0]["height"], 3);
+    assert_eq!(
+        body["columns"][1]["panels"][0]["missing"],
+        json!(["no stream `wrist_camera`"])
+    );
+    let file = folder.join("config/layouts/arm7.toml");
+    let written = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        written.contains("fields = [\"arm_joints.gripper\"], height = 3"),
+        "{written}"
+    );
+    let (_, robot) = call(api.clone(), "GET", "/api/robot", None).await;
+    assert_eq!(robot["layout"], body);
+
+    // Read again when serve starts: it comes before the package's own.
+    let again = arranged(&folder, Some("arm7"));
+    assert_eq!(again.layouts.current().unwrap().source, "default");
+
+    // Removed, the package's own layout is back.
+    let (status, body) = call(api.clone(), "DELETE", "/api/layout", None).await;
+    assert_eq!((status, &body["source"]), (StatusCode::OK, &json!("made")));
+    assert!(!file.exists());
+    let (_, robot) = call(api, "GET", "/api/robot", None).await;
+    assert_eq!(robot["layout"]["columns"][0]["panels"][0]["kind"], "robot");
+}
+
+#[tokio::test]
+async fn a_layout_breaking_a_rule_of_layout_toml_is_refused_and_nothing_is_written() {
+    let folder = scratch("layout-refused");
+    let api = arranged(&folder, Some("arm7"));
+    for (body, detail) in [
+        (
+            r#"{"columns": [{"width": 1, "panels": [{"kind": "map", "height": 1}]}]}"#,
+            "`map` isn't a kind of panel",
+        ),
+        (
+            r#"{"columns": [{"width": 40, "panels": [{"kind": "robot", "height": 1}]}]}"#,
+            "`width` must be a whole number from 1 to 12",
+        ),
+        (
+            r#"{"columns": [{"width": 1, "panels": [{"kind": "camera", "height": 1}]}]}"#,
+            "`stream` must be a stream's ID",
+        ),
+        (r#"{"columns": []}"#, "needs `columns`"),
+    ] {
+        let (status, error) = call(
+            api.clone(),
+            "PUT",
+            "/api/layout",
+            Some(("application/json", body)),
+        )
+        .await;
+        assert_eq!(
+            (status, &error["code"]),
+            (StatusCode::CONFLICT, &json!("config.invalid_value")),
+            "{body}"
+        );
+        assert!(
+            error["message"].as_str().unwrap().contains(detail),
+            "{error}"
+        );
+    }
+    let (status, error) = call(
+        api,
+        "PUT",
+        "/api/layout",
+        Some(("application/json", "{\"rows\": 2}")),
+    )
+    .await;
+    assert_eq!(
+        (status, &error["code"]),
+        (StatusCode::BAD_REQUEST, &json!("api.invalid_request"))
+    );
+    assert!(!folder.join("config/layouts").exists());
+}
+
+#[tokio::test]
+async fn a_layout_cant_be_saved_without_a_package_or_a_folder_to_write_it_in() {
+    let folder = scratch("layout-nowhere");
+    let (status, error) = call(
+        arranged(&folder, None),
+        "PUT",
+        "/api/layout",
+        Some(("application/json", SAVED)),
+    )
+    .await;
+    assert_eq!(
+        (status, &error["code"]),
+        (StatusCode::CONFLICT, &json!("layout.without_package"))
+    );
+    let (status, error) = call(arranged(&folder, None), "DELETE", "/api/layout", None).await;
+    assert_eq!(
+        (status, &error["code"]),
+        (StatusCode::CONFLICT, &json!("layout.without_package"))
+    );
+
+    // The configuration folder is a file: nothing can be written under it.
+    std::fs::write(folder.join("config"), "").unwrap();
+    let (status, error) = call(
+        arranged(&folder, Some("arm7")),
+        "PUT",
+        "/api/layout",
+        Some(("application/json", SAVED)),
+    )
+    .await;
+    assert_eq!(
+        (status, &error["code"]),
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &json!("layout.write_failed")
+        )
+    );
+}
+
+#[test]
+fn a_saved_default_that_doesnt_read_is_a_problem_and_the_packages_layout_is_used() {
+    let folder = scratch("layout-unread");
+    std::fs::create_dir_all(folder.join("config/layouts")).unwrap();
+    std::fs::write(
+        folder.join("config/layouts/arm7.toml"),
+        "[[columns]]\npanels = [{ kind = \"robot\", heigth = 2 }]\n",
+    )
+    .unwrap();
+    let own = kapto_server::robot::ViewLayout::default();
+    let (layouts, problems) = Layouts::load(
+        &folder.join("config"),
+        Some("arm7"),
+        kapto_robot::Declared::default(),
+        own.clone(),
+    );
+    let codes: Vec<&str> = problems.iter().map(|problem| problem.code().id()).collect();
+    assert_eq!(codes, ["layout.unknown_key"]);
+    assert_eq!(layouts.current(), Some(own));
 }

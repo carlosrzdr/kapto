@@ -21,9 +21,12 @@ use clap::Args;
 use kapto_capture::control::{ControlClient, Request};
 use kapto_config::DeploymentConfig;
 use kapto_core::{ErrorCode, KaptoError};
+use kapto_robot::Declared;
+use kapto_server::api::ApiError;
 use kapto_server::api::{self, ApiState, CaptureAnnouncements};
 use kapto_server::index;
 use kapto_server::jobs::{Destination, JOB_SOCKET, JobServer, Uploads};
+use kapto_server::layouts::Layouts;
 use kapto_server::processes::sample_while;
 use kapto_server::retention::Retention;
 use kapto_server::robot::RobotOverview;
@@ -78,15 +81,33 @@ pub(crate) fn serve(flags: &SettingFlags, args: &ServeArgs) -> ExitCode {
 
 /// The robot and its streams as the API shows them, and the robot as the
 /// web UI draws it, from the files serve was given.
-fn robot(args: &ServeArgs, packages: &Path) -> Outcome<(Arc<RobotOverview>, Arc<Scene>)> {
+fn robot(
+    args: &ServeArgs,
+    packages: &Path,
+    config_folder: &Path,
+) -> Outcome<(Arc<RobotOverview>, Arc<Scene>, Layouts)> {
     let prepared = prepare(&args.robot, &args.streams, &args.mapping, packages)?;
     let package = crate::record::loaded_package(&args.streams);
-    let overview = overview(
+    let mut overview = overview(
         &prepared,
         [&args.robot, &args.streams, &args.mapping],
         package.as_ref(),
     );
-    Ok((Arc::new(overview), Arc::new(Scene::of(&prepared.robot))))
+    // A default saved for the package comes before its own layout.
+    let declared = Declared::new(Some(&prepared.robot), &prepared.streams, &prepared.mapping);
+    let id = package.as_ref().map(|package| package.manifest.id.as_str());
+    let (layouts, problems) = Layouts::load(config_folder, id, declared, overview.layout.clone());
+    overview
+        .warnings
+        .extend(problems.iter().map(ApiError::from));
+    if let Some(layout) = layouts.current() {
+        overview.layout = layout;
+    }
+    Ok((
+        Arc::new(overview),
+        Arc::new(Scene::of(&prepared.robot)),
+        layouts,
+    ))
 }
 
 /// Runs Kapto until SIGINT or SIGTERM.
@@ -96,7 +117,8 @@ pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
     // Checked here once, rather than by children that would fail and be
     // restarted over and over.
     load_plan(&args.streams)?;
-    let (robot, scene) = robot(args, &deployment.packages_dir.value)?;
+    let config_folder = crate::config::config_folder(flags);
+    let (robot, scene, layouts) = robot(args, &deployment.packages_dir.value, &config_folder)?;
     let shutdown = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, Arc::clone(&shutdown)).map_err(|error| {
@@ -139,8 +161,9 @@ pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
         processes: Arc::clone(&processes),
         robot,
         scene,
+        layouts,
         settings,
-        config_folder: crate::config::config_folder(flags),
+        config_folder,
         package: crate::record::loaded_package(&args.streams).map(|package| package.manifest.id),
         bind: deployment.server_bind.value,
         control_socket: deployment.control_socket.value.clone(),
