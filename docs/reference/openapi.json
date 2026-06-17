@@ -3195,7 +3195,8 @@
           "end_utc_ns",
           "links",
           "streams",
-          "cameras"
+          "cameras",
+          "roles"
         ],
         "properties": {
           "cameras": {
@@ -3210,12 +3211,30 @@
             "format": "int64",
             "description": "When its last was."
           },
+          "layout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ViewLayout",
+                "description": "How the page arranges it: the layout the recording carries, or one\nmade from what it declares, each panel with what the recording\nlacks; absent for a replay made before replays had one."
+              }
+            ]
+          },
           "links": {
             "type": "array",
             "items": {
               "type": "string"
             },
             "description": "Each link's name, in the order a stretch gives its pose."
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RobotRole"
+            },
+            "description": "Each role the recording's mapping gives a value."
           },
           "start_utc_ns": {
             "type": "integer",

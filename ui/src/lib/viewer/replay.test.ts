@@ -53,6 +53,7 @@ describe("openingOf", () => {
       end_utc_ns: second(9),
       links: ["base_link"],
       cameras: ["wrist_camera"],
+      roles: [],
       streams: [
         {
           name: "arm_joints",

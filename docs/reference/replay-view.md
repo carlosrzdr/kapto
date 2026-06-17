@@ -118,7 +118,15 @@ Then each sample:
     {"step_ns": 16666666, "records": 780, "offset": 8, "index": [[1760000000000000000, 8]]}
   ],
   "scene": {"name": "arm7", "root": "base_link", "links": [], "meshes": 1},
-  "meshes": [[64008, 2412]]
+  "meshes": [[64008, 2412]],
+  "layout": {
+    "source": "made",
+    "columns": [
+      {"width": 3, "panels": [{"kind": "robot", "height": 1, "stream": null, "fields": [], "missing": []}]},
+      {"width": 2, "panels": [{"kind": "plot", "height": 1, "stream": null, "fields": ["role:gripper.opening"], "missing": []}]}
+    ]
+  },
+  "roles": [{"role": "gripper.opening", "field": "arm_joints.gripper"}]
 }
 ```
 
@@ -140,3 +148,13 @@ Then each sample:
   length in bytes, in the scene's numbering. A mesh the recording doesn't
   carry, and no package with the same ID and content has, isn't in the
   scene; one that couldn't be read has length 0. Absent with `scene`.
+- `layout`: how the page arranges the replay, as `/api/robot` gives the
+  live view's: the [`layout.toml`](package.md#layouttoml) the recording
+  carries (`source` `package`), or one made from what it declares (`made`)
+  when it carries none or one that doesn't read, which is then one of the
+  replay's problems; each panel with what it names that the recording
+  lacks. `/api/episodes/{id}/replay/opening` gives it. Absent in a view
+  made before views had one.
+- `roles`: each role the recording's mapping gives a value, written roles
+  first, for plots that name roles. `/api/episodes/{id}/replay/opening`
+  gives them too.

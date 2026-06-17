@@ -15,15 +15,16 @@ use std::time::Duration;
 use kapto_capture::reader::{RecordingStart, read_events, read_recording, read_start};
 use kapto_capture::tap::wire::TapSample;
 use kapto_config::{
-    ConfigFile, MappingDeclaration, PACKAGE_FILE, PackageManifest, StreamDeclaration,
+    ConfigFile, MappingDeclaration, PACKAGE_FILE, PackageManifest, StreamDeclaration, parse_layout,
     parse_mapping, parse_package_manifest, parse_streams_with,
 };
 use kapto_core::{ClockSample, ErrorCode, KaptoError, RecvTime};
 use kapto_decode::{Decoder, Value};
-use kapto_robot::{JointMap, Kinematics, RobotModel, discover, load_urdf};
+use kapto_robot::{Declared, JointMap, Kinematics, RobotModel, discover, load_urdf};
 use kapto_store::records::EPISODE_RECORD;
 
 use crate::live::LiveRobot;
+use crate::page_layout::{RobotRole, ViewLayout, arranged, roles_of};
 use crate::page_scene::{self, RobotScene};
 use crate::picture::CameraKind;
 use crate::plots::{Plots, StreamFields};
@@ -176,7 +177,16 @@ fn replay(
         utc_ns: 0,
         uncertainty: Duration::ZERO,
     };
-    let robot = match carried_robot(&start, recording, manifest.as_ref(), &streams, settings) {
+    let carried = carried_robot(&start, recording, manifest.as_ref(), &streams, settings);
+    let (layout, roles) = carried_layout(
+        &start,
+        recording,
+        manifest.as_ref(),
+        &streams,
+        carried.as_ref().ok(),
+    );
+    replayed.problems.extend(layout.1);
+    let robot = match carried {
         Ok(mut carried) => {
             links = carried
                 .model
@@ -212,6 +222,8 @@ fn replay(
         events: read_events(recording)?,
         scene: drawn.as_ref().map(|drawn| drawn.scene.clone()),
         meshes: drawn.map(|drawn| drawn.meshes.clone()).unwrap_or_default(),
+        layout: Some(layout.0),
+        roles,
     };
     let mut player = Player::new(&streams, robot, view, settings.display_rate);
     player.replayed = replayed;
@@ -472,6 +484,7 @@ fn carried_robot(
     )?;
     Ok(CarriedRobot {
         model,
+        mapping,
         kinematics,
         map,
         problems,
@@ -484,9 +497,36 @@ fn carried_robot(
     })
 }
 
+/// How the replay is arranged: by the layout the recording carries if it
+/// reads, else one made from what it declares; with the problems of one
+/// that doesn't read, and the roles its plots may name.
+fn carried_layout(
+    start: &RecordingStart,
+    recording: &Path,
+    manifest: Option<&PackageManifest>,
+    streams: &[StreamDeclaration],
+    robot: Option<&CarriedRobot>,
+) -> ((ViewLayout, Vec<KaptoError>), Vec<RobotRole>) {
+    let no_mapping = MappingDeclaration::default();
+    let mapping = robot.map_or(&no_mapping, |robot| &robot.mapping);
+    let declared = Declared::new(robot.map(|robot| &robot.model), streams, mapping);
+    let own = manifest.map(|manifest| {
+        let name = slash_path(&manifest.layout);
+        start
+            .attachments
+            .get(name.as_str())
+            .map_or(Ok(None), |data| {
+                parse_layout(&carried_file(recording, &name, data)).map(Some)
+            })
+    });
+    (arranged(own, &declared), roles_of(mapping))
+}
+
 /// The robot a recording was made with, ready to show.
 struct CarriedRobot {
     model: RobotModel,
+    /// Which decoded value drives which joint, and plays which role.
+    mapping: MappingDeclaration,
     kinematics: Kinematics,
     map: JointMap,
     /// Its meshes that can't be shown.

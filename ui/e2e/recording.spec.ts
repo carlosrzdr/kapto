@@ -749,6 +749,41 @@ test("a package's own layout arranges the view, a panel naming what the package 
   await expect(panels.getByRole("region", { name: "Cameras" })).toHaveCount(0);
 });
 
+test("a replay is arranged by the layout its recording carries", async ({ page }) => {
+  // Making the replay waits for the worker's other jobs.
+  test.setTimeout(120_000);
+  await page.goto("/");
+  await expect(page.getByText("Live, not recording")).toBeVisible();
+  const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
+  expect((await page.request.post("/api/episodes/start", json)).status()).toBe(201);
+  await page.waitForTimeout(2_000);
+  expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
+  // As if the episode had been recorded with a layout naming a camera its
+  // package didn't have.
+  await page.route("**/replay/opening", async (route) => {
+    const response = await route.fetch();
+    const opening = (await response.json()) as { layout: object };
+    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], missing: [], ...more });
+    opening.layout = {
+      source: "package",
+      columns: [{ width: 1, panels: [panel("robot"), panel("camera", { stream: "head_camera", missing: ["no stream `head_camera`"] })] }],
+    };
+    await route.fulfill({ response, json: opening });
+  });
+  await open(page, /^Episodes/);
+  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  await episode.getByTitle("Show this episode in full").click();
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  await expect(page.getByRole("status", { name: "Replay" })).toContainText(/Episode over/, { timeout: 90_000 });
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  await expect(panels.getByRole("note")).toContainText("The camera head_camera can't be shown");
+  // Arranged as recorded, not as the live view is: no plots, no wrist camera.
+  await expect(panels.getByRole("region", { name: /^Plot of / })).toHaveCount(0);
+  await expect(panels.getByRole("region", { name: "Cameras" })).toHaveCount(0);
+  await page.getByRole("banner").getByRole("button", { name: "Back to live" }).click();
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+});
+
 test("the demo's wrist camera is shown live beside the arm", async ({ page }) => {
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");

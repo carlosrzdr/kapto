@@ -9,6 +9,10 @@ use utoipa::ToSchema;
 
 use crate::api::ApiError;
 
+pub use kapto_viz::page_layout::{
+    RobotRole, ViewColumn, ViewLayout, ViewPanel, arranged, roles_of,
+};
+
 /// The robot and its streams, as `kapto serve` loaded them.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RobotOverview {
@@ -30,53 +34,6 @@ pub struct RobotOverview {
     /// Problems that don't stop Kapto, such as a mesh that isn't there or
     /// a joint nothing drives.
     pub warnings: Vec<ApiError>,
-}
-
-/// A role and the decoded value that plays it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct RobotRole {
-    /// The role, e.g. `gripper.opening` or `joints.joint_1.position`.
-    pub role: String,
-    /// The value that plays it, e.g. `arm_joints.gripper` or
-    /// `arm_joints.joint_positions[0]`.
-    pub field: String,
-}
-
-/// How the live view or a replay is arranged: columns side by side, each a
-/// stack of panels, as `docs/reference/package.md` describes `layout.toml`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct ViewLayout {
-    /// Where it comes from: `package` (the package's `layout.toml`) or
-    /// `made` (made from what the package declares).
-    pub source: String,
-    /// Its columns, left to right.
-    pub columns: Vec<ViewColumn>,
-}
-
-/// A column of panels.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct ViewColumn {
-    /// Its width relative to the other columns'.
-    pub width: u8,
-    /// Its panels, top to bottom.
-    pub panels: Vec<ViewPanel>,
-}
-
-/// One panel of a column.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct ViewPanel {
-    /// What it shows: `robot`, `camera`, `plot`, `health` or `events`.
-    pub kind: String,
-    /// Its height relative to the other panels' in its column.
-    pub height: u8,
-    /// A camera panel's stream.
-    pub stream: Option<String>,
-    /// A plot's fields, each `stream.field`, `stream.field[3]` or
-    /// `role:gripper.opening`.
-    pub fields: Vec<String>,
-    /// What it names that the package doesn't have, each a phrase; shown in
-    /// its place when not empty.
-    pub missing: Vec<String>,
 }
 
 /// The files a robot was loaded from.

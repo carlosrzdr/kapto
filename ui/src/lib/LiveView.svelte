@@ -75,8 +75,12 @@
     source: "made",
     columns: [{ width: 1, panels: [{ kind: "robot", height: 1, fields: [], missing: [] }] }],
   };
-  const columns = $derived((layout ?? ROBOT_ONLY).columns);
-  const roleFields = $derived(Object.fromEntries(roles.map((each) => [each.role, each.field])));
+  // A replay is arranged as its recording says, if its replay says; else
+  // as the live view is.
+  const columns = $derived((replay?.opening.layout ?? layout ?? ROBOT_ONLY).columns);
+  const roleFields = $derived(
+    Object.fromEntries((replay?.opening.layout ? replay.opening.roles : roles).map((each) => [each.role, each.field])),
+  );
   /** Where the robot's view waits while no panel shows it. */
   let home = $state<HTMLDivElement | null>(null);
 

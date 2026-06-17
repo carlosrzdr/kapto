@@ -661,8 +661,16 @@ export interface ReplayOpening {
   cameras: string[];
   /** When its last was. */
   end_utc_ns: number;
+  /**
+   * How the page arranges it: the layout the recording carries, or one
+   * made from what it declares, each panel with what the recording
+   * lacks; absent for a replay made before replays had one.
+   */
+  layout?: null | ViewLayout;
   /** Each link's name, in the order a stretch gives its pose. */
   links: string[];
+  /** Each role the recording's mapping gives a value. */
+  roles: RobotRole[];
   /** When its first message was received, UTC nanoseconds. */
   start_utc_ns: number;
   /** Each stream, by its number in a stretch, with its values. */

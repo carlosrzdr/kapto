@@ -384,8 +384,9 @@ robot once and it stays in view as it moves. The view is arranged by the
 layout `/api/robot` gives, the package's own or the one made from its
 roles: columns of panels (the robot, a camera, a plot of fields or roles,
 the streams' counts, the marks), one under another below 70rem; the
-robot's 3D view is made once and moved to the panel that shows it. Replays
-are arranged by the live view's layout until they carry their own. The page loads nothing from
+robot's 3D view is made once and moved to the panel that shows it. A
+replay is arranged by the layout its recording carries, or one made from
+what the recording declares, which the worker stores in the replay view. The page loads nothing from
 elsewhere and its Content-Security-Policy lets it reach only Kapto's API
 and the bridge's stream, so the view works offline and nothing leaves the
 machine.

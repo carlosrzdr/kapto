@@ -2466,7 +2466,11 @@ async fn a_replays_opening_names_its_links_and_values_and_gives_its_span_once_ma
                 ]
             }],
             // A recording that can't be read for its cameras has none.
-            "cameras": []
+            "cameras": [],
+            // A view made without a layout: the page arranges it as it
+            // arranges the live view.
+            "layout": null,
+            "roles": []
         })
     );
 

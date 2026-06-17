@@ -23,6 +23,7 @@ use kapto_store::manifest::FINALISED_FILE;
 use kapto_store::replay_view::{VIEW_VERSION, view_version};
 use kapto_store::{Job, JobFailure, JobState, Reader, Writer, episode_folder};
 use kapto_viz::history::MAX_POINTS;
+use kapto_viz::page_layout::{RobotRole, ViewLayout};
 use kapto_viz::page_scene::RobotScene;
 use kapto_viz::view::View;
 use serde::{Deserialize, Serialize};
@@ -126,6 +127,12 @@ pub struct ReplayOpening {
     /// frames come from `/api/episodes/{id}/cameras/{camera}/frames`. Empty
     /// if the files the recording carries can't be read.
     pub cameras: Vec<String>,
+    /// How the page arranges it: the layout the recording carries, or one
+    /// made from what it declares, each panel with what the recording
+    /// lacks; absent for a replay made before replays had one.
+    pub layout: Option<ViewLayout>,
+    /// Each role the recording's mapping gives a value.
+    pub roles: Vec<RobotRole>,
 }
 
 /// One stream of a replay.
@@ -178,6 +185,8 @@ pub fn opening(data_dir: &Path, id: &str) -> Result<ReplayOpening, KaptoError> {
         // A recording whose cameras can't be listed still replays its
         // robot; asking for a camera's frames says what is wrong.
         cameras: crate::cameras::cameras(data_dir, id).unwrap_or_default(),
+        layout: about.layout.clone(),
+        roles: about.roles.clone(),
     })
 }
 

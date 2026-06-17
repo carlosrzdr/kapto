@@ -26,6 +26,7 @@ pub use kapto_store::replay_view::{VIEW_MAGIC, VIEW_VERSION};
 use serde::{Deserialize, Serialize};
 
 use crate::history::{Record, SampleRecord, Stretch, pose, stretch};
+use crate::page_layout::{RobotRole, ViewLayout};
 use crate::page_scene::RobotScene;
 use crate::stream::OpeningStream;
 
@@ -65,6 +66,13 @@ pub struct ViewAbout {
     /// is, in the scene's numbering; empty for one that can't be read.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub meshes: Vec<(u64, u64)>,
+    /// How the page arranges the replay: the layout the recording carries,
+    /// or one made from what it declares.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<ViewLayout>,
+    /// Each role the recording's mapping gives a value.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<RobotRole>,
 }
 
 /// One step of a view.
@@ -94,6 +102,10 @@ pub struct ViewContents {
     /// Each of the scene's meshes in the page's binary form, in its
     /// numbering; empty for one that can't be read.
     pub meshes: Vec<Vec<u8>>,
+    /// How the page arranges the replay.
+    pub layout: Option<ViewLayout>,
+    /// Each role the recording's mapping gives a value.
+    pub roles: Vec<RobotRole>,
 }
 
 /// Writes a view as an episode is read: messages and poses in the order
@@ -303,6 +315,8 @@ impl ViewWriter {
             steps,
             scene: contents.scene,
             meshes,
+            layout: contents.layout,
+            roles: contents.roles,
         };
         let footer = serde_json::to_vec(&about).map_err(io::Error::other)?;
         self.file.write_all(&footer)?;

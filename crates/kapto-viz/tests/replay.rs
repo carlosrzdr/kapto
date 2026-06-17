@@ -433,3 +433,91 @@ fn a_replay_spans_every_message_even_a_cameras_after_the_arms_last() {
     assert_eq!(view.about().messages, 10);
     assert_eq!(replayed.messages, 10);
 }
+
+/// What `view`'s layout is: where it comes from, each panel's kind and
+/// what it lacks.
+fn layout_of(view: &View) -> (String, Vec<(String, Vec<String>)>) {
+    let layout = view.about().layout.clone().unwrap();
+    let panels = layout
+        .columns
+        .iter()
+        .flat_map(|column| &column.panels)
+        .map(|panel| (panel.kind.clone(), panel.missing.clone()))
+        .collect();
+    (layout.source, panels)
+}
+
+#[test]
+fn a_replay_is_arranged_by_the_layout_its_recording_carries() {
+    let folder = TempDir::new("replay-own-layout");
+    let package = package(&folder, false);
+    folder.write(
+        "arm7/layout.toml",
+        b"[[columns]]\npanels = [\n  { kind = \"plot\", fields = [\"role:gripper.opening\"] },\n  \
+          { kind = \"camera\", stream = \"wrist_camera\" },\n  { kind = \"robot\" },\n]\n",
+    );
+    let recording = record(&folder, Some(&package), 10);
+    // The package changed since: the replay keeps the layout recorded.
+    std::fs::remove_file(package.join("layout.toml")).unwrap();
+    let (view, _, problems) = replayed(&recording, &folder.0);
+    assert_eq!(problems, []);
+    assert_eq!(
+        layout_of(&view),
+        (
+            "package".to_owned(),
+            vec![
+                ("plot".to_owned(), vec![]),
+                (
+                    "camera".to_owned(),
+                    vec!["no stream `wrist_camera`".to_owned()]
+                ),
+                ("robot".to_owned(), vec![]),
+            ]
+        )
+    );
+    let roles = &view.about().roles;
+    assert!(
+        roles
+            .iter()
+            .any(|each| each.role == "gripper.opening" && each.field == "arm_joints.gripper")
+    );
+}
+
+#[test]
+fn a_replay_of_a_recording_without_a_layout_is_arranged_by_the_one_made_from_it() {
+    let folder = TempDir::new("replay-made-layout");
+    let package = package(&folder, false);
+    let recording = record(&folder, Some(&package), 10);
+    let (view, _, _) = replayed(&recording, &folder.0);
+    let (source, panels) = layout_of(&view);
+    assert_eq!(source, "made");
+    let kinds: Vec<&str> = panels.iter().map(|(kind, _)| kind.as_str()).collect();
+    assert_eq!(kinds, ["robot", "plot", "plot"]);
+}
+
+#[test]
+fn a_layout_with_a_mistake_is_one_of_the_replays_problems_and_the_made_one_is_used() {
+    let folder = TempDir::new("replay-broken-layout");
+    let package = package(&folder, false);
+    folder.write(
+        "arm7/layout.toml",
+        b"[[columns]]\npanels = [{ kind = \"map\" }]\n",
+    );
+    let recording = record(&folder, Some(&package), 10);
+    let (view, _, problems) = replayed(&recording, &folder.0);
+    assert_eq!(problems, [ErrorCode::ConfigInvalidValue]);
+    assert_eq!(layout_of(&view).0, "made");
+}
+
+#[test]
+fn a_recording_made_without_a_package_is_arranged_by_its_streams_alone() {
+    let folder = TempDir::new("replay-unchecked-layout");
+    let recording = record(&folder, None, 10);
+    let (view, _, _) = replayed(&recording, &folder.0);
+    let (source, panels) = layout_of(&view);
+    assert_eq!(source, "made");
+    // No robot to show, and no roles: its stream's fields, plotted.
+    let kinds: Vec<&str> = panels.iter().map(|(kind, _)| kind.as_str()).collect();
+    assert_eq!(kinds, ["plot"]);
+    assert_eq!(view.about().roles, []);
+}
