@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "./lib/Icon.svelte";
   import { onMount } from "svelte";
 
   import {
@@ -641,7 +642,7 @@
       class="keys-toggle"
       aria-expanded={keysShown}
       title="The keys for what you do most (?)"
-      onclick={() => (keysShown = !keysShown)}>Keys</button
+      onclick={() => (keysShown = !keysShown)}><Icon name="keyboard" /> Keys</button
     >
     <RecordButton
       {recording}
@@ -868,6 +869,9 @@
     color: var(--muted);
   }
   .keys-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
     padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
