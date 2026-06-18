@@ -62,6 +62,31 @@ pub(crate) struct Ros2Args {
     /// reports stay.
     #[arg(long)]
     keep_recordings: bool,
+    /// An environment variable for the run, `KEY=VALUE`, set for Kapto and
+    /// the synthetic robot alike, e.g. a middleware's settings
+    /// (`ZENOH_CONFIG_OVERRIDE='transport/shared_memory/enabled=true'`);
+    /// the report names each. May be given more than once.
+    #[arg(long = "env", value_name = "KEY=VALUE", value_parser = environment_variable)]
+    env: Vec<String>,
+}
+
+/// `text` if it is `KEY=VALUE` with a key a shell takes.
+fn environment_variable(text: &str) -> Result<String, String> {
+    let (key, _) = text.split_once('=').ok_or("expected KEY=VALUE")?;
+    let valid = key.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if valid {
+        Ok(text.to_owned())
+    } else {
+        Err(format!(
+            "`{key}` isn't a name an environment variable can have"
+        ))
+    }
+}
+
+/// `text` quoted for a POSIX shell.
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
 }
 
 impl Ros2Args {
@@ -167,9 +192,16 @@ impl Ros2Report {
 /// Runs the benchmark, in the ROS 2 image unless ROS 2 is set up here.
 pub(crate) fn run(root: &Path, args: &Ros2Args) -> ExitCode {
     if std::env::var_os("ROS_DISTRO").is_none() {
+        // Exported before the run, so the synthetic robot and Kapto both
+        // have them; passed on as flags too, for the report to name them.
+        let (mut exported, mut flags) = (String::new(), String::new());
+        for variable in &args.env {
+            let _ = write!(exported, "export {} && ", quoted(variable));
+            let _ = write!(flags, " --env {}", quoted(variable));
+        }
         let script = format!(
-            "cargo xtask bench ros2 --streams {} --seconds {} --middleware {} \
-             --cameras {} --camera-fps {} --camera-size {}x{}{}",
+            "{exported}cargo xtask bench ros2 --streams {} --seconds {} --middleware {} \
+             --cameras {} --camera-fps {} --camera-size {}x{}{}{flags}",
             args.streams,
             args.seconds,
             args.middleware.name(),
@@ -280,9 +312,14 @@ fn measure_load(root: &Path, args: &Ros2Args) -> Result<Ros2Report, String> {
     };
     let mut machine = Machine::this(Place::Native);
     machine.runs_in = format!(
-        "the {} image, over {}",
+        "the {} image, over {}{}",
         image::IMAGE,
-        args.middleware.name()
+        args.middleware.name(),
+        if args.env.is_empty() {
+            String::new()
+        } else {
+            format!(", with {}", args.env.join(", "))
+        }
     );
     let load = Load {
         streams: args.streams,
@@ -631,5 +668,17 @@ mod tests {
             !report_losing(14, 0.6, 0.3, Some(20.0)).report.all_met(),
             "counted lost"
         );
+    }
+
+    #[test]
+    fn an_environment_variable_is_a_name_then_its_value_quoted_for_the_shell() {
+        assert_eq!(
+            environment_variable("ZENOH_CONFIG_OVERRIDE=transport/shared_memory/enabled=true"),
+            Ok("ZENOH_CONFIG_OVERRIDE=transport/shared_memory/enabled=true".to_owned())
+        );
+        assert!(environment_variable("no-equals").is_err());
+        assert!(environment_variable("1BAD=x").is_err());
+        assert!(environment_variable("A B=x").is_err());
+        assert_eq!(quoted("A=it's"), "'A=it'\\''s'");
     }
 }
