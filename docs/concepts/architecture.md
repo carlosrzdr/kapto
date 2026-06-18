@@ -258,7 +258,10 @@ robot's ROS 2 network as the robot's nodes do, over whichever middleware
 DDS and Zenoh ([the ROS 2 design](../design/ros-2-through-rcl.md)); so far
 it lists the topics there (`kapto topics`). The slim image's Kapto has no ROS 2 code.
 Building with the feature needs ROS 2 and libclang, so it is only built
-and checked in the ROS 2 image (`cargo xtask ros2`).
+and checked in the ROS 2 image (`cargo xtask ros2`). The node is torn down
+in a few lines of C++ (`teardown.cpp`): a C++ middleware such as Zenoh's
+may throw as it closes, and an exception that reached Rust would abort
+Kapto rather than let the receiver end.
 
 For testing without a robot, `tools/kapto-loadgen` is a synthetic robot: it
 sends any number of streams at a fixed rate (2 kHz by default), each

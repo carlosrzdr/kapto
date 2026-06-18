@@ -16,25 +16,23 @@
     reason = "rcl, and loading a message type's support library, are C functions"
 )]
 
-use std::ffi::{CStr, CString, c_char};
+use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr;
 use std::time::Duration;
 
 use kapto_core::{ErrorCode, KaptoError};
 use r2r_rcl::{
-    RCL_RET_OK, RCL_RET_SUBSCRIPTION_TAKE_FAILED, RCL_RET_TIMEOUT, rcl_context_fini, rcl_context_t,
+    RCL_RET_OK, RCL_RET_SUBSCRIPTION_TAKE_FAILED, RCL_RET_TIMEOUT, rcl_context_t,
     rcl_get_zero_initialized_context, rcl_get_zero_initialized_init_options,
     rcl_get_zero_initialized_node, rcl_get_zero_initialized_subscription,
     rcl_get_zero_initialized_wait_set, rcl_init, rcl_init_options_fini, rcl_init_options_init,
-    rcl_node_fini, rcl_node_get_default_options, rcl_node_init, rcl_node_t, rcl_ret_t,
-    rcl_serialized_message_t, rcl_shutdown, rcl_subscription_fini,
+    rcl_node_get_default_options, rcl_node_init, rcl_node_t, rcl_ret_t, rcl_serialized_message_t,
     rcl_subscription_get_default_options, rcl_subscription_init, rcl_subscription_t,
     rcl_take_serialized_message, rcl_wait, rcl_wait_set_add_subscription, rcl_wait_set_clear,
-    rcl_wait_set_fini, rcl_wait_set_init, rcl_wait_set_t, rcutils_get_default_allocator,
-    rcutils_get_error_string, rcutils_get_zero_initialized_uint8_array, rcutils_reset_error,
-    rcutils_uint8_array_fini, rcutils_uint8_array_init, rmw_message_info_t,
-    rmw_qos_durability_policy_e, rmw_qos_history_policy_e, rmw_qos_reliability_policy_e,
-    rosidl_message_type_support_t,
+    rcl_wait_set_init, rcl_wait_set_t, rcutils_get_default_allocator, rcutils_get_error_string,
+    rcutils_get_zero_initialized_uint8_array, rcutils_reset_error, rcutils_uint8_array_init,
+    rmw_message_info_t, rmw_qos_durability_policy_e, rmw_qos_history_policy_e,
+    rmw_qos_reliability_policy_e, rosidl_message_type_support_t,
 };
 
 use super::{Durability, Qos, Reliability};
@@ -270,22 +268,44 @@ impl Node {
     }
 }
 
+unsafe extern "C" {
+    /// Finalises a node's wait set, buffers, subscriptions, node and
+    /// context, in that order, in C++ (`teardown.cpp`): an exception the
+    /// middleware throws on the way stops there instead of aborting Kapto.
+    /// Returns how many of the calls threw.
+    fn kapto_rcl_teardown(
+        wait_set: *mut c_void,
+        buffers: *mut c_void,
+        buffer_size: usize,
+        buffer_count: usize,
+        subscriptions: *mut c_void,
+        subscription_size: usize,
+        subscription_count: usize,
+        node: *mut c_void,
+        context: *mut c_void,
+    ) -> usize;
+}
+
 impl Drop for Node {
     fn drop(&mut self) {
         // SAFETY: each is finalised once, in the reverse order of being made,
         // and each `_fini` accepts one that was zeroed but never initialised,
-        // as when opening failed part way. Their results can't be acted on.
+        // as when opening failed part way; the vectors' elements lie
+        // `size_of` apart from their pointers, as the C++ steps through them.
+        // Their results, and an exception thrown, can't be acted on: the
+        // node goes as the receiver ends.
         unsafe {
-            rcl_wait_set_fini(&raw mut *self.wait_set);
-            for buffer in &mut self.buffers {
-                rcutils_uint8_array_fini(buffer);
-            }
-            for subscription in &mut self.subscriptions {
-                rcl_subscription_fini(&raw mut *subscription, &raw mut *self.handle);
-            }
-            rcl_node_fini(&raw mut *self.handle);
-            rcl_shutdown(&raw mut *self.context);
-            rcl_context_fini(&raw mut *self.context);
+            kapto_rcl_teardown(
+                (&raw mut *self.wait_set).cast(),
+                self.buffers.as_mut_ptr().cast(),
+                size_of::<rcl_serialized_message_t>(),
+                self.buffers.len(),
+                self.subscriptions.as_mut_ptr().cast(),
+                size_of::<rcl_subscription_t>(),
+                self.subscriptions.len(),
+                (&raw mut *self.handle).cast(),
+                (&raw mut *self.context).cast(),
+            );
         }
     }
 }

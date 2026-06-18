@@ -655,7 +655,6 @@ thread and hands batches to the same capture queues as UDP.
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M6-05c `fix(transport): kapto record stopping over zenoh` | Once in five runs over `rmw_zenoh_cpp`, `kapto record` aborted as its recording ended, "Rust cannot catch foreign exceptions" (a C++ exception thrown through an rcl call), in `ros2_record`'s static-transforms test; it passed the other four. Find which call at shutdown throws and stop it reaching Rust | The test over Zenoh in a loop, never aborting | — |
 | M6-05d `perf(transport): ros 2 over zenoh at the cost of dds` | Recording the reference load as ROS 2 topics with two 1080p cameras took 0.74 cores over `rmw_zenoh_cpp` in six runs, against 0.55–0.58 over Cyclone DDS and Fast DDS, for the same work. Measure where it goes (`cap-rx-ros2`, the middleware's threads, the cameras' receivers) in repeated runs of `bench ros2 --cameras 2` over each middleware, and bring Zenoh to DDS's cost: its session settings (shared memory, batching, the router or peer mode), how Kapto takes messages, or both. If Zenoh can't be made solid beside DDS, say what supporting it alone would take | `bench ros2 --cameras 2` over Zenoh within 10 % of the DDS middlewares' CPU, with every message written, in ten runs each | Recording a Zenoh robot with cameras |
 | M6-05e `feat(transport): a zenoh router missing, late or restarted` | Over `rmw_zenoh_cpp`, Kapto's node finds the robot's topics only through a Zenoh router. What happens when there is none, when it starts after Kapto, and when it restarts during an episode: a cause code and a remedy for a router that can't be reached, a pre-flight check that says so before recording, and recording that carries on (with its loss counted) once the router is back. `cargo xtask ros2` waits for the router it starts instead of a fixed second | Tests over Zenoh: no router (cause code), a router started late, a router restarted mid-episode | What to do when the router is down |
 | M6-08 `feat(cli): kapto topics --streams` | The topics found, printed as `streams.toml` declarations to paste and complete (`ros2`, the type, a `rate_hz` measured over the wait) | Snapshot of the printed declarations in the ROS image | — |
@@ -957,9 +956,8 @@ reference.
    failing now and then).
 2. The one-command demo with uploads to RustFS: M8-04.
 3. The worker noticing when an episode ends: M5-08j.
-4. Zenoh made solid with cameras: `kapto record` stopping cleanly over
-   Zenoh (M6-05c), its cost brought to DDS's (M6-05d), and a router that
-   is missing, late or restarted (M6-05e).
+4. Zenoh made solid with cameras: its cost brought to DDS's (M6-05d), and
+   a router that is missing, late or restarted (M6-05e).
 
 The other work packages wait until then; M6-08 and M5-07c when there is
 room.

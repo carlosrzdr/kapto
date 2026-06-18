@@ -1695,6 +1695,7 @@ dependencies = [
 name = "kapto-transport"
 version = "0.0.0"
 dependencies = [
+ "cc",
  "criterion",
  "kapto-capture",
  "kapto-core",

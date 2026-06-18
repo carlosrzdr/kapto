@@ -21,10 +21,16 @@ r2r = { workspace = true, optional = true }
 # allocating: part of `r2r`, at its version.
 r2r_rcl = { workspace = true, optional = true }
 
+[build-dependencies]
+# Compiling the C++ that tears a node down where the middleware's
+# exceptions can't reach Rust: only with `ros2`. Already in the tree for
+# zstd and lz4.
+cc = { workspace = true, optional = true }
+
 [features]
 # Subscribing to ROS 2 topics. Building it needs a sourced ROS 2
 # installation and libclang, so only the ROS 2 image has it.
-ros2 = ["dep:r2r", "dep:r2r_rcl"]
+ros2 = ["dep:r2r", "dep:r2r_rcl", "dep:cc"]
 
 [dev-dependencies]
 criterion.workspace = true
