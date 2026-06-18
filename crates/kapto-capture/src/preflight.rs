@@ -8,6 +8,7 @@
 //!   above the free space recording stops at;
 //! - the disk takes a short written-and-flushed test file at least as fast
 //!   as the streams' rate;
+//! - over Zenoh, the router the robot's topics are found through answers;
 //! - every declared stream arrives, and at roughly its declared rate.
 //!
 //! The streams' rate is an upper bound: each stream's declared or measured
@@ -72,6 +73,18 @@ pub struct Measured {
     /// How fast the disk took the write test, in bytes per second, or why
     /// it couldn't be written.
     pub write_bytes_per_second: Result<f64, String>,
+    /// Over Zenoh, the router tried; none for another middleware, or where
+    /// it can't be told.
+    pub router: Option<RouterSeen>,
+}
+
+/// The Zenoh router pre-flight tried.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RouterSeen {
+    /// Where, as Zenoh writes it, e.g. `tcp/localhost:7447`.
+    pub endpoint: String,
+    /// Whether it answered, or why not.
+    pub reached: Result<(), String>,
 }
 
 fn check(code: ErrorCode, passed: bool, measured: String, needed: String) -> PreflightCheck {
@@ -90,6 +103,17 @@ fn check(code: ErrorCode, passed: bool, measured: String, needed: String) -> Pre
 pub fn evaluate(measured: &Measured, needs: Needs) -> Vec<PreflightCheck> {
     let rate = data_rate(measured);
     let mut checks = vec![room(measured, needs, rate), speed(measured, rate)];
+    checks.extend(measured.router.as_ref().map(|seen| {
+        check(
+            ErrorCode::TransportRos2RouterUnreachable,
+            seen.reached.is_ok(),
+            match &seen.reached {
+                Ok(()) => format!("a router answers at {}", seen.endpoint),
+                Err(why) => format!("nothing answers at {}: {why}", seen.endpoint),
+            },
+            "the Zenoh router the robot's topics are found through".to_owned(),
+        )
+    }));
     checks.extend(
         measured
             .streams
@@ -293,6 +317,7 @@ mod tests {
             }],
             free_bytes: Ok(10_000 * MIB),
             write_bytes_per_second: Ok(500.0 * 1024.0 * 1024.0),
+            router: None,
         }
     }
 
@@ -413,6 +438,39 @@ mod tests {
         assert_eq!(
             checks[3].needed,
             "a message kept for every episode: it sends them once, to late subscribers"
+        );
+    }
+
+    #[test]
+    fn over_zenoh_a_router_that_doesnt_answer_fails_and_says_where_it_was_tried() {
+        let tried = |reached| {
+            let checks = evaluate(
+                &Measured {
+                    router: Some(RouterSeen {
+                        endpoint: "tcp/localhost:7447".into(),
+                        reached,
+                    }),
+                    ..measured()
+                },
+                needs(),
+            );
+            checks
+                .into_iter()
+                .find(|check| check.code == "transport.ros2_router_unreachable")
+                .unwrap()
+        };
+        let down = tried(Err("connection refused".into()));
+        assert!(!down.passed);
+        assert_eq!(
+            down.measured,
+            "nothing answers at tcp/localhost:7447: connection refused"
+        );
+        assert!(tried(Ok(())).passed);
+        // Not over Zenoh: no such check.
+        assert!(
+            evaluate(&measured(), needs())
+                .iter()
+                .all(|check| check.code != "transport.ros2_router_unreachable")
         );
     }
 

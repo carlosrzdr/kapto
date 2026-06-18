@@ -62,8 +62,12 @@ impl Middleware {
     const fn before(self) -> &'static str {
         match self {
             Self::Fastrtps | Self::Cyclonedds => "",
+            // Ready once its port answers, which takes from a few
+            // milliseconds to a second; never more than five.
             Self::Zenoh => {
-                "/opt/ros/$ROS_DISTRO/lib/rmw_zenoh_cpp/rmw_zenohd >/dev/null 2>&1 & sleep 1 &&"
+                "/opt/ros/$ROS_DISTRO/lib/rmw_zenoh_cpp/rmw_zenohd >/dev/null 2>&1 & \
+                 for _ in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/7447) 2>/dev/null && break; \
+                 sleep 0.1; done &&"
             }
         }
     }

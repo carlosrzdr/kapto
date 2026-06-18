@@ -26,8 +26,17 @@ Kapto has to be on the robot's ROS 2 network, as the robot's nodes are:
 - **The same middleware.** The image has Fast DDS (the default), Cyclone
   DDS and Zenoh. Pass the robot's `RMW_IMPLEMENTATION` if it uses another
   than Fast DDS, e.g. `-e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`. With
-  Zenoh, the robot's Zenoh router must be reachable, as for its own nodes.
-  The image has Fast DDS take messages over UDP only
+  Zenoh, Kapto finds the robot's topics through its Zenoh router, as the
+  robot's nodes do: `localhost:7447` unless told otherwise, e.g.
+  `-e ZENOH_CONFIG_OVERRIDE='connect/endpoints=["tcp/192.168.1.20:7447"]'`.
+  Pre-flight fails with `transport.ros2_router_unreachable` when nothing
+  answers there. A router started after Kapto, or restarted while it
+  records, is found again on its own, and recording carries on. Recording
+  the same robot over Zenoh costs Kapto more than over DDS: with two
+  1080p cameras beside sixteen 2 kHz topics, about 0.74 of a core against
+  0.55 to 0.60, measured on a laptop, partly because the machine runs
+  slower under Zenoh's own load. Zenoh's shared memory
+  (`transport/shared_memory/enabled=true`) didn't change that. The image has Fast DDS take messages over UDP only
   (`FASTDDS_BUILTIN_TRANSPORTS=UDPv4`): nodes on the same machine would
   otherwise send through shared memory, which doesn't reach into the
   container, and Kapto would see the topics but receive nothing. To use

@@ -20,7 +20,7 @@ use std::time::Duration;
 use kapto_capture::StreamIndex;
 use kapto_capture::control::{Pending, Response};
 use kapto_capture::preflight::{
-    Measured, Needs, StreamSeen, WRITE_TEST_BYTES, evaluate, write_speed,
+    Measured, Needs, RouterSeen, StreamSeen, WRITE_TEST_BYTES, evaluate, write_speed,
 };
 use kapto_config::{DeploymentConfig, PreflightFailures, StreamDeclaration};
 use kapto_core::clock::utc_now_ns;
@@ -45,6 +45,8 @@ pub(crate) struct Preflight {
     latest: Option<Report>,
     /// What a failed check does to a start.
     failures: PreflightFailures,
+    /// Over Zenoh, where the router should answer.
+    router: Option<String>,
 }
 
 /// A run going on.
@@ -55,6 +57,8 @@ struct Run {
     received: Vec<u64>,
     /// The disk test, or why it couldn't start.
     write: Result<JoinHandle<io::Result<f64>>, String>,
+    /// Over Zenoh, trying the router: where, and how it went.
+    router: Option<(String, JoinHandle<Result<(), String>>)>,
 }
 
 impl Preflight {
@@ -84,6 +88,7 @@ impl Preflight {
             waiting: Vec::new(),
             latest: None,
             failures: deployment.preflight_failures.value,
+            router: zenoh_router(declarations, |name| std::env::var(name).ok()),
         }
     }
 
@@ -118,10 +123,19 @@ impl Preflight {
                     .spawn(move || write_speed(&folder, WRITE_TEST_BYTES))
             })
             .map_err(|error| error.to_string());
+        let router = self.router.clone().and_then(|endpoint| {
+            let tried = endpoint.clone();
+            thread::Builder::new()
+                .name("cap-preflight-router".into())
+                .spawn(move || reach(&tried))
+                .ok()
+                .map(|handle| (endpoint, handle))
+        });
         self.run = Some(Run {
             began: elapsed,
             received: live.streams().map(|(_, totals)| totals.received).collect(),
             write,
+            router,
         });
     }
 
@@ -137,6 +151,10 @@ impl Preflight {
         let done = self.run.as_ref().is_some_and(|run| {
             elapsed.saturating_sub(run.began) >= self.window
                 && run.write.as_ref().map_or(true, JoinHandle::is_finished)
+                && run
+                    .router
+                    .as_ref()
+                    .is_none_or(|(_, handle)| handle.is_finished())
         });
         if !done {
             return false;
@@ -173,6 +191,12 @@ impl Preflight {
             streams,
             free_bytes: kapto_capture::disk::free_bytes(&self.folder).map_err(|e| e.to_string()),
             write_bytes_per_second,
+            router: run.router.map(|(endpoint, handle)| RouterSeen {
+                endpoint,
+                reached: handle
+                    .join()
+                    .unwrap_or_else(|_| Err("the try stopped unexpectedly".to_owned())),
+            }),
         };
         let report = Report {
             ran_at: utc_iso8601(utc_now_ns()),
@@ -186,6 +210,51 @@ impl Preflight {
         self.latest = Some(report);
         true
     }
+}
+
+/// Over Zenoh, where the robot's Zenoh router should answer, as `env` says:
+/// the first TCP endpoint of `connect/endpoints` in `ZENOH_CONFIG_OVERRIDE`,
+/// else the middleware's default. None when no stream is a ROS 2 topic, the
+/// middleware isn't Zenoh, or a session file says where, which isn't read.
+fn zenoh_router(
+    declarations: &[StreamDeclaration],
+    env: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    let over_zenoh = env("RMW_IMPLEMENTATION").as_deref() == Some("rmw_zenoh_cpp");
+    if !over_zenoh || !declarations.iter().any(|each| each.ros2.is_some()) {
+        return None;
+    }
+    let overridden = env("ZENOH_CONFIG_OVERRIDE").and_then(|text| {
+        text.split(';')
+            .find_map(|setting| setting.trim().strip_prefix("connect/endpoints="))
+            .and_then(|list| {
+                list.split(['[', ']', ',', '"', '\''])
+                    .map(str::trim)
+                    .find(|endpoint| endpoint.starts_with("tcp/"))
+                    .map(str::to_owned)
+            })
+    });
+    match overridden {
+        Some(endpoint) => Some(endpoint),
+        None if env("ZENOH_SESSION_CONFIG_URI").is_some() => None,
+        None => Some("tcp/localhost:7447".to_owned()),
+    }
+}
+
+/// Whether something answers at `endpoint` (`tcp/<host>:<port>`) within a
+/// second.
+fn reach(endpoint: &str) -> Result<(), String> {
+    let address = endpoint.strip_prefix("tcp/").unwrap_or(endpoint);
+    let addresses =
+        std::net::ToSocketAddrs::to_socket_addrs(address).map_err(|error| error.to_string())?;
+    let mut last = "the address names no host".to_owned();
+    for each in addresses {
+        match std::net::TcpStream::connect_timeout(&each, Duration::from_secs(1)) {
+            Ok(_) => return Ok(()),
+            Err(error) => last = error.to_string(),
+        }
+    }
+    Err(last)
 }
 
 /// `latest` as an episode started with `waive` keeps it; see
@@ -334,5 +403,83 @@ mod tests {
         }
         let kept = cleared(Some(&passed), &[], PreflightFailures::Refuse).unwrap();
         assert_eq!(kept, Some(passed));
+    }
+
+    /// One stream over UDP and, with `ros2`, one ROS 2 topic.
+    fn declared(ros2: bool) -> Vec<StreamDeclaration> {
+        let mut text =
+            "[streams.arm]\nrate_hz = 100\nudp = { bind = \"127.0.0.1:9000\" }\n".to_owned();
+        if ros2 {
+            text.push_str(
+                "[streams.state]\nrate_hz = 100\nros2 = { topic = \"/state\", type = \"std_msgs/msg/String\" }\n",
+            );
+        }
+        kapto_config::parse_streams_with(
+            &kapto_config::ConfigFile {
+                path: "streams.toml".into(),
+                contents: text,
+            },
+            // `std_msgs/msg/String`'s definition, for the topic's decoder.
+            &mut |_, _| Some("string data\n".to_owned()),
+        )
+        .unwrap()
+    }
+
+    /// An environment holding only `pairs`.
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| (*value).to_owned())
+        }
+    }
+
+    #[test]
+    fn over_zenoh_the_router_tried_is_the_one_its_settings_name_else_the_default() {
+        let zenoh = [("RMW_IMPLEMENTATION", "rmw_zenoh_cpp")];
+        assert_eq!(
+            zenoh_router(&declared(true), env(&zenoh)),
+            Some("tcp/localhost:7447".into())
+        );
+        assert_eq!(
+            zenoh_router(
+                &declared(true),
+                env(&[
+                    ("RMW_IMPLEMENTATION", "rmw_zenoh_cpp"),
+                    (
+                        "ZENOH_CONFIG_OVERRIDE",
+                        "mode=\"peer\";connect/endpoints=[\"tcp/192.168.1.20:7447\"]"
+                    ),
+                ])
+            ),
+            Some("tcp/192.168.1.20:7447".into())
+        );
+        // Where it can't be told, and where there is no router to try.
+        let file = [
+            ("RMW_IMPLEMENTATION", "rmw_zenoh_cpp"),
+            ("ZENOH_SESSION_CONFIG_URI", "/robot/zenoh.json5"),
+        ];
+        assert_eq!(zenoh_router(&declared(true), env(&file)), None);
+        assert_eq!(zenoh_router(&declared(false), env(&zenoh)), None);
+        assert_eq!(
+            zenoh_router(
+                &declared(true),
+                env(&[("RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp")])
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_router_answers_where_something_listens_and_not_where_nothing_does() {
+        let listening = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let open = listening.local_addr().unwrap();
+        assert_eq!(reach(&format!("tcp/{open}")), Ok(()));
+        let closed = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        assert!(reach(&format!("tcp/{closed}")).is_err());
     }
 }

@@ -283,6 +283,194 @@ fn static_transforms_published_before_recording_are_recorded_with_the_moving_one
     let _ = std::fs::remove_dir_all(folder);
 }
 
+/// Over Zenoh, a router of the test's own on `port` (not the shared one),
+/// and the settings that point a node at it.
+#[cfg(feature = "ros2")]
+struct Router {
+    port: u16,
+    process: Option<std::process::Child>,
+}
+
+#[cfg(feature = "ros2")]
+impl Router {
+    fn new(port: u16) -> Self {
+        Self {
+            port,
+            process: None,
+        }
+    }
+
+    /// `ZENOH_CONFIG_OVERRIDE` for a node that finds others through it.
+    fn connect(&self) -> String {
+        format!("connect/endpoints=[\"tcp/127.0.0.1:{}\"]", self.port)
+    }
+
+    fn start(&mut self) {
+        // Run itself, not through `ros2 run`, whose wrapper would outlive a kill.
+        let distro = std::env::var("ROS_DISTRO").unwrap();
+        let router = Command::new(format!("/opt/ros/{distro}/lib/rmw_zenoh_cpp/rmw_zenohd"))
+            .env(
+                "ZENOH_CONFIG_OVERRIDE",
+                format!("listen/endpoints=[\"tcp/127.0.0.1:{}\"]", self.port),
+            )
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        self.process = Some(router);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::net::TcpStream::connect(("127.0.0.1", self.port)).is_err() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the router never answered"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    fn stop(&mut self) {
+        if let Some(mut router) = self.process.take() {
+            let _ = router.kill();
+            let _ = router.wait();
+        }
+    }
+}
+
+#[cfg(feature = "ros2")]
+impl Drop for Router {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Over Zenoh through `router`: records `topic` for `seconds` while
+/// `ros2 topic pub` publishes on it at 50 Hz, calling `meanwhile` with the
+/// router once both have started; returns each message's receive time,
+/// UTC nanoseconds, and what `kapto record` printed.
+#[cfg(feature = "ros2")]
+fn recorded_through(
+    test: &str,
+    router: &mut Router,
+    seconds: &str,
+    meanwhile: impl FnOnce(&mut Router),
+) -> (Vec<u64>, String) {
+    let topic = format!("/kapto_zenoh_{}_{test}", std::process::id());
+    let folder = package(test, &topic);
+    let recording = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .args(["record", "--duration", seconds, "--streams"])
+        .arg(folder.join("streams.toml"))
+        .arg("--data-dir")
+        .arg(folder.join("data"))
+        .env("ZENOH_CONFIG_OVERRIDE", router.connect())
+        .env("ZENOH_ROUTER_CHECK_ATTEMPTS", "1")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut publisher = Command::new("ros2")
+        .args([
+            "topic",
+            "pub",
+            "--rate",
+            "50",
+            "--qos-reliability",
+            "reliable",
+        ])
+        .args([
+            topic.as_str(),
+            "sensor_msgs/msg/JointState",
+            "{name: [joint_1], position: [0.5]}",
+        ])
+        .env("ZENOH_CONFIG_OVERRIDE", router.connect())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    meanwhile(router);
+    let output = recording.wait_with_output().unwrap();
+    let _ = publisher.kill();
+    let _ = publisher.wait();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(output.status.success(), "{stderr}");
+    let episode = std::fs::read_dir(folder.join("data"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.join("_FINALISED").exists())
+        .unwrap();
+    let bytes = std::fs::read(episode.join("recording.mcap")).unwrap();
+    let times = mcap::MessageStream::new(&bytes)
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|message| message.channel.topic == "joints")
+        .map(|message| message.log_time)
+        .collect();
+    let _ = std::fs::remove_dir_all(folder);
+    (times, stderr)
+}
+
+#[cfg(feature = "ros2")]
+fn now_ns() -> u64 {
+    u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    )
+    .unwrap()
+}
+
+/// Whether the tests run over Zenoh: the router tests only mean anything there.
+#[cfg(feature = "ros2")]
+fn over_zenoh() -> bool {
+    std::env::var("RMW_IMPLEMENTATION").as_deref() == Ok("rmw_zenoh_cpp")
+}
+
+#[cfg(feature = "ros2")]
+#[test]
+fn over_zenoh_a_router_started_after_recording_brings_the_topic_in_from_then_on() {
+    if !over_zenoh() {
+        return;
+    }
+    let mut router = Router::new(7448);
+    let mut started = 0;
+    let (times, stderr) = recorded_through("late", &mut router, "8", |router| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        started = now_ns();
+        router.start();
+    });
+    assert!(times.len() > 50, "{} messages: {stderr}", times.len());
+    assert!(
+        times.iter().all(|&time| time >= started),
+        "nothing could arrive before the router: {stderr}"
+    );
+}
+
+#[cfg(feature = "ros2")]
+#[test]
+fn over_zenoh_recording_carries_on_through_the_router_restarting() {
+    if !over_zenoh() {
+        return;
+    }
+    let mut router = Router::new(7449);
+    router.start();
+    let mut back = 0;
+    let (times, stderr) = recorded_through("restart", &mut router, "10", |router| {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        router.stop();
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        router.start();
+        back = now_ns();
+    });
+    let after = times
+        .iter()
+        .filter(|&&time| time > back + 1_000_000_000)
+        .count();
+    assert!(
+        after > 50,
+        "{after} messages a second after the restart: {stderr}"
+    );
+}
+
 /// What `child` printed, once it ends or after `limit`, when it is stopped.
 #[cfg(feature = "ros2")]
 fn printed_by(child: &mut std::process::Child, limit: std::time::Duration) -> String {

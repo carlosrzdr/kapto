@@ -445,6 +445,12 @@ error_codes! {
         remedy: "Use the `kapto-ros2` image (`docker compose build kapto-ros2`), whose Kapto is built with ROS 2, on the robot's network with the same `ROS_DOMAIN_ID` and `RMW_IMPLEMENTATION` as the robot's nodes.",
     }
 
+    /// Over Zenoh, nothing answers where the robot's Zenoh router should
+    /// be, so no topic can be found or received.
+    TransportRos2RouterUnreachable = "transport.ros2_router_unreachable" {
+        summary: "No Zenoh router answers",
+        remedy: "Start the robot's Zenoh router (`ros2 run rmw_zenoh_cpp rmw_zenohd`), or point Kapto at it with `ZENOH_CONFIG_OVERRIDE='connect/endpoints=[\"tcp/<host>:7447\"]'`, as the robot's nodes are. Recording carries on, and receives once a router is reachable.",
+    }
     /// Kapto's ROS 2 node couldn't start.
     TransportRos2NodeFailed = "transport.ros2.node_failed" {
         summary: "Kapto can't join ROS 2",
