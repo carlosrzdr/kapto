@@ -230,6 +230,7 @@ fn the_live_view_is_arranged_by_the_packages_own_layout_saying_what_it_lacks() {
          { kind = \"plot\", fields = [\"role:gripper.opening\"], height = 2 },\n]\n",
     );
     let robot = robot_of(&serve);
+    assert_eq!(robot["package"], "arm7");
     let layout = &robot["layout"];
     assert_eq!(layout["source"], "package");
     let panels = layout["columns"][0]["panels"].as_array().unwrap();

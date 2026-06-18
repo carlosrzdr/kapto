@@ -19,7 +19,9 @@ import {
   type ProfilesOverview,
   type ReplayOpening,
   type ReplayStatus,
+  type LayoutInput,
   type RobotOverview,
+  type ViewLayout,
   type RobotScene,
   type SendEvent,
   type SettingsOverview,
@@ -292,6 +294,17 @@ export const getEventKinds = (): Promise<EventVocabulary> => request<EventVocabu
 
 /** Sends an event: recorded in the episode being recorded, if one is. */
 export const sendEvent = (event: SendEvent): Promise<EventSent> => post<EventSent>("/api/episodes/events", event);
+
+/** Saves `layout` as the robot package's default, for every browser: what `/api/robot` gives from then on. */
+export const saveDefaultLayout = (layout: LayoutInput): Promise<ViewLayout> =>
+  request<ViewLayout>("/api/layout", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(layout),
+  });
+
+/** Removes the robot package's default layout: its own is back. */
+export const removeDefaultLayout = (): Promise<ViewLayout> => request<ViewLayout>("/api/layout", { method: "DELETE" });
 
 /** How long to wait before opening the event stream again after it closed. */
 const RECONNECT_MS = 2000;

@@ -811,6 +811,11 @@ export interface RobotOverview {
   /** The robot's name in its description. */
   name: string;
   /**
+   * The ID of the robot package its files are, if they are one's: what
+   * a layout saved as default, or kept in a browser, is kept for.
+   */
+  package?: string | null;
+  /**
    * What each decoded value is for: every role the mapping gives a
    * field, written roles first, then each mapped joint's.
    */

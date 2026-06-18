@@ -56,6 +56,11 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await page.getByRole("button", { name: /^Environment/ }).click();
   await page.waitForTimeout(1_000);
   await shot(page, "live-environment");
+  // Arranging the view: the editor open beside it.
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await page.waitForTimeout(500);
+  await shot(page, "live-arrange");
+  await page.getByRole("button", { name: "Arrange" }).click();
   await viewer(page, false);
 
   await tab(page, /^Robot/);

@@ -13,10 +13,13 @@
     getReplayScene,
     getReplayWindow,
     getRobotScene,
+    removeDefaultLayout,
+    saveDefaultLayout,
   } from "./api";
-  import type { RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
+  import type { LayoutInput, RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
   import CameraPanel from "./CameraPanel.svelte";
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
+  import LayoutEditor from "./LayoutEditor.svelte";
   import MarkBar from "./MarkBar.svelte";
   import PlotPanel from "./PlotPanel.svelte";
   import Timeline from "./Timeline.svelte";
@@ -32,6 +35,7 @@
     type Placed,
     recolor,
   } from "./viewer/environment";
+  import { browserLayouts, editable, type LayoutStore, type Offered, shown } from "./viewer/layouts";
   import { decodeMesh } from "./viewer/mesh";
   import { type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
@@ -58,6 +62,12 @@
     roles?: RobotRole[];
     /** What a `health` panel shows: the streams' counts. */
     health?: Snippet;
+    /** The robot package the view is for, which a layout is kept and saved for; none to arrange without one. */
+    packageId?: string | null;
+    /** Streams recorded without being decoded: nothing to plot. */
+    recordedOnly?: string[];
+    /** Where this browser keeps its own layouts. */
+    layouts?: LayoutStore;
   }
 
   let {
@@ -68,6 +78,9 @@
     layout = null,
     roles = [],
     health,
+    packageId = null,
+    recordedOnly = [],
+    layouts = browserLayouts(),
   }: Props = $props();
 
   /** The robot alone, until the layout is known. */
@@ -75,9 +88,6 @@
     source: "made",
     columns: [{ width: 1, panels: [{ kind: "robot", height: 1, fields: [], missing: [] }] }],
   };
-  // A replay is arranged as its recording says, if its replay says; else
-  // as the live view is.
-  const columns = $derived((replay?.opening.layout ?? layout ?? ROBOT_ONLY).columns);
   const roleFields = $derived(
     Object.fromEntries((replay?.opening.layout ? replay.opening.roles : roles).map((each) => [each.role, each.field])),
   );
@@ -252,6 +262,52 @@
   );
   /** The same plots filled from the bridge's last minutes, while looking back or showing more than the page keeps. */
   let lookedBack = $state.raw<PlotStream[] | null>(null);
+
+  /** This browser's own layout for the package, which comes before every other. */
+  let own = $state.raw<LayoutInput | null>(null);
+  /** The default as saved or removed from this page, newer than the one the page was given. */
+  let latest = $state.raw<ViewLayout | null>(null);
+  let arranging = $state(false);
+  let arrangeSaid = $state("");
+  let arrangeFailed = $state(false);
+  $effect(() => {
+    own = packageId ? layouts.load(packageId) : null;
+  });
+  /** What the package has that a panel may show, as the page receives it. */
+  const offered: Offered = $derived({
+    cameras: cameras.map((camera) => camera.name),
+    fields: plots.flatMap((stream) => stream.fields.map((field) => `${stream.name}.${field.name}`)),
+    roles: roles.map((each) => each.role),
+  });
+  const liveLayout = $derived(own ? shown(own, offered) : (latest ?? layout ?? ROBOT_ONLY));
+  // A replay is arranged as its recording says, if its replay says; else
+  // as the live view is.
+  const arrangedBy = $derived(replay?.opening.layout ?? liveLayout);
+  const columns = $derived(arrangedBy.columns);
+
+  function arrange(next: LayoutInput) {
+    own = next;
+    arrangeSaid = "";
+    if (packageId) {
+      layouts.save(packageId, next);
+    }
+  }
+
+  /** Runs a save or a reset, then follows what the API now gives, forgetting this browser's own. */
+  async function settle(call: () => Promise<ViewLayout>, done: string) {
+    try {
+      latest = await call();
+      own = null;
+      if (packageId) {
+        layouts.clear(packageId);
+      }
+      arrangeSaid = done;
+      arrangeFailed = false;
+    } catch (error) {
+      arrangeSaid = error instanceof ApiFailure ? `${error.message} ${error.remedy}` : String(error);
+      arrangeFailed = true;
+    }
+  }
   /** Whether the view is held at `cursorMs` rather than following now. */
   let paused = $state(false);
   let cursorMs = $state<number | null>(null);
@@ -924,7 +980,11 @@
           {#if panel.missing.length > 0}
             <div class="placeholder" role="note">
               <p>{named(panel)} can't be shown: the robot package has {panel.missing.join("; ")}.</p>
-              <p class="remedy">Change the package's layout.toml, or what it declares.</p>
+              <p class="remedy">
+                {arrangedBy.source === "own"
+                  ? "Remove it, or change it, with Arrange."
+                  : "Change the package's layout.toml, or what it declares."}
+              </p>
             </div>
           {:else if panel.kind === "robot"}
             <div class="slot" {@attach adopt}></div>
@@ -981,12 +1041,34 @@
   onwatch={watch}
   replaying={replay !== null}
 />
-<!-- Marks go to what is recorded now: not offered while an episode is replayed. -->
-<div hidden={replay !== null}><MarkBar onkinds={knowKinds} /></div>
+<div class="under">
+  <!-- Marks go to what is recorded now: not offered while an episode is replayed. -->
+  <div hidden={replay !== null}><MarkBar onkinds={knowKinds} /></div>
+  {#if packageId && replay === null}
+    <button type="button" class="arrange-toggle" aria-expanded={arranging} onclick={() => (arranging = !arranging)}>
+      Arrange
+    </button>
+  {/if}
+</div>
+{#if arranging && packageId && replay === null}
+  <div class="arranging">
+    <LayoutEditor
+      layout={own ?? editable(liveLayout)}
+      {offered}
+      {recordedOnly}
+      onchange={arrange}
+      onsave={() => void settle(() => saveDefaultLayout(own ?? editable(liveLayout)), "Saved as the default: every browser shows the view this way.")}
+      onreset={() => void settle(removeDefaultLayout, "Back to the package's layout, in every browser.")}
+      said={arrangeSaid}
+      failed={arrangeFailed}
+    />
+  </div>
+{/if}
 </div>
 
 <style>
   .view {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -1122,6 +1204,34 @@
     font: inherit;
     font-size: var(--text-xs);
     cursor: pointer;
+  }
+  .under {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .arrange-toggle {
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--control-line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .arranging {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 2;
+    width: min(30rem, 100%);
+    max-height: calc(100% - 6rem);
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
   }
   .environment {
     position: absolute;

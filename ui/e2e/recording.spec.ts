@@ -784,6 +784,65 @@ test("a replay is arranged by the layout its recording carries", async ({ page }
   await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
 });
 
+test("the operator arranges their own view, keeps it, and saves it for every browser", async ({ page, browser }) => {
+  await page.goto("/");
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: "Arrange" }).click();
+  const editor = page.getByRole("region", { name: "Arrange the view" });
+  // The gripper's plot removed; the joints' positions as one plot of their
+  // own, in a column of its own.
+  await editor.getByRole("button", { name: "Remove Plot of role:gripper.opening" }).click();
+  await editor.getByRole("checkbox", { name: "arm_joints.joint_positions" }).check();
+  await editor.getByRole("combobox", { name: "In" }).selectOption({ label: "a new column" });
+  await editor.getByRole("button", { name: "Add" }).click();
+  const added = panels.getByRole("region", { name: "Plot of arm_joints.joint_positions" });
+  await expect(added).toBeVisible();
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toHaveCount(0);
+
+  // Kept in this browser.
+  await page.reload();
+  await expect(added).toBeVisible({ timeout: 20_000 });
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toHaveCount(0);
+
+  // Saved as the default, another browser shows it too.
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await editor.getByRole("button", { name: "Save as default" }).click();
+  await expect(editor.getByRole("status")).toHaveText("Saved as the default: every browser shows the view this way.");
+  const other = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+  const elsewhere = await other.newPage();
+  await elsewhere.goto("/");
+  await expect(
+    elsewhere.getByRole("group", { name: "The view's panels" }).getByRole("region", { name: "Plot of arm_joints.joint_positions" }),
+  ).toBeVisible({ timeout: 20_000 });
+  await other.close();
+
+  // Reset: the package's layout again, here and in every browser.
+  await editor.getByRole("button", { name: "Reset to the package's" }).click();
+  await expect(editor.getByRole("status")).toHaveText("Back to the package's layout, in every browser.");
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+  await expect(added).toHaveCount(0);
+});
+
+test("a layout kept in the browser naming a field the package lacks says so in its place", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  await page.evaluate(() => {
+    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+    localStorage.setItem(
+      "kapto.layout.arm7",
+      JSON.stringify({ columns: [{ width: 1, panels: [panel("robot"), panel("plot", { fields: ["arm_joints.torques"] })] }] }),
+    );
+  });
+  await page.reload();
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  await expect(panels.getByRole("note")).toHaveText(
+    "The plot of arm_joints.torques can't be shown: the robot package has no plotted field `arm_joints.torques`. Remove it, or change it, with Arrange.",
+    { timeout: 20_000 },
+  );
+  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+});
+
 test("the demo's wrist camera is shown live beside the arm", async ({ page }) => {
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");

@@ -700,6 +700,8 @@
           layout={robot?.layout ?? null}
           roles={robot?.roles ?? []}
           health={streamTable}
+          packageId={robot?.package ?? null}
+          recordedOnly={(robot?.streams ?? []).filter((each) => !each.decoder).map((each) => each.name)}
         />
       {:else}
         <!-- Where the robot would be: what keeps it away and what to do. -->

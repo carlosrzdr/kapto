@@ -3690,6 +3690,13 @@
             "type": "string",
             "description": "The robot's name in its description."
           },
+          "package": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ID of the robot package its files are, if they are one's: what\na layout saved as default, or kept in a browser, is kept for."
+          },
           "roles": {
             "type": "array",
             "items": {

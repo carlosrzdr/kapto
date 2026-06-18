@@ -619,7 +619,6 @@ need, without ever costing capture anything. The views are Kapto's own
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M4-06b `feat(ui): your own layouts` | The operator puts together the view they want (VIS-11, [design](../design/layouts.md)): panels added from the package's streams, cameras and roles (a stream without a decoder listed as recorded only), removed, moved between columns and resized, without editing files. The layout in use is kept in the browser per package; *Save as default* saves it through `PUT /api/layout` (in place: it writes `layouts/<package id>.toml`, read by every browser); *Reset* removes the default (`DELETE /api/layout`) and goes back to the package's layout | Vitest for the editor; Playwright: build a layout, reload and find it again, save it as default and find it in a new browser context, failure path with a field the package lacks; screenshots | Arranging your own view |
 | M4-08 `feat(robot): display mesh decimation` | `meshopt` simplification above a triangle budget; original kept for collision (ADD-17) | Triangle budget respected; bounding box preserved within tolerance | — |
 
 ### WP M5: Durability + pre-flight *(parallel after Gate 1)*
@@ -954,10 +953,8 @@ reference.
 1. The cameras: M6b-04b (capture's CPU with ROS 2 cameras, not reproduced
    in later runs; measured on the reference PC) and M6b-06f (the events flow
    failing now and then).
-2. Layouts: M4-06b (the operator's, arranged
-   in the UI).
-3. The one-command demo with uploads to RustFS: M8-04.
-4. The worker noticing when an episode ends: M5-08j; and `kapto record`
+2. The one-command demo with uploads to RustFS: M8-04.
+3. The worker noticing when an episode ends: M5-08j; and `kapto record`
    stopping cleanly over Zenoh: M6-05c.
 
 The other work packages wait until then; M6-08 and M5-07c when there is

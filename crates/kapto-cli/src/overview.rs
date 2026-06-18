@@ -29,6 +29,7 @@ pub(crate) fn overview(
     let (layout, layout_problems) = view_layout(prepared, package);
     RobotOverview {
         name: prepared.robot.name.clone(),
+        package: package.map(|package| package.manifest.id.clone()),
         files: RobotFiles {
             urdf: urdf.display().to_string(),
             streams: streams.display().to_string(),
