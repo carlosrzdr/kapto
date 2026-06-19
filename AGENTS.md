@@ -54,7 +54,7 @@ command (benchmarks, golden files, the demo, serve, the load generator).
 | Check the API for breaking changes | `cargo xtask api-diff` |
 | Build, type-check or test the web UI (Node.js in Docker) | `cargo xtask ui build` · `cargo xtask ui check` · `cargo xtask ui test` |
 | The UI's flows, and screenshots for a PR | `cargo xtask ui e2e` · `cargo xtask ui screenshots` |
-| Try Kapto without a robot | `cargo run --release --bin kapto -- demo` |
+| Try Kapto without a robot | `cargo run --release --bin kapto -- demo` · with uploads, in Docker: `docker compose --profile demo up --build` |
 
 ---
 

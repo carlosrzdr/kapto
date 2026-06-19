@@ -10,6 +10,7 @@ mod api_diff;
 mod bench;
 mod ci;
 mod clean;
+mod demo;
 mod golden;
 mod links;
 mod reference;
@@ -76,6 +77,10 @@ enum Command {
     /// Test uploads to S3-compatible storage against a RustFS server
     /// started for them (Docker).
     Storage,
+    /// Start the demo as a new user does, `docker compose --profile demo
+    /// up`, and check it end to end: the arm moving in a browser, an
+    /// episode recorded and found uploaded in RustFS.
+    DemoCompose,
     /// Regenerate the reference pages in docs/reference from the code.
     Gen {
         /// Only report pages that are out of date; don't write anything.
@@ -131,6 +136,7 @@ enum BenchCommand {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Ci { group } => ci::run(group),
+        Command::DemoCompose => demo::run(&repo_root()),
         Command::Bench(BenchCommand::System(args)) => bench::system(&repo_root(), &args),
         Command::Bench(BenchCommand::Headroom(args)) => bench::headroom(&repo_root(), &args),
         Command::Bench(BenchCommand::Capacity(args)) => bench::capacity(&repo_root(), &args),

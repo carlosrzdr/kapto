@@ -1,6 +1,10 @@
 # Builds Kapto's images. Docker with BuildKit is the only prerequisite.
 #   docker compose build
 #   docker compose run --rm kapto config show
+#
+# Tries Kapto without a robot, its episodes uploaded to storage beside it
+# (docs/getting-started/README.md): the page at http://localhost:7700.
+#   docker compose --profile demo up --build
 services:
   kapto:
     image: kapto:dev
@@ -24,7 +28,7 @@ services:
   # nothing but this test server; `cargo xtask storage` runs the upload tests
   # against it on a port of its own.
   rustfs:
-    profiles: [storage]
+    profiles: [storage, demo]
     # Pinned by digest, so the tests always meet the same server. Update it
     # deliberately, in its own pull request.
     image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
@@ -43,7 +47,7 @@ services:
   # Makes the bucket `kapto` once the server answers, with the curl RustFS's
   # image carries; one already there is left as it is.
   rustfs-bucket:
-    profiles: [storage]
+    profiles: [storage, demo]
     image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
     depends_on:
       rustfs:
@@ -57,5 +61,35 @@ services:
         && echo "bucket kapto: $$status"
         && { [ "$$status" = 200 ] || [ "$$status" = 409 ]; }
 
+  # `kapto demo`: the synthetic robot (the sample arm and its wrist camera)
+  # recorded, shown and uploaded to RustFS once the bucket is made. Its
+  # episodes stay in the volume `demo-data`, beside their copies in RustFS.
+  demo:
+    profiles: [demo]
+    image: kapto:dev
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: kapto
+    command: ["demo"]
+    depends_on:
+      rustfs-bucket:
+        condition: service_completed_successfully
+    # The same ports inside and out: the page reaches the live view's
+    # stream on the port Kapto announces, and the stream takes pages from
+    # the address Kapto serves.
+    ports:
+      - "127.0.0.1:${KAPTO_DEMO_PORT:-7700}:${KAPTO_DEMO_PORT:-7700}"
+      - "127.0.0.1:${KAPTO_DEMO_STREAM_PORT:-9877}:${KAPTO_DEMO_STREAM_PORT:-9877}"
+    environment:
+      KAPTO_SERVER_PORT: ${KAPTO_DEMO_PORT:-7700}
+      KAPTO_VIEWER_STREAM_PORT: ${KAPTO_DEMO_STREAM_PORT:-9877}
+      LOCAL_ACCESS_KEY_ID: kapto
+      LOCAL_SECRET_ACCESS_KEY: kapto-storage
+    volumes:
+      - ./docker/demo/kapto.toml:/config/kapto.toml:ro
+      - demo-data:/data
+
 volumes:
   rustfs-data:
+  demo-data:

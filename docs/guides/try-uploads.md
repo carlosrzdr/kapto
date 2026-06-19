@@ -3,7 +3,10 @@
 Kapto uploads each episode to storage you own: S3 or S3-compatible storage,
 Google Cloud Storage, Azure, or a folder. To see it work without a cloud
 account, start RustFS, an S3-compatible server, on this machine with
-Docker, and point Kapto's demo at it.
+Docker, and point Kapto's demo at it. `docker compose --profile demo up
+--build` does all of this in one command (see
+[Getting started](../getting-started/README.md)); the steps below are what
+it does, and how to point Kapto at storage of your own.
 
 ## Start the storage
 

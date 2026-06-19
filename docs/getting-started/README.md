@@ -10,7 +10,21 @@ arm move, each stream's counts, and a Record button; recorded episodes are
 listed beside it and stored in the data directory, and each one's **Replay**
 plays it again in the same view, on its own timeline, until **Back to live**.
 
-With Docker:
+With Docker, in one command from a clone of the repository, its episodes
+uploaded to S3-compatible storage started beside it (RustFS):
+
+```sh
+docker compose --profile demo up --build
+```
+
+Once it says `Kapto is running`, open <http://localhost:7700>, record an
+episode, and find it uploaded in **Uploads**. Ctrl-C stops it;
+`docker compose --profile demo down --volumes` removes its episodes and
+their uploaded copies. On a busy machine, `KAPTO_DEMO_PORT` and
+`KAPTO_DEMO_STREAM_PORT` move the page and the live view's stream off 7700
+and 9877.
+
+Without the storage:
 
 ```sh
 docker compose build

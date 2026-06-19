@@ -1,0 +1,17 @@
+# The demo's configuration in Compose (`docker compose --profile demo up`):
+# its episodes go up to the RustFS server beside it, reached by its service
+# name. Credentials are read from LOCAL_ACCESS_KEY_ID and
+# LOCAL_SECRET_ACCESS_KEY, which compose.yaml sets to the test server's.
+
+[[upload.destination]]
+name = "local"
+url = "s3://kapto"
+endpoint = "http://rustfs:9000"
+region = "us-east-1"
+credentials = { env = "LOCAL" }
+
+# A demo records a few minutes at most: pre-flight checks the disk has room
+# for two of them (with the wrist camera, about 4 GiB), not the ten it asks
+# of a robot.
+[capture]
+preflight_disk_time = 120

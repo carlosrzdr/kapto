@@ -679,7 +679,6 @@ V4L2 (M15-01) move here rather than waiting for Phase B.
 |---|---|---|---|
 | M8-01 `feat(server): robot from mounts and env` | `KAPTO_URDF`, `KAPTO_MESH_PATH`, `/packages` discovery, `KAPTO_ROBOT`, invalid robot kept running with report (ADD-9, ADD-10, ADD-12) | Container tests per mount style incl. a broken URDF (no crash loop) | — |
 | M8-02 `feat(cli): package import, lint, preview` | CLI equivalents; lint gate usage (ADD-15) | CLI snapshots; exit codes | Using `kapto package lint` as a CI gate in a robot-packages repo |
-| M8-04 `feat(docker): one-command demo with uploads` | One Compose command running `kapto demo` (which has the synthetic wrist camera beside the sample arm) with RustFS from the `storage` profile, and episodes uploaded to it (DCK-1) | **E2E**: `compose up` → Playwright opens URL → arm moving (API) → record → episode on volume | The steps a new user follows |
 | M8-05 `test(e2e): third-party urdf over udp` | `docker run -v ./robot:/robot -e KAPTO_URDF=…` with a third-party URDF and loadgen mapped to it | E2E | Exit: MVP demo both ways |
 
 The demo is `kapto demo`: `kapto serve` with the synthetic robot inside it, one command with Cargo or `docker run`. Compose holds what runs beside Kapto: storage for uploads, UI development, ROS 2.
@@ -952,9 +951,8 @@ reference.
 
 1. The cameras: M6b-04b (capture's CPU with ROS 2 cameras, not reproduced
    in later runs; measured on the reference PC).
-2. The one-command demo with uploads to RustFS: M8-04.
-3. The worker noticing when an episode ends: M5-08j.
-4. Zenoh made solid with cameras: messages a run never received, counted
+2. The worker noticing when an episode ends: M5-08j.
+3. Zenoh made solid with cameras: messages a run never received, counted
    (M6-05f), and its cost brought to DDS's (M6-05d).
 
 The other work packages wait until then; M6-08 and M5-07c when there is
