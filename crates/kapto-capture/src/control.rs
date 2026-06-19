@@ -723,7 +723,8 @@ pub struct ControlClient {
 
 impl ControlClient {
     /// Connects to the capture process listening on `path` and says hello.
-    /// Each answer is waited for at most `timeout`.
+    /// Each request is written, and each answer waited for, within
+    /// `timeout`.
     ///
     /// # Errors
     ///
@@ -739,6 +740,7 @@ impl ControlClient {
         let writer = UnixStream::connect(path).map_err(unreachable)?;
         writer
             .set_read_timeout(Some(timeout))
+            .and_then(|()| writer.set_write_timeout(Some(timeout)))
             .map_err(unreachable)?;
         let reader = BufReader::new(writer.try_clone().map_err(unreachable)?);
         let mut client = Self { reader, writer };

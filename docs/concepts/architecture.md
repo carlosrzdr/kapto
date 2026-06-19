@@ -592,7 +592,10 @@ jobs use the CPU and the disk only when capture and the rest don't. While
 capture records an episode, the worker waits (`worker.pause_while_recording`,
 on by default): `wrk-watch` asks capture once a second whether it is
 recording, `wrk-sched` starts no job meanwhile, and a job being done waits
-at its next step, e.g. between two chunks of a file it checks. Stopped with
+at its next step, e.g. between two chunks of a file it checks. Capture's
+answer that it is recording holds the worker for three seconds at most, so
+a watch held up anywhere (capture not answering, a connection stuck) never
+holds the worker up with it. Stopped with
 SIGTERM (as serve does when it stops), the worker stops a job at its next
 step and gives it back (`released`): queued again without counting as an
 attempt, so only a worker that dies uses up `worker.max_attempts`. A

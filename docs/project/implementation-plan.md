@@ -639,7 +639,6 @@ need, without ever costing capture anything. The views are Kapto's own
 | M5-03 `test(fault): power-cut VM job` | Nightly QEMU job: record, hard reset, verify loss ≤ fsync window | Nightly result | How the durability claim is proven |
 | M5-07b `feat(server): resource history` | Each process's CPU and memory samples kept in SQLite runtime state (after M5-08), and shown in the web UI over time and for the span of any episode; never written into `episode.json` or the manifest, which hold only what was recorded (EFF-8) | Samples survive a restart of serve; an episode's span shows the samples taken during it; old samples are removed past the retention limit | **Open question:** how long samples are kept and at what resolution (e.g. one a second for a day, then thinned), as settings with defaults |
 | M5-07c `refactor(server): the API in files by area` | `crates/kapto-server/src/api.rs` (about 1,700 lines) split into a module per area (status and processes, episodes, replays and cameras, profiles and tasks, uploads, settings), the router and `Failure` kept together; its tests (about 2,800 lines) split the same way with their shared helpers in one place. Behaviour unchanged | The existing tests, unchanged but moved; the OpenAPI document regenerated identical | — |
-| M5-08j `fix(worker): learning that an episode ended` | Once in four runs of `cargo xtask ui screenshots`: the worker logged `waiting while an episode is recorded` and never `carrying on` once the episode ended, so it never verified, checked or uploaded it, and the screenshots timed out waiting for it to be checked. `wrk-watch` asks capture's control socket once a second with a 1 s read timeout, and a timed-out answer would itself have logged `carrying on`; where it was held (connecting, writing, the scheduler rather than the watch) isn't known yet. Find it, e.g. with a write timeout and a log of each watch failure, and a test that holds capture's control socket mid-answer | The worker carries on within seconds of an episode ending whatever capture's socket does; fails without | — |
 | M5-08i `perf(worker): job costs in profile traces` (with the profiling tooling) | Per-job spans in `profiling` builds so `profile trace` reports a cost per episode-minute for each job kind (PROF-4 worker part) | `profile trace` on a scenario reports a cost per episode-minute for each job kind | — |
 | M5-09 `test(fault): isolation suite` | NFR-1 fault injection for worker, server, bridge; a small tmpfs filled during an episode, which capture finalises before it is full and never leaves corrupt (the disk limits of M5-06, there tested with configured limits and a pretend disk) | Fault suite | Exit: power-cut and kill -9 lose ≤ fsync window; disk-full ends clean |
 
@@ -951,8 +950,7 @@ reference.
 
 1. The cameras: M6b-04b (capture's CPU with ROS 2 cameras, not reproduced
    in later runs; measured on the reference PC).
-2. The worker noticing when an episode ends: M5-08j.
-3. Zenoh made solid with cameras: messages a run never received, counted
+2. Zenoh made solid with cameras: messages a run never received, counted
    (M6-05f), and its cost brought to DDS's (M6-05d).
 
 The other work packages wait until then; M6-08 and M5-07c when there is

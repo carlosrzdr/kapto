@@ -16,7 +16,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
@@ -343,7 +343,7 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     if let Err(error) = priority::lower() {
         eprintln!("[worker] runs at normal priority: can't lower it: {error}");
     }
-    let recording = Arc::new(AtomicBool::new(false));
+    let recording = Arc::new(Recording::new());
     let upload_pauses = deployment.upload.pause_while_recording.value;
     if deployment.worker_pause_while_recording.value
         || (upload_pauses && !deployment.upload_destinations.is_empty())
@@ -417,7 +417,7 @@ fn upload_lane(
     data_dir: &Path,
     destinations: Vec<UploadDestination>,
     pause: bool,
-    (shutdown, recording, ended): (Arc<AtomicBool>, Arc<AtomicBool>, Arc<AtomicBool>),
+    (shutdown, recording, ended): (Arc<AtomicBool>, Arc<Recording>, Arc<AtomicBool>),
 ) -> Outcome<thread::JoinHandle<()>> {
     let data_dir = data_dir.to_owned();
     thread::Builder::new()
@@ -449,24 +449,101 @@ impl Drop for EndsWorker<'_> {
     }
 }
 
-/// `wrk-watch`: asks capture once a second whether it is recording an
-/// episode, and sets `recording` while it is. Capture not answering counts
-/// as not recording: the worker doesn't wait on a capture process that
-/// isn't there.
-fn watch(socket: &Path, recording: &AtomicBool, shutdown: &AtomicBool) {
-    let mut capture: Option<ControlClient> = None;
-    while !shutdown.load(Ordering::Relaxed) {
-        if capture.is_none() {
-            capture = ControlClient::connect(socket, WAIT).ok();
+/// How long capture's answer that it is recording counts: past it, the
+/// worker carries on as if capture weren't recording, so a watch held up
+/// anywhere never holds the worker up with it. The watch asks once a
+/// second.
+const FRESH: Duration = Duration::from_secs(3);
+
+/// Whether capture is recording an episode, as `wrk-watch` last heard it:
+/// what the worker pauses for while it is so, and for [`FRESH`] at most
+/// after the last answer saying so.
+#[derive(Debug)]
+pub(crate) struct Recording {
+    since: Instant,
+    /// What capture last answered.
+    said: AtomicBool,
+    /// When it was last heard, in milliseconds after `since`.
+    heard_ms: AtomicU64,
+}
+
+impl Recording {
+    pub(crate) fn new() -> Self {
+        Self {
+            since: Instant::now(),
+            said: AtomicBool::new(false),
+            heard_ms: AtomicU64::new(0),
         }
-        let answer = capture.as_mut().map(|client| client.ask(&Request::Status));
-        let now = if let Some(Ok(Response::Status(status))) = answer {
-            status.episode.is_some()
-        } else {
-            capture = None;
-            false
+    }
+
+    /// Capture just answered `recording`; returns what it answered before.
+    pub(crate) fn heard(&self, recording: bool) -> bool {
+        self.heard_at(self.since.elapsed(), recording)
+    }
+
+    fn heard_at(&self, at: Duration, recording: bool) -> bool {
+        self.heard_ms.store(
+            u64::try_from(at.as_millis()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
+        self.said.swap(recording, Ordering::Relaxed)
+    }
+
+    /// Whether the worker waits now: capture said it is recording, less
+    /// than [`FRESH`] ago.
+    pub(crate) fn now(&self) -> bool {
+        self.now_at(self.since.elapsed())
+    }
+
+    fn now_at(&self, at: Duration) -> bool {
+        let heard = Duration::from_millis(self.heard_ms.load(Ordering::Relaxed));
+        self.said.load(Ordering::Relaxed) && at.saturating_sub(heard) < FRESH
+    }
+}
+
+/// `wrk-watch`: asks capture once a second whether it is recording an
+/// episode, and says so to `recording`. Capture not answering counts as
+/// not recording: the worker doesn't wait on a capture process that isn't
+/// there. The first failure after answers is logged with why.
+fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool) {
+    let mut capture: Option<ControlClient> = None;
+    let mut failing = false;
+    while !shutdown.load(Ordering::Relaxed) {
+        let answer = match capture.take() {
+            Some(client) => Ok(client),
+            None => ControlClient::connect(socket, WAIT),
+        }
+        .and_then(|mut client| {
+            let answer = client.ask(&Request::Status);
+            capture = Some(client);
+            answer
+        });
+        let now = match answer {
+            Ok(Response::Status(status)) => {
+                failing = false;
+                status.episode.is_some()
+            }
+            Ok(other) => {
+                capture = None;
+                if !failing {
+                    eprintln!("[worker] capture answered its status with {other:?}");
+                }
+                failing = true;
+                false
+            }
+            Err(error) => {
+                capture = None;
+                if !failing {
+                    eprintln!(
+                        "[worker] can't ask capture whether it records: {}",
+                        error.message()
+                    );
+                }
+                failing = true;
+                false
+            }
         };
-        if now != recording.swap(now, Ordering::Relaxed) {
+        if now != recording.heard(now) {
             if now {
                 eprintln!("[worker] waiting while an episode is recorded");
             } else {
@@ -481,7 +558,7 @@ fn watch(socket: &Path, recording: &AtomicBool, shutdown: &AtomicBool) {
 fn work(
     data_dir: &Path,
     jobs: &[Box<dyn Job>],
-    (recording, shutdown): (&AtomicBool, &AtomicBool),
+    (recording, shutdown): (&Recording, &AtomicBool),
     ordered: &Receiver<JobOrder>,
     ended: &Sender<(JobId, Result<Done, KaptoError>)>,
 ) {
@@ -497,12 +574,12 @@ fn work(
 /// Between two steps of a job: waits while an episode is recorded, and
 /// stops the job with `worker.job_stopped` once the worker is stopping, so
 /// it can be given back rather than cut off.
-fn step(recording: &AtomicBool, shutdown: &AtomicBool) -> Result<(), KaptoError> {
+fn step(recording: &Recording, shutdown: &AtomicBool) -> Result<(), KaptoError> {
     loop {
         if shutdown.load(Ordering::Relaxed) {
             return Err(KaptoError::new(ErrorCode::WorkerJobStopped));
         }
-        if !recording.load(Ordering::Relaxed) {
+        if !recording.now() {
             return Ok(());
         }
         thread::sleep(POLL);
@@ -559,7 +636,7 @@ impl Cache<'_> {
 /// each replay is made, and every [`TRIM_EVERY`] meanwhile.
 fn schedule(
     cache: &Cache<'_>,
-    (shutdown, recording): (&AtomicBool, &AtomicBool),
+    (shutdown, recording): (&AtomicBool, &Recording),
     orders: &Sender<JobOrder>,
     results: &Receiver<(JobId, Result<Done, KaptoError>)>,
 ) {
@@ -592,7 +669,7 @@ fn schedule(
         };
         // Uploads are the upload lane's. While an episode is recorded only
         // deleting goes on: it gives a recording the disk is low for room.
-        let asked = if recording.load(Ordering::Relaxed) {
+        let asked = if recording.now() {
             client.next_job_of(&[DELETE])
         } else {
             client.next_job_except(&[UPLOAD])
@@ -689,13 +766,27 @@ mod tests {
 
     #[test]
     fn a_job_waits_between_steps_while_recording_and_stops_once_the_worker_stops() {
-        let (recording, shutdown) = (AtomicBool::new(false), AtomicBool::new(false));
+        let (recording, shutdown) = (Recording::new(), AtomicBool::new(false));
         assert!(step(&recording, &shutdown).is_ok());
         // Stopping wins over waiting: a paused job is given back too.
-        recording.store(true, Ordering::Relaxed);
+        recording.heard(true);
         shutdown.store(true, Ordering::Relaxed);
         let stopped = step(&recording, &shutdown).unwrap_err();
         assert_eq!(stopped.code(), ErrorCode::WorkerJobStopped);
+    }
+
+    #[test]
+    fn capture_recording_holds_the_worker_only_while_the_answer_saying_so_is_fresh() {
+        let recording = Recording::new();
+        assert!(!recording.now_at(Duration::ZERO), "nothing heard yet");
+        recording.heard_at(Duration::from_secs(10), true);
+        assert!(recording.now_at(Duration::from_secs(12)));
+        // The watch heard nothing more, wherever it is held: carry on.
+        assert!(!recording.now_at(Duration::from_secs(13)));
+        recording.heard_at(Duration::from_secs(14), true);
+        assert!(recording.now_at(Duration::from_secs(14)));
+        recording.heard_at(Duration::from_secs(15), false);
+        assert!(!recording.now_at(Duration::from_secs(15)));
     }
 
     #[test]

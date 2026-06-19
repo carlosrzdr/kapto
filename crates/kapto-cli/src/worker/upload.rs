@@ -42,7 +42,7 @@ pub(super) fn lane(
     data_dir: &Path,
     destinations: &[UploadDestination],
     pause: bool,
-    (shutdown, recording): (&AtomicBool, &AtomicBool),
+    (shutdown, recording): (&AtomicBool, &super::Recording),
 ) {
     // Timers for the waits between tries, and the network for the stores.
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -57,7 +57,8 @@ pub(super) fn lane(
             return;
         }
     };
-    let never = AtomicBool::new(false);
+    // Never heard to be recording, so never waited for.
+    let never = super::Recording::new();
     let pausing = if pause { recording } else { &never };
     let mut between = || step(pausing, shutdown);
     let socket = data_dir.join(JOB_SOCKET);
@@ -70,7 +71,7 @@ pub(super) fn lane(
             }
             continue;
         };
-        if pause && recording.load(Ordering::Relaxed) {
+        if pause && recording.now() {
             wait(POLL, shutdown);
             continue;
         }
