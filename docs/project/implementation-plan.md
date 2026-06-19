@@ -655,7 +655,8 @@ thread and hands batches to the same capture queues as UDP.
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M6-05d `perf(transport): ros 2 over zenoh at the cost of dds` | Recording the reference load as ROS 2 topics with two 1080p cameras took 0.74 cores over `rmw_zenoh_cpp` in six runs, against 0.55–0.58 over Cyclone DDS and Fast DDS, for the same work. Measure where it goes (`cap-rx-ros2`, the middleware's threads, the cameras' receivers) in repeated runs of `bench ros2 --cameras 2` over each middleware, and bring Zenoh to DDS's cost: its session settings (shared memory, batching, the router or peer mode), how Kapto takes messages, or both. If Zenoh can't be made solid beside DDS, say what supporting it alone would take | `bench ros2 --cameras 2` over Zenoh within 10 % of the DDS middlewares' CPU, with every message written, in ten runs each | Recording a Zenoh robot with cameras |
+| M6-05d `perf(transport): ros 2 over zenoh at the cost of dds` | Recording the reference load as ROS 2 topics with two 1080p cameras costs more over `rmw_zenoh_cpp` than over DDS, every target met over each: in 20 runs each (`bench ros2 --cameras 2`), 0.73–0.74 cores over Zenoh against 0.55–0.56 over Cyclone DDS and 0.59–0.60 over Fast DDS. Where it goes: Zenoh's receive threads (`rx-*`) take about 0.30 cores against DDS's 0.22–0.24; Kapto's receiver hands over 23 % more batches (615 a second against 500, 52 messages each against a full 64), as Zenoh delivers in bursts that end the 2 ms batch wait early, which the writer and the viewer tap pay for per batch; and the machine runs about 25 % slower (1.53 GHz against 2.1–2.6), busier with Zenoh's own threads, so the same work costs more. In cycles (cores × clock) Zenoh costs 7–14 % more than Cyclone DDS. Shared memory (`ZENOH_CONFIG_OVERRIDE='transport/shared_memory/enabled=true'`) changed nothing in ten runs (0.74). Left: batches that stay full over Zenoh (taking what Zenoh has delivered before ending a batch, or a batch wait of Zenoh's burst length), and the session's tuning (batching, the receive threads' count) measured the same way; dropping DDS isn't called for, as it costs less | `bench ros2 --cameras 2` over Zenoh within 10 % of Cyclone DDS's cycles, every message written, in ten runs each | Recording a Zenoh robot with cameras |
+| M6-05f `fix(capture): messages a zenoh run never received, counted` | In one of 15 `bench ros2 --cameras 2` runs over Zenoh, 68 of 1,927,440 messages sent were never written, with none dropped and none counted lost: messages that never arrive at the start (before a subscription matches) or the end leave no silence for the loss detectors. Find which stream and where, with the benchmark reporting each stream's sent and written counts, and count such messages as lost where they can be known (a sequence number's first value, a ROS 2 publisher's own count) | `bench ros2` reports each stream's counts; over Zenoh in ten runs, every message sent is written or counted | — |
 | M6-08 `feat(cli): kapto topics --streams` | The topics found, printed as `streams.toml` declarations to paste and complete (`ros2`, the type, a `rate_hz` measured over the wait) | Snapshot of the printed declarations in the ROS image | — |
 
 ### WP M6b: Cameras
@@ -955,7 +956,8 @@ reference.
    failing now and then).
 2. The one-command demo with uploads to RustFS: M8-04.
 3. The worker noticing when an episode ends: M5-08j.
-4. Zenoh made solid with cameras: its cost brought to DDS's (M6-05d).
+4. Zenoh made solid with cameras: messages a run never received, counted
+   (M6-05f), and its cost brought to DDS's (M6-05d).
 
 The other work packages wait until then; M6-08 and M5-07c when there is
 room.
