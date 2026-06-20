@@ -142,25 +142,35 @@ fn a_cameras_frames_reach_the_viewer_at_the_cap_each_as_recorded() {
     let shown = reading.join().unwrap();
 
     assert_eq!(recorded.len(), 60 * 3, "every frame recorded");
-    // At most fifteen a second of the sixty sent, and nearly all of those.
+    // What the summary says became of the frames offered: each sent (and
+    // read here), replaced by a newer one while this reader was slow, or
+    // skipped; a slow viewer losing frames is how the live view works.
+    let line = summary
+        .lines()
+        .find(|line| line.starts_with("Live view of front_camera: "))
+        .unwrap_or_else(|| panic!("{summary}"));
+    let numbers: Vec<usize> = line
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|word| !word.is_empty())
+        .map(|word| word.parse().unwrap())
+        .collect();
+    let [sent, offered, replaced, skipped, ..] = numbers[..] else {
+        panic!("{line}");
+    };
+    assert_eq!(sent, shown.len(), "{line}");
+    assert_eq!(sent + replaced + skipped, offered, "{line}");
+    // Never more offered than fifteen a second of the sixty sent. How close
+    // to fifteen depends on the machine: a writer held up longer than two
+    // frames' time starts the cap's schedule again, as it must rather than
+    // catch up in a burst. That rate is checked with simulated times in
+    // `tap::frames`; here, only that frames keep coming.
     let cap = 15 * usize::try_from(SECONDS).unwrap();
-    assert!(
-        (cap - 3..=cap + 1).contains(&shown.len()),
-        "{} frames shown",
-        shown.len()
-    );
+    let seconds = usize::try_from(SECONDS).unwrap();
+    assert!((seconds..=cap + 1).contains(&offered), "{line}");
     for (stream, frame) in &shown {
         assert_eq!(*stream, 0);
         assert!(recorded.contains(frame), "a frame shown wasn't recorded");
     }
-    assert!(
-        summary.contains(&format!(
-            "Live view of front_camera: {} of {} frames offered sent to the viewer",
-            shown.len(),
-            shown.len()
-        )),
-        "{summary}"
-    );
 }
 
 #[test]
