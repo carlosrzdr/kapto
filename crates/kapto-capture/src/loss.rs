@@ -19,7 +19,7 @@ mod rate;
 mod sequence;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use kapto_core::{RecvTime, StreamId};
 use kapto_store::{LossDetectionKind, StreamSummary};
@@ -55,6 +55,8 @@ pub struct StreamTotals {
     pub dropped_by_us: u64,
     /// Messages the source sent that never reached Kapto.
     pub lost_upstream: u64,
+    /// Whether its publishers' own counts counted that loss.
+    pub counted_by_publishers: bool,
 }
 
 impl StreamTotals {
@@ -65,6 +67,7 @@ impl StreamTotals {
             id: id.to_string(),
             loss_detection: match detection {
                 LossDetection::Sequence(_) => LossDetectionKind::Sequence,
+                _ if self.counted_by_publishers => LossDetectionKind::PublisherCount,
                 LossDetection::RateGap(_) => LossDetectionKind::RateGap,
                 LossDetection::Undetectable => LossDetectionKind::Undetectable,
             },
@@ -86,6 +89,7 @@ struct StreamCounters {
     written: AtomicU64,
     dropped_by_us: AtomicU64,
     lost_upstream: AtomicU64,
+    counted_by_publishers: AtomicBool,
 }
 
 /// Every stream's counters, shared by the threads that update them and
@@ -115,6 +119,7 @@ impl LossCounters {
                 written: counters.written.load(Ordering::Relaxed),
                 dropped_by_us: counters.dropped_by_us.load(Ordering::Relaxed),
                 lost_upstream: counters.lost_upstream.load(Ordering::Relaxed),
+                counted_by_publishers: counters.counted_by_publishers.load(Ordering::Relaxed),
             })
     }
 
@@ -349,6 +354,9 @@ impl Accounting {
         for ((counters, detector), published) in streams {
             let by_publishers = if numbered { published.take() } else { None };
             if let Some(lost) = by_publishers {
+                counters
+                    .counted_by_publishers
+                    .store(true, Ordering::Relaxed);
                 // A late message takes back loss counted earlier, as for
                 // sequence numbers: added as two's complement.
                 counters
@@ -531,6 +539,23 @@ mod tests {
         );
         accounting.count(&numbered(&[Some((0, 3)), Some((0, 5))], 2));
         assert_eq!(counters.totals(0).lost_upstream, 0);
+    }
+
+    #[test]
+    fn a_stream_counted_by_its_publishers_says_so_in_its_summary() {
+        let (counters, mut accounting) =
+            one_stream(LossDetection::RateGap(RateGap::for_rate(2_000)));
+        let rate = LossDetection::RateGap(RateGap::for_rate(2_000));
+        let id: StreamId = "arm".parse().unwrap();
+        assert_eq!(
+            counters.totals(0).summary(&id, &rate).loss_detection,
+            LossDetectionKind::RateGap
+        );
+        accounting.count(&numbered(&[Some((0, 1)), Some((0, 2))], 0));
+        assert_eq!(
+            counters.totals(0).summary(&id, &rate).loss_detection,
+            LossDetectionKind::PublisherCount
+        );
     }
 
     #[test]

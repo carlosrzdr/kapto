@@ -376,6 +376,10 @@ pub enum LossDetectionKind {
     RateGap,
     /// Not at all: `lost_upstream` is always 0 and says nothing.
     Undetectable,
+    /// From gaps in its publishers' own counts of their messages, which a
+    /// ROS 2 middleware gives with each (Fast DDS and Zenoh do): exact for
+    /// every message after the first received.
+    PublisherCount,
 }
 
 impl ClockSummary {

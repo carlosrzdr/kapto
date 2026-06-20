@@ -102,7 +102,9 @@ its publisher's count of it (Fast DDS and Zenoh do, Cyclone DDS doesn't),
 a stream's loss is counted by those counts instead, each publisher's on its
 own: every number skipped is a message lost on the way, however short the
 gap, which a rate can't tell from jitter, and a publisher pausing loses
-nothing. A stream with neither
+nothing; `episode.json` names such a stream's detection `publisher_count`.
+What a publisher sent before Kapto's subscription matched it can't be
+counted: its first number seen tells nothing of that. A stream with neither
 can't tell its upstream loss, and its counter stays at zero.
 
 The writer thread stores what it takes from the rings in an **MCAP**

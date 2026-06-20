@@ -298,6 +298,11 @@ than it knows treats the file as unreadable rather than guess.
           "description": "Not at all: `lost_upstream` is always 0 and says nothing.",
           "type": "string",
           "const": "undetectable"
+        },
+        {
+          "description": "From gaps in its publishers' own counts of their messages, which a\nROS 2 middleware gives with each (Fast DDS and Zenoh do): exact for\nevery message after the first received.",
+          "type": "string",
+          "const": "publisher_count"
         }
       ]
     },

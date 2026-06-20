@@ -101,6 +101,7 @@
   const detection: Record<string, string> = {
     sequence: "sequence numbers",
     rate_gap: "silences (estimate)",
+    publisher_count: "publishers' counts",
     undetectable: "not detectable",
   };
 </script>

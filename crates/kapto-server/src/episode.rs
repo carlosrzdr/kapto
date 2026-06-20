@@ -345,6 +345,7 @@ fn detail(
                     LossDetectionKind::Sequence => "sequence",
                     LossDetectionKind::RateGap => "rate_gap",
                     LossDetectionKind::Undetectable => "undetectable",
+                    LossDetectionKind::PublisherCount => "publisher_count",
                 }
                 .to_owned(),
                 received: stream.received,
