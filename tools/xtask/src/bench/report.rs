@@ -101,6 +101,8 @@ pub(crate) struct Measured {
     /// What the machine was doing meanwhile: the same work costs more on a
     /// slower clock, a hot CPU or a busy machine.
     pub(crate) machine: MachineMeasured,
+    /// Each stream's messages written, by its ID, in declaration order.
+    pub(crate) streams_written: Vec<(String, u64)>,
 }
 
 /// One target and whether it was met.
@@ -332,6 +334,7 @@ mod tests {
                 cpu_cores_peak: cores * 1.5,
                 threads: vec![("cap-rx-udp-0".to_owned(), cores * 0.6)],
                 memory_peak_mib: memory_mib,
+                streams_written: Vec::new(),
                 machine: MachineMeasured {
                     cpu_mhz_mean: Some(2_150.0),
                     cpu_mhz_lowest: Some(1_400.0),

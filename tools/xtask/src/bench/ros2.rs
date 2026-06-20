@@ -117,6 +117,38 @@ struct Ros2Report {
     report: Report,
     middleware: &'static str,
     bridge: BridgeMeasured,
+    /// Each stream: what the synthetic robot sent on it and what was written.
+    streams: Vec<StreamCounted>,
+}
+
+/// One stream's messages, sent and written.
+#[derive(Serialize)]
+struct StreamCounted {
+    stream: String,
+    sent: u64,
+    written: u64,
+}
+
+/// Each stream's messages sent and written: every joint topic was sent the
+/// same share of `joints_sent`, every camera the same of `camera_frames`.
+fn counted(written: &[(String, u64)], joints_sent: u64, camera_frames: u64) -> Vec<StreamCounted> {
+    let cameras = written
+        .iter()
+        .filter(|(id, _)| id.starts_with("camera_"))
+        .count() as u64;
+    let joints = written.len() as u64 - cameras;
+    written
+        .iter()
+        .map(|(id, written)| StreamCounted {
+            stream: id.clone(),
+            sent: if id.starts_with("camera_") {
+                camera_frames / cameras.max(1)
+            } else {
+                joints_sent / joints.max(1)
+            },
+            written: *written,
+        })
+        .collect()
 }
 
 /// The live view's bridge, over the same seconds as recording.
@@ -129,7 +161,15 @@ struct BridgeMeasured {
 }
 
 impl Ros2Report {
-    fn new(mut report: Report, middleware: Middleware, bridge: BridgeMeasured) -> Self {
+    /// The report of a run in which the joint topics were sent `joints_sent`
+    /// messages and the cameras `camera_frames`.
+    fn new(
+        mut report: Report,
+        middleware: Middleware,
+        bridge: BridgeMeasured,
+        (joints_sent, camera_frames): (u64, u64),
+    ) -> Self {
+        let streams = counted(&report.measured.streams_written, joints_sent, camera_frames);
         // The robot is on this machine and every message it sent can be
         // counted, so anything counted lost before Kapto never was.
         let lost = report.measured.lost_upstream;
@@ -163,11 +203,35 @@ impl Ros2Report {
             report,
             middleware: middleware.name(),
             bridge,
+            streams,
         }
     }
 
     fn markdown(&self) -> String {
         let mut page = self.report.markdown();
+        let short: Vec<&StreamCounted> = self
+            .streams
+            .iter()
+            .filter(|stream| stream.written != stream.sent)
+            .collect();
+        if short.is_empty() {
+            page.push_str("\n## Each stream\n\nEvery stream wrote every message sent on it.\n");
+        } else {
+            page.push_str(
+                "\n## Each stream\n\nThe streams that didn't write every message sent on them:\n\n\
+                 | Stream | Sent | Written | Missing |\n|---|---|---|---|\n",
+            );
+            for stream in short {
+                let _ = writeln!(
+                    page,
+                    "| `{}` | {} | {} | {} |",
+                    stream.stream,
+                    stream.sent,
+                    stream.written,
+                    i128::from(stream.sent) - i128::from(stream.written)
+                );
+            }
+        }
         let bridge = &self.bridge;
         let _ = write!(
             page,
@@ -293,6 +357,7 @@ fn measure_load(root: &Path, args: &Ros2Args) -> Result<Ros2Report, String> {
     let _ = std::fs::remove_file(&tap_socket);
     let Sent {
         totals,
+        camera_frames,
         recording,
         bridge: bridged_samples,
     } = sent?;
@@ -335,7 +400,8 @@ fn measure_load(root: &Path, args: &Ros2Args) -> Result<Ros2Report, String> {
         load,
         measured(&work.join("data"), &recording)?,
     );
-    let report = Ros2Report::new(report, args.middleware, bridge);
+    let sent = (totals.sent - camera_frames, camera_frames);
+    let report = Ros2Report::new(report, args.middleware, bridge, sent);
     write_reports(
         &work,
         &serde_json::to_string_pretty(&report),
@@ -349,6 +415,8 @@ fn measure_load(root: &Path, args: &Ros2Args) -> Result<Ros2Report, String> {
 /// over the same seconds.
 struct Sent {
     totals: GeneratorTotals,
+    /// Of `totals.sent`, the cameras' frames.
+    camera_frames: u64,
     recording: Vec<Sample>,
     bridge: Vec<Sample>,
 }
@@ -403,6 +471,7 @@ fn send(binaries: &Path, args: &Ros2Args, pid: u32, bridge_pid: u32) -> Result<S
         Some(totals) if status.success() => totals,
         _ => return Err(format!("the load generator failed: {printed:#?}")),
     };
+    let mut camera_frames = 0;
     if let Some((mut started, reader, lines, mut printed)) = cameras {
         let status = started.wait().map_err(|error| error.to_string())?;
         let _ = reader.join();
@@ -419,6 +488,7 @@ fn send(binaries: &Path, args: &Ros2Args, pid: u32, bridge_pid: u32) -> Result<S
             ));
         }
         totals.sent += sent.sent;
+        camera_frames = sent.sent;
     }
     if !totals.kept_up() {
         // The seconds it fell behind in, to tell a slow start from a stall.
@@ -434,6 +504,7 @@ fn send(binaries: &Path, args: &Ros2Args, pid: u32, bridge_pid: u32) -> Result<S
     }
     Ok(Sent {
         totals,
+        camera_frames,
         recording,
         bridge,
     })
@@ -633,6 +704,7 @@ mod tests {
                 threads: Vec::new(),
                 memory_peak_mib: 100.0,
                 machine: measure::MachineMeasured::default(),
+                streams_written: Vec::new(),
             },
         );
         let delay_ms = delay.map(|p95| Delays {
@@ -649,6 +721,7 @@ mod tests {
                 frames: usize::from(delay.is_some()),
                 delay_ms,
             },
+            (0, 0),
         )
     }
 
@@ -680,5 +753,37 @@ mod tests {
         assert!(environment_variable("1BAD=x").is_err());
         assert!(environment_variable("A B=x").is_err());
         assert_eq!(quoted("A=it's"), "'A=it'\\''s'");
+    }
+
+    #[test]
+    fn each_stream_is_held_to_its_share_of_what_was_sent_and_a_short_one_is_named() {
+        let written = [
+            ("joints_0".to_owned(), 100),
+            ("joints_1".to_owned(), 98),
+            ("camera_0".to_owned(), 60),
+            ("camera_1".to_owned(), 57),
+        ];
+        let sent: Vec<u64> = counted(&written, 200, 120)
+            .iter()
+            .map(|stream| stream.sent)
+            .collect();
+        assert_eq!(sent, [100, 100, 60, 60]);
+        let mut measured = report(0.5, 0.2, None).report;
+        measured.measured.streams_written = written.to_vec();
+        let page = Ros2Report::new(
+            measured,
+            Middleware::Zenoh,
+            BridgeMeasured {
+                cpu_cores_mean: 0.1,
+                memory_peak_mib: 50.0,
+                frames: 0,
+                delay_ms: None,
+            },
+            (200, 120),
+        )
+        .markdown();
+        assert!(page.contains("| `joints_1` | 100 | 98 | 2 |"), "{page}");
+        assert!(page.contains("| `camera_1` | 60 | 57 | 3 |"), "{page}");
+        assert!(!page.contains("| `joints_0`"), "{page}");
     }
 }

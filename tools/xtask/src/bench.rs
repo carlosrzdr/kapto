@@ -668,6 +668,11 @@ fn measured(data: &Path, samples: &[Sample]) -> Result<Measured, String> {
         threads: threads.into_iter().collect(),
         memory_peak_mib: last.peak_rss_kib as f64 / 1024.0,
         machine: measure::machine_between(samples),
+        streams_written: episode
+            .streams
+            .iter()
+            .map(|stream| (stream.id.clone(), stream.written))
+            .collect(),
     })
 }
 
