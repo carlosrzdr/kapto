@@ -261,6 +261,7 @@ List the ROS 2 topics this machine's ROS 2 network has, with their message types
 | Option | Description |
 |---|---|
 | `--wait <SECONDS>` | Seconds to wait for publishers to announce themselves before listing their topics |
+| `--streams <STREAMS>` | Print each topic as a `streams.toml` declaration, with the rate it published at while Kapto listened (another --wait seconds), and the largest message seen where that is larger than the default |
 
 ## `kapto export`
 

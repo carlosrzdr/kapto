@@ -59,6 +59,20 @@ List what the robot publishes, with each topic's type:
 docker run --rm --network host kapto-ros2:dev topics
 ```
 
+Or have them written as the declarations below, to paste into
+`streams.toml` and complete: each topic as a stream, with the rate it
+published at while Kapto listened, and room for its largest message when
+that is larger than the default (a camera's frames):
+
+```sh
+docker run --rm --network host kapto-ros2:dev topics --streams --wait 5
+```
+
+It finds the topics for five seconds and listens to them for five more. A
+topic that published nothing meanwhile, or whose type isn't installed in
+the image, says so in a comment instead of a rate; ROS 2's own topics
+(`/rosout`, `/parameter_events`) are left out.
+
 ## Declare them in a package
 
 A robot package declares each topic as a stream in its `streams.toml`,
