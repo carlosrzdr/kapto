@@ -4,11 +4,20 @@
 //! or done, and one episode's uploads with where every object of it went
 //! and whether it is still stored here.
 
+use std::sync::Arc;
+
+use axum::Json;
+use axum::extract::State;
+use axum::http::StatusCode;
+use kapto_core::{ErrorCode, KaptoError};
 use kapto_store::{Deletion, JobState, Reader, Upload, UploadState};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::episode;
 use crate::jobs::UPLOAD;
+
+use super::{ApiError, ApiState, Failure};
 
 /// A destination episodes are uploaded to, as `[[upload.destination]]`
 /// names it.
@@ -157,7 +166,7 @@ pub struct UploadsRetried {
 pub fn overview(
     reader: &Reader,
     destinations: &[UploadDestination],
-) -> Result<UploadsOverview, kapto_core::KaptoError> {
+) -> Result<UploadsOverview, KaptoError> {
     let all = reader.all_uploads()?;
     let mut statuses: Vec<DestinationStatus> = destinations
         .iter()
@@ -207,7 +216,7 @@ pub(crate) fn of_episode(
     reader: &Reader,
     episode: &str,
     stored_here: bool,
-) -> Result<EpisodeUploads, kapto_core::KaptoError> {
+) -> Result<EpisodeUploads, KaptoError> {
     let uploads = reader
         .uploads(episode)?
         .iter()
@@ -269,4 +278,136 @@ fn deletion(deletion: Deletion) -> EpisodeDeletion {
             .map(|copy| copy.destination)
             .collect(),
     }
+}
+
+/// Where uploads are: each destination's counts and every upload going or
+/// failed.
+#[utoipa::path(
+    get,
+    path = "/api/uploads",
+    responses(
+        (status = 200, body = UploadsOverview),
+        (status = 500, description = "The runtime state database can't be read", body = ApiError)
+    )
+)]
+pub(super) async fn upload_overview(
+    State(state): State<Arc<ApiState>>,
+) -> Result<Json<UploadsOverview>, Failure> {
+    let store = state.store.clone();
+    let destinations: Vec<UploadDestination> = state
+        .destinations
+        .iter()
+        .map(|destination| UploadDestination {
+            name: destination.name.clone(),
+            url: destination.url.clone(),
+        })
+        .collect();
+    tokio::task::spawn_blocking(move || overview(&store.reader()?, &destinations))
+        .await
+        .map_err(|error| {
+            Failure::from(KaptoError::new(ErrorCode::StoreQueryFailed).detail(error.to_string()))
+        })?
+        .map(Json)
+        .map_err(Failure::from)
+}
+
+/// One episode's uploads, where every object of it went, and whether it is
+/// still stored here.
+#[utoipa::path(
+    get,
+    path = "/api/episodes/{id}/uploads",
+    params(("id" = String, Path, description = "The episode's ID, as `/api/episodes` lists it.")),
+    responses(
+        (status = 200, body = EpisodeUploads),
+        (status = 400, description = "The ID isn't an episode ID", body = ApiError),
+        (status = 404, description = "No episode, here or deleted here, has this ID", body = ApiError)
+    )
+)]
+pub(super) async fn episode_uploads(
+    State(state): State<Arc<ApiState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<EpisodeUploads>, Failure> {
+    let (data_dir, store) = (state.data_dir.clone(), state.store.clone());
+    tokio::task::spawn_blocking(move || {
+        let reader = store.reader()?;
+        let here = episode::stored_here(&data_dir, &reader, &id)?;
+        of_episode(&reader, &id, here)
+    })
+    .await
+    .map_err(|error| {
+        Failure::from(KaptoError::new(ErrorCode::StoreQueryFailed).detail(error.to_string()))
+    })?
+    .map(Json)
+    .map_err(Failure::from)
+}
+
+/// Tests a destination as an upload would use it, as `kapto upload check`
+/// does: a small probe object written under its prefix, read back and
+/// removed.
+#[utoipa::path(
+    post,
+    path = "/api/uploads/destinations/{name}/test",
+    params(("name" = String, Path, description = "The destination's `name`, as `/api/uploads` lists it.")),
+    responses(
+        (status = 200, description = "Written, read back and, if the credentials allow, removed", body = DestinationTested),
+        (status = 404, description = "No destination has this name", body = ApiError),
+        (status = 409, description = "Its configuration or credentials can't be used", body = ApiError),
+        (status = 502, description = "It couldn't be reached, refused the probe, or gave back another one", body = ApiError)
+    )
+)]
+pub(super) async fn test_destination(
+    State(state): State<Arc<ApiState>>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<Json<DestinationTested>, Failure> {
+    let destination = state
+        .destinations
+        .iter()
+        .find(|destination| destination.name == name)
+        .ok_or_else(|| {
+            Failure::from(
+                KaptoError::new(ErrorCode::UploadNoDestination)
+                    .detail(format!("no `[[upload.destination]]` is named `{name}`")),
+            )
+        })?;
+    let started = std::time::Instant::now();
+    let probed = kapto_upload::probe::check(destination, &|name| std::env::var(name).ok())
+        .await
+        .map_err(|error| Failure::from(error.context("destination", name.clone())))?;
+    Ok(Json(DestinationTested {
+        key: probed.key,
+        removed: probed.removed,
+        took_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    }))
+}
+
+/// Tries an episode's failed uploads again now, without waiting for
+/// `upload.retry_failed_after`.
+#[utoipa::path(
+    post,
+    path = "/api/episodes/{id}/uploads/retry",
+    params(("id" = String, Path, description = "The episode's ID, as `/api/episodes` lists it.")),
+    responses(
+        (status = 202, description = "Queued: the upload lane takes them next", body = UploadsRetried),
+        (status = 400, description = "The ID isn't an episode ID", body = ApiError),
+        (status = 409, description = "None of its uploads failed", body = ApiError)
+    )
+)]
+pub(super) async fn retry_uploads(
+    State(state): State<Arc<ApiState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<(StatusCode, Json<UploadsRetried>), Failure> {
+    if kapto_store::episode_folder(&state.data_dir, &id).is_none() {
+        return Err(Failure::from(
+            KaptoError::new(ErrorCode::ApiInvalidRequest)
+                .detail(format!("`{id}` isn't an episode ID")),
+        ));
+    }
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || crate::jobs::retry_uploads(&store, &id))
+        .await
+        .map_err(|error| {
+            Failure::from(KaptoError::new(ErrorCode::StoreQueryFailed).detail(error.to_string()))
+        })?
+        .map(|destinations| (StatusCode::ACCEPTED, Json(UploadsRetried { destinations })))
+        .map_err(Failure::from)
 }

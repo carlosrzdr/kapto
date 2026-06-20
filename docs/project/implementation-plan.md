@@ -638,7 +638,6 @@ need, without ever costing capture anything. The views are Kapto's own
 | M5-01 `feat(capture): pre-roll and post-roll` | Bounded per-stream history kept while idle; spliced into episode at start; per-stream tail (CAP-7) | Pre-roll content equals last N s sent; memory bound | Memory budget declared at startup (PERF-5b). **Open question:** how pre-roll messages count in an episode's numbers and in `episode.json`: inside its counts, or as separate pre-roll and post-roll counts, and whether the episode's start time is the command or the first pre-roll message |
 | M5-03 `test(fault): power-cut VM job` | Nightly QEMU job: record, hard reset, verify loss ≤ fsync window | Nightly result | How the durability claim is proven |
 | M5-07b `feat(server): resource history` | Each process's CPU and memory samples kept in SQLite runtime state (after M5-08), and shown in the web UI over time and for the span of any episode; never written into `episode.json` or the manifest, which hold only what was recorded (EFF-8) | Samples survive a restart of serve; an episode's span shows the samples taken during it; old samples are removed past the retention limit | **Open question:** how long samples are kept and at what resolution (e.g. one a second for a day, then thinned), as settings with defaults |
-| M5-07c `refactor(server): the API in files by area` | `crates/kapto-server/src/api.rs` (about 1,700 lines) split into a module per area (status and processes, episodes, replays and cameras, profiles and tasks, uploads, settings), the router and `Failure` kept together; its tests (about 2,800 lines) split the same way with their shared helpers in one place. Behaviour unchanged | The existing tests, unchanged but moved; the OpenAPI document regenerated identical | — |
 | M5-08i `perf(worker): job costs in profile traces` (with the profiling tooling) | Per-job spans in `profiling` builds so `profile trace` reports a cost per episode-minute for each job kind (PROF-4 worker part) | `profile trace` on a scenario reports a cost per episode-minute for each job kind | — |
 | M5-09 `test(fault): isolation suite` | NFR-1 fault injection for worker, server, bridge; a small tmpfs filled during an episode, which capture finalises before it is full and never leaves corrupt (the disk limits of M5-06, there tested with configured limits and a pretend disk) | Fault suite | Exit: power-cut and kill -9 lose ≤ fsync window; disk-full ends clean |
 
@@ -949,7 +948,7 @@ reference.
    in later runs; measured on the reference PC).
 2. Zenoh made solid with cameras: its cost brought to DDS's (M6-05d).
 
-The other work packages wait until then; M5-07c when there is room.
+The other work packages wait until then.
 
 **Settled approaches** the work above builds on:
 

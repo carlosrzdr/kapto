@@ -32,7 +32,8 @@ use utoipa::openapi::RefOr;
 use utoipa::openapi::extensions::Extensions;
 use utoipa::openapi::schema::{ObjectBuilder, Schema, Type};
 
-use super::{ApiError, ApiState, Failure, Status, current_status};
+use super::status::current_status;
+use super::{ApiError, ApiState, Failure, Status};
 
 /// How often the capture process is asked.
 const POLL: Duration = Duration::from_millis(250);
@@ -569,4 +570,18 @@ mod tests {
             Some(r#"{"event":"episode_started","episode":"e"}"#)
         );
     }
+}
+
+/// Events as they happen, over a WebSocket. Each message is one `Event` as
+/// JSON. Connections from another site's web page are refused.
+#[utoipa::path(
+    get,
+    path = "/api/events",
+    responses(
+        (status = 101, description = "A WebSocket, on which each text message is one Event as JSON", body = Event),
+        (status = 403, description = "The request came from another site's page", body = ApiError)
+    )
+)]
+pub(super) async fn events(state: State<Arc<ApiState>>, request: Request) -> Response {
+    stream(state, request).await
 }
