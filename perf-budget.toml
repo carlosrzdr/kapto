@@ -43,6 +43,12 @@ per_message_ns = 60
 per_kib_ns = 50
 reason = "As accounting_rate_gap, reading each message's sending time to judge its stream's silences by when it was sent."
 
+[stage.accounting_rate_gap_numbered]
+per_batch_ns = 200
+per_message_ns = 80
+per_kib_ns = 50
+reason = "As accounting_rate_gap_stamped, following each message's publisher's count of it: a number skipped is a message lost."
+
 [stage.mcap_write_uncompressed]
 per_batch_ns = 1_000
 per_message_ns = 800

@@ -192,6 +192,14 @@ impl RateGapDetector {
         0
     }
 
+    /// Forgets the stream's messages so far, counting nothing: for when
+    /// something else counted them, so a later silence is measured from
+    /// the next message on.
+    pub fn forget(&mut self) {
+        self.last = None;
+        self.open = None;
+    }
+
     /// Counts the silence being settled now, if there is one, as of the
     /// last message seen: for when the stream's messages stop coming, as
     /// when the episode ends.

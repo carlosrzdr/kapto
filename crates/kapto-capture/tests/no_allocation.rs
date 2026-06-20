@@ -158,7 +158,7 @@ fn counting_received_and_lost_messages_never_allocates() {
     use std::sync::Arc;
 
     use kapto_capture::loss::{ByteOrder, RateGap, SequenceField, SequenceWidth};
-    use kapto_capture::{Accounting, Batch, LossCounters, LossDetection};
+    use kapto_capture::{Accounting, Batch, LossCounters, LossDetection, Publication};
     use kapto_core::RecvTime;
 
     let counters = Arc::new(LossCounters::new(2));
@@ -177,7 +177,13 @@ fn counting_received_and_lost_messages_never_allocates() {
             // Every tenth number goes missing, so gaps are counted too.
             number += if number.is_multiple_of(10) { 2 } else { 1 };
             batch.push(0, &number.to_le_bytes());
-            batch.push(1, &[0; 68]);
+            // The rate-gap stream's messages with their publishers' counts,
+            // from two publishers, as a ROS 2 middleware gives them.
+            let publication = Publication {
+                publisher: u8::from(number.is_multiple_of(2)),
+                number: u64::from(number),
+            };
+            batch.push_from_publisher(1, &[0; 68], 1 + round, publication);
         }
         batch.set_recv_time(RecvTime::from_nanos(round * 16_000_000));
     };
@@ -193,6 +199,10 @@ fn counting_received_and_lost_messages_never_allocates() {
     assert_eq!(allocations() - before, 0);
     assert_eq!(counters.totals(0).received, 10_000 * 32);
     assert!(counters.totals(0).lost_upstream > 0);
+    assert!(
+        counters.totals(1).lost_upstream > 0,
+        "counted by the publishers' numbers"
+    );
 }
 
 #[test]

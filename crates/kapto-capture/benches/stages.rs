@@ -24,8 +24,8 @@ use kapto_capture::loss::{ByteOrder, RateGap, SequenceField, SequenceWidth};
 use kapto_capture::tap::frames::{FrameConfig, frames};
 use kapto_capture::tap::{TapConfig, tap};
 use kapto_capture::{
-    Accounting, Batch, ChannelSpec, Compression, LossCounters, LossDetection, Recording,
-    RingConfig, StreamIndex, WriterConfig, ring,
+    Accounting, Batch, ChannelSpec, Compression, LossCounters, LossDetection, Publication,
+    Recording, RingConfig, StreamIndex, WriterConfig, ring,
 };
 use kapto_core::clock::monotonic_now;
 use kapto_core::{ClockMap, ClockSample, StreamId};
@@ -38,23 +38,41 @@ const SIZES: [usize; 3] = [68, 256, 1024];
 /// Streams the messages are spread over, as at the reference load.
 const STREAMS: u16 = 16;
 
+/// What each message of a benchmark's batch says besides its bytes.
+#[derive(Clone, Copy)]
+enum With {
+    Nothing,
+    /// When it was sent, as ROS 2 messages do.
+    SourceTime,
+    /// When it was sent and its publisher's count of it, as ROS 2 messages
+    /// do over Fast DDS and Zenoh.
+    Publication,
+}
+
 /// A batch of `messages` messages of `size` bytes, round-robin over the
 /// streams, each starting with its stream's next sequence number (u32, little
-/// endian) taken from `next_sequence`; if `stamped`, each saying when it was
-/// sent, as ROS 2 messages do.
-fn batch(messages: usize, size: usize, next_sequence: &mut [u32], stamped: bool) -> Batch {
+/// endian) taken from `next_sequence`, and saying what `with` says.
+fn batch(messages: usize, size: usize, next_sequence: &mut [u32], with: With) -> Batch {
     let mut batch = Batch::new(messages, size);
     let mut payload = vec![0_u8; size];
     for index in 0..messages {
         let stream = StreamIndex::try_from(index % usize::from(STREAMS)).unwrap();
         let sequence = &mut next_sequence[usize::from(stream)];
         payload[..4].copy_from_slice(&sequence.to_le_bytes());
-        if stamped {
-            let sent = u64::from(*sequence) * 500_000 + 1;
-            batch.push_with_source_time(stream, &payload, sent);
-        } else {
-            batch.push(stream, &payload);
-        }
+        let sent = u64::from(*sequence) * 500_000 + 1;
+        match with {
+            With::Nothing => batch.push(stream, &payload),
+            With::SourceTime => batch.push_with_source_time(stream, &payload, sent),
+            With::Publication => batch.push_from_publisher(
+                stream,
+                &payload,
+                sent,
+                Publication {
+                    publisher: 0,
+                    number: u64::from(*sequence) + 1,
+                },
+            ),
+        };
         *sequence = sequence.wrapping_add(1);
     }
     batch.set_recv_time(monotonic_now());
@@ -113,10 +131,11 @@ fn accounting(c: &mut Criterion) {
         byte_order: ByteOrder::Little,
     });
     let rate_gap = LossDetection::RateGap(RateGap::for_rate(2_000));
-    for (name, detection, stamped) in [
-        ("accounting_sequence", sequence, false),
-        ("accounting_rate_gap", rate_gap, false),
-        ("accounting_rate_gap_stamped", rate_gap, true),
+    for (name, detection, with) in [
+        ("accounting_sequence", sequence, With::Nothing),
+        ("accounting_rate_gap", rate_gap, With::Nothing),
+        ("accounting_rate_gap_stamped", rate_gap, With::SourceTime),
+        ("accounting_rate_gap_numbered", rate_gap, With::Publication),
     ] {
         let mut group = c.benchmark_group(name);
         for (messages, size) in grid() {
@@ -129,7 +148,7 @@ fn accounting(c: &mut Criterion) {
                 // A fresh batch each time, so sequence numbers keep rising as
                 // they do in a real recording; building it isn't timed.
                 b.iter_batched_ref(
-                    || batch(messages, size, &mut next_sequence, stamped),
+                    || batch(messages, size, &mut next_sequence, with),
                     |batch| accounting.count(batch),
                     BatchSize::SmallInput,
                 );
@@ -182,7 +201,7 @@ fn mcap_write(c: &mut Criterion) {
                 let mut recording = Some(open());
                 let mut written = 0;
                 let mut next_sequence = vec![0_u32; usize::from(STREAMS)];
-                let batch = batch(messages, size, &mut next_sequence, false);
+                let batch = batch(messages, size, &mut next_sequence, With::Nothing);
                 b.iter_custom(|iterations| {
                     let mut timed = Duration::ZERO;
                     for _ in 0..iterations {
@@ -236,7 +255,7 @@ fn tap_offer(c: &mut Criterion) {
                     feed.set_frames(frame_feed);
                 }
                 let mut next_sequence = vec![0_u32; usize::from(STREAMS)];
-                let batch = batch(messages, size, &mut next_sequence, false);
+                let batch = batch(messages, size, &mut next_sequence, With::Nothing);
                 b.iter_custom(|iterations| {
                     let mut timed = Duration::ZERO;
                     for _ in 0..iterations {

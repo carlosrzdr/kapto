@@ -97,7 +97,12 @@ messages it only delayed have had time to arrive (a second, or the stream's
 messages' sending times when they carry them (ROS 2's source timestamps),
 which a delay on the way doesn't move, and otherwise on their receive times;
 a sending time that jumps, as a source's clock being set does, starts the
-stream's count afresh. A stream with neither
+stream's count afresh. Over a ROS 2 middleware that gives each message
+its publisher's count of it (Fast DDS and Zenoh do, Cyclone DDS doesn't),
+a stream's loss is counted by those counts instead, each publisher's on its
+own: every number skipped is a message lost on the way, however short the
+gap, which a rate can't tell from jitter, and a publisher pausing loses
+nothing. A stream with neither
 can't tell its upstream loss, and its counter stays at zero.
 
 The writer thread stores what it takes from the rings in an **MCAP**

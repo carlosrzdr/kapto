@@ -294,8 +294,11 @@ more than three periods and the 2 ms a batch waits to fill: fewer can be a
 message arriving late in its batch, or the robot sending late and catching
 up. Silences are measured on when the messages were sent when every message
 says, as ROS 2's do, so a delay on the way that changes isn't taken for
-loss; otherwise on when they arrived. A middleware that holds messages
-back and delivers them in a burst, as ROS 2's can, then makes up for the
+loss; otherwise on when they arrived. A ROS 2 topic whose middleware gives
+each message its publisher's count of it (Fast DDS and Zenoh) is counted
+by those instead, every number skipped a message lost. A middleware that
+holds messages back and delivers them in a burst, as ROS 2's can, then
+makes up for the
 silence it caused, and loss shows up to that second late. `loss_settle_ms = 250` waits a quarter of a second instead; it
 is only for a stream with a rate and no sequence. With neither, upstream
 loss can't be detected.

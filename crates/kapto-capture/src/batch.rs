@@ -256,6 +256,12 @@ impl Batch {
         })
     }
 
+    /// Whether any message in it came with its publisher's count of it.
+    #[must_use]
+    pub fn has_publications(&self) -> bool {
+        self.any_publication
+    }
+
     /// Whether any message in it was given a source time.
     #[must_use]
     pub fn has_source_times(&self) -> bool {
