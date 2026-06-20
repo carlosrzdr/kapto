@@ -8,6 +8,17 @@ use kapto_core::RecvTime;
 /// list, small and copyable for the hot path.
 pub type StreamIndex = u16;
 
+/// Where a message stands in what its publisher sent: which of its
+/// stream's publishers sent it, and that publisher's count of it, from 1.
+/// A ROS 2 middleware may give it with every message.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Publication {
+    /// Which of the stream's publishers, in the order they were first heard.
+    pub publisher: u8,
+    /// The publisher's count of this message, from 1; 0 for none.
+    pub number: u64,
+}
+
 /// A fixed block of memory with room for `capacity` messages of up to
 /// `max_message_len` bytes each, plus each message's length, stream and
 /// source time, and one receive time for the whole batch.
@@ -25,6 +36,10 @@ pub struct Batch {
     /// so transports without source times never touch it.
     source_times: Box<[u64]>,
     any_source_time: bool,
+    /// Each message's place in what its publisher sent; a number of 0 for
+    /// none. Kept as the source times are, once a message has one.
+    publications: Box<[Publication]>,
+    any_publication: bool,
     max_message_len: usize,
     len: usize,
     recv_time: RecvTime,
@@ -40,6 +55,8 @@ impl Batch {
             streams: vec![0; capacity].into_boxed_slice(),
             source_times: vec![0; capacity].into_boxed_slice(),
             any_source_time: false,
+            publications: vec![Publication::default(); capacity].into_boxed_slice(),
+            any_publication: false,
             max_message_len,
             len: 0,
             recv_time: RecvTime::from_nanos(0),
@@ -111,6 +128,9 @@ impl Batch {
         if self.any_source_time {
             self.source_times[self.len] = 0;
         }
+        if self.any_publication {
+            self.publications[self.len] = Publication::default();
+        }
         self.len += 1;
     }
 
@@ -177,6 +197,42 @@ impl Batch {
         true
     }
 
+    /// Copies a message into the next free slot as
+    /// [`Batch::push_with_source_time`] does, with its place in what its
+    /// publisher sent.
+    pub fn push_from_publisher(
+        &mut self,
+        stream: StreamIndex,
+        message: &[u8],
+        source_time_ns: u64,
+        publication: Publication,
+    ) -> bool {
+        if !self.push_with_source_time(stream, message, source_time_ns) {
+            return false;
+        }
+        if !self.any_publication {
+            // The first in this batch, as for source times.
+            self.publications[..self.len].fill(Publication::default());
+            self.any_publication = true;
+        }
+        self.publications[self.len - 1] = publication;
+        true
+    }
+
+    /// Message `index`'s place in what its publisher sent, if it was given
+    /// one.
+    #[must_use]
+    pub fn publication(&self, index: usize) -> Option<Publication> {
+        if !self.any_publication {
+            return None;
+        }
+        self.publications
+            .get(..self.len)
+            .and_then(|publications| publications.get(index))
+            .copied()
+            .filter(|publication| publication.number != 0)
+    }
+
     /// The time message `index` was given by its source, in nanoseconds
     /// since the Unix epoch, if it was given one.
     #[must_use]
@@ -210,6 +266,7 @@ impl Batch {
     pub fn clear(&mut self) {
         self.len = 0;
         self.any_source_time = false;
+        self.any_publication = false;
     }
 }
 
@@ -311,6 +368,30 @@ mod tests {
             (None, Some(7)),
             "a message before the batch's first source time has none"
         );
+    }
+
+    #[test]
+    fn a_publishers_count_belongs_to_its_message_and_a_reused_slot_forgets_it() {
+        let counted = |number| Publication {
+            publisher: 2,
+            number,
+        };
+        let mut batch = Batch::new(3, 8);
+        assert!(batch.push_with_source_time(0, b"a", 5));
+        assert!(batch.push_from_publisher(0, b"b", 6, counted(41)));
+        assert!(batch.push(1, b"c"));
+        assert_eq!(
+            (
+                batch.publication(0),
+                batch.publication(1),
+                batch.publication(2)
+            ),
+            (None, Some(counted(41)), None)
+        );
+        assert_eq!(batch.source_time(1), Some(6), "with its source time");
+        batch.clear();
+        assert!(batch.push_with_source_time(0, b"d", 7));
+        assert_eq!(batch.publication(0), None, "not the earlier message's");
     }
 
     #[test]

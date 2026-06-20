@@ -261,7 +261,12 @@ fn joint_states(stream: u16, topic: &str) -> Ros2Subscription {
 }
 
 /// A message taken: its stream, its bytes and its source time.
-type Taken = (u16, Vec<u8>, Option<u64>);
+type Taken = (
+    u16,
+    Vec<u8>,
+    Option<u64>,
+    Option<kapto_capture::Publication>,
+);
 
 /// Receives `stream` from `transport` in batches of `slot_len`-byte slots
 /// until `count` messages were kept or counted as truncated, or 30 s: the
@@ -294,7 +299,12 @@ fn receive_until(
                 .messages()
                 .enumerate()
                 .map(|(index, (stream, message))| {
-                    (stream, message.to_vec(), batch.source_time(index))
+                    (
+                        stream,
+                        message.to_vec(),
+                        batch.source_time(index),
+                        batch.publication(index),
+                    )
                 }),
         );
         batch.clear();
@@ -311,23 +321,41 @@ fn messages_from_another_process_arrive_whole_and_in_order_without_kapto_allocat
 
     let (received, allocated) = receive_until(&mut transport, 1, 500, 256);
     assert_eq!(received.len(), 500);
-    assert!(received.iter().all(|(stream, _, _)| *stream == 1));
+    assert!(received.iter().all(|(stream, _, _, _)| *stream == 1));
     // Each with when its publisher sent it, on the same machine's clock
     // here: within the last minute, and never earlier than the one before.
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
-    let published: Vec<u64> = received.iter().map(|(_, _, time)| time.unwrap()).collect();
+    let published: Vec<u64> = received
+        .iter()
+        .map(|(_, _, time, _)| time.unwrap())
+        .collect();
     let minute_ago = now.checked_sub(Duration::from_secs(60)).unwrap();
     let minute_ago = u64::try_from(minute_ago.as_nanos()).unwrap();
     assert!(published[0] > minute_ago, "{published:?}");
     assert!(published.is_sorted(), "{published:?}");
+    // Each with its publisher's count of it, one after another, where the
+    // middleware gives it: Cyclone DDS doesn't.
+    let counts: Vec<Option<(u8, u64)>> = received
+        .iter()
+        .map(|(_, _, _, publication)| publication.map(|each| (each.publisher, each.number)))
+        .collect();
+    if std::env::var("RMW_IMPLEMENTATION").as_deref() == Ok("rmw_cyclonedds_cpp") {
+        assert!(counts.iter().all(Option::is_none), "{counts:?}");
+    } else {
+        let first = counts[0].unwrap().1;
+        let expected: Vec<Option<(u8, u64)>> = (first..first + 500)
+            .map(|number| Some((0, number)))
+            .collect();
+        assert_eq!(counts, expected);
+    }
     // Each whole, as ROS 2 serialised it, in the order published. Not
     // compared byte for byte with another serialisation: ROS 2 leaves the
     // padding between fields uncleared, so two serialisations differ there.
     let messages: Vec<Vec<u8>> = received
         .into_iter()
-        .map(|(_, message, _)| message)
+        .map(|(_, message, _, _)| message)
         .collect();
     let expected: Vec<Option<f64>> = (0..500).map(|n| Some(f64::from(n))).collect();
     assert_eq!(first_positions(&messages), expected);

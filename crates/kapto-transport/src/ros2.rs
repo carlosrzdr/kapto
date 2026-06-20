@@ -10,6 +10,12 @@
 //! into a batch's free slot) are only built with the `ros2` feature, which
 //! needs a ROS 2 installation.
 
+// Built and tested on every machine, used only where ROS 2 is.
+#[cfg_attr(
+    not(feature = "ros2"),
+    allow(dead_code, reason = "used by the ros2 transport alone")
+)]
+mod publishers;
 #[cfg(feature = "ros2")]
 mod rcl;
 #[cfg(feature = "ros2")]

@@ -93,10 +93,19 @@ impl Transport for Ros2Transport {
             // Every message waiting, until the batch is full; the rest wait
             // in the middleware for the next batch.
             while !batch.is_full() {
-                let Some((message, published)) = self.node.take(index)? else {
+                let Some(taken) = self.node.take(index)? else {
                     break;
                 };
-                if batch.push_with_source_time(stream, message, published) {
+                let pushed = match taken.publication {
+                    Some(publication) => batch.push_from_publisher(
+                        stream,
+                        taken.message,
+                        taken.published,
+                        publication,
+                    ),
+                    None => batch.push_with_source_time(stream, taken.message, taken.published),
+                };
+                if pushed {
                     added += 1;
                 } else {
                     self.stats.count_truncated(stream);

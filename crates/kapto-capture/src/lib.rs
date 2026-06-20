@@ -21,7 +21,7 @@ pub mod seek;
 pub mod tap;
 pub mod writer;
 
-pub use batch::{Batch, StreamIndex};
+pub use batch::{Batch, Publication, StreamIndex};
 pub use durability::DurabilityStats;
 pub use kept::{Kept, KeptHeld, KeptStream};
 pub use loss::{Accounting, LossCounters, LossDetection, StreamTotals};

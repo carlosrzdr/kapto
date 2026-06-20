@@ -20,6 +20,7 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::ptr;
 use std::time::Duration;
 
+use kapto_capture::Publication;
 use kapto_core::{ErrorCode, KaptoError};
 use r2r_rcl::{
     RCL_RET_OK, RCL_RET_SUBSCRIPTION_TAKE_FAILED, RCL_RET_TIMEOUT, rcl_context_t,
@@ -35,6 +36,7 @@ use r2r_rcl::{
     rmw_qos_reliability_policy_e, rosidl_message_type_support_t,
 };
 
+use super::publishers::Publishers;
 use super::{Durability, Qos, Reliability};
 
 /// A topic to subscribe to, of a message type.
@@ -52,6 +54,8 @@ pub(super) struct Node {
     context: Box<rcl_context_t>,
     handle: Box<rcl_node_t>,
     subscriptions: Vec<rcl_subscription_t>,
+    /// Each subscription's publishers, as their messages say who sent them.
+    publishers: Vec<Publishers>,
     /// Each subscription's last message, still serialised.
     buffers: Vec<rcl_serialized_message_t>,
     wait_set: Box<rcl_wait_set_t>,
@@ -76,6 +80,7 @@ impl Node {
             // SAFETY: as above.
             handle: Box::new(unsafe { rcl_get_zero_initialized_node() }),
             subscriptions: Vec::with_capacity(wanted.len()),
+            publishers: Vec::with_capacity(wanted.len()),
             buffers: Vec::with_capacity(wanted.len()),
             // SAFETY: as above.
             wait_set: Box::new(unsafe { rcl_get_zero_initialized_wait_set() }),
@@ -113,6 +118,7 @@ impl Node {
         for wanted in wanted {
             let subscription = node.subscribe(wanted)?;
             node.subscriptions.push(subscription);
+            node.publishers.push(Publishers::default());
             // SAFETY: a zeroed array, as `_init` expects.
             let mut buffer = unsafe { rcutils_get_zero_initialized_uint8_array() };
             // SAFETY: the buffer starts empty; the middleware grows it with
@@ -226,15 +232,14 @@ impl Node {
         unsafe { !(*self.wait_set.subscriptions.add(index)).is_null() }
     }
 
-    /// Takes subscription `index`'s next message, still serialised as it
-    /// arrived, with the time its publisher gave it (nanoseconds since the
-    /// Unix epoch, on the publisher's clock; 0 if the middleware has none);
-    /// `None` once it has no more. The bytes are only valid until the next
-    /// take.
-    pub(super) fn take(&mut self, index: usize) -> Result<Option<(&[u8], u64)>, KaptoError> {
-        let (Some(subscription), Some(buffer)) =
-            (self.subscriptions.get(index), self.buffers.get_mut(index))
-        else {
+    /// Takes subscription `index`'s next message; `None` once it has no
+    /// more. The bytes are only valid until the next take.
+    pub(super) fn take(&mut self, index: usize) -> Result<Option<Taken<'_>>, KaptoError> {
+        let (Some(subscription), Some(buffer), Some(publishers)) = (
+            self.subscriptions.get(index),
+            self.buffers.get_mut(index),
+            self.publishers.get_mut(index),
+        ) else {
             return Ok(None);
         };
         // SAFETY: the subscription and its buffer were initialised when it
@@ -257,15 +262,40 @@ impl Node {
             "can't take a message",
         )?;
         let published = u64::try_from(self.info.source_timestamp).unwrap_or(0);
+        // A middleware without the publisher's count gives the largest
+        // number (or none, 0) instead.
+        let number = self.info.publication_sequence_number;
+        let publication = (number != 0 && number != u64::MAX)
+            .then(|| publishers.index(&self.info.publisher_gid.data))
+            .flatten()
+            .map(|publisher| Publication { publisher, number });
         if buffer.buffer.is_null() || buffer.buffer_length == 0 {
-            return Ok(Some((&[], published)));
+            return Ok(Some(Taken {
+                message: &[],
+                published,
+                publication,
+            }));
         }
         // SAFETY: after a successful take the buffer holds `buffer_length`
         // bytes of the message, and is only changed by the next take, which
         // needs `&mut self` and so ends this borrow first.
         let message = unsafe { std::slice::from_raw_parts(buffer.buffer, buffer.buffer_length) };
-        Ok(Some((message, published)))
+        Ok(Some(Taken {
+            message,
+            published,
+            publication,
+        }))
     }
+}
+
+/// A message taken, still serialised as it arrived.
+pub(super) struct Taken<'a> {
+    pub(super) message: &'a [u8],
+    /// The time its publisher gave it, nanoseconds since the Unix epoch on
+    /// the publisher's clock; 0 if the middleware has none.
+    pub(super) published: u64,
+    /// Which publisher sent it and its count of it, if the middleware says.
+    pub(super) publication: Option<Publication>,
 }
 
 unsafe extern "C" {
