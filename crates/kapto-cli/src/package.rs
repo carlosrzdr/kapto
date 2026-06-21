@@ -3,6 +3,7 @@
 //! `kapto package`: the robot packages Kapto finds, and what identifies
 //! each: its ID, version and content hash.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -38,6 +39,10 @@ pub(crate) enum PackageCommand {
         /// What people call the robot; the URDF's robot name if not given.
         #[arg(long)]
         name: Option<String>,
+        /// An argument of a xacro description, `name:=value`, as ROS's
+        /// xacro takes it; repeat for each.
+        #[arg(long = "arg", value_name = "NAME:=VALUE")]
+        args: Vec<String>,
     },
     /// Check a robot package: its files, the robot description and meshes,
     /// the streams and the mapping, reporting every problem with where it is
@@ -63,7 +68,12 @@ pub(crate) fn package(flags: &SettingFlags, command: &PackageCommand) -> ExitCod
         PackageCommand::List => list(flags),
         PackageCommand::Show { package } => show(flags, package),
         PackageCommand::Lint { package, format } => return lint_package(flags, package, *format),
-        PackageCommand::Import { urdf, id, name } => import(flags, urdf, id, name.as_deref()),
+        PackageCommand::Import {
+            urdf,
+            id,
+            name,
+            args,
+        } => import(flags, urdf, id, name.as_deref(), args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -132,19 +142,35 @@ fn show(flags: &SettingFlags, wanted: &str) -> Result<(), Vec<KaptoError>> {
     Ok(())
 }
 
-/// Imports the URDF at `urdf` as the package `id` in the packages folder,
-/// saying what was copied, what wasn't and why, and what is left to do.
+/// Imports the robot description at `urdf`, URDF or xacro expanded with
+/// `args`, as the package `id` in the packages folder, saying what was
+/// copied, what wasn't and why, and what is left to do.
 fn import(
     flags: &SettingFlags,
     urdf: &Path,
     id: &str,
     name: Option<&str>,
+    args: &[String],
 ) -> Result<(), Vec<KaptoError>> {
+    let args = args
+        .iter()
+        .map(|arg| {
+            arg.split_once(":=")
+                .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                .ok_or_else(|| {
+                    vec![
+                        KaptoError::new(ErrorCode::ConfigInvalidValue)
+                            .detail(format!("`--arg {arg}`: an argument is `name:=value`")),
+                    ]
+                })
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
     let (_, deployment) = crate::config::load(flags)?;
     let packages = deployment.packages_dir.value;
     // `package://` paths are looked up among the packages, as when Kapto runs.
     let imported = import_package(
         urdf,
+        &args,
         std::slice::from_ref(&packages),
         &packages.join(id),
         id,

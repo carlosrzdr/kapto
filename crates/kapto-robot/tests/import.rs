@@ -8,6 +8,7 @@
     reason = "test helpers fail the test loudly when the setup itself breaks"
 )]
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use kapto_core::ErrorCode;
@@ -52,6 +53,7 @@ fn a_description_becomes_a_package_whose_urdf_finds_every_file_inside_it_as_writ
     let packages = dir.0.join("packages");
     let imported = import_package(
         &urdf,
+        &BTreeMap::new(),
         &[dir.0.join("repo")],
         &packages.join("arm"),
         "arm",
@@ -135,14 +137,30 @@ fn an_import_never_writes_over_a_folder_and_needs_an_id_kapto_accepts() {
     let packages = dir.0.join("packages");
     dir.write("packages/arm/keep.txt", b"mine");
 
-    let error = import_package(&urdf, &[], &packages.join("arm"), "arm", None).unwrap_err();
+    let error = import_package(
+        &urdf,
+        &BTreeMap::new(),
+        &[],
+        &packages.join("arm"),
+        "arm",
+        None,
+    )
+    .unwrap_err();
     assert_eq!(error[0].code(), ErrorCode::PackageImportExists);
     assert_eq!(
         std::fs::read(packages.join("arm/keep.txt")).unwrap(),
         b"mine"
     );
 
-    let error = import_package(&urdf, &[], &packages.join("Arm 2"), "Arm 2", None).unwrap_err();
+    let error = import_package(
+        &urdf,
+        &BTreeMap::new(),
+        &[],
+        &packages.join("Arm 2"),
+        "Arm 2",
+        None,
+    )
+    .unwrap_err();
     assert_eq!(error[0].code(), ErrorCode::ConfigInvalidValue);
     assert!(!packages.join("Arm 2").exists());
 }

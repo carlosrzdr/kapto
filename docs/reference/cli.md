@@ -158,6 +158,7 @@ Make a robot package from a robot description found elsewhere, such as a vendor'
 | ` <URDF>` | The robot's URDF |
 | `--id <ID>` | The new package's ID, which is also its folder's name |
 | `--name <NAME>` | What people call the robot; the URDF's robot name if not given |
+| `--arg <NAME:=VALUE>` | An argument of a xacro description, `name:=value`, as ROS's xacro takes it; repeat for each |
 
 ## `kapto package lint`
 

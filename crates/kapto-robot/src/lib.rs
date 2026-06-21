@@ -17,6 +17,7 @@ pub mod package;
 pub mod reach;
 pub mod transform;
 pub mod urdf;
+pub mod xacro;
 
 pub use import::{Imported, import_package};
 pub use kinematics::Kinematics;
@@ -33,3 +34,4 @@ pub use package::{
 pub use reach::{Bounds, Reach, reach};
 pub use transform::Transform;
 pub use urdf::{load_urdf, parse_urdf};
+pub use xacro::expand_xacro;

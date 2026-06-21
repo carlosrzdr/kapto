@@ -19,6 +19,7 @@ roxmltree.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+xacro-rs.workspace = true
 
 [dev-dependencies]
 kapto-testkit.workspace = true

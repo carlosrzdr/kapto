@@ -23,7 +23,8 @@ use kapto_core::{ErrorCode, KaptoError};
 
 use crate::model::{JointKind, RobotModel};
 
-use crate::urdf::load_urdf;
+use crate::urdf::{load_urdf, parse_urdf};
+use crate::xacro::expand_xacro;
 
 /// A package made by [`import_package`].
 #[derive(Debug)]
@@ -41,18 +42,21 @@ pub struct Imported {
     pub left_out: Vec<KaptoError>,
 }
 
-/// Makes the package `id` in `folder` from the URDF at `urdf`, whose
-/// `package://` files are looked for in `search_paths` as Kapto does when
-/// it runs. `name` is what people call the robot; the URDF's robot name if
-/// not given.
+/// Makes the package `id` in `folder` from the robot description at
+/// `urdf`, whose `package://` files are looked for in `search_paths` as
+/// Kapto does when it runs. A description in xacro (`.xacro`) is expanded
+/// with `args` first, and the package holds the URDF it expands to. `name`
+/// is what people call the robot; the URDF's robot name if not given.
 ///
 /// # Errors
 ///
-/// `config.invalid_value` if `id` isn't an ID, `package.import_exists` if
-/// `folder` exists, the URDF's own errors if it can't be read, and
-/// `package.unreadable` if a file can't be copied.
+/// `config.invalid_value` if `id` isn't an ID or `args` are given for a
+/// URDF, `package.import_exists` if `folder` exists, `robot.xacro_failed`
+/// if a xacro description doesn't expand, the URDF's own errors if it can't
+/// be read, and `package.unreadable` if a file can't be copied.
 pub fn import_package(
     urdf: &Path,
+    args: &BTreeMap<String, String>,
     search_paths: &[PathBuf],
     folder: &Path,
     id: &str,
@@ -69,12 +73,43 @@ pub fn import_package(
             KaptoError::new(ErrorCode::PackageImportExists).detail(folder.display().to_string()),
         ]);
     }
-    let model = load_urdf(urdf, search_paths)?;
+    let xacro = urdf
+        .extension()
+        .is_some_and(|extension| extension == "xacro");
+    if !xacro && !args.is_empty() {
+        return Err(vec![KaptoError::new(ErrorCode::ConfigInvalidValue).detail(
+            format!(
+                "arguments are given, but {} is URDF: only a xacro description takes them",
+                urdf.display()
+            ),
+        )]);
+    }
+    // A xacro description is read as the URDF it expands to, as if that
+    // were beside it: its files are found from the same folder.
+    let (model, expanded, as_urdf) = if xacro {
+        let text = expand_xacro(urdf, args, search_paths).map_err(|error| vec![error])?;
+        let as_urdf = urdf.with_extension("");
+        let as_urdf = if as_urdf
+            .extension()
+            .is_some_and(|extension| extension == "urdf")
+        {
+            as_urdf
+        } else {
+            as_urdf.with_extension("urdf")
+        };
+        (
+            parse_urdf(&text, &as_urdf, search_paths)?,
+            Some(text),
+            as_urdf,
+        )
+    } else {
+        (load_urdf(urdf, search_paths)?, None, urdf.to_path_buf())
+    };
     let Placed {
         urdf_place,
         places,
         left_out,
-    } = place(&model, urdf);
+    } = place(&model, &as_urdf);
     let write_error = |path: &Path, error: std::io::Error| {
         vec![
             KaptoError::new(ErrorCode::PackageUnreadable)
@@ -88,7 +123,18 @@ pub fn import_package(
         }
         std::fs::copy(from, &to).map_err(|error| write_error(&to, error))
     };
-    copy(urdf, &urdf_place)?;
+    match &expanded {
+        Some(text) => {
+            let to = folder.join(&urdf_place);
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent).map_err(|error| write_error(parent, error))?;
+            }
+            std::fs::write(&to, text).map_err(|error| write_error(&to, error))?;
+        }
+        None => {
+            copy(urdf, &urdf_place)?;
+        }
+    }
     let mut copied = Vec::new();
     for (place, found) in &places {
         if place == &urdf_place {
@@ -100,7 +146,7 @@ pub fn import_package(
     let files = [
         (
             PACKAGE_FILE,
-            manifest(id, name.unwrap_or(&model.name), urdf, &urdf_place),
+            manifest(id, name.unwrap_or(&model.name), urdf, args, &urdf_place),
         ),
         ("streams.toml", STREAMS_TEMPLATE.to_owned()),
         ("mapping.toml", mapping(&urdf_place, &joints)),
@@ -248,10 +294,19 @@ fn slashed(path: &Path) -> String {
         .join("/")
 }
 
-fn manifest(id: &str, name: &str, from: &Path, urdf: &Path) -> String {
-    let source = from
+fn manifest(
+    id: &str,
+    name: &str,
+    from: &Path,
+    args: &BTreeMap<String, String>,
+    urdf: &Path,
+) -> String {
+    let mut source = from
         .file_name()
         .map_or_else(String::new, |file| file.to_string_lossy().into_owned());
+    for (key, value) in args {
+        let _ = write!(source, " {key}:={value}");
+    }
     format!(
         "# Made by `kapto package import` from {source}. Kapto identifies a\n\
          # version of it by its ID and version, and by a hash of all its files.\n\

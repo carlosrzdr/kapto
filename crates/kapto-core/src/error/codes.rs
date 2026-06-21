@@ -342,6 +342,12 @@ error_codes! {
         remedy: "Check that the file (and, for glTF, its .bin buffer) exists next to where the robot description says, and that Kapto may read it.",
     }
 
+    /// A robot description in xacro couldn't be expanded to URDF.
+    RobotXacroFailed = "robot.xacro_failed" {
+        summary: "Can't expand the robot description from xacro",
+        remedy: "The message says which file and what went wrong in it. Give the arguments the description expects with `--arg name:=value`, and check that each package it finds with `$(find)` is beside it or in the packages folder.",
+    }
+
     /// A mesh file has a format Kapto doesn't read.
     RobotMeshUnsupportedFormat = "robot.mesh_unsupported_format" {
         summary: "Kapto can't read this mesh format",

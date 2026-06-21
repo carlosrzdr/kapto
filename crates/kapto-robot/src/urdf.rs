@@ -9,7 +9,7 @@
 //! the joints form one tree, and finds the mesh and texture files. Every
 //! problem is reported at once, each with its cause code and line.
 
-mod files;
+pub(crate) mod files;
 mod tree;
 
 use std::collections::HashMap;
@@ -47,7 +47,8 @@ pub fn load_urdf(path: &Path, search_paths: &[PathBuf]) -> Result<RobotModel, Ve
 /// the URDF's folder. `package://<name>/<rest>` is looked up in each of
 /// `search_paths`, then in each folder above the URDF, as written and with
 /// links resolved: as `<folder>/<name>/<rest>`, or as `<folder>/<rest>` if
-/// the folder is called `<name>` or its `package.xml` declares that name.
+/// the folder is called `<name>` or its `package.xml` declares that name;
+/// and in each folder of a search path whose `package.xml` declares it.
 /// A file that isn't found is kept with no path, so the model still loads;
 /// [`RobotModel::missing_files`] lists them.
 ///
