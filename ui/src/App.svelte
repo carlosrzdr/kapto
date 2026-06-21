@@ -609,7 +609,7 @@
 
 {#if fatal}
   <main class="fatal">
-    <h1>Kapto can't show this page</h1>
+    <h1><Logo />Kapto can't show this page</h1>
     <p>{fatal.message}</p>
     <p class="remedy">{fatal.remedy}</p>
     <p class="code">{fatal.code}</p>

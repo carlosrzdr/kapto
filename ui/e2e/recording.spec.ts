@@ -25,6 +25,15 @@ async function keepsDrawing(plot: Locator) {
   }
 }
 
+test("a page for another version of the API says it can't show itself, under Kapto's mark", async ({ page }) => {
+  await page.route("**/api/version", (route) => route.fulfill({ json: { kapto: "9.9.9", api: 999 } }));
+  await page.goto("/");
+  const heading = page.getByRole("heading", { level: 1, name: "Kapto can't show this page" });
+  await expect(heading).toBeVisible();
+  await expect(heading.locator("svg.logo")).toBeVisible();
+  await expect(page.getByText(/serves version 999/)).toBeVisible();
+});
+
 test("the page shows the robot's stream, records an episode and lists it", async ({ page }) => {
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");

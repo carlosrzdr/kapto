@@ -87,6 +87,8 @@ async fn the_ui_page_may_only_reach_its_own_origin_and_the_live_stream_and_frame
         assert!(body.contains(r#"<div id="app">"#), "{body}");
     } else {
         assert!(body.contains("built without its web UI"), "{body}");
+        // Under Kapto's mark, drawn in the page: nothing else is loaded.
+        assert!(body.contains(r#"<svg width="48" height="48""#), "{body}");
     }
     let (_, cache, _) = fetch(state(&folder), "GET", "/", "cache-control").await;
     assert_eq!(cache, "no-cache");

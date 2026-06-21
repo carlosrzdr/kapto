@@ -514,6 +514,13 @@ test("a screenshot of a camera waiting for its pictures and of one that can't be
 });
 
 // The console on a tablet beside the robot, held sideways: each tab whole.
+test("a screenshot of the page Kapto can't show, built for another version of its API", async ({ page }) => {
+  await page.route("**/api/version", (route) => route.fulfill({ json: { kapto: "9.9.9", api: 999 } }));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Kapto can't show this page" })).toBeVisible();
+  await shot(page, "wrong-api-version");
+});
+
 test("a screenshot of each tab at a tablet's width", async ({ page }) => {
   test.setTimeout(180_000);
   const nothingLeft = await open(page);
