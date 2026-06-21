@@ -826,8 +826,9 @@
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(20rem, 1fr);
     gap: 1rem;
+    flex: 1 1 0;
+    min-height: 0;
     padding: 1rem;
-    height: calc(100vh - 7rem);
   }
   /* On a smaller screen (a tablet beside the robot), the panel gets the
      room its tables need. */
@@ -958,7 +959,7 @@
   @media (max-width: 50rem) {
     main {
       grid-template-columns: 1fr;
-      height: auto;
+      flex: none;
     }
     .viewer {
       height: 60vh;

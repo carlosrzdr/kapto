@@ -976,6 +976,16 @@ test("nothing in the side panel is cut off, at a laptop's width or a tablet's", 
     await open(page, /^Live/);
     await expect(page.locator("aside").getByRole("row", { name: /wrist_camera/ })).toBeVisible();
     await fitsPanel(page, `in the Live tab ${at}`);
+    // The page fills the window and no more: the footer is in it.
+    await expect(page.locator("footer")).toBeInViewport({ ratio: 1 });
+    expect(await page.evaluate(() => document.documentElement.scrollHeight), `the page's height ${at}`).toBeLessThanOrEqual(size.height);
+    // Each stream's dot stays on its name's line.
+    for (const name of ["arm_joints", "wrist_camera"]) {
+      const row = page.locator("aside").getByRole("rowheader", { name: new RegExp(`^${name}`) });
+      const said = await row.getByText(name, { exact: true }).boundingBox();
+      const dot = await row.getByRole("img").boundingBox();
+      expect(Math.abs((dot?.y ?? 0) + (dot?.height ?? 0) / 2 - ((said?.y ?? 0) + (said?.height ?? 0) / 2)), `${name}'s dot ${at}`).toBeLessThan(4);
+    }
     await open(page, /^Episodes/);
     const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
     if ((await episode.getByRole("button", { expanded: true }).count()) === 0) {

@@ -83,12 +83,14 @@
       {@const state = health(stream)}
       <tr>
         <th scope="row">
-          {stream.stream}{#if state}<span
-              class="dot {state}"
-              role="img"
-              aria-label={said(state, declared[stream.stream])}
-              title={said(state, declared[stream.stream])}
-            ></span>{/if}
+          <span class="named"
+            ><span class="name">{stream.stream}</span>{#if state}<span
+                class="dot {state}"
+                role="img"
+                aria-label={said(state, declared[stream.stream])}
+                title={said(state, declared[stream.stream])}
+              ></span>{/if}</span
+          >
         </th>
         <td class:problem={state === "silent" || state === "slow"} title={declared[stream.stream] ? `declared ${count(declared[stream.stream] ?? 0)}/s` : undefined}>
           {#if state === null}–{:else if state === "silent"}silent{:else if state === "kept"}kept{:else}{`${count(rates[stream.stream] ?? 0)}/s`}{/if}{state === "slow" ? ` of ${count(declared[stream.stream] ?? 0)}` : ""}
@@ -153,13 +155,22 @@
     color: var(--warning);
     font-weight: 600;
   }
+  /* The dot stays beside its stream's name; a long name wraps before it. */
+  .named {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: 100%;
+  }
+  .name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .dot {
-    display: inline-block;
+    flex: none;
     width: 0.5rem;
     height: 0.5rem;
-    margin-left: 0.5rem;
     border-radius: 50%;
-    vertical-align: middle;
   }
   .dot.ok {
     background: var(--ok);

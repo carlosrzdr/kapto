@@ -83,6 +83,23 @@ body {
   line-height: 1.45;
 }
 
+/* The page fills the window: the header, any notice under it and the
+   footer take what they need, and the view and console the rest. */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+#app > * {
+  flex-shrink: 0;
+}
+@media (max-width: 50rem) {
+  #app {
+    height: auto;
+    min-height: 100dvh;
+  }
+}
+
 h1,
 h2,
 h3 {
