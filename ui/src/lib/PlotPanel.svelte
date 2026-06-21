@@ -3,7 +3,7 @@
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
 
-  import { axisTimes } from "./format";
+  import { axisTimes, axisTimesSpace } from "./format";
   import { type PlotPart, type PlotStream, resolvePlot, shortLabels } from "./viewer/plots";
   import { SERIES, token } from "./theme";
 
@@ -44,7 +44,15 @@
     let charts: { plot: uPlot; part: PlotPart }[] = [];
     let built: string | null = null;
     const line = token("line", "#2a2e31");
-    const axis = { stroke: token("muted", "#9ca3a8"), grid: { stroke: line }, ticks: { stroke: line } };
+    // The page's own font, so the axes read as the rest of it and their labels can be measured.
+    const font = `12px ${token("font-ui", "system-ui, sans-serif")}`;
+    const axis = { stroke: token("muted", "#9ca3a8"), font, grid: { stroke: line }, ticks: { stroke: line } };
+    const measuring = document.createElement("canvas").getContext("2d");
+    if (measuring) {
+      measuring.font = font;
+    }
+    // Ticks no closer than their labels are wide, however narrow the panel.
+    const timeSpace = axisTimesSpace((text) => measuring?.measureText(text).width ?? text.length * 8);
 
     const size = () => ({
       width: holder?.clientWidth ?? 300,
@@ -74,12 +82,19 @@
             ...size(),
             series,
             bands,
-            // Room on the right for the time axis's last label, however narrow.
-            padding: [8, 24, 0, 0],
+            // Room on the right for half the time axis's last label, centred on its tick.
+            padding: [8, Math.ceil(timeSpace / 2), 0, 0],
             legend: { show: false },
             cursor: { show: false },
             scales: { x: { time: true } },
-            axes: [{ ...axis, values: (_, ticks, _axis, _space, step) => axisTimes(ticks, step) }, { ...axis, size: 56 }],
+            axes: [
+              {
+                ...axis,
+                space: timeSpace,
+                values: (_, ticks, _axis, _space, step) => axisTimes(ticks, step),
+              },
+              { ...axis, size: 56 },
+            ],
           },
           [[], ...part.values.flatMap(() => [[], []])],
           element,

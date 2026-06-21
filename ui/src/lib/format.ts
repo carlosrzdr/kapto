@@ -64,6 +64,16 @@ export function axisTimes(seconds: number[], step: number): string[] {
   });
 }
 
+/**
+ * How far apart a time axis's ticks must be, in pixels, for its labels not
+ * to run into each other: the widest clock it writes (`00:00:00.000`),
+ * as `measure` makes it in the axis's font, and a gap. The date under a
+ * tick is no wider.
+ */
+export function axisTimesSpace(measure: (text: string) => number, gap = 12): number {
+  return Math.ceil(measure("00:00:00.000")) + gap;
+}
+
 /** Bytes in binary units: `87203840` → `83 MiB`, `1610612736` → `1.5 GiB`. */
 export function bytes(value: number): string {
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];

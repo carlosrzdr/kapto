@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { axisTimes, breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate } from "./format";
+import { axisTimes, axisTimesSpace, breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate } from "./format";
 
 describe("format", () => {
   it("shows durations as minutes and seconds, with hours only when needed", () => {
@@ -87,3 +87,16 @@ describe("axisTimes", () => {
   });
 });
 
+
+describe("axisTimesSpace", () => {
+  it("keeps ticks as far apart as the widest clock written, and a gap", () => {
+    // Seven pixels a character, as a monospace font of about 11px.
+    const measure = (text: string) => text.length * 7;
+    expect(axisTimesSpace(measure)).toBe(12 * 7 + 12);
+    for (const label of axisTimes([1_793_101_772.25, 1_793_101_772.5], 0.25)) {
+      for (const line of label.split("\n")) {
+        expect(measure(line)).toBeLessThan(axisTimesSpace(measure));
+      }
+    }
+  });
+});
