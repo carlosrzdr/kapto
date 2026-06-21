@@ -196,6 +196,55 @@ fn mesh_files_are_found_by_package_relative_and_absolute_paths() {
 }
 
 #[test]
+fn a_package_is_found_by_the_name_its_package_xml_declares_and_through_a_link() {
+    let dir = TempDir::new("package-names");
+    // Cloned into a folder named otherwise than the package it declares.
+    let pelvis = dir.write("clone/robots/h1/meshes/pelvis.stl", b"mesh");
+    dir.write(
+        "clone/robots/h1/package.xml",
+        br#"<?xml version="1.0"?><package format="3"><name>h1_description</name><version>1.0.0</version></package>"#,
+    );
+    let urdf_path = dir.write(
+        "clone/robots/h1/urdf/h1.urdf",
+        robot(r#"<link name="pelvis"><visual><geometry><mesh filename="package://h1_description/meshes/pelvis.stl"/></geometry></visual></link>"#)
+            .as_bytes(),
+    );
+    let pelvis_of = |robot: &RobotModel| match &robot.link("pelvis").unwrap().1.visuals[0].geometry
+    {
+        Geometry::Mesh { file, .. } => file.path.clone(),
+        other => panic!("not a mesh: {other:?}"),
+    };
+    let found = load_urdf(&urdf_path, &[]).unwrap();
+    assert_eq!(pelvis_of(&found), Some(pelvis.clone()));
+
+    // Linked into a packages folder under the robot's own ID, as a package
+    // is: the folder it links to declares the name.
+    #[cfg(unix)]
+    {
+        std::fs::create_dir_all(dir.0.join("packages")).unwrap();
+        std::os::unix::fs::symlink(dir.0.join("clone/robots/h1"), dir.0.join("packages/h1"))
+            .unwrap();
+        let linked = load_urdf(
+            &dir.0.join("packages/h1/urdf/h1.urdf"),
+            &[dir.0.join("packages")],
+        )
+        .unwrap();
+        let linked_pelvis = pelvis_of(&linked).map(|path| std::fs::canonicalize(path).unwrap());
+        assert_eq!(linked_pelvis, Some(std::fs::canonicalize(&pelvis).unwrap()));
+        assert!(linked.missing_files().next().is_none());
+    }
+
+    // A package.xml declaring another name doesn't make the folder this one.
+    std::fs::write(
+        dir.0.join("clone/robots/h1/package.xml"),
+        r#"<?xml version="1.0"?><package format="3"><name>g1_description</name></package>"#,
+    )
+    .unwrap();
+    let missing = load_urdf(&urdf_path, &[]).unwrap();
+    assert_eq!(pelvis_of(&missing), None);
+}
+
+#[test]
 fn defaults_fill_in_what_the_urdf_leaves_out() {
     let urdf = robot(&format!(
         r#"<link name="a"/><link name="b"/><link name="c"/>

@@ -236,8 +236,10 @@ the joints between them (with their axes, limits and mimicked joints) and
 the shapes each link is drawn with. The joints must form one tree from a
 single root link, as an arm on a base or a humanoid from its pelvis does;
 every way they don't is reported at once. Mesh and texture files are found
-the way ROS finds them (`package://` paths, relative paths, extra search
-folders), and a missing one is listed rather than stopping the load.
+the way ROS finds them (`package://` paths by folder name or by the name
+a folder's `package.xml` declares, through links too, relative paths,
+extra search folders), and a missing one is listed rather than stopping
+the load.
 Mesh files in STL, OBJ, COLLADA (`.dae`) and glTF (`.gltf`, `.glb`) load
 into one triangle-mesh type with colours and normals. A COLLADA file in
 millimetres is scaled to metres; a file that says it was made with Y up
