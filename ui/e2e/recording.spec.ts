@@ -1,9 +1,21 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, type Locator, test, type Page, type Route } from "@playwright/test";
 
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
 
 const open = (page: Page, tab: RegExp) => page.getByRole("tab", { name: tab }).click();
+
+/**
+ * Checks that `plot` has something drawn each time it is looked at, five
+ * times over a second: while the view plays, its stretch changes with
+ * every step, and the plot keeps drawing it.
+ */
+async function keepsDrawing(plot: Locator) {
+  for (let look = 0; look < 5; look++) {
+    await plot.page().waitForTimeout(200);
+    expect(Number(await plot.getAttribute("data-points"))).toBeGreaterThan(0);
+  }
+}
 
 test("the page shows the robot's stream, records an episode and lists it", async ({ page }) => {
   const elsewhere = requestsLeavingTheMachine(page);
@@ -154,6 +166,7 @@ test("an episode is replayed in the live view, saying why one can't be, and the 
   await bar.getByRole("button", { name: "Play again" }).click();
   await expect(bar).toContainText(/Playing 0:0[0-2] of/);
   await expect(bar).not.toContainText("Episode over");
+  await keepsDrawing(page.getByRole("region", { name: "Plot of role:gripper.opening" }));
   await expect(bar).toContainText("Episode over", { timeout: 30_000 });
 
   // What is shown can't be asked for again; the header goes back to live.
@@ -435,6 +448,7 @@ test("the live view pauses, looks back over the last minutes, and returns to now
   // Played on from there: the moment shown moves forward, then holds again.
   await page.getByRole("button", { name: "Play" }).click();
   await expect(live).toHaveAttribute("data-playing", "yes");
+  await keepsDrawing(page.getByRole("region", { name: "Plot of role:gripper.opening" }));
   await expect.poll(async () => Number(await live.getAttribute("data-showing"))).toBeGreaterThan(held - 2_500);
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(live).toHaveAttribute("data-playing", "no");

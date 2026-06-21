@@ -31,11 +31,18 @@
     const places = parts.flatMap((part) => part.labels.map((_, place) => place % SERIES.length));
     return { heading: short.heading, entries: short.labels.map((label, index) => ({ label, place: places[index] ?? 0 })) };
   });
+  /**
+   * What the charts are made for: each stream drawn, its values and their
+   * labels. New samples, as a replay or a look back sends them, leave it
+   * alone, so the charts are only given them rather than made again.
+   */
+  const shape = $derived(parts.map((part) => `${part.stream.name}:${part.values.join(",")}:${part.labels.join(",")}`).join("|"));
   let holder = $state<HTMLDivElement | null>(null);
+  let panel = $state<HTMLElement | null>(null);
 
   onMount(() => {
     let charts: { plot: uPlot; part: PlotPart }[] = [];
-    let built: PlotPart[] = [];
+    let built: string | null = null;
     const line = token("line", "#2a2e31");
     const axis = { stroke: token("muted", "#9ca3a8"), grid: { stroke: line }, ticks: { stroke: line } };
 
@@ -49,7 +56,8 @@
       charts.forEach(({ plot }) => plot.destroy());
       holder?.replaceChildren();
       charts = [];
-      built = next;
+      built = shape;
+      panel?.setAttribute("data-points", "0");
       for (const part of next) {
         const element = document.createElement("div");
         holder?.append(element);
@@ -94,14 +102,20 @@
     let drawn = 0;
     const draw = (now: number) => {
       frame = requestAnimationFrame(draw);
-      // Made again only when what it draws changes, as a stream opens.
-      if (parts !== built) {
+      // Made again only when what it draws changes, as a stream opens;
+      // otherwise each chart draws the newest samples of its stream.
+      if (shape !== built) {
         build(parts);
+      } else {
+        charts.forEach((chart, place) => {
+          chart.part = parts[place] ?? chart.part;
+        });
       }
       if (now - drawn < 1000 / DRAWS_PER_SECOND) {
         return;
       }
       drawn = now;
+      let points = 0;
       for (const { plot, part } of charts) {
         const end = endMs ?? part.stream.samples.newestMs;
         if (end === null) {
@@ -115,7 +129,10 @@
           last--;
         }
         plot.setData(data.map((column) => column.subarray(0, last)) as uPlot.AlignedData);
+        points += last;
       }
+      // For tests: whether the charts have something drawn.
+      panel?.setAttribute("data-points", String(points));
     };
     frame = requestAnimationFrame(draw);
 
@@ -127,7 +144,7 @@
   });
 </script>
 
-<section class="plot" aria-label={`Plot of ${fields.join(", ")}`}>
+<section class="plot" aria-label={`Plot of ${fields.join(", ")}`} bind:this={panel}>
   <ul class="labels">
     {#if key.heading}
       <li class="heading">{key.heading}</li>
