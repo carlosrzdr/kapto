@@ -32,8 +32,8 @@ describe("ReplayBar", () => {
     render(ReplayBar, { replay, label });
     const bar = screen.getByRole("status", { name: "Replay" });
     expect(bar.textContent).toContain(`Replay of the episode recorded ${label}`);
-    expect(bar.textContent).toContain("meshes/base.stl isn't in the recording");
-    expect(bar.textContent).toContain("Record with capture.attach_meshes.");
+    // The message ended as a sentence, its remedy the next one.
+    expect(bar.textContent).toContain("meshes/base.stl isn't in the recording. Record with capture.attach_meshes.");
   });
 
   it("says why a replay couldn't be made, with its cause code", () => {
@@ -46,7 +46,7 @@ describe("ReplayBar", () => {
     render(ReplayBar, { replay, label });
     const bar = screen.getByRole("status", { name: "Replay" });
     expect(bar.textContent).toContain("couldn't be made");
-    expect(bar.textContent).toContain("No room to make the replay");
+    expect(bar.textContent).toContain("No room to make the replay. Free space.");
     expect(bar.textContent).toContain("viewer.replay_disk_low");
   });
 

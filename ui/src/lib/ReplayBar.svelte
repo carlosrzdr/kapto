@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ReplayStatus } from "./api-types";
-  import { duration } from "./format";
+  import { duration, sentence } from "./format";
   import type { Playback } from "./viewer/replay";
 
   interface Props {
@@ -30,13 +30,13 @@
         >
       {/if}
       {#each replay.lacks as lack (lack.code)}
-        <p class="lacks">{lack.message} <span class="remedy">{lack.remedy}</span></p>
+        <p class="lacks">{sentence(lack.message)} <span class="remedy">{lack.remedy}</span></p>
       {/each}
     {:else if replay.state === "failed"}
       <strong>The replay of the episode recorded {label} couldn't be made.</strong>
       {#if replay.failure}
         <p class="lacks">
-          {replay.failure.message} <span class="remedy">{replay.failure.remedy}</span>
+          {sentence(replay.failure.message)} <span class="remedy">{replay.failure.remedy}</span>
           <span class="code">{replay.failure.code}</span>
         </p>
       {/if}

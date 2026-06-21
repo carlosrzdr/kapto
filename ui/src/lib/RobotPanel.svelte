@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { RobotJoint, RobotOverview, RobotStream, StreamValues } from "./api-types";
-  import { breakable } from "./format";
+  import { breakable, sentence } from "./format";
 
   interface Props {
     robot: RobotOverview;
@@ -85,7 +85,7 @@
 {#if robot.warnings.length > 0}
   <ul class="warnings">
     {#each robot.warnings as warning, index (index)}
-      <li>{warning.message} <span class="remedy">{warning.remedy}</span></li>
+      <li>{sentence(warning.message)} <span class="remedy">{warning.remedy}</span></li>
     {/each}
   </ul>
 {/if}

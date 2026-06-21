@@ -3,6 +3,7 @@
 
   import { ApiFailure, getEventKinds, sendEvent } from "./api";
   import type { EventSent, SendEvent, VocabularyKind } from "./api-types";
+  import { sentence } from "./format";
 
   interface Props {
     /** The kinds that may be sent, once known; read from the API if not given. */
@@ -57,7 +58,7 @@
       said = sent.episode ? `Marked the ${what}` : `Noted the ${what}; not recording, so not kept`;
       failed = false;
     } catch (error) {
-      said = error instanceof ApiFailure ? `${error.message} ${error.remedy}` : String(error);
+      said = error instanceof ApiFailure ? `${sentence(error.message)} ${error.remedy}` : String(error);
       failed = true;
     } finally {
       sending = false;

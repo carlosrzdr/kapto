@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { axisTimes, axisTimesSpace, breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate } from "./format";
+import { axisTimes, axisTimesSpace, breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate, sentence } from "./format";
 
 describe("format", () => {
   it("shows durations as minutes and seconds, with hours only when needed", () => {
@@ -98,5 +98,13 @@ describe("axisTimesSpace", () => {
         expect(measure(line)).toBeLessThan(axisTimesSpace(measure));
       }
     }
+  });
+});
+
+describe("sentence", () => {
+  it("ends a message with a full stop, so the remedy after it reads as the next sentence", () => {
+    expect(sentence("Can't read the mesh file: meshes/gripper.stl")).toBe("Can't read the mesh file: meshes/gripper.stl.");
+    expect(sentence("The kind of event isn't one that may be sent.")).toBe("The kind of event isn't one that may be sent.");
+    expect(sentence("Is it there? ")).toBe("Is it there? ");
   });
 });

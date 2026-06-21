@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ApiFailure } from "./api";
   import type { DestinationTested, UploadsOverview, UploadStatus } from "./api-types";
-  import { bytes, count, duration, plain, time } from "./format";
+  import { bytes, count, duration, plain, sentence, time } from "./format";
   import { type Measured, timeLeft, uploadKey } from "./uploads";
 
   interface Props {
@@ -99,7 +99,7 @@
               : `Writes and reads, in ${tested.took_ms} ms, but can't remove: the probe is still at ${tested.key}`}
           </p>
         {:else}
-          <p class="problem" role="alert" title={tested.message}>{plain(tested.message)} <span class="remedy">{tested.remedy}</span></p>
+          <p class="problem" role="alert" title={tested.message}>{sentence(plain(tested.message))} <span class="remedy">{tested.remedy}</span></p>
           <p class="code">{tested.code}</p>
         {/if}
       </li>
@@ -142,7 +142,7 @@
             </button>
           {/if}
           {#if retried !== undefined && retried !== true}
-            <p class="problem" role="alert" title={retried.message}>{plain(retried.message)} <span class="remedy">{retried.remedy}</span></p>
+            <p class="problem" role="alert" title={retried.message}>{sentence(plain(retried.message))} <span class="remedy">{retried.remedy}</span></p>
           {/if}
         </li>
       {/each}

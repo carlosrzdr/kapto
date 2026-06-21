@@ -43,7 +43,7 @@
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
-  import { time } from "./format";
+  import { sentence, time } from "./format";
   import { shortcut } from "./keys";
   import { token } from "./theme";
 
@@ -304,7 +304,7 @@
       arrangeSaid = done;
       arrangeFailed = false;
     } catch (error) {
-      arrangeSaid = error instanceof ApiFailure ? `${error.message} ${error.remedy}` : String(error);
+      arrangeSaid = error instanceof ApiFailure ? `${sentence(error.message)} ${error.remedy}` : String(error);
       arrangeFailed = true;
     }
   }

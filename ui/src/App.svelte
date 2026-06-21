@@ -54,7 +54,7 @@
   import EpisodeList from "./lib/EpisodeList.svelte";
   import LiveView from "./lib/LiveView.svelte";
   import PreflightPanel from "./lib/PreflightPanel.svelte";
-  import { duration, plain, rate, time } from "./lib/format";
+  import { duration, plain, rate, sentence, time } from "./lib/format";
   import ProcessTable from "./lib/ProcessTable.svelte";
   import RecordButton from "./lib/RecordButton.svelte";
   import ReplayBar from "./lib/ReplayBar.svelte";
@@ -671,7 +671,7 @@
 
   {#if refused}
     <p class="problem" role="alert">
-      {refused.message} <span class="remedy">{refused.remedy}</span>
+      {sentence(refused.message)} <span class="remedy">{refused.remedy}</span>
       <button type="button" class="dismiss" onclick={() => (refused = null)}>Dismiss</button>
     </p>
   {/if}

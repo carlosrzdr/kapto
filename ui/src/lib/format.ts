@@ -22,6 +22,13 @@ export function count(value: number): string {
  */
 export const plain = (message: string): string => message.replace(/\s*\(os error \d+\)/g, "");
 
+/**
+ * A message ended as a sentence, so the remedy written after it reads as
+ * the next one: Kapto's messages are phrases (`Can't read the mesh file:
+ * meshes/gripper.stl`), without a full stop of their own.
+ */
+export const sentence = (message: string): string => (/[.!?]$/.test(message.trimEnd()) ? message : `${message.trimEnd()}.`);
+
 /** Messages per second between two readings `seconds` apart. */
 export function rate(before: number, after: number, seconds: number): number {
   return seconds > 0 && after >= before ? (after - before) / seconds : 0;
