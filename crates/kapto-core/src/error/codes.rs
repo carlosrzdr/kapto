@@ -259,6 +259,19 @@ error_codes! {
         remedy: "The message gives the operating system's reason. Check that the package folder and its files exist and are readable by the user Kapto runs as.",
     }
 
+    /// A package is imported into a folder that already exists.
+    PackageImportExists = "package.import_exists" {
+        summary: "There is already something where the package would be imported",
+        remedy: "Import it under another ID with `--id`, or remove the folder first if it is an earlier import of the same robot.",
+    }
+
+    /// A file the imported robot description names can't be carried in a
+    /// package: it is named by an absolute path.
+    PackageImportNotPortable = "package.import_not_portable" {
+        summary: "A file the robot description names can't go into the package",
+        remedy: "The description names it by an absolute path, which means something else on every machine. Name it with `package://` or a path relative to the description, then import again.",
+    }
+
     /// Pre-flight found the disk can't hold the minimum recording time at
     /// the streams' rate above `capture.disk_stop_below`.
     PreflightDiskTooSmall = "preflight.disk_too_small" {

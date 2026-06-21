@@ -135,7 +135,7 @@ fn described(overview: &UploadsOverview) -> String {
     clippy::cast_precision_loss,
     reason = "a size shown to a tenth of a MiB"
 )]
-fn mebibytes(bytes: u64) -> String {
+pub(crate) fn mebibytes(bytes: u64) -> String {
     format!("{:.1} MiB", bytes as f64 / f64::from(1 << 20))
 }
 

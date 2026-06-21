@@ -5,6 +5,27 @@ robot correctly: that its files are complete and consistent, and that its
 decoders read what the robot really sends. Both checks run on any machine,
 without the robot connected to Kapto.
 
+## Start from the robot's own description
+
+A robot's URDF and meshes usually come from its vendor, in a repository
+laid out for ROS. Make a package of them in Kapto's packages folder:
+
+```sh
+kapto package import ~/src/unitree_ros/robots/h1_description/urdf/h1.urdf --id h1
+```
+
+The URDF is copied as it is, with every mesh and texture it names, placed
+so each is found as the URDF names it: a `package://h1_description/...`
+file under `h1_description/` in the package, a relative one where it was
+relative to the URDF. Only the files the URDF uses are copied. A file it
+names by an absolute path can't travel with the package, and one that
+isn't there can't be copied: each is said, with its cause code, and the
+rest is imported. The package gets a `package.toml`, a `streams.toml` to
+fill in with what the robot sends, and a `mapping.toml` listing each of
+its moving joints, to give the field that drives it. A description in
+xacro is expanded to URDF first: with ROS 2, `xacro robot.urdf.xacro >
+robot.urdf`.
+
 ## Check the package itself
 
 ```sh

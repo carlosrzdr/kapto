@@ -216,8 +216,9 @@ impl RobotModel {
             .filter(|joint| joint.kind.has_one_value() && joint.mimic.is_none())
     }
 
-    /// Every file referred to but not found, with the link it belongs to.
-    pub fn missing_files(&self) -> impl Iterator<Item = (&Link, &Resource)> {
+    /// Every file referred to, meshes and textures, found or not, with the
+    /// link it belongs to.
+    pub fn files(&self) -> impl Iterator<Item = (&Link, &Resource)> {
         self.links.iter().flat_map(|link| {
             link.visuals
                 .iter()
@@ -230,8 +231,12 @@ impl RobotModel {
                     let texture = shape.material.as_ref().and_then(|m| m.texture.as_ref());
                     mesh.into_iter().chain(texture)
                 })
-                .filter(|resource| resource.path.is_none())
                 .map(move |resource| (link, resource))
         })
+    }
+
+    /// Every file referred to but not found, with the link it belongs to.
+    pub fn missing_files(&self) -> impl Iterator<Item = (&Link, &Resource)> {
+        self.files().filter(|(_, resource)| resource.path.is_none())
     }
 }

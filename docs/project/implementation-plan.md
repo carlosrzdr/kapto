@@ -673,7 +673,7 @@ V4L2 (M15-01) move here rather than waiting for Phase B.
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
 | M8-01 `feat(server): robot from mounts and env` | `KAPTO_URDF`, `KAPTO_MESH_PATH`, `/packages` discovery, `KAPTO_ROBOT`, invalid robot kept running with report (ADD-9, ADD-10, ADD-12) | Container tests per mount style incl. a broken URDF (no crash loop) | — |
-| M8-02 `feat(cli): package import, lint, preview` | CLI equivalents; lint gate usage (ADD-15) | CLI snapshots; exit codes | Using `kapto package lint` as a CI gate in a robot-packages repo |
+| M8-02 `feat(cli): package preview` | The preview's CLI equivalent; lint gate usage (ADD-15). `kapto package import` and `kapto package lint` exist | CLI snapshots; exit codes | Using `kapto package lint` as a CI gate in a robot-packages repo |
 | M8-05 `test(e2e): third-party urdf over udp` | `docker run -v ./robot:/robot -e KAPTO_URDF=…` with a third-party URDF and loadgen mapped to it | E2E | Exit: MVP demo both ways |
 
 The demo is `kapto demo`: `kapto serve` with the synthetic robot inside it, one command with Cargo or `docker run`. Compose holds what runs beside Kapto: storage for uploads, UI development, ROS 2.

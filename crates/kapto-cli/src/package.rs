@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 use clap::{Subcommand, ValueEnum};
 use kapto_core::{ErrorCode, KaptoError};
-use kapto_robot::{Package, discover, lint, load_package};
+use kapto_robot::{Package, discover, import_package, lint, load_package};
 
 use crate::SettingFlags;
 
@@ -23,6 +23,21 @@ pub(crate) enum PackageCommand {
     Show {
         /// A package folder, or the ID of a package in the packages folder.
         package: String,
+    },
+    /// Make a robot package from a robot description found elsewhere, such
+    /// as a vendor's repository: the URDF and every mesh and texture it
+    /// names, copied into a new package in the packages folder so each is
+    /// found as the URDF names it, with a package.toml, a streams.toml to
+    /// fill in and a mapping.toml listing each moving joint.
+    Import {
+        /// The robot's URDF.
+        urdf: PathBuf,
+        /// The new package's ID, which is also its folder's name.
+        #[arg(long)]
+        id: String,
+        /// What people call the robot; the URDF's robot name if not given.
+        #[arg(long)]
+        name: Option<String>,
     },
     /// Check a robot package: its files, the robot description and meshes,
     /// the streams and the mapping, reporting every problem with where it is
@@ -48,6 +63,7 @@ pub(crate) fn package(flags: &SettingFlags, command: &PackageCommand) -> ExitCod
         PackageCommand::List => list(flags),
         PackageCommand::Show { package } => show(flags, package),
         PackageCommand::Lint { package, format } => return lint_package(flags, package, *format),
+        PackageCommand::Import { urdf, id, name } => import(flags, urdf, id, name.as_deref()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -113,6 +129,49 @@ fn list(flags: &SettingFlags) -> Result<(), Vec<KaptoError>> {
 fn show(flags: &SettingFlags, wanted: &str) -> Result<(), Vec<KaptoError>> {
     let (folder, _) = find(flags, wanted)?;
     print!("{}", describe(&load_package(&folder)?));
+    Ok(())
+}
+
+/// Imports the URDF at `urdf` as the package `id` in the packages folder,
+/// saying what was copied, what wasn't and why, and what is left to do.
+fn import(
+    flags: &SettingFlags,
+    urdf: &Path,
+    id: &str,
+    name: Option<&str>,
+) -> Result<(), Vec<KaptoError>> {
+    let (_, deployment) = crate::config::load(flags)?;
+    let packages = deployment.packages_dir.value;
+    // `package://` paths are looked up among the packages, as when Kapto runs.
+    let imported = import_package(
+        urdf,
+        std::slice::from_ref(&packages),
+        &packages.join(id),
+        id,
+        name,
+    )?;
+    let bytes: u64 = imported.copied.iter().map(|(_, bytes)| bytes).sum();
+    println!(
+        "Imported {} as the package `{id}` in {}: {} and {} files beside it ({}).",
+        urdf.display(),
+        imported.folder.display(),
+        imported.urdf.display(),
+        imported.copied.len(),
+        crate::upload::mebibytes(bytes),
+    );
+    if !imported.left_out.is_empty() {
+        println!(
+            "\nLeft out, {} of what it names:\n",
+            imported.left_out.len()
+        );
+        let reports: Vec<String> = imported.left_out.iter().map(KaptoError::report).collect();
+        println!("{}", reports.join("\n\n"));
+    }
+    println!(
+        "\nNext: declare what the robot sends in {folder}/streams.toml, give each of its {} moving joints the field that drives it in {folder}/mapping.toml, then check it with `kapto package lint {id}`.",
+        imported.joints.len(),
+        folder = imported.folder.display(),
+    );
     Ok(())
 }
 

@@ -6,6 +6,7 @@
 //! links, joints and shapes; nothing else in Kapto depends on the file
 //! format it came from.
 
+pub mod import;
 pub mod kinematics;
 pub mod layout;
 pub mod lint;
@@ -17,6 +18,7 @@ pub mod reach;
 pub mod transform;
 pub mod urdf;
 
+pub use import::{Imported, import_package};
 pub use kinematics::Kinematics;
 pub use layout::{Declared, DeclaredStream, Missing, made_layout, missing};
 pub use lint::{Finding, LintReport, RULES, Rule, Severity, lint};

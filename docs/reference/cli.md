@@ -149,6 +149,16 @@ Show one robot package: what its package.toml says, its files and its content ha
 |---|---|
 | ` <PACKAGE>` | A package folder, or the ID of a package in the packages folder |
 
+## `kapto package import`
+
+Make a robot package from a robot description found elsewhere, such as a vendor's repository: the URDF and every mesh and texture it names, copied into a new package in the packages folder so each is found as the URDF names it, with a package.toml, a streams.toml to fill in and a mapping.toml listing each moving joint.
+
+| Option | Description |
+|---|---|
+| ` <URDF>` | The robot's URDF |
+| `--id <ID>` | The new package's ID, which is also its folder's name |
+| `--name <NAME>` | What people call the robot; the URDF's robot name if not given |
+
 ## `kapto package lint`
 
 Check a robot package: its files, the robot description and meshes, the streams and the mapping, reporting every problem with where it is and what to do. Fails if there are errors; warnings don't.

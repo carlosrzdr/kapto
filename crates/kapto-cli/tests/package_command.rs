@@ -154,3 +154,45 @@ fn lint_fails_on_errors_but_not_on_warnings_and_reports_json_for_tools() {
     assert_eq!(report["findings"][0]["code"], "mapping.unknown_joint");
     assert_eq!(report["findings"][0]["severity"], "error");
 }
+
+#[test]
+fn a_urdf_from_elsewhere_is_imported_as_a_package_that_lints_and_isnt_imported_twice() {
+    let packages = Packages::new("import");
+    let elsewhere = packages.0.with_extension("elsewhere");
+    let _ = std::fs::remove_dir_all(&elsewhere);
+    let arm7 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/arm7/urdf/arm7.urdf");
+    std::fs::create_dir_all(elsewhere.join("urdf")).unwrap();
+    std::fs::copy(&arm7, elsewhere.join("urdf/arm7.urdf")).unwrap();
+    let urdf = elsewhere.join("urdf/arm7.urdf");
+    let urdf = urdf.to_str().unwrap();
+
+    let imported = kapto(
+        &packages.0,
+        &["package", "import", urdf, "--id", "sample_arm"],
+    );
+    assert!(imported.status.success(), "{}", text(&imported.stderr));
+    let said = text(&imported.stdout);
+    assert!(said.contains("as the package `sample_arm`"), "{said}");
+    assert!(
+        said.contains("Next: declare what the robot sends"),
+        "{said}"
+    );
+    // A package Kapto finds, whose only warnings are the joints left to map.
+    let listed = kapto(&packages.0, &["package", "list"]);
+    assert!(text(&listed.stdout).contains("sample_arm"));
+    let checked = kapto(&packages.0, &["package", "lint", "sample_arm"]);
+    assert!(checked.status.success(), "{}", text(&checked.stdout));
+    assert!(text(&checked.stdout).contains("warning[mapping.joint_unmapped]"));
+
+    let again = kapto(
+        &packages.0,
+        &["package", "import", urdf, "--id", "sample_arm"],
+    );
+    assert!(!again.status.success());
+    assert!(
+        text(&again.stderr).contains("error[package.import_exists]"),
+        "{}",
+        text(&again.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&elsewhere);
+}
