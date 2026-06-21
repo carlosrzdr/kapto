@@ -53,6 +53,7 @@
   } from "./lib/api-types";
   import EpisodeList from "./lib/EpisodeList.svelte";
   import LiveView from "./lib/LiveView.svelte";
+  import Logo from "./lib/Logo.svelte";
   import PreflightPanel from "./lib/PreflightPanel.svelte";
   import { duration, plain, rate, sentence, time } from "./lib/format";
   import ProcessTable from "./lib/ProcessTable.svelte";
@@ -615,7 +616,7 @@
   </main>
 {:else}
   <header data-state={shellState}>
-    <h1>Kapto</h1>
+    <h1><Logo />Kapto</h1>
     {#if replay}
       <!-- Always here while the viewer isn't live, whatever the page shows. -->
       <button type="button" class="back" onclick={backToLive}>Back to live</button>
@@ -802,6 +803,9 @@
     border-top-color: var(--warning);
   }
   h1 {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
     margin: 0;
     font-size: var(--text-xl);
   }

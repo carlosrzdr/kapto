@@ -22,6 +22,13 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await page.goto("/");
 
   await expect(page.getByText("Live, not recording")).toBeVisible();
+  // Its name with the mark beside it, which screen readers skip, and the
+  // same mark as the tab's icon, from Kapto itself.
+  await expect(page.getByRole("heading", { level: 1, name: "Kapto", exact: true })).toBeVisible();
+  await expect(page.getByRole("banner").locator("svg.logo")).toBeVisible();
+  const icon = await page.request.get(String(await page.locator('link[rel="icon"]').getAttribute("href")));
+  expect(icon.status()).toBe(200);
+  expect(icon.headers()["content-type"]).toBe("image/svg+xml");
   // The robot, live in the page: its frames keep coming, and it says how
   // far behind Kapto it is.
   const live = page.getByTitle("Live view of the robot");

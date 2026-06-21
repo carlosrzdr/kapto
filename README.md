@@ -1,4 +1,9 @@
-# Kapto
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/kapto-logo-dark.svg">
+    <img src="docs/assets/kapto-logo-light.svg" alt="Kapto" height="64">
+  </picture>
+</h1>
 
 [![CI](https://github.com/carlosrzdr/kapto/actions/workflows/ci.yml/badge.svg)](https://github.com/carlosrzdr/kapto/actions/workflows/ci.yml)
 [![Licence: Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
