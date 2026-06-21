@@ -343,7 +343,7 @@ how Kapto works**, so it is readable, testable and tuned for our hot path.
 | Linter rules and report rendering | `inferno` (flamegraphs, dev tooling only), `rusqlite` (+ migrations), `axum`, `utoipa` (OpenAPI), `tokio` |
 | Folder-completeness detection | `notify` (file watching), `pcap-parser` (pcap and pcapng; pcapng is Wireshark's default and not small) |
 | Config precedence/merge and source tracking | `serde`, `toml`, `toml_edit`, `schemars`, `clap`, `thiserror`, `tracing` |
-| xacro expander subset (ROB-11): it is our restricted language by design | `r2r` (ROS 2), `pyo3` + `numpy` + `pyo3-arrow` (Python), `wasm-bindgen` (WebAssembly) |
+| | `xacro-rs` (xacro expansion, ROB-11: Python expressions and `load_yaml` as ROS's xacro has them), `r2r` (ROS 2), `pyo3` + `numpy` + `pyo3-arrow` (Python), `wasm-bindgen` (WebAssembly) |
 
 **Dependency budget.** `cargo xtask deps` reports the number of crates in the
 `kapto` binary's tree per feature set. CI posts it on every PR; growth above
@@ -833,8 +833,7 @@ Rust side through an adapter. Stubs generated and verified with
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M14-01 `feat(robot): xacro expander` | In-repo restricted expander: properties, args, macros, math, conditionals, includes, `$(find)` (ROB-11 non-ROS) | Corpus of 3–5 vendor descriptions (open question 5); unsupported construct → lint error; fuzz | The restricted expression language |
-| M14-02 `feat(robot): sandboxed xacro` | Real `xacro` in ROS image: subprocess, timeout, no network (ROB-11 ROS) | Same corpus, outputs compared with expander where both apply | — |
+| M14-02 `feat(robot): xacro cross-checked with ros's` | Optional: in the ROS 2 image, ROS's own `xacro` expands a description at import when asked, to cross-check the built-in expander (ROB-11) | The UR description of `testdata/xacro`, outputs compared | — |
 | M14-03 `feat(robot): ros yaml import` | `ros2_control`, joint lists, camera calibration YAML → TOML (ROB-12 import) | Fixture per source format | — |
 | M14-04 `feat(ui): mapping wizard` | Live fields, dropdown mapping, model moves as joints map (ADD-5) | Playwright with loadgen | — |
 | M14-05 `feat(ui): camera frames` | Link pick, intrinsics, frustum preview (ADD-6) | Playwright | — |

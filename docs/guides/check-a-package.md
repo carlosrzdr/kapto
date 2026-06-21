@@ -22,9 +22,19 @@ names by an absolute path can't travel with the package, and one that
 isn't there can't be copied: each is said, with its cause code, and the
 rest is imported. The package gets a `package.toml`, a `streams.toml` to
 fill in with what the robot sends, and a `mapping.toml` listing each of
-its moving joints, to give the field that drives it. A description in
-xacro is expanded to URDF first: with ROS 2, `xacro robot.urdf.xacro >
-robot.urdf`.
+its moving joints, to give the field that drives it.
+
+A description in xacro is expanded as it is imported, with the arguments
+it takes, as ROS's `xacro` would expand it, without ROS installed:
+
+```sh
+kapto package import ~/src/ur_description/urdf/ur.urdf.xacro --id ur5e --arg ur_type:=ur5e --arg name:=ur5e
+```
+
+`$(find pkg)` is the package found the way its `package://` files are,
+and the package holds the URDF it expands to, so nothing Kapto records or
+replays depends on xacro again. One that doesn't expand is
+`robot.xacro_failed`, naming the file and what went wrong in it.
 
 ## Check the package itself
 

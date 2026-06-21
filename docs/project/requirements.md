@@ -296,7 +296,7 @@ robot-package/
 | ROB-8 | P1 | Package versioning: every episode records the package id, version and content hash, and embeds the package (or its hash plus a local copy) so an episode can be replayed with exactly the model it was recorded with |
 | ROB-9 | P1 | Embodiment classes supported: single arm, bimanual, mobile base, mobile manipulator, handheld/UMI, simulation |
 | ROB-10 | P2 | Scaffold a package from a sample capture: list the streams seen, propose decoders, match field names to URDF joint names |
-| ROB-11 | P1 | **xacro support** (see §5.1). <br>• **ROS 2 image:** expand with the real `xacro` tool, in a sandboxed subprocess with a timeout and no network. `$(find pkg)` resolves to installed packages and to packages under `/packages` <br>• **Non-ROS image:** a built-in Rust expander for the common subset: properties, args, macros, math expressions, conditionals, includes, and `$(find pkg)` resolved within the uploaded archive or `/packages`. Anything outside the subset produces a lint error that suggests pre-expanding the file <br>• **Both:** the **expanded URDF is stored in the package**, so episodes, replay and QA never depend on xacro again |
+| ROB-11 | P1 | **xacro support** (see §5.1): a description in xacro is expanded once, when it is imported (`kapto package import`, with `name:=value` arguments), by the built-in expander, the same with or without ROS 2: properties, arguments, macros, Python expressions, conditionals, includes, `load_yaml`, and `$(find pkg)` resolved as Kapto finds packages. One that doesn't expand is `robot.xacro_failed`, saying where and why. The **expanded URDF is stored in the package**, so episodes, replay and QA never depend on xacro again |
 | ROB-12 | P0 / P1 | **TOML for package files, ROS YAML as import only.** `package.toml`, `streams.toml`, `mapping.toml`, `qa.toml` and `relevance.toml` are TOML, each with a JSON Schema (DOC-3). The UI and CLI edit them with `toml_edit`, keeping comments, formatting and key order (ADD-5, ADD-8). Existing ROS YAML that carries useful data (e.g. `ros2_control` joint limits and controller configs, `joint_names` lists, camera calibration YAML) is accepted at import (ADD-1, ADD-10, ADD-15) and converted into the TOML files, with the source file and hash recorded. The converted TOML, not the YAML, is the source of truth afterwards, the same rule as for xacro (ROB-11). The TOML format is P0; importing ROS YAML is P1 |
 
 ### 4.3b Adding a robot: through the UI or at `docker run` (ADD), P0
@@ -648,14 +648,20 @@ xacro, often with arguments that select a model variant. If we accept only
 plain URDF, every user without a ROS install first has to find a ROS machine
 to expand the file. §4.3b is meant to avoid that.
 
-| | With the ROS 2 image | Without ROS 2 (slim image, native) |
-|---|---|---|
-| How it is expanded | The real `xacro` tool (100 % compatible), run as a sandboxed subprocess | The built-in Rust expander for the common subset |
-| `$(find pkg)` | Installed ROS packages + packages under `/packages` | Packages inside the uploaded archive + `/packages` |
-| Python expressions | Allowed (xacro evaluates them in Python), contained by the sandbox, timeout and no network | Only a restricted math/logic expression language; anything else is a lint error |
-| If it fails | Lint report with xacro's error | Lint report saying which construct is unsupported, and suggesting a pre-expanded URDF or the ROS 2 image |
+Kapto expands it itself, with or without ROS 2, when the description is
+imported: `kapto package import robot.urdf.xacro --arg name:=value`.
 
-**In both cases the expanded URDF is saved in the robot package** and becomes
+| | How |
+|---|---|
+| The expander | `xacro-rs`, built in. Checked against ROS's own `xacro` on Universal Robots' and Unitree's descriptions: the same links, joints, limits and meshes |
+| `$(find pkg)` | As Kapto finds a URDF's `package://` files: beside the description and in the folders above it, in the packages folder, by folder name or by the name a `package.xml` declares |
+| Python expressions and `load_yaml` | Evaluated by the expander, in process, reading only the files the description names |
+| If it fails | `robot.xacro_failed`, naming the file and what went wrong in it |
+
+ROS's own `xacro`, in the ROS 2 image, stays a way to cross-check a
+description the expander gets wrong.
+
+**The expanded URDF is saved in the robot package** and becomes
 the source of truth. Recording, replay, FK and QA only ever read plain URDF,
 so xacro matters only at import time. A user who already has a plain URDF
 never touches any of this.
@@ -951,7 +957,6 @@ Resolved: `object_store` is the upload crate (v0.5); the name is **Kapto** (v0.7
 2. How many 2 kHz streams does the most demanding target robot have? The reference load assumes 16. Is that the right planning number?
 3. Robot package format: ADD-10 accepts ROS `*_description` packages as input and converts them. Should our saved format also *be* a `*_description` package plus sidecar TOML files (`streams.toml`, `mapping.toml`, `qa.toml`, `relevance.toml`), so vendors can use it directly with ROS tools?
 4. Should cameras go direct (TRN-7) in v1, or stay ROS-only until there's a non-ROS camera robot? Direct capture of *raw* (unencoded) cameras conflicts with EFF-1 on a modest CPU.
-5. xacro subset for the non-ROS expander (ROB-11): which vendor descriptions must it handle on day 1? Collect 3–5 real ones as the test set.
 6. Names: `kapto` is free on both crates.io and PyPI, and no product with that exact name turned up in a web search. **Capto**, a screen-recording app, is similar-sounding in an adjacent field. Before the first public release: a trademark search, and reserve the crate and PyPI names. Nothing is reserved until first published.
 8. **Does relevance carry over?** How much of a relevance config survives moving to a second task or embodiment with only a thin per-task layer changed? R0 gives the first answer; it decides whether to invest in more built-in scorers or in tuning tools (REL-10).
 9. **Paid boundary details** (LIC-3): do the basic local exporters (STO-6, especially LeRobot) stay in the open-source app as planned, with only managed/large-scale conversion paid? Current answer: yes, since they run on the edge (LIC-2).

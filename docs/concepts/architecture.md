@@ -239,7 +239,10 @@ every way they don't is reported at once. Mesh and texture files are found
 the way ROS finds them (`package://` paths by folder name or by the name
 a folder's `package.xml` declares, through links too, relative paths,
 extra search folders), and a missing one is listed rather than stopping
-the load.
+the load. `kapto package import` makes a package of a robot's own
+description: the URDF with only the files it names, laid out so each is
+found as written, a description in xacro expanded to URDF first
+(`xacro-rs`); Kapto only ever runs from URDF.
 Mesh files in STL, OBJ, COLLADA (`.dae`) and glTF (`.gltf`, `.glb`) load
 into one triangle-mesh type with colours and normals. A COLLADA file in
 millimetres is scaled to metres; a file that says it was made with Y up
