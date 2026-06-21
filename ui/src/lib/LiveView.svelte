@@ -1205,9 +1205,10 @@
     font-size: var(--text-xs);
     cursor: pointer;
   }
+  /* Arrange on the marks' line: their bar keeps room above it. */
   .under {
     display: flex;
-    align-items: flex-start;
+    align-items: flex-end;
     justify-content: space-between;
     gap: 0.5rem;
   }

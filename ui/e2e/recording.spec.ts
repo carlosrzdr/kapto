@@ -809,6 +809,11 @@ test("the operator arranges their own view, keeps it, and saves it for every bro
   await page.goto("/");
   const panels = page.getByRole("group", { name: "The view's panels" });
   await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible({ timeout: 20_000 });
+  // The Arrange button sits on the marks' line, beside "Mark".
+  await expect(page.getByRole("button", { name: /^Mark / })).toBeVisible();
+  const arrange = await page.getByRole("button", { name: "Arrange" }).boundingBox();
+  const mark = await page.getByRole("button", { name: /^Mark / }).boundingBox();
+  expect(Math.abs((arrange?.y ?? 0) + (arrange?.height ?? 0) / 2 - ((mark?.y ?? 0) + (mark?.height ?? 0) / 2))).toBeLessThan(3);
   await page.getByRole("button", { name: "Arrange" }).click();
   const editor = page.getByRole("region", { name: "Arrange the view" });
   // The gripper's plot removed; the joints' positions as one plot of their
