@@ -137,7 +137,7 @@
   }
   th,
   td {
-    padding: 0.35rem 0.5rem;
+    padding: 0.35rem 0.4rem;
     text-align: right;
     border-bottom: 1px solid var(--line);
   }
@@ -164,7 +164,7 @@
   }
   .name {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   .dot {
     flex: none;
