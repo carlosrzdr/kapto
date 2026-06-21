@@ -18,6 +18,7 @@ without other documents, and always describe the design as it is.
 | [ROS 2](ros-2-through-rcl.md) | ROS 2 topics through ROS 2's own client library, taken as received |
 | [Uploads](uploads.md) | One engine in the worker, storage through `object_store` |
 | [Kept messages](kept-messages-start-each-episode.md) | A stream's kept messages start each episode |
+| [Pre-roll and post-roll](pre-roll-and-post-roll.md) | A stream's last seconds before Start, held in a ring set aside at startup, start the episode; chosen streams go on after Stop; the episode spans its data |
 | [Large messages](large-messages-in-rings-of-their-own.md) | Large messages go through rings of their own |
 | [Cameras in the live view](cameras-in-the-live-view.md) | Each camera's newest frame over a stream socket of its own; the bridge turns raw frames into JPEG |
 | [Layouts](layouts.md) | Columns of panels in TOML: the operator's own, else the config folder's default per package, else the package's, else made from its roles |
