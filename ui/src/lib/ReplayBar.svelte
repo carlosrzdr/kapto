@@ -15,6 +15,12 @@
   }
 
   let { replay, label, playback = null, onplayagain = () => {} }: Props = $props();
+
+  /**
+   * What the replay lacks, each said once: every missing mesh has the same
+   * code, and a file a link draws and collides with is missing twice.
+   */
+  const lacks = $derived([...new Map(replay.lacks.map((lack) => [`${lack.code} ${lack.message}`, lack])).entries()]);
 </script>
 
 <div class="bar" role="status" aria-label="Replay">
@@ -29,7 +35,7 @@
           >{playback.playing ? "Playing" : "Paused at"} {duration(playback.at)} of {duration(playback.length)}</span
         >
       {/if}
-      {#each replay.lacks as lack (lack.code)}
+      {#each lacks as [key, lack] (key)}
         <p class="lacks">{sentence(lack.message)} <span class="remedy">{lack.remedy}</span></p>
       {/each}
     {:else if replay.state === "failed"}

@@ -36,6 +36,25 @@ describe("ReplayBar", () => {
     expect(bar.textContent).toContain("meshes/base.stl isn't in the recording. Record with capture.attach_meshes.");
   });
 
+  it("says each mesh it lacks once, however many it lacks and however often each is named", () => {
+    const missing = (file: string) => ({
+      code: "robot.mesh_unreadable",
+      message: `Can't read the mesh file: meshes/${file} isn't in the recording`,
+      remedy: "Record with capture.attach_meshes.",
+    });
+    const replay: ReplayStatus = {
+      episode,
+      state: "ready",
+      bytes: 1000,
+      // A link draws and collides with the same file: it is missing twice.
+      lacks: [missing("pelvis.STL"), missing("pelvis.STL"), missing("knee.STL"), missing("hip.STL")],
+    };
+    render(ReplayBar, { replay, label });
+    const lines = Array.from(screen.getByRole("status", { name: "Replay" }).querySelectorAll(".lacks"), (line) => line.textContent ?? "");
+    expect(lines).toHaveLength(3);
+    expect(lines.filter((line) => line.includes("pelvis.STL"))).toHaveLength(1);
+  });
+
   it("says why a replay couldn't be made, with its cause code", () => {
     const replay: ReplayStatus = {
       episode,
