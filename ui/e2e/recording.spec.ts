@@ -326,6 +326,28 @@ test("a moment a check found opens the episode's replay just before it, and anot
   expect(elsewhere).toEqual([]);
 });
 
+test("an episode recorded elsewhere is listed even when the page misses its announcement", async ({ page }) => {
+  // The event stream answers nothing and closes: what it would announce is missed.
+  await page.routeWebSocket(/\/api\/events/, (socket) => socket.close());
+  await page.goto("/");
+  await expect(page.getByText("Live, not recording")).toBeVisible();
+  await open(page, /^Episodes/);
+  const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
+  const { episode: id } = (await (await page.request.post("/api/episodes/start", json)).json()) as { episode: string };
+  await expect(page.getByText(/^Recording · /)).toBeVisible();
+  // Newest first: the episode listed first before this one ends.
+  const newest = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const before = (await newest.count()) > 0 ? await newest.textContent() : null;
+  expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
+  // The status shows recording stopped, and the list follows: this one first.
+  await expect(newest).toBeVisible({ timeout: 10_000 });
+  if (before !== null) {
+    await expect(newest).not.toHaveText(before, { timeout: 10_000 });
+  }
+  await newest.getByTitle("Show this episode in full").click();
+  await expect(page.getByRole("region", { name: `Episode ${id}` })).toBeVisible();
+});
+
 test("an episode recovered after recording stopped without finishing is marked, its loss unknown", async ({ page }) => {
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");

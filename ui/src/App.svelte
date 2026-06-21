@@ -322,8 +322,14 @@
           next.capture.streams.map((s) => [s.stream, rate(oldest.received.get(s.stream) ?? 0, s.received, seconds)]),
         );
       }
+      // An episode that ended is listed even if its announcement was missed,
+      // the event stream reconnecting meanwhile: the status says it ended.
+      const ended = status?.capture.episode;
       status = next;
       problem = null;
+      if (ended != null && next.capture.episode !== ended) {
+        void refreshEpisodes();
+      }
     } catch (error) {
       problem = failure(error);
     }
