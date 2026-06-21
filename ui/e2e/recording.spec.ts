@@ -5,6 +5,14 @@ import { requestsLeavingTheMachine } from "./local-only";
 
 const open = (page: Page, tab: RegExp) => page.getByRole("tab", { name: tab }).click();
 
+// A route that fetches the real answer before changing it reads that answer
+// after the request is made: the page's polls keep coming until the test
+// ends, and an answer read once the page has closed is gone. Each test's
+// routes go, and those still running finish, before the page closes.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 /**
  * Checks that `plot` has something drawn each time it is looked at, five
  * times over a second: while the view plays, its stretch changes with

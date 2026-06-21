@@ -2,6 +2,14 @@ import { expect, test, type Route } from "@playwright/test";
 
 import { open, shot, shotWhole, tab, viewer } from "./screens";
 
+// A route that fetches the real answer before changing it reads that answer
+// after the request is made: the page's polls keep coming until the test
+// ends, and an answer read once the page has closed is gone. Each test's
+// routes go, and those still running finish, before the page closes.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 // Each tab and state with everything running, for a pull request's
 // description: `cargo xtask ui screenshots` saves them in target/screenshots.
 test("a screenshot of each tab and state while Kapto runs", async ({ page }) => {
