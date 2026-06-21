@@ -78,5 +78,20 @@ describe("SettingsPanel", () => {
     await fireEvent.click(screen.getByRole("checkbox", { name: "Changed only" }));
     expect(screen.queryByText("log", { selector: "th" })).toBeNull();
   });
+
+  it("writes a quantity's unit after its value, and nothing after one without", async () => {
+    const quantities: SettingsOverview = {
+      ...settings,
+      settings: [
+        { key: "server.port", value: "7701", unit: null, source: "default", default: true, help: "Port." },
+        { key: "viewer.history_age", value: "600", unit: "s", source: "default", default: true, help: "How far back." },
+      ],
+    };
+    render(SettingsPanel, { settings: quantities });
+    await fireEvent.click(screen.getByText(/2 settings/));
+    const value = (key: RegExp) => screen.getByRole("row", { name: key }).querySelector(".value")?.textContent;
+    expect(value(/^viewer\.history_age/)).toBe("600 s");
+    expect(value(/^server\.port/)).toBe("7701");
+  });
 });
 

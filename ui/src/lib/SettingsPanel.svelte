@@ -80,7 +80,11 @@
               >{#each breakable(setting.key) as piece, index (index)}{piece}<wbr />{/each}{#if !setting.default}{" "}<span class="mark">changed</span>{/if}</th
             >
             <td>
-              <span class="value">{#each breakable(setting.value) as piece, index (index)}{piece}<wbr />{/each}</span>
+              <span class="value"
+                >{#each breakable(setting.value) as piece, index (index)}{piece}<wbr />{/each}{#if setting.unit}{" "}<span class="unit"
+                    >{setting.unit}</span
+                  >{/if}</span
+              >
               <span class="source">{setting.source}</span>
             </td>
           </tr>
@@ -176,6 +180,9 @@
     display: block;
     /* Not `anywhere`: that lets the table squeeze the column mid-word. */
     overflow-wrap: break-word;
+  }
+  .unit {
+    color: var(--muted);
   }
   /* A section's heading: as the panel's own headings, a step above its rows. */
   .section th {

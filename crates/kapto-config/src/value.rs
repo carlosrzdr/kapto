@@ -76,6 +76,30 @@ impl ValueType {
         }
     }
 
+    /// The unit a value is in, as written after it (`600 s`, `10240 MiB`);
+    /// `None` for values that are no quantity, or a plain count.
+    #[must_use]
+    pub const fn unit(self) -> Option<&'static str> {
+        match self {
+            Self::Seconds => Some("s"),
+            Self::Hertz => Some("Hz"),
+            Self::Mebibytes => Some("MiB"),
+            Self::Days => Some("days"),
+            Self::Bandwidth => Some("MiB/s"),
+            Self::Port
+            | Self::IpAddress
+            | Self::Path
+            | Self::LogLevel
+            | Self::PreflightFailures
+            | Self::Compression
+            | Self::Count
+            | Self::Switch
+            | Self::UploadWhen
+            | Self::DeleteLocal
+            | Self::Verification => None,
+        }
+    }
+
     /// Parses the text form, as given in an environment variable or a flag.
     pub(crate) fn parse_text(self, text: &str) -> Option<Value> {
         match self {
@@ -345,6 +369,23 @@ impl fmt::Display for PreflightFailures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quantities_name_their_unit_and_other_values_none() {
+        assert_eq!(ValueType::Seconds.unit(), Some("s"));
+        assert_eq!(ValueType::Hertz.unit(), Some("Hz"));
+        assert_eq!(ValueType::Mebibytes.unit(), Some("MiB"));
+        assert_eq!(ValueType::Days.unit(), Some("days"));
+        assert_eq!(ValueType::Bandwidth.unit(), Some("MiB/s"));
+        for none in [
+            ValueType::Port,
+            ValueType::Count,
+            ValueType::Switch,
+            ValueType::Path,
+        ] {
+            assert_eq!(none.unit(), None, "{none:?}");
+        }
+    }
 
     #[test]
     fn ports_must_be_between_1_and_65535() {

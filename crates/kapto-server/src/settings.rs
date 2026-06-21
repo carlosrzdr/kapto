@@ -30,6 +30,10 @@ pub struct Setting {
     /// `/config/kapto.toml:2`, an environment variable such as
     /// `env KAPTO_SERVER_PORT`, or a flag such as `flag --port`.
     pub source: String,
+    /// The unit its value is in, e.g. `s`, `MiB` or `Hz`; `null` for a
+    /// value that is no quantity, or a plain count.
+    #[serde(default)]
+    pub unit: Option<String>,
     /// Whether the value is the built-in default.
     pub default: bool,
     /// What it does.

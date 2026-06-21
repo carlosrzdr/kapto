@@ -130,13 +130,24 @@ async fn the_settings_are_what_serve_started_with_with_their_sources() {
         settings: Arc::new(SettingsOverview {
             file: "/config/kapto.toml".into(),
             file_found: true,
-            settings: vec![Setting {
-                key: "server.port".into(),
-                value: "7701".into(),
-                source: "/config/kapto.toml:2".into(),
-                default: false,
-                help: "Port of the API and web UI.".into(),
-            }],
+            settings: vec![
+                Setting {
+                    key: "server.port".into(),
+                    value: "7701".into(),
+                    source: "/config/kapto.toml:2".into(),
+                    unit: None,
+                    default: false,
+                    help: "Port of the API and web UI.".into(),
+                },
+                Setting {
+                    key: "viewer.history_age".into(),
+                    value: "600".into(),
+                    source: "default".into(),
+                    unit: Some("s".into()),
+                    default: true,
+                    help: "How far back the live view can look.".into(),
+                },
+            ],
         }),
         ..state(&folder)
     };
@@ -145,6 +156,9 @@ async fn the_settings_are_what_serve_started_with_with_their_sources() {
     assert_eq!(body["file_found"], true);
     assert_eq!(body["settings"][0]["key"], "server.port");
     assert_eq!(body["settings"][0]["source"], "/config/kapto.toml:2");
+    // A quantity says its unit; a port is none.
+    assert_eq!(body["settings"][0]["unit"], Value::Null);
+    assert_eq!(body["settings"][1]["unit"], "s");
 }
 
 /// The bytes in the files of `folder`, which holds no folders.

@@ -990,6 +990,11 @@ export interface Setting {
    * `env KAPTO_SERVER_PORT`, or a flag such as `flag --port`.
    */
   source: string;
+  /**
+   * The unit its value is in, e.g. `s`, `MiB` or `Hz`; `null` for a
+   * value that is no quantity, or a plain count.
+   */
+  unit?: string | null;
   /** Its value, as it would be written in `kapto.toml`. */
   value: string;
 }

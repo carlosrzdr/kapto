@@ -146,6 +146,7 @@ pub(crate) fn overview(status: &FileStatus, config: &DeploymentConfig) -> Settin
                 default: entry.source == Source::Default,
                 source: entry.source.to_string(),
                 value: entry.value,
+                unit: entry.key.value_type.unit().map(str::to_owned),
                 help: entry.key.help.to_owned(),
             })
             .collect(),
@@ -203,6 +204,34 @@ mod tests {
     use kapto_config::CliOverride;
 
     use super::*;
+
+    #[test]
+    fn the_overview_gives_each_quantity_its_unit() {
+        let env = |_: &str| None;
+        let config = DeploymentConfig::resolve(&Inputs {
+            file: None,
+            env: &env,
+            cli: &[],
+        })
+        .unwrap();
+        let shown = overview(
+            &FileStatus::MissingDefault("/config/kapto.toml".into()),
+            &config,
+        );
+        let unit = |key: &str| {
+            shown
+                .settings
+                .iter()
+                .find(|setting| setting.key == key)
+                .unwrap()
+                .unit
+                .clone()
+        };
+        assert_eq!(unit("viewer.history_age").as_deref(), Some("s"));
+        assert_eq!(unit("capture.disk_warn_below").as_deref(), Some("MiB"));
+        assert_eq!(unit("viewer.display_rate").as_deref(), Some("Hz"));
+        assert_eq!(unit("server.port"), None);
+    }
 
     #[test]
     fn table_aligns_settings_values_and_sources() {
