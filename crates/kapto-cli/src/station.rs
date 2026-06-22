@@ -33,8 +33,8 @@ use kapto_capture::tap::frames::{FrameStats, FrameTotals};
 use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
-    Accounting, ChannelSpec, Drainer, Kept, KeptHeld, LossCounters, LossDetection, PreRoll,
-    Recording, RingStats, StreamIndex, StreamTotals, WriterConfig, discard, ring,
+    Accounting, ChannelSpec, Drainer, HandedOver, Kept, KeptHeld, LossCounters, LossDetection,
+    PreRoll, Recording, RingStats, StreamIndex, StreamTotals, WriterConfig, discard, ring,
 };
 use kapto_config::{MAX_DATAGRAM_BYTES, StreamDeclaration};
 use kapto_core::clock::monotonic_now;
@@ -93,6 +93,9 @@ pub(crate) struct Station {
     /// The last seconds of each stream with a pre-roll, from every phase so
     /// far.
     pre_roll: PreRoll,
+    /// The rings the last idle phase handed over as it ended, for the
+    /// episode starting.
+    handed: Vec<HandedOver>,
 }
 
 /// The files a recording carries, and the package files it doesn't.
@@ -229,6 +232,7 @@ impl Station {
         Ok(Self {
             kept: Kept::new(&plan.kept),
             pre_roll: PreRoll::new(&plan.pre_roll),
+            handed: Vec::new(),
             plan,
             data_dir,
             transports,
@@ -258,7 +262,8 @@ impl Station {
 
     /// Receives without recording, feeding only the live view, while
     /// `keep_going` says so. It is asked about every tenth of a second, with
-    /// the phase's counts and how long it has run.
+    /// the phase's counts and how long it has run. What arrived after it
+    /// said to stop is the next episode's.
     ///
     /// # Errors
     ///
@@ -269,6 +274,7 @@ impl Station {
     ) -> Outcome<()> {
         let counters = Arc::new(LossCounters::new(self.plan.streams.len()));
         let end = self.run(Job::Discard, &counters, keep_going)?;
+        self.handed = end.handed;
         end.receivers
     }
 
@@ -457,24 +463,29 @@ impl Station {
     }
 
     /// Starts `recording`: the records that say what it is, the kept
-    /// messages, then the pre-roll. The episode spans its data, so it
-    /// starts with its first message, the pre-roll's oldest if it holds any.
-    /// Returns when it starts and how many each kept stream started with.
+    /// messages, the pre-roll, then what the idle phase handed over. The
+    /// episode spans its data, so it starts with its first message, the
+    /// pre-roll's oldest if it holds any. Returns when it starts and how
+    /// many each kept stream started with.
     fn write_start(
-        &self,
+        &mut self,
         recording: &mut Recording,
         episode: &EpisodeId,
         (clock, asked, begun): (&ClockMap, RecvTime, RecvTime),
         counters: &LossCounters,
     ) -> Result<(i64, BTreeMap<StreamIndex, u64>), KaptoError> {
+        let handed = std::mem::take(&mut self.handed);
         let first = self
             .pre_roll
             .earliest(asked, begun)
-            .map_or(begun, |earliest| earliest.min(begun));
+            .into_iter()
+            .chain(handed.iter().filter_map(HandedOver::earliest))
+            .fold(begun, RecvTime::min);
         let started_utc_ns = clock.to_utc_ns(first);
         self.write_start_records(recording, episode, started_utc_ns)?;
         let carried = self.write_kept(recording, started_utc_ns)?;
         recording.write_pre_roll(&self.pre_roll, (asked, begun), counters)?;
+        recording.write_handed_over(handed, counters, (&mut self.kept, &mut self.pre_roll))?;
         Ok((started_utc_ns, carried))
     }
 
@@ -576,7 +587,7 @@ impl Station {
             kept: self.kept.held(),
         };
         let tap = self.tap.take();
-        let (transports, receiver_outcome, writer_outcome, tap) = run_threads(
+        let (transports, receiver_outcome, (writer_outcome, handed), tap) = run_threads(
             receivers,
             (
                 job,
@@ -604,6 +615,7 @@ impl Station {
             writer: writer_outcome,
             rings,
             transports: transport_stats,
+            handed,
         })
     }
 
@@ -676,12 +688,14 @@ struct PhaseEnd {
     writer: Outcome<Option<Recording>>,
     rings: Vec<Arc<RingStats>>,
     transports: Vec<Arc<TransportStats>>,
+    /// The rings a [`Job::Discard`] phase handed over as it ended.
+    handed: Vec<HandedOver>,
 }
 
 type Threads = (
     Vec<Box<dyn Transport>>,
     Outcome<()>,
-    Outcome<Option<Recording>>,
+    (Outcome<Option<Recording>>, Vec<HandedOver>),
     Option<TapFeed>,
 );
 
@@ -738,17 +752,17 @@ fn run_threads(
                         pre_roll,
                     );
                     let tap = recording.take_tap();
-                    (result.map(|()| Some(*recording)), tap)
+                    ((result.map(|()| Some(*recording)), Vec::new()), tap)
                 }
                 Job::Discard => {
-                    discard(
-                        &mut drainers,
+                    let handed = discard(
+                        drainers,
                         tap.as_mut(),
-                        kept,
-                        pre_roll,
+                        (kept, pre_roll),
+                        stop,
                         WriterConfig::default().idle_wait,
                     );
-                    (Ok(None), tap)
+                    ((Ok(None), handed), tap)
                 }
             });
         let writing = match writing {
@@ -786,9 +800,12 @@ fn run_threads(
             Err(errors)
         };
         let (writer, tap) = match writing.join() {
-            Ok((result, tap)) => (result.map_err(|error| vec![error]), tap),
+            Ok(((result, handed), tap)) => ((result.map_err(|error| vec![error]), handed), tap),
             Err(_) => (
-                Err(vec![thread_failed("cap-writer", "it stopped unexpectedly")]),
+                (
+                    Err(vec![thread_failed("cap-writer", "it stopped unexpectedly")]),
+                    Vec::new(),
+                ),
                 None,
             ),
         };

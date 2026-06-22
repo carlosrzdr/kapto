@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -547,6 +548,41 @@ impl Recording {
         Ok(())
     }
 
+    /// Writes every batch left in `handed` once its receiver has stopped,
+    /// each message counted as received and written, and the messages each
+    /// ring dropped after it was handed over as received and dropped. Each
+    /// batch is also offered to `kept` and held in `pre_roll`, as the writer
+    /// thread does.
+    ///
+    /// # Errors
+    ///
+    /// `capture.disk_full` or `capture.write_failed`; the recording can't be
+    /// written to afterwards.
+    pub fn write_handed_over(
+        &mut self,
+        handed: Vec<HandedOver>,
+        counters: &LossCounters,
+        (kept, pre_roll): (&mut Kept, &mut PreRoll),
+    ) -> Result<(), KaptoError> {
+        for mut handed in handed {
+            while let Some(batch) = handed.drainer.take() {
+                for (stream, _) in batch.messages() {
+                    counters.add_received(stream, 1);
+                }
+                self.write(&batch, counters)?;
+                kept.keep(&batch);
+                pre_roll.hold(&batch);
+            }
+            let stats = handed.drainer.stats();
+            for (stream, before) in (0..=StreamIndex::MAX).zip(handed.dropped.iter()) {
+                let dropped = stats.dropped_messages(stream).saturating_sub(*before);
+                counters.add_received(stream, dropped);
+                counters.add_dropped_by_us(stream, dropped);
+            }
+        }
+        Ok(())
+    }
+
     /// Writes every message of `batch` and counts it as written, its log
     /// time the batch's receive time and its publish time the time its
     /// source gave it, or the receive time without one. A message of a
@@ -773,19 +809,26 @@ impl Recording {
 
 /// While no episode is being recorded: takes every batch from every ring,
 /// so receivers never wait, offers it to the viewer's `tap`, to `kept` and
-/// to `pre_roll`, for the next episode, and discards it, until every
-/// receiver is gone and every batch is taken. Nothing is counted as written
-/// or dropped: these messages belong to no episode.
+/// to `pre_roll`, for the next episode, and discards it. Nothing is counted
+/// as written or dropped: these messages belong to no episode.
+///
+/// Once `stop` is set it takes no more and hands every ring over, with
+/// what is left in it: the phase ends because an episode is starting, and
+/// what arrived since belongs to it. It also returns, with nothing to hand
+/// over, once every receiver is gone and every batch is taken.
 pub fn discard(
-    drainers: &mut [Drainer],
+    mut drainers: Vec<Drainer>,
     #[cfg(unix)] mut tap: Option<&mut crate::tap::TapFeed>,
-    kept: &mut Kept,
-    pre_roll: &mut PreRoll,
+    (kept, pre_roll): (&mut Kept, &mut PreRoll),
+    stop: &AtomicBool,
     idle_wait: Duration,
-) {
+) -> Vec<HandedOver> {
     loop {
+        if stop.load(Ordering::Relaxed) {
+            return drainers.into_iter().map(HandedOver::new).collect();
+        }
         let mut idle = true;
-        for drainer in drainers.iter_mut() {
+        for drainer in &mut drainers {
             while let Some(batch) = drainer.take() {
                 idle = false;
                 kept.keep(&batch);
@@ -797,11 +840,39 @@ pub fn discard(
             }
         }
         if drainers.iter().all(Drainer::is_finished) {
-            return;
+            return Vec::new();
         }
         if idle {
             thread::park_timeout(idle_wait);
         }
+    }
+}
+
+/// A ring [`discard`] stopped taking from because an episode is starting:
+/// the batches left in it, and those its receiver sends before it stops,
+/// are the episode's first.
+#[derive(Debug)]
+pub struct HandedOver {
+    drainer: Drainer,
+    /// The messages the ring had dropped per stream when it was handed
+    /// over; those it drops after are the episode's.
+    dropped: Box<[u64]>,
+}
+
+impl HandedOver {
+    fn new(drainer: Drainer) -> Self {
+        let stats = drainer.stats();
+        let dropped = (0..=StreamIndex::MAX)
+            .take(stats.streams())
+            .map(|stream| stats.dropped_messages(stream))
+            .collect();
+        Self { drainer, dropped }
+    }
+
+    /// When the oldest batch left was received, if one is.
+    #[must_use]
+    pub fn earliest(&self) -> Option<RecvTime> {
+        self.drainer.next_recv_time()
     }
 }
 

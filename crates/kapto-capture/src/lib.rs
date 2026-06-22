@@ -30,4 +30,6 @@ pub use pre_roll::{HeldMessage, PreRoll, PreRollStream};
 pub use recover::{RecoveredEpisode, recover_interrupted};
 pub use ring::{Drainer, Filler, Received, RingConfig, RingStats, Sent, ring};
 pub use salvage::{Salvaged, salvage};
-pub use writer::{ChannelSchema, ChannelSpec, Compression, Recording, WriterConfig, discard};
+pub use writer::{
+    ChannelSchema, ChannelSpec, Compression, HandedOver, Recording, WriterConfig, discard,
+};

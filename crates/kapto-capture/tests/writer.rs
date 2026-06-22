@@ -10,6 +10,7 @@
 )]
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::thread;
 use std::time::Duration;
 
@@ -231,13 +232,14 @@ fn messages_kept_while_idle_start_the_next_recording_at_its_start_as_received() 
     );
     filler.send();
     drop(filler);
-    discard(
-        &mut [drainer],
+    let handed = discard(
+        vec![drainer],
         None,
-        &mut kept,
-        &mut PreRoll::default(),
+        (&mut kept, &mut PreRoll::default()),
+        &AtomicBool::new(false),
         Duration::from_millis(1),
     );
+    assert!(handed.is_empty());
 
     let counters = LossCounters::new(2);
     let mut recording = Recording::create(
@@ -303,6 +305,84 @@ fn messages_kept_while_idle_start_the_next_recording_at_its_start_as_received() 
     // Both are kept for the episode after.
     let next: Vec<&[u8]> = kept.messages().map(|message| message.payload).collect();
     assert_eq!(next, [b"camera_link".as_slice(), b"gripper_link"]);
+}
+
+#[test]
+fn what_the_idle_writer_left_when_told_to_stop_starts_the_episode_with_its_drops() {
+    let file = TempFile::new("handed");
+    let config = RingConfig {
+        batches: 3,
+        batch_capacity: 2,
+        max_message_len: 64,
+        streams: 2,
+    };
+    let (mut filler, drainer, _) = ring(&config);
+    let mut next = 0_u8;
+    let mut send = |filler: &mut kapto_capture::Filler, at: u64| {
+        filler
+            .batch()
+            .set_recv_time(RecvTime::from_nanos(at * SECOND));
+        filler.batch().push(0, &[next]);
+        filler.batch().push(1, &[next]);
+        next += 1;
+        filler.send()
+    };
+    // Two batches arrive after Start: the idle writer, told to stop, takes
+    // neither and hands the ring over.
+    send(&mut filler, 7);
+    send(&mut filler, 8);
+    let mut kept = Kept::default();
+    let mut pre_roll = PreRoll::default();
+    let handed = discard(
+        vec![drainer],
+        None,
+        (&mut kept, &mut pre_roll),
+        &AtomicBool::new(true),
+        Duration::from_millis(1),
+    );
+    assert_eq!(handed.len(), 1);
+    assert_eq!(handed[0].earliest(), Some(RecvTime::from_nanos(7 * SECOND)));
+    // Its receiver goes on until it stops, dropping one batch for want of
+    // room: those messages are the episode's too.
+    assert_eq!(
+        send(&mut filler, 9),
+        kapto_capture::Sent::Dropped { messages: 2 }
+    );
+    drop(filler);
+
+    let counters = LossCounters::new(2);
+    let mut recording = Recording::create(
+        &file.0,
+        &streams(&["joints", "camera"]),
+        &clock(),
+        &WriterConfig::default(),
+    )
+    .unwrap();
+    recording
+        .write_handed_over(handed, &counters, (&mut kept, &mut pre_roll))
+        .unwrap();
+    recording.finish(&clock()).unwrap();
+
+    let read: Vec<(String, Vec<u8>)> = read_back(&file.0)
+        .into_iter()
+        .map(|(topic, _, _, payload)| (topic, payload))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("joints".to_owned(), vec![0]),
+            ("camera".to_owned(), vec![0]),
+            ("joints".to_owned(), vec![1]),
+            ("camera".to_owned(), vec![1]),
+        ]
+    );
+    for stream in 0..2 {
+        let totals = counters.totals(stream);
+        assert_eq!(
+            (totals.received, totals.written, totals.dropped_by_us),
+            (3, 2, 1)
+        );
+    }
 }
 
 #[test]

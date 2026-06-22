@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
+use kapto_core::RecvTime;
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::batch::{Batch, StreamIndex};
@@ -101,6 +102,12 @@ impl RingStats {
         self.dropped_batches.load(Ordering::Relaxed)
     }
 
+    /// How many streams it counts drops for.
+    #[must_use]
+    pub fn streams(&self) -> usize {
+        self.dropped_messages.len()
+    }
+
     /// Messages of `stream` discarded because the writer was behind.
     #[must_use]
     pub fn dropped_messages(&self, stream: StreamIndex) -> u64 {
@@ -156,6 +163,7 @@ pub fn ring(config: &RingConfig) -> (Filler, Drainer, Arc<RingStats>) {
     let drainer = Drainer {
         full: full_rx,
         free: free_tx,
+        stats: Arc::clone(&stats),
     };
     (filler, drainer, stats)
 }
@@ -240,6 +248,7 @@ fn count_dropped(stats: &RingStats, batch: &mut Batch) -> usize {
 pub struct Drainer {
     full: Consumer<Batch>,
     free: Producer<Batch>,
+    stats: Arc<RingStats>,
 }
 
 impl Drainer {
@@ -251,6 +260,18 @@ impl Drainer {
             batch,
             free: &mut self.free,
         })
+    }
+
+    /// When the next filled batch was received, if one is waiting.
+    #[must_use]
+    pub fn next_recv_time(&self) -> Option<RecvTime> {
+        self.full.peek().ok().map(Batch::recv_time)
+    }
+
+    /// The ring's counters.
+    #[must_use]
+    pub fn stats(&self) -> &RingStats {
+        &self.stats
     }
 
     /// Whether the receiver's end is gone and every batch it sent has been
