@@ -15,7 +15,10 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use kapto_capture::{RingConfig, Sent, ring};
+use std::time::Duration;
+
+use kapto_capture::{Batch, PreRoll, PreRollStream, RingConfig, Sent, ring};
+use kapto_core::RecvTime;
 
 struct CountingAllocator;
 
@@ -407,4 +410,51 @@ fn keeping_messages_for_later_episodes_never_allocates() {
     let allocated = allocations() - before;
     assert_eq!(kept.messages().count(), 3);
     assert_eq!(allocated, 0, "keeping messages allocated {allocated} times");
+}
+
+#[test]
+fn holding_a_pre_roll_through_many_turns_of_its_ring_never_allocates() {
+    // A joint stream and a camera, both pre-rolled, in rings that turn over
+    // many times; the camera's frames vary in length as JPEG frames do.
+    let mut pre_roll = PreRoll::new(&[
+        PreRollStream {
+            stream: 0,
+            seconds: Duration::from_secs(1),
+            bytes: 4096,
+            messages: 64,
+        },
+        PreRollStream {
+            stream: 1,
+            seconds: Duration::from_secs(1),
+            bytes: 1 << 20,
+            messages: 32,
+        },
+    ]);
+    let mut joints = Batch::new(64, 128);
+    for _ in 0..64 {
+        assert!(joints.push(0, &[7; 76]));
+    }
+    let frames: Vec<Batch> = [40_000_usize, 130_000, 250_000]
+        .iter()
+        .map(|&len| {
+            let mut frame = Batch::new(1, 300_000);
+            assert!(frame.push(1, &vec![9; len]));
+            frame
+        })
+        .collect();
+    pre_roll.hold(&joints);
+
+    let before = allocations();
+    for round in 0..2_000_u64 {
+        joints.set_recv_time(RecvTime::from_nanos(round));
+        pre_roll.hold(&joints);
+        pre_roll.hold(&frames[usize::try_from(round % 3).unwrap_or(0)]);
+    }
+    let allocations = allocations() - before;
+    assert_eq!(
+        allocations, 0,
+        "holding the pre-roll allocated {allocations} times"
+    );
+    let end = RecvTime::from_nanos(2_000);
+    assert!(pre_roll.messages(end, end).count() > 0);
 }

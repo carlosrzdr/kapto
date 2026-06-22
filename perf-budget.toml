@@ -67,6 +67,12 @@ per_message_ns = 900
 per_kib_ns = 1_000
 reason = "As uncompressed, plus zstd compression of each full chunk, spread over its messages."
 
+[stage.pre_roll_hold]
+per_batch_ns = 50
+per_message_ns = 25
+per_kib_ns = 250
+reason = "For a stream with a pre-roll, the writer copies each message into its ring set aside at startup and notes where it is: a copy of its bytes and a few stores, the oldest let go of in place."
+
 [stage."timestamp/monotonic_now"]
 per_batch_ns = 50
 reason = "One clock read through the vDSO, once per batch."

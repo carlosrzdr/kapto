@@ -24,8 +24,8 @@ use kapto_capture::loss::{ByteOrder, RateGap, SequenceField, SequenceWidth};
 use kapto_capture::tap::frames::{FrameConfig, frames};
 use kapto_capture::tap::{TapConfig, tap};
 use kapto_capture::{
-    Accounting, Batch, ChannelSpec, Compression, LossCounters, LossDetection, Publication,
-    Recording, RingConfig, StreamIndex, WriterConfig, ring,
+    Accounting, Batch, ChannelSpec, Compression, LossCounters, LossDetection, PreRoll,
+    PreRollStream, Publication, Recording, RingConfig, StreamIndex, WriterConfig, ring,
 };
 use kapto_core::clock::monotonic_now;
 use kapto_core::{ClockMap, ClockSample, StreamId};
@@ -287,7 +287,38 @@ fn timestamps(c: &mut Criterion) {
     group.finish();
 }
 
+/// Holding each message of a batch in its stream's pre-roll, as the writer
+/// does for every stream with one: every stream pre-rolled, a second at
+/// 2 kHz, the rings turning over as they do in a long session.
+fn pre_roll_hold(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pre_roll_hold");
+    for (messages, size) in grid() {
+        group.throughput(Throughput::Elements(messages as u64));
+        group.bench_function(id(messages, size), |b| {
+            let streams: Vec<PreRollStream> = (0..STREAMS)
+                .map(|stream| PreRollStream {
+                    stream,
+                    seconds: Duration::from_secs(1),
+                    bytes: 2_508 * size,
+                    messages: 2_508,
+                })
+                .collect();
+            let mut pre_roll = PreRoll::new(&streams);
+            let mut next_sequence = vec![0_u32; usize::from(STREAMS)];
+            let batch = batch(messages, size, &mut next_sequence, With::Nothing);
+            b.iter(|| pre_roll.hold(&batch));
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
-    stages, hand_off, accounting, mcap_write, tap_offer, timestamps
+    stages,
+    hand_off,
+    accounting,
+    mcap_write,
+    tap_offer,
+    pre_roll_hold,
+    timestamps
 );
 criterion_main!(stages);
