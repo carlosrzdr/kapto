@@ -79,6 +79,8 @@ pub struct DeploymentConfig {
     pub disk_warn_below_mib: Effective<u64>,
     /// Below how much free space, in MiB, recording stops.
     pub disk_stop_below_mib: Effective<u64>,
+    /// The most memory, in MiB, set aside for one stream's pre-roll.
+    pub pre_roll_max_mib: Effective<u64>,
     /// How long pre-flight watches the streams.
     pub preflight_window: Effective<Duration>,
     /// How long a recording pre-flight checks the disk has room for.
@@ -172,30 +174,13 @@ impl DeploymentConfig {
                 Value::Port(port) => Some(port),
                 _ => None,
             }),
-            viewer_display_rate: take(&mut values, "viewer.display_rate", |value| match value {
-                Value::Hertz(rate) => Some(rate),
-                _ => None,
-            }),
-            viewer_camera_max_fps: take(
-                &mut values,
-                "viewer.camera_max_fps",
-                |value| match value {
-                    Value::Hertz(rate) => Some(rate),
-                    _ => None,
-                },
-            ),
+            viewer_display_rate: take(&mut values, "viewer.display_rate", hertz),
+            viewer_camera_max_fps: take(&mut values, "viewer.camera_max_fps", hertz),
             viewer_history_mib: take(&mut values, "viewer.history", mebibytes),
             viewer_history_age: take(&mut values, "viewer.history_age", seconds),
             viewer_stop_grace: take(&mut values, "viewer.stop_grace", seconds),
             replay_cache_size_mib: take(&mut values, "viewer.replay_cache_size", mebibytes),
-            replay_cache_age_days: take(
-                &mut values,
-                "viewer.replay_cache_age",
-                |value| match value {
-                    Value::Days(days) => Some(days),
-                    _ => None,
-                },
-            ),
+            replay_cache_age_days: take(&mut values, "viewer.replay_cache_age", days),
             tap_socket: take(&mut values, "viewer.tap_socket", path),
             frame_socket: take(&mut values, "viewer.frame_socket", path),
             control_socket: take(&mut values, "capture.control_socket", path),
@@ -203,6 +188,7 @@ impl DeploymentConfig {
             capture_stop_grace: take(&mut values, "capture.stop_grace", seconds),
             disk_warn_below_mib: take(&mut values, "capture.disk_warn_below", mebibytes),
             disk_stop_below_mib: take(&mut values, "capture.disk_stop_below", mebibytes),
+            pre_roll_max_mib: take(&mut values, "capture.pre_roll_max_mib", mebibytes),
             preflight_window: take(&mut values, "capture.preflight_window", seconds),
             preflight_disk_time: take(&mut values, "capture.preflight_disk_time", seconds),
             preflight_failures: take(&mut values, "capture.preflight", |value| match value {
@@ -213,10 +199,7 @@ impl DeploymentConfig {
                 Value::Compression(compression) => Some(compression),
                 _ => None,
             }),
-            attach_meshes: take(&mut values, "capture.attach_meshes", |value| match value {
-                Value::Switch(on) => Some(on),
-                _ => None,
-            }),
+            attach_meshes: take(&mut values, "capture.attach_meshes", switch),
             restart_delay: take(&mut values, "supervisor.restart_delay", seconds),
             restart_max_delay: take(&mut values, "supervisor.restart_max_delay", seconds),
             stable_after: take(&mut values, "supervisor.stable_after", seconds),
@@ -224,14 +207,7 @@ impl DeploymentConfig {
                 Value::Count(count) => Some(count),
                 _ => None,
             }),
-            worker_pause_while_recording: take(
-                &mut values,
-                "worker.pause_while_recording",
-                |value| match value {
-                    Value::Switch(on) => Some(on),
-                    _ => None,
-                },
-            ),
+            worker_pause_while_recording: take(&mut values, "worker.pause_while_recording", switch),
             upload: upload_settings(&mut values),
             upload_destinations,
             data_dir: take(&mut values, "paths.data", path),
@@ -268,6 +244,7 @@ impl DeploymentConfig {
                     "capture.stop_grace" => seconds_text(&self.capture_stop_grace),
                     "capture.disk_warn_below" => text(&self.disk_warn_below_mib),
                     "capture.disk_stop_below" => text(&self.disk_stop_below_mib),
+                    "capture.pre_roll_max_mib" => text(&self.pre_roll_max_mib),
                     "capture.preflight_window" => seconds_text(&self.preflight_window),
                     "capture.preflight_disk_time" => seconds_text(&self.preflight_disk_time),
                     "capture.preflight" => text(&self.preflight_failures),
@@ -494,6 +471,28 @@ fn seconds(value: Value) -> Option<Duration> {
 fn mebibytes(value: Value) -> Option<u64> {
     match value {
         Value::Mebibytes(size) => Some(size),
+        _ => None,
+    }
+}
+
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "a conversion for `take`, which hands over the value"
+)]
+fn hertz(value: Value) -> Option<u32> {
+    match value {
+        Value::Hertz(rate) => Some(rate),
+        _ => None,
+    }
+}
+
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "a conversion for `take`, which hands over the value"
+)]
+fn days(value: Value) -> Option<u32> {
+    match value {
+        Value::Days(days) => Some(days),
         _ => None,
     }
 }
@@ -1421,6 +1420,7 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.capture_stop_grace.value, Duration::from_secs(30));
         assert_eq!(config.disk_warn_below_mib.value, 10_240);
         assert_eq!(config.disk_stop_below_mib.value, 2_048);
+        assert_eq!(config.pre_roll_max_mib.value, 64);
         assert_eq!(config.preflight_window.value, Duration::from_secs(5));
         assert_eq!(config.preflight_disk_time.value, Duration::from_secs(600));
         assert_eq!(config.viewer_stop_grace.value, Duration::from_secs(5));

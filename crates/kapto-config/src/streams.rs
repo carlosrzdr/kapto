@@ -51,6 +51,7 @@ use std::ffi::OsStr;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use kapto_core::{ErrorCode, KaptoError, StreamId};
 use kapto_decode::cdr::{assemble, msg_files_in};
@@ -88,6 +89,9 @@ pub struct StreamDeclaration {
     /// The largest message the stream sends, in bytes, if declared. Longer
     /// messages are discarded and counted.
     pub max_message_bytes: Option<u32>,
+    /// How long before an episode's start its messages are kept, to start
+    /// the episode with, if any: its pre-roll.
+    pub pre_roll: Option<Duration>,
     /// Where the stream arrives over UDP, if it does.
     pub udp: Option<UdpDeclaration>,
     /// Where the stream arrives over TCP, if it does.
@@ -200,11 +204,15 @@ pub enum ByteOrder {
     Big,
 }
 
+/// The longest pre-roll a stream may have, in seconds.
+const MAX_PRE_ROLL_S: f64 = 60.0;
+
 const STREAM_KEYS: &[&str] = &[
     "rate_hz",
     "sequence",
     "loss_settle_ms",
     "max_message_bytes",
+    "pre_roll_s",
     "udp",
     "tcp",
     "ros2",
@@ -496,12 +504,39 @@ impl Reader<'_> {
             sequence,
             loss_settle_ms,
             max_message_bytes,
+            pre_roll: self.pre_roll(table, &path, rate_hz),
             udp,
             tcp,
             ros2,
             decoder,
             camera,
         })
+    }
+
+    /// The stream's `pre_roll_s`: above 0 and at most [`MAX_PRE_ROLL_S`]
+    /// seconds, for a stream with a rate, which sizes what is kept.
+    fn pre_roll(
+        &mut self,
+        table: &dyn TableLike,
+        path: &str,
+        rate_hz: Option<u32>,
+    ) -> Option<Duration> {
+        let seconds = self.float(table, path, "pre_roll_s")?;
+        if !(seconds > 0.0 && seconds <= MAX_PRE_ROLL_S) {
+            let detail = format!(
+                "`{path}.pre_roll_s` must be a number of seconds above 0 and at most {MAX_PRE_ROLL_S}"
+            );
+            self.invalid(table, "pre_roll_s", detail);
+            return None;
+        }
+        if rate_hz.is_none() {
+            let detail = format!(
+                "`{path}.pre_roll_s` needs `rate_hz`: the seconds kept are set aside for the stream's rate"
+            );
+            self.invalid(table, "pre_roll_s", detail);
+            return None;
+        }
+        Some(Duration::from_secs_f64(seconds))
     }
 
     /// A camera's table is for a TCP stream, and its raw frames fit the
@@ -1089,6 +1124,7 @@ mod tests {
                         byte_order: ByteOrder::Big,
                     }),
                     loss_settle_ms: None,
+                    pre_roll: None,
                     max_message_bytes: None,
                     udp: None,
                     tcp: None,
@@ -1101,6 +1137,7 @@ mod tests {
                     rate_hz: None,
                     sequence: None,
                     loss_settle_ms: None,
+                    pre_roll: None,
                     max_message_bytes: None,
                     udp: None,
                     tcp: None,
@@ -1265,6 +1302,44 @@ mod tests {
             ),
             "{}",
             found[2]
+        );
+    }
+
+    #[test]
+    fn a_stream_with_a_rate_may_keep_its_last_seconds_before_an_episode_starts() {
+        let streams = parse(
+            "[streams.arm]\nrate_hz = 2000\npre_roll_s = 1.5\n[streams.camera]\nrate_hz = 30\npre_roll_s = 5\n[streams.plain]\nrate_hz = 100\n",
+        )
+        .unwrap();
+        assert_eq!(streams[0].pre_roll, Some(Duration::from_millis(1500)));
+        assert_eq!(streams[1].pre_roll, Some(Duration::from_secs(5)));
+        assert_eq!(streams[2].pre_roll, None);
+    }
+
+    #[test]
+    fn a_pre_roll_needs_a_rate_and_a_length_above_zero_up_to_a_minute() {
+        let found = problems(
+            "[streams.no_rate]\npre_roll_s = 2\n\
+             [streams.zero]\nrate_hz = 100\npre_roll_s = 0\n\
+             [streams.too_long]\nrate_hz = 100\npre_roll_s = 61\n\
+             [streams.words]\nrate_hz = 100\npre_roll_s = \"5 s\"\n",
+        );
+        assert_eq!(found.len(), 4, "{found:#?}");
+        assert!(
+            found[0].contains("`streams.no_rate.pre_roll_s` needs `rate_hz`"),
+            "{}",
+            found[0]
+        );
+        for (problem, stream) in found[1..3].iter().zip(["zero", "too_long"]) {
+            assert!(
+                problem.contains(&format!("`streams.{stream}.pre_roll_s` must be a number of seconds above 0 and at most 60")),
+                "{problem}"
+            );
+        }
+        assert!(
+            found[3].contains("`streams.words.pre_roll_s` must be a number"),
+            "{}",
+            found[3]
         );
     }
 

@@ -278,6 +278,7 @@ capture.control_timeout           60                                       defau
 capture.stop_grace                30                                       default
 capture.disk_warn_below           10240                                    default
 capture.disk_stop_below           2048                                     default
+capture.pre_roll_max_mib          64                                       default
 capture.preflight_window          5                                        default
 capture.preflight_disk_time       600                                      default
 capture.preflight                 refuse                                   default

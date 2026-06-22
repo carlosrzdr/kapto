@@ -27,6 +27,7 @@
 | `--capture-stop-grace <SECONDS>` | Seconds the capture process may take to stop before it is killed (`capture.stop_grace`) |
 | `--disk-warn-below <MIB>` | MiB free below which Kapto warns the disk is running low (`capture.disk_warn_below`) |
 | `--disk-stop-below <MIB>` | MiB free below which recording stops and none starts (`capture.disk_stop_below`) |
+| `--pre-roll-max-mib <MIB>` | The most MiB set aside for one stream's pre-roll (`capture.pre_roll_max_mib`) |
 | `--preflight-window <SECONDS>` | Seconds pre-flight watches the streams (`capture.preflight_window`) |
 | `--preflight-disk-time <SECONDS>` | Seconds of recording pre-flight checks the disk has room for (`capture.preflight_disk_time`) |
 | `--preflight <POLICY>` | What a failed pre-flight check does to a start: refuse or warn (`capture.preflight`) |

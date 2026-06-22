@@ -211,6 +211,18 @@ Below how much free space, in MiB, on the disk holding the data directory the ca
 | Environment variable | `KAPTO_CAPTURE_DISK_STOP_BELOW` |
 | Flag | `--disk-stop-below` |
 
+## `capture.pre_roll_max_mib`
+
+The most memory, in MiB, set aside for one stream's pre-roll (`pre_roll_s` in `streams.toml`): what it needs for its seconds at its rate and largest message, up to this. A stream whose messages are larger than that allows holds fewer seconds; the capture process says the total it sets aside when it starts.
+
+| | |
+|---|---|
+| Section and name | `[capture]` `pre_roll_max_mib` |
+| Accepts | a whole number of MiB from 1 to 1048576 |
+| Default | `64` |
+| Environment variable | `KAPTO_CAPTURE_PRE_ROLL_MAX_MIB` |
+| Flag | `--pre-roll-max-mib` |
+
 ## `capture.preflight_window`
 
 How long, in seconds, pre-flight watches the streams to check each arrives at roughly its declared rate. Pre-flight runs when the capture process starts and whenever asked.
