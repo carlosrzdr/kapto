@@ -19,6 +19,40 @@ pub struct Publication {
     pub number: u64,
 }
 
+/// Messages of one stream missing before or between a batch's: found by
+/// loss detection when the batch was received, between `since` and the
+/// batch's own receive time. `since` is when the stream's batch before it
+/// was received, or the batch's own time for messages missing between two
+/// of its own. Negative when messages counted missing arrived late after
+/// all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Gap {
+    /// The stream.
+    pub stream: StreamIndex,
+    /// How many are missing.
+    pub lost: i64,
+    /// When the stream's batch before was received.
+    pub since: RecvTime,
+}
+
+impl Gap {
+    /// The share of the gap, ending at `at`, from `from` on: all of it if it
+    /// began then or after, none if it ended before, otherwise in
+    /// proportion to the time on each side.
+    #[must_use]
+    pub fn share_from(&self, at: RecvTime, from: RecvTime) -> i64 {
+        let (since, at, from) = (self.since.as_nanos(), at.as_nanos(), from.as_nanos());
+        if since >= from {
+            return self.lost;
+        }
+        if at <= from {
+            return 0;
+        }
+        let share = i128::from(self.lost) * i128::from(at - from) / i128::from(at - since);
+        i64::try_from(share).unwrap_or(self.lost)
+    }
+}
+
 /// A fixed block of memory with room for `capacity` messages of up to
 /// `max_message_len` bytes each, plus each message's length, stream and
 /// source time, and one receive time for the whole batch.
@@ -40,6 +74,11 @@ pub struct Batch {
     /// none. Kept as the source times are, once a message has one.
     publications: Box<[Publication]>,
     any_publication: bool,
+    /// The gaps loss detection found in the batch's messages: per stream,
+    /// one before its first and one between the others, so never more than
+    /// it has messages.
+    gaps: Box<[Gap]>,
+    gap_count: usize,
     max_message_len: usize,
     len: usize,
     recv_time: RecvTime,
@@ -57,6 +96,16 @@ impl Batch {
             any_source_time: false,
             publications: vec![Publication::default(); capacity].into_boxed_slice(),
             any_publication: false,
+            gaps: vec![
+                Gap {
+                    stream: 0,
+                    lost: 0,
+                    since: RecvTime::from_nanos(0),
+                };
+                capacity
+            ]
+            .into_boxed_slice(),
+            gap_count: 0,
             max_message_len,
             len: 0,
             recv_time: RecvTime::from_nanos(0),
@@ -268,9 +317,26 @@ impl Batch {
         self.any_source_time
     }
 
+    /// Records a gap found in the batch's messages of its stream. Does
+    /// nothing once there are as many as messages, which two gaps per
+    /// stream with messages never exceed.
+    pub fn add_gap(&mut self, gap: Gap) {
+        if let Some(slot) = self.gaps.get_mut(self.gap_count) {
+            *slot = gap;
+            self.gap_count += 1;
+        }
+    }
+
+    /// The gaps found in the batch's messages.
+    #[must_use]
+    pub fn gaps(&self) -> &[Gap] {
+        &self.gaps[..self.gap_count]
+    }
+
     /// Forgets every message, keeping the memory.
     pub fn clear(&mut self) {
         self.len = 0;
+        self.gap_count = 0;
         self.any_source_time = false;
         self.any_publication = false;
     }
@@ -279,6 +345,40 @@ impl Batch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_gap_counts_from_a_time_in_proportion_to_its_part_after_it() {
+        let gap = Gap {
+            stream: 0,
+            lost: 100,
+            since: RecvTime::from_nanos(1_000),
+        };
+        let at = RecvTime::from_nanos(2_000);
+        let share = |from| gap.share_from(at, RecvTime::from_nanos(from));
+        assert_eq!(share(500), 100);
+        assert_eq!(share(1_000), 100);
+        assert_eq!(share(1_750), 25);
+        assert_eq!(share(2_000), 0);
+        assert_eq!(share(3_000), 0);
+        let late = Gap { lost: -4, ..gap };
+        assert_eq!(late.share_from(at, RecvTime::from_nanos(1_500)), -2);
+    }
+
+    #[test]
+    fn gaps_are_kept_until_the_batch_is_cleared_and_never_beyond_its_capacity() {
+        let mut batch = Batch::new(2, 8);
+        let gap = |stream| Gap {
+            stream,
+            lost: 1,
+            since: RecvTime::from_nanos(0),
+        };
+        for stream in 0..3 {
+            batch.add_gap(gap(stream));
+        }
+        assert_eq!(batch.gaps(), [gap(0), gap(1)]);
+        batch.clear();
+        assert_eq!(batch.gaps(), []);
+    }
 
     #[test]
     fn messages_come_back_in_order_with_their_streams() {

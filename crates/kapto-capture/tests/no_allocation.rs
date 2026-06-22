@@ -192,12 +192,12 @@ fn counting_received_and_lost_messages_never_allocates() {
     };
 
     fill(&mut batch, 0);
-    accounting.count(&batch);
+    accounting.count(&mut batch);
 
     let before = allocations();
     for round in 1..10_000 {
         fill(&mut batch, round);
-        accounting.count(&batch);
+        accounting.count(&mut batch);
     }
     assert_eq!(allocations() - before, 0);
     assert_eq!(counters.totals(0).received, 10_000 * 32);

@@ -79,6 +79,8 @@ pub struct RateGapDetector {
     last: Option<Mark>,
     /// The silence being settled, if one is.
     open: Option<Settling>,
+    /// When the batch before the silence counted last was received.
+    counted_since: Option<RecvTime>,
 }
 
 /// A batch of the stream, on the clock it is judged by.
@@ -98,6 +100,8 @@ struct Mark {
 struct Settling {
     /// The last message before it, on the clock it is judged by.
     from_ns: u128,
+    /// When the batch holding that message was received.
+    from_recv: RecvTime,
     /// Messages received since.
     received: u64,
     /// When it is counted, by the receive clock.
@@ -117,7 +121,16 @@ impl RateGapDetector {
             settle_ns: gap.settle.as_nanos(),
             last: None,
             open: None,
+            counted_since: None,
         }
+    }
+
+    /// When the batch before the silence counted last was received: the
+    /// messages it counted were missing between then and the batch that
+    /// counted them.
+    #[must_use]
+    pub fn counted_since(&self) -> Option<RecvTime> {
+        self.counted_since
     }
 
     /// Takes the `count` messages of this stream in one batch received at
@@ -185,6 +198,9 @@ impl RateGapDetector {
         if gap >= self.min_gap_ns {
             self.open = Some(Settling {
                 from_ns: previous.last_ns,
+                from_recv: RecvTime::from_nanos(
+                    u64::try_from(previous.recv_ns).unwrap_or(u64::MAX),
+                ),
                 received: count,
                 until_ns: recv + self.settle_ns,
             });
@@ -214,6 +230,7 @@ impl RateGapDetector {
         let Some(open) = self.open.take() else {
             return 0;
         };
+        self.counted_since = Some(open.from_recv);
         let expected = (end_ns.saturating_sub(open.from_ns) + self.period_ns / 2) / self.period_ns;
         // By receive times, a message arriving later in its batch than the
         // batch's time reads as periods missing; by sending times, a source
@@ -243,6 +260,17 @@ mod tests {
     /// batch; what they count lost.
     fn at_rate(detector: &mut RateGapDetector, from: u64, to: u64) -> u64 {
         (from..=to).map(|ms| detector.observe(at(ms), 1)).sum()
+    }
+
+    #[test]
+    fn a_counted_silence_says_when_the_batch_before_it_was_received() {
+        let mut detector = RateGapDetector::new(RateGap::for_rate(1_000));
+        detector.observe(at(100), 1);
+        detector.observe(at(110), 1);
+        at_rate(&mut detector, 111, 1_109);
+        assert_eq!(detector.counted_since(), None, "not counted yet");
+        assert_eq!(detector.observe(at(1_110), 1), 9);
+        assert_eq!(detector.counted_since(), Some(at(100)));
     }
 
     #[test]

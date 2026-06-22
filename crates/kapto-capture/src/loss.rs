@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use kapto_core::{RecvTime, StreamId};
 use kapto_store::{LossDetectionKind, StreamSummary};
 
-use crate::batch::{Batch, Publication, StreamIndex};
+use crate::batch::{Batch, Gap, Publication, StreamIndex};
 
 pub use rate::{RateGap, RateGapDetector, Sent};
 pub use sequence::{ByteOrder, SequenceField, SequenceTracker, SequenceWidth};
@@ -138,6 +138,19 @@ impl LossCounters {
         }
     }
 
+    /// Counts the share of `gap`, before a message received at `at`, from
+    /// `from` on as lost on the way: loss found before the episode began,
+    /// in what it holds of the time before.
+    pub fn add_gap(&self, gap: &Gap, at: RecvTime, from: RecvTime) {
+        if let Some(counters) = self.streams.get(usize::from(gap.stream)) {
+            // Negative for messages that arrived late after all; adding it
+            // as two's complement wraps to the right total.
+            counters
+                .lost_upstream
+                .fetch_add(gap.share_from(at, from).cast_unsigned(), Ordering::Relaxed);
+        }
+    }
+
     /// How many streams there are counters for.
     #[must_use]
     pub fn streams(&self) -> usize {
@@ -175,6 +188,24 @@ pub struct Accounting {
     /// Each stream's messages counted by their publishers' own counts,
     /// where the transport gives them.
     published: Box<[PublisherCounts]>,
+    /// Each stream's loss in the batch being counted, and when its last
+    /// batch was received.
+    gaps: Box<[StreamGap]>,
+}
+
+/// One stream's loss in the batch being counted, which becomes a
+/// [`Gap`] in the batch, and when its batch before was received.
+#[derive(Clone, Copy, Debug, Default)]
+struct StreamGap {
+    in_batch: bool,
+    /// Missing before its first message in the batch.
+    lost: i64,
+    /// Missing between its messages in the batch: lost when it was received.
+    within: i64,
+    /// When the silence its rate counted lost began, if earlier than its
+    /// batch before.
+    silent_since: Option<RecvTime>,
+    last: Option<RecvTime>,
 }
 
 /// How many publishers of one stream are counted apart, as the transport
@@ -266,7 +297,10 @@ struct Run {
     stream: StreamIndex,
     received: u64,
     decoded: u64,
-    lost: i64,
+    /// Missing before the stream's first message in the batch.
+    lost_before: i64,
+    /// Missing between its messages in the batch.
+    lost_within: i64,
 }
 
 impl Accounting {
@@ -290,15 +324,19 @@ impl Accounting {
             }
         }
         let published = vec![PublisherCounts::default(); detectors.len()].into_boxed_slice();
+        let gaps = vec![StreamGap::default(); detectors.len()].into_boxed_slice();
         Self {
             counters,
             detectors: detectors.into_boxed_slice(),
             published,
+            gaps,
         }
     }
 
-    /// Counts every message of a batch just received. Never allocates.
-    pub fn count(&mut self, batch: &Batch) {
+    /// Counts every message of a batch just received, and records in it
+    /// the gap loss detection found before each stream's messages in it.
+    /// Never allocates.
+    pub fn count(&mut self, batch: &mut Batch) {
         let numbered = batch.has_publications();
         let mut run: Option<Run> = None;
         for (index, (stream, payload)) in batch.messages().enumerate() {
@@ -312,7 +350,8 @@ impl Accounting {
                         stream,
                         received: 0,
                         decoded: 0,
-                        lost: 0,
+                        lost_before: 0,
+                        lost_within: 0,
                     }
                 }
             };
@@ -331,7 +370,21 @@ impl Accounting {
                 Some(Detector::Sequence(field, tracker)) => {
                     if let Some(number) = field.read(payload) {
                         current.decoded += 1;
-                        current.lost += tracker.observe(number);
+                        let lost = tracker.observe(number);
+                        // Missing before the stream's first message in the
+                        // batch, or between two of them.
+                        if lost != 0 {
+                            let first = current.received == 1
+                                && self
+                                    .gaps
+                                    .get(usize::from(stream))
+                                    .is_some_and(|gap| !gap.in_batch);
+                            if first {
+                                current.lost_before += lost;
+                            } else {
+                                current.lost_within += lost;
+                            }
+                        }
                     }
                 }
                 Some(Detector::RateGap(_, in_batch)) => {
@@ -345,31 +398,29 @@ impl Accounting {
         if let Some(finished) = run {
             self.flush(finished);
         }
-        self.finish_batch(batch.recv_time(), numbered);
+        self.finish_batch(batch, numbered);
     }
 
     /// Counts each stream's loss in the batch: by its publishers' counts
     /// where every one of its messages in the batch had one, and then the
     /// rate-gap detector forgets what they covered, so a gap is counted
     /// once; otherwise by its rate, if it has one.
-    fn finish_batch(&mut self, time: RecvTime, numbered: bool) {
+    fn finish_batch(&mut self, batch: &mut Batch, numbered: bool) {
+        let time = batch.recv_time();
         let streams = self
             .counters
             .streams
             .iter()
             .zip(self.detectors.iter_mut())
-            .zip(self.published.iter_mut());
-        for ((counters, detector), published) in streams {
+            .zip(self.published.iter_mut())
+            .zip(self.gaps.iter_mut());
+        for ((((counters, detector), published), gap), stream) in streams.zip(0..) {
             let by_publishers = if numbered { published.take() } else { None };
             if let Some(lost) = by_publishers {
                 counters
                     .counted_by_publishers
                     .store(true, Ordering::Relaxed);
-                // A late message takes back loss counted earlier, as for
-                // sequence numbers: added as two's complement.
-                counters
-                    .lost_upstream
-                    .fetch_add(lost.cast_unsigned(), Ordering::Relaxed);
+                gap.lost += lost;
             }
             if let Detector::RateGap(detector, in_batch) = detector
                 && in_batch.count > 0
@@ -378,10 +429,43 @@ impl Accounting {
                     detector.forget();
                 } else {
                     let lost = detector.observe_sent(time, in_batch.count, in_batch.sent());
-                    counters.lost_upstream.fetch_add(lost, Ordering::Relaxed);
+                    if lost > 0 {
+                        gap.lost = gap.lost.saturating_add_unsigned(lost);
+                        gap.silent_since = detector.counted_since();
+                    }
                 }
                 *in_batch = InBatch::default();
             }
+            if !gap.in_batch {
+                continue;
+            }
+            let since = gap.last.unwrap_or(time);
+            let gaps = [
+                (
+                    gap.lost,
+                    gap.silent_since.map_or(since, |silent| silent.min(since)),
+                ),
+                (gap.within, time),
+            ];
+            for (lost, since) in gaps {
+                if lost != 0 {
+                    batch.add_gap(Gap {
+                        stream,
+                        lost,
+                        since,
+                    });
+                    // A late message takes back loss counted earlier, so the
+                    // change can be negative; adding it as two's complement
+                    // wraps to the right total.
+                    counters
+                        .lost_upstream
+                        .fetch_add(lost.cast_unsigned(), Ordering::Relaxed);
+                }
+            }
+            *gap = StreamGap {
+                last: Some(time),
+                ..StreamGap::default()
+            };
         }
     }
 
@@ -404,11 +488,11 @@ impl Accounting {
         };
         counters.received.fetch_add(run.received, Ordering::Relaxed);
         counters.decoded.fetch_add(run.decoded, Ordering::Relaxed);
-        // A late message takes back loss counted earlier, so the change can
-        // be negative; adding it as two's complement wraps to the right total.
-        counters
-            .lost_upstream
-            .fetch_add(run.lost.cast_unsigned(), Ordering::Relaxed);
+        if let Some(gap) = self.gaps.get_mut(index) {
+            gap.in_batch = true;
+            gap.lost += run.lost_before;
+            gap.within += run.lost_within;
+        }
     }
 }
 
@@ -441,8 +525,11 @@ mod tests {
                 (1, LossDetection::RateGap(RateGap::for_rate(1_000))),
             ],
         );
-        accounting.count(&batch_of(&[(0, 7), (0, 8), (1, 0), (2, 0), (0, 11)], 100));
-        accounting.count(&batch_of(&[(1, 0), (0, 10)], 120));
+        accounting.count(&mut batch_of(
+            &[(0, 7), (0, 8), (1, 0), (2, 0), (0, 11)],
+            100,
+        ));
+        accounting.count(&mut batch_of(&[(1, 0), (0, 10)], 120));
         assert_eq!(counters.totals(1).lost_upstream, 0, "still settling");
         accounting.settle();
 
@@ -456,6 +543,46 @@ mod tests {
         );
         assert_eq!(counters.totals(2).received, 1);
         assert_eq!(counters.totals(2).lost_upstream, 0);
+    }
+
+    #[test]
+    fn each_batch_says_the_gaps_found_before_and_between_each_streams_messages_in_it() {
+        let counters = Arc::new(LossCounters::new(3));
+        let mut accounting = Accounting::new(
+            Arc::clone(&counters),
+            &[
+                (0, SEQUENCE),
+                (1, LossDetection::RateGap(RateGap::for_rate(1_000))),
+            ],
+        );
+        let mut gaps = |batch: &mut Batch| {
+            accounting.count(batch);
+            batch.gaps().to_vec()
+        };
+        let gap = |stream, lost, since_ms: u64| Gap {
+            stream,
+            lost,
+            since: RecvTime::from_nanos(since_ms * 1_000_000),
+        };
+        assert_eq!(gaps(&mut batch_of(&[(0, 1), (1, 0), (2, 0)], 100)), []);
+        // 2 to 4 missing since the batch before; the rate-gap stream silent.
+        assert_eq!(
+            gaps(&mut batch_of(&[(0, 5), (2, 0)], 110)),
+            [gap(0, 3, 100)]
+        );
+        // 3 arrives late, taking one back.
+        assert_eq!(gaps(&mut batch_of(&[(0, 3)], 120)), [gap(0, -1, 110)]);
+        // 7 and 8 missing between two of its messages: when it was received.
+        assert_eq!(
+            gaps(&mut batch_of(&[(0, 6), (0, 9)], 130)),
+            [gap(0, 2, 130)]
+        );
+        // The rate-gap stream's silence is counted once it settles, as
+        // missing since the batch before it.
+        assert_eq!(gaps(&mut batch_of(&[(1, 0)], 600)), []);
+        assert_eq!(gaps(&mut batch_of(&[(1, 0)], 1_700)), [gap(1, 1_598, 100)]);
+        assert_eq!(counters.totals(0).lost_upstream, 4);
+        assert_eq!(counters.totals(1).lost_upstream, 1_598);
     }
 
     #[test]
@@ -474,7 +601,7 @@ mod tests {
                 number += 1;
             }
             batch.set_recv_time(RecvTime::from_nanos(batch_index * 2_000_000));
-            accounting.count(&batch);
+            accounting.count(&mut batch);
         }
         assert_eq!(counters.totals(1).received, 4_000);
         assert_eq!(counters.totals(1).lost_upstream, 0);
@@ -499,7 +626,7 @@ mod tests {
             }
             let delay = if batch_index < 50 { 0 } else { 6_000_000 };
             batch.set_recv_time(RecvTime::from_nanos(batch_index * 2_000_000 + delay));
-            accounting.count(&batch);
+            accounting.count(&mut batch);
         }
         accounting.settle();
         counters.totals(0).lost_upstream
@@ -539,13 +666,16 @@ mod tests {
     fn a_number_its_publisher_skipped_is_lost_and_one_arriving_late_takes_it_back() {
         let (counters, mut accounting) =
             one_stream(LossDetection::RateGap(RateGap::for_rate(2_000)));
-        accounting.count(&numbered(&[Some((0, 1)), Some((0, 2)), Some((0, 4))], 0));
+        accounting.count(&mut numbered(
+            &[Some((0, 1)), Some((0, 2)), Some((0, 4))],
+            0,
+        ));
         assert_eq!(
             counters.totals(0).lost_upstream,
             1,
             "a single message, too short a gap for a rate"
         );
-        accounting.count(&numbered(&[Some((0, 3)), Some((0, 5))], 2));
+        accounting.count(&mut numbered(&[Some((0, 3)), Some((0, 5))], 2));
         assert_eq!(counters.totals(0).lost_upstream, 0);
     }
 
@@ -559,7 +689,7 @@ mod tests {
             counters.totals(0).summary(&id, &rate).loss_detection,
             LossDetectionKind::RateGap
         );
-        accounting.count(&numbered(&[Some((0, 1)), Some((0, 2))], 0));
+        accounting.count(&mut numbered(&[Some((0, 1)), Some((0, 2))], 0));
         assert_eq!(
             counters.totals(0).summary(&id, &rate).loss_detection,
             LossDetectionKind::PublisherCount
@@ -569,7 +699,7 @@ mod tests {
     #[test]
     fn each_publisher_of_a_stream_is_followed_by_its_own_count() {
         let (counters, mut accounting) = one_stream(LossDetection::Undetectable);
-        accounting.count(&numbered(
+        accounting.count(&mut numbered(
             &[Some((0, 10)), Some((1, 1)), Some((0, 11)), Some((1, 2))],
             0,
         ));
@@ -578,7 +708,7 @@ mod tests {
             0,
             "interleaved, each without a gap"
         );
-        accounting.count(&numbered(&[Some((1, 5)), Some((0, 12))], 2));
+        accounting.count(&mut numbered(&[Some((1, 5)), Some((0, 12))], 2));
         assert_eq!(counters.totals(0).lost_upstream, 2);
     }
 
@@ -599,10 +729,10 @@ mod tests {
             numbered(&messages, time_ms)
         };
         for time_ms in (0..100).step_by(2) {
-            accounting.count(&batch_of(time_ms));
+            accounting.count(&mut batch_of(time_ms));
         }
         for time_ms in (1_100..3_000).step_by(2) {
-            accounting.count(&batch_of(time_ms));
+            accounting.count(&mut batch_of(time_ms));
         }
         accounting.settle();
         assert_eq!(counters.totals(0).lost_upstream, 0);
@@ -615,8 +745,8 @@ mod tests {
         // skipped number isn't counted on top.
         let (counters, mut accounting) =
             one_stream(LossDetection::RateGap(RateGap::for_rate(2_000)));
-        accounting.count(&numbered(&[Some((0, 1)), Some((0, 2))], 0));
-        accounting.count(&numbered(&[Some((0, 4)), None], 2));
+        accounting.count(&mut numbered(&[Some((0, 1)), Some((0, 2))], 0));
+        accounting.count(&mut numbered(&[Some((0, 4)), None], 2));
         assert_eq!(counters.totals(0).lost_upstream, 0);
     }
 
@@ -635,7 +765,7 @@ mod tests {
                 },
             );
         }
-        accounting.count(&batch);
+        accounting.count(&mut batch);
         assert_eq!(
             counters.totals(0).lost_upstream,
             0,
@@ -664,7 +794,7 @@ mod tests {
         let mut batch = Batch::new(2, 8);
         batch.push(0, &[1, 0]);
         batch.push(0, &5_u32.to_le_bytes());
-        accounting.count(&batch);
+        accounting.count(&mut batch);
         let totals = counters.totals(0);
         assert_eq!(
             (totals.received, totals.decoded, totals.lost_upstream),
