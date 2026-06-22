@@ -318,9 +318,13 @@ starts, enough for the seconds at the stream's rate and largest message,
 up to `capture.pre_roll_max_mib` (64 MiB); a stream whose messages are
 larger than that allows keeps fewer seconds. It says what it set aside
 when it starts. The messages count in the episode's numbers like any
-other, and the episode starts with the first of them. A session profile
-or task can't change a pre-roll: its memory is set aside before any is
-chosen.
+other, and the episode starts with the first of them. Once one stream
+has a pre-roll, every other stream with a rate starts each episode from
+when Start was asked, even if recording began later, after pre-flight:
+its messages are held while a start waits, in memory set aside for
+`capture.preflight_window` and a second more, up to the same limit. A
+session profile or task can't change a pre-roll: its memory is set aside
+before any is chosen.
 
 ### Decoding messages
 

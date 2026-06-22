@@ -51,6 +51,9 @@ pub(crate) struct RecordSettings {
     /// The most bytes set aside for one stream's pre-roll
     /// (`capture.pre_roll_max_mib`).
     pub(crate) pre_roll_max_bytes: usize,
+    /// How long a start may wait for pre-flight to end: the streams without
+    /// a pre-roll are held that long while one waits.
+    pub(crate) start_wait: Duration,
 }
 
 impl RecordSettings {
@@ -59,6 +62,8 @@ impl RecordSettings {
         let mib = usize::try_from(deployment.pre_roll_max_mib.value).unwrap_or(usize::MAX);
         Self {
             pre_roll_max_bytes: mib.saturating_mul(1 << 20),
+            // Pre-flight's disk test may outlast its window by a little.
+            start_wait: deployment.preflight_window.value + Duration::from_secs(1),
             ..Self::default()
         }
     }
@@ -71,6 +76,7 @@ impl Default for RecordSettings {
             batch_capacity: 64,
             default_max_message_bytes: 1472,
             pre_roll_max_bytes: 64 << 20,
+            start_wait: Duration::from_secs(6),
         }
     }
 }
@@ -386,15 +392,31 @@ impl Plan {
 
 /// The streams with a pre-roll, each with the memory its seconds need at
 /// its rate and largest message, up to `settings.pre_roll_max_bytes`, and
-/// room in its index for a quarter more messages than its rate sends.
+/// room in its index for a quarter more messages than its rate sends. Once
+/// one has a pre-roll, every other stream with a rate gets one of no
+/// seconds, held while a start waits, sized for `settings.start_wait`; the
+/// streams without one are kept for late subscribers, and start every
+/// episode anyway.
 fn pre_roll_streams(
     declarations: &[StreamDeclaration],
     settings: &RecordSettings,
 ) -> Vec<PreRollStream> {
+    if declarations
+        .iter()
+        .all(|declaration| declaration.pre_roll.is_none())
+    {
+        return Vec::new();
+    }
     (0..=StreamIndex::MAX)
         .zip(declarations)
         .filter_map(|(stream, declaration)| {
-            let seconds = declaration.pre_roll?;
+            let seconds = declaration.pre_roll.unwrap_or(Duration::ZERO);
+            let held = if seconds.is_zero() {
+                // No longer than the longest pre-roll, whatever the window.
+                settings.start_wait.min(Duration::from_secs(60))
+            } else {
+                seconds
+            };
             let rate = f64::from(declaration.rate_hz?);
             let largest = declaration
                 .max_message_bytes
@@ -404,7 +426,7 @@ fn pre_roll_streams(
                 clippy::cast_sign_loss,
                 reason = "at most 60 s at 100 kHz: well within usize"
             )]
-            let messages = (rate * seconds.as_secs_f64() * 1.25).ceil() as usize + 8;
+            let messages = (rate * held.as_secs_f64() * 1.25).ceil() as usize + 8;
             let bytes = messages
                 .saturating_mul(usize::try_from(largest).unwrap_or(usize::MAX))
                 .min(settings.pre_roll_max_bytes);
@@ -1050,6 +1072,40 @@ mod tests {
         assert_eq!(settles(2), Duration::from_millis(250));
         assert_eq!(plan.streams[1].id.as_str(), "gripper");
         assert!(plan.streams.iter().all(|spec| spec.schema.is_none()));
+    }
+
+    #[test]
+    fn once_a_stream_has_a_pre_roll_every_other_with_a_rate_is_held_while_a_start_waits() {
+        let streams = declarations(
+            "[streams.arm]\nrate_hz = 1000\npre_roll_s = 2\nmax_message_bytes = 100\n\
+             udp = { bind = \"127.0.0.1:9000\" }\n\
+             [streams.wrist]\nrate_hz = 100\nmax_message_bytes = 1000\n\
+             udp = { bind = \"127.0.0.1:9001\" }\n",
+        );
+        let settings = RecordSettings::default();
+        let held = plan(&streams, Path::new("streams.toml"), &settings).unwrap();
+        // 2 s at 1 kHz and 6 s at 100 Hz, a quarter more and 8.
+        assert_eq!(
+            held.pre_roll,
+            [
+                PreRollStream {
+                    stream: 0,
+                    seconds: Duration::from_secs(2),
+                    bytes: 2_508 * 100,
+                    messages: 2_508,
+                },
+                PreRollStream {
+                    stream: 1,
+                    seconds: Duration::ZERO,
+                    bytes: 758 * 1_000,
+                    messages: 758,
+                },
+            ]
+        );
+        let without =
+            declarations("[streams.arm]\nrate_hz = 1000\nudp = { bind = \"127.0.0.1:9000\" }\n");
+        let none = plan(&without, Path::new("streams.toml"), &settings).unwrap();
+        assert_eq!(none.pre_roll, []);
     }
 
     #[test]

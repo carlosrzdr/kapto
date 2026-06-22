@@ -47,6 +47,14 @@ time, then everything after as usual. A camera whose frames are larger
 than expected holds fewer seconds than asked: the episode says how many
 it holds.
 
+Recording can begin after Start is asked: a Start waits while pre-flight
+runs. Once a stream has a pre-roll, every other stream gets a ring of no
+seconds, which holds only while a Start waits, from when it was asked,
+sized for the pre-flight window and a second more. The episode then
+starts every stream at Start, the pre-rolled ones earlier, and no stream
+looks empty at its beginning. An episode without any pre-roll starts
+when recording begins, as before, and sets nothing aside.
+
 **Post-roll.** A stream may go on being recorded after Stop:
 `post_roll_s` on the stream, 0 by default. At Stop, the streams without
 one stop being written; the others go on until their own seconds have

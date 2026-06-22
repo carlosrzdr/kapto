@@ -142,6 +142,11 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
                     Request::Hello { .. } | Request::Supervise | Request::Watch => {}
                 }
             }
+            // From when the first was asked, the episode it would start is
+            // held, so it starts then however long it waits.
+            if let Some((_, at)) = waiting.first() {
+                live.start_waiting(Some(*at));
+            }
             preflight.finish(live, elapsed);
             if !preflight.running() {
                 let mut asked = waiting.drain(..);
@@ -151,6 +156,9 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
                 });
                 // Only one episode at a time: the first start wins.
                 asked.for_each(|(pending, _)| refuse(pending, ErrorCode::CaptureAlreadyRecording));
+                if start.is_none() {
+                    live.start_waiting(None);
+                }
             }
             start.is_none() && !shutdown.load(Ordering::Relaxed)
         })?;

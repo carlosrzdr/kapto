@@ -136,6 +136,9 @@ stream, `preflight.stream_silent` or `preflight.stream_slow` (at least
 90 % of its declared rate). The streams' rate is an upper bound: each
 stream's declared or measured rate, whichever is higher, times its largest
 message. A `start` asked while pre-flight runs waits until it has ended.
+When a stream has a pre-roll (`pre_roll_s`), the episode still starts at
+the `start`: every other stream is held from when it was asked, so what
+arrived while it waited is in the episode.
 
 Each `start` is checked against pre-flight's latest run. While a check of
 it failed, the start is refused with `capture.preflight_failed`, naming

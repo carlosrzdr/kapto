@@ -186,7 +186,10 @@ capture starts (`kapto_capture::PreRoll`), in every phase, the oldest
 giving way. Capture notes when each Start is asked; the episode then
 starts with each such stream's messages from its seconds before that up
 to when recording began, each at its own receive time, and spans its
-data from the first of them.
+data from the first of them. Every other stream gets a ring too, held
+only while a Start waits, from when it was asked: an episode with a
+pre-roll starts every stream at its Start, however long recording took
+to begin.
 
 Each recording is written in a staging folder, then moved, listed in a
 manifest with every file's checksum, and marked `_FINALISED` last, so a

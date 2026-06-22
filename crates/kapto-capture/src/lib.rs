@@ -26,7 +26,7 @@ pub use batch::{Batch, Publication, StreamIndex};
 pub use durability::DurabilityStats;
 pub use kept::{Kept, KeptHeld, KeptStream};
 pub use loss::{Accounting, LossCounters, LossDetection, StreamTotals};
-pub use pre_roll::{HeldMessage, PreRoll, PreRollStream};
+pub use pre_roll::{HeldMessage, PreRoll, PreRollStream, Waiting};
 pub use recover::{RecoveredEpisode, recover_interrupted};
 pub use ring::{Drainer, Filler, Received, RingConfig, RingStats, Sent, ring};
 pub use salvage::{Salvaged, salvage};

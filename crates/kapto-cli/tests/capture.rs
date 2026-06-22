@@ -63,8 +63,8 @@ impl Capture {
         Self::declaring(folder, &streams, &port, &[warn, flags].concat())
     }
 
-    /// Starts `kapto capture` on the one stream `declared`, the robot
-    /// sending to UDP `port`, and waits until it receives.
+    /// Starts `kapto capture` on the streams `declared`, the robot sending
+    /// to UDP `port`, and waits until it receives.
     fn declaring(folder: &Path, declared: &str, port: &str, flags: &[&str]) -> Self {
         let streams = folder.join("streams.toml");
         std::fs::write(&streams, declared).unwrap();
@@ -84,10 +84,7 @@ impl Capture {
             let line = lines
                 .next()
                 .unwrap_or_else(|| panic!("kapto capture exited early"));
-            if line
-                .unwrap()
-                .starts_with("Receiving 1 streams, not recording.")
-            {
+            if line.unwrap().contains(" streams, not recording.") {
                 break;
             }
         }
@@ -295,6 +292,63 @@ fn an_episode_starts_with_the_last_second_before_it_was_started() {
     );
     let said = capture.stop();
     assert!(said.status.success());
+}
+
+#[test]
+fn with_a_pre_roll_every_stream_starts_when_the_start_was_asked_however_long_it_waits() {
+    let folder = scratch("start-waits");
+    let (joints, wrist) = (free_udp_port(), free_udp_port());
+    let streams = format!(
+        "[streams.joints]\nrate_hz = 1000\npre_roll_s = 1\nudp = {{ bind = \"127.0.0.1:{joints}\" }}\n\
+         [streams.wrist]\nrate_hz = 1000\nudp = {{ bind = \"127.0.0.1:{wrist}\" }}\n\
+         sequence = {{ offset = 0, type = \"u32\" }}\n"
+    );
+    // Pre-flight watches the streams for 3 s once capture starts, and a
+    // start asked meanwhile waits for it.
+    let flags = ["--preflight", "warn", "--preflight-window", "3"];
+    let capture = Capture::declaring(&folder, &streams, &joints, &flags);
+    let mut client = capture.client();
+    let starting = std::thread::spawn(move || start(&mut client));
+    // Once the start is noted, at the next tenth of a second, the wrist
+    // sends while it waits; it has no pre-roll of its own.
+    std::thread::sleep(Duration::from_millis(500));
+    let robot = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let send = |numbers: std::ops::Range<u32>| {
+        for number in numbers {
+            let mut message = [0_u8; 32];
+            message[..4].copy_from_slice(&number.to_le_bytes());
+            robot
+                .send_to(&message, format!("127.0.0.1:{wrist}"))
+                .unwrap();
+        }
+    };
+    send(0..100);
+    capture.wait_for("the wrist while the start waits", |s| {
+        s.streams[1].received == 100
+    });
+    assert!(
+        !starting.is_finished(),
+        "the start didn't wait for pre-flight"
+    );
+    starting.join().unwrap();
+    send(100..200);
+    capture.wait_for("the episode", |s| s.streams[1].written == 200);
+    let folder = stop(&mut capture.client());
+
+    let bytes = std::fs::read(Path::new(&folder).join("recording.mcap")).unwrap();
+    let numbers: Vec<u32> = mcap::MessageStream::new(&bytes)
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|message| message.channel.topic == "wrist")
+        .map(|message| u32::from_le_bytes(message.data[..4].try_into().unwrap()))
+        .collect();
+    assert_eq!(numbers, (0..200).collect::<Vec<_>>());
+    let stream = &finalised(&folder).streams[1];
+    assert_eq!(
+        (stream.received, stream.written, stream.lost_upstream),
+        (200, 200, 0)
+    );
+    assert!(capture.stop().status.success());
 }
 
 #[test]

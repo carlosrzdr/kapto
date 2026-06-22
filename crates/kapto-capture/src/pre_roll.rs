@@ -9,7 +9,14 @@
 //! index ring of where each one is. Holding one is a copy, the oldest
 //! giving way to the newest; so the ring holds the stream's newest
 //! messages, as many seconds of them as fit.
+//!
+//! Once a stream has a pre-roll, every other stream gets a ring of no
+//! seconds: it holds only while a start waits, from when it was asked, so
+//! every stream starts with the Start however long recording takes to
+//! begin.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use kapto_core::RecvTime;
@@ -21,7 +28,8 @@ use crate::batch::{Batch, StreamIndex};
 pub struct PreRollStream {
     /// The stream.
     pub stream: StreamIndex,
-    /// How long before an episode's start its messages are written.
+    /// How long before an episode's start its messages are written. With
+    /// none, its messages are held only while a start waits.
     pub seconds: Duration,
     /// Bytes set aside for its messages.
     pub bytes: usize,
@@ -35,6 +43,35 @@ pub struct PreRoll {
     /// By stream index, its place in `rings`, if it has a pre-roll.
     by_stream: Box<[Option<usize>]>,
     rings: Vec<Ring>,
+    waiting: Waiting,
+}
+
+/// When the start being waited for was asked, if one is; shared between
+/// the thread that notes it and the writer thread.
+#[derive(Clone, Debug)]
+pub struct Waiting(Arc<AtomicU64>);
+
+impl Default for Waiting {
+    fn default() -> Self {
+        Self(Arc::new(AtomicU64::new(u64::MAX)))
+    }
+}
+
+impl Waiting {
+    /// Notes that a start asked at `asked` waits, or with `None` that none
+    /// does any more.
+    pub fn set(&self, asked: Option<RecvTime>) {
+        self.0.store(
+            asked.map_or(u64::MAX, RecvTime::as_nanos),
+            Ordering::Relaxed,
+        );
+    }
+
+    /// When the start waiting was asked, in nanoseconds; `u64::MAX` if none
+    /// waits.
+    fn since(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
 }
 
 #[derive(Debug)]
@@ -107,7 +144,18 @@ impl PreRoll {
                 }
             })
             .collect();
-        Self { by_stream, rings }
+        Self {
+            by_stream,
+            rings,
+            waiting: Waiting::default(),
+        }
+    }
+
+    /// Where a start waiting is noted: the streams with no seconds are held
+    /// from when it was asked.
+    #[must_use]
+    pub fn waiting(&self) -> Waiting {
+        self.waiting.clone()
     }
 
     /// Whether no stream has a pre-roll.
@@ -125,14 +173,19 @@ impl PreRoll {
             .sum()
     }
 
-    /// Holds each message of `batch` whose stream has a pre-roll.
+    /// Holds each message of `batch` whose stream has a pre-roll, and those
+    /// of the streams with no seconds if a start waits since before it.
     pub fn hold(&mut self, batch: &Batch) {
         if self.rings.is_empty() {
             return;
         }
+        let waited_for = batch.recv_time().as_nanos() >= self.waiting.since();
         for (index, (stream, payload)) in batch.messages().enumerate() {
             if let Some(Some(place)) = self.by_stream.get(usize::from(stream)) {
-                self.rings[*place].hold(payload, batch.recv_time(), batch.source_time(index));
+                let ring = &mut self.rings[*place];
+                if waited_for || !ring.seconds.is_zero() {
+                    ring.hold(payload, batch.recv_time(), batch.source_time(index));
+                }
             }
         }
     }
@@ -334,6 +387,33 @@ mod tests {
                 .map(|(_, _, at)| *at)
                 .collect::<Vec<_>>(),
             [3, 4, 5]
+        );
+    }
+
+    #[test]
+    fn a_stream_with_no_seconds_is_held_only_from_when_a_start_waiting_was_asked() {
+        let mut pre_roll = PreRoll::new(&[stream(0, 1, 1024, 16), stream(1, 0, 1024, 16)]);
+        let waiting = pre_roll.waiting();
+        pre_roll.hold(&batch(1, &[(0, b"a"), (1, b"a")]));
+        waiting.set(Some(RecvTime::from_nanos(3)));
+        // Received before the start was asked, taken after: not held.
+        pre_roll.hold(&batch(2, &[(0, b"b"), (1, b"b")]));
+        pre_roll.hold(&batch(4, &[(0, b"c"), (1, b"c")]));
+        waiting.set(None);
+        pre_roll.hold(&batch(5, &[(0, b"d"), (1, b"d")]));
+        let held: Vec<(StreamIndex, Vec<u8>)> = pre_roll
+            .messages(RecvTime::from_nanos(3), RecvTime::from_nanos(6))
+            .map(|message| (message.stream, message.payload.to_vec()))
+            .collect();
+        assert_eq!(
+            held,
+            [
+                (0, b"a".to_vec()),
+                (0, b"b".to_vec()),
+                (0, b"c".to_vec()),
+                (0, b"d".to_vec()),
+                (1, b"c".to_vec())
+            ]
         );
     }
 

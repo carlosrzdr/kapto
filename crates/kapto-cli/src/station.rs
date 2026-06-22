@@ -34,7 +34,7 @@ use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
     Accounting, ChannelSpec, Drainer, HandedOver, Kept, KeptHeld, LossCounters, LossDetection,
-    PreRoll, Recording, RingStats, StreamIndex, StreamTotals, WriterConfig, discard, ring,
+    PreRoll, Recording, RingStats, StreamIndex, StreamTotals, Waiting, WriterConfig, discard, ring,
 };
 use kapto_config::{MAX_DATAGRAM_BYTES, StreamDeclaration};
 use kapto_core::clock::monotonic_now;
@@ -162,6 +162,8 @@ pub(crate) struct Live<'a> {
     events: Option<&'a mpsc::Sender<Event>>,
     /// Which streams kept for late subscribers have a message kept.
     pub(crate) kept: KeptHeld,
+    /// Where a start waiting is noted, for the pre-roll.
+    waiting: Waiting,
 }
 
 impl Station {
@@ -288,6 +290,7 @@ impl Station {
             .plan
             .pre_roll
             .iter()
+            .filter(|held| !held.seconds.is_zero())
             .filter_map(|held| {
                 let name = self.plan.streams.get(usize::from(held.stream))?.id.as_str();
                 Some(format!("{name} {} s", held.seconds.as_secs_f64()))
@@ -299,7 +302,8 @@ impl Station {
         )]
         let mib = self.pre_roll.memory_bytes() as f64 / f64::from(1 << 20);
         Some(format!(
-            "Pre-roll: each episode starts with the last seconds before it of {}; {mib:.1} MiB set aside.",
+            "Pre-roll: each episode starts with the last seconds before it of {}, and with every \
+             other stream from when it was asked; {mib:.1} MiB set aside.",
             streams.join(", ")
         ))
     }
@@ -482,6 +486,7 @@ impl Station {
             .chain(handed.iter().filter_map(HandedOver::earliest))
             .fold(begun, RecvTime::min);
         let started_utc_ns = clock.to_utc_ns(first);
+        self.pre_roll.waiting().set(None);
         self.write_start_records(recording, episode, started_utc_ns)?;
         let carried = self.write_kept(recording, started_utc_ns)?;
         recording.write_pre_roll(&self.pre_roll, (asked, begun), counters)?;
@@ -585,6 +590,7 @@ impl Station {
             frames: self.frame_stats.as_deref(),
             latest: self.latest.as_deref(),
             kept: self.kept.held(),
+            waiting: self.pre_roll.waiting(),
         };
         let tap = self.tap.take();
         let (transports, receiver_outcome, (writer_outcome, handed), tap) = run_threads(
@@ -814,6 +820,13 @@ fn run_threads(
 }
 
 impl Live<'_> {
+    /// Notes that a start asked at `asked` waits for recording to begin, or
+    /// with `None` that none does: the streams without a pre-roll of their
+    /// own are held from then, so the episode starts with them too.
+    pub(crate) fn start_waiting(&self, asked: Option<RecvTime>) {
+        self.waiting.set(asked);
+    }
+
     /// Hands `event` to the writer to be written into the episode's
     /// recording, between batches. Returns whether it will be: only while an
     /// episode is recorded.
