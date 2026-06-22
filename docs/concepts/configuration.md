@@ -308,6 +308,20 @@ such as `/tf_static`, may leave it out. It may send its messages once and
 nothing after, so its silences mean nothing: its buffers are sized for
 as many messages as `depth` keeps, and pre-flight doesn't call it silent.
 
+A stream may start each episode with the seconds before it was started,
+its pre-roll: `pre_roll_s = 2` keeps its last two seconds, and an episode
+then starts with its messages from two seconds before Start was asked,
+each at the time it was received, followed by everything after. It is a
+stream's own, from 0 (none, the default) up to 60 s, and needs the
+stream's `rate_hz`. The capture process sets aside its memory when it
+starts, enough for the seconds at the stream's rate and largest message,
+up to `capture.pre_roll_max_mib` (64 MiB); a stream whose messages are
+larger than that allows keeps fewer seconds. It says what it set aside
+when it starts. The messages count in the episode's numbers like any
+other, and the episode starts with the first of them. A session profile
+or task can't change a pre-roll: its memory is set aside before any is
+chosen.
+
 ### Decoding messages
 
 A stream whose messages have a fixed binary layout can declare it, so its

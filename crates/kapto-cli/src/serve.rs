@@ -37,7 +37,7 @@ use kapto_store::Writer;
 use crate::SettingFlags;
 use crate::capture::disk_limits;
 use crate::overview::overview;
-use crate::record::load_plan;
+use crate::record::{RecordSettings, load_plan};
 use crate::station::Outcome;
 use crate::viz_bridge::prepare;
 
@@ -116,7 +116,7 @@ pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
     let settings = Arc::new(crate::config::overview(&file, &deployment));
     // Checked here once, rather than by children that would fail and be
     // restarted over and over.
-    load_plan(&args.streams)?;
+    load_plan(&args.streams, &RecordSettings::of(&deployment))?;
     let config_folder = crate::config::config_folder(flags);
     let (robot, scene, layouts) = robot(args, &deployment.packages_dir.value, &config_folder)?;
     let shutdown = Arc::new(AtomicBool::new(false));

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use kapto_capture::loss::{ByteOrder, RateGap, SequenceField, SequenceWidth};
 use kapto_capture::{
-    ChannelSchema, ChannelSpec, KeptStream, LossDetection, RingConfig, StreamIndex,
+    ChannelSchema, ChannelSpec, KeptStream, LossDetection, PreRollStream, RingConfig, StreamIndex,
     recover_interrupted,
 };
 use kapto_config::{
@@ -24,6 +24,7 @@ use kapto_config::{
     Reliability, Ros2Declaration, SequenceDeclaration, SequenceType, StreamDeclaration,
     TcpDeclaration, TcpEndpointDeclaration, msg_files, parse_streams, read_config_file,
 };
+use kapto_core::clock::monotonic_now;
 use kapto_core::{ClockSample, EpisodeId, ErrorCode, KaptoError, StreamId};
 use kapto_decode::{CDR_ENCODING, ROS2MSG_ENCODING, TOPIC_METADATA};
 use kapto_robot::{Package, is_mesh_or_texture, load_package};
@@ -47,6 +48,20 @@ pub(crate) struct RecordSettings {
     /// The slot size for streams that don't declare `max_message_bytes`: a
     /// full Ethernet frame's UDP payload.
     pub(crate) default_max_message_bytes: u32,
+    /// The most bytes set aside for one stream's pre-roll
+    /// (`capture.pre_roll_max_mib`).
+    pub(crate) pre_roll_max_bytes: usize,
+}
+
+impl RecordSettings {
+    /// The settings `deployment` gives, the rest their defaults.
+    pub(crate) fn of(deployment: &kapto_config::DeploymentConfig) -> Self {
+        let mib = usize::try_from(deployment.pre_roll_max_mib.value).unwrap_or(usize::MAX);
+        Self {
+            pre_roll_max_bytes: mib.saturating_mul(1 << 20),
+            ..Self::default()
+        }
+    }
 }
 
 impl Default for RecordSettings {
@@ -55,6 +70,7 @@ impl Default for RecordSettings {
             max_writer_stall: Duration::from_secs(2),
             batch_capacity: 64,
             default_max_message_bytes: 1472,
+            pre_roll_max_bytes: 64 << 20,
         }
     }
 }
@@ -105,6 +121,9 @@ pub(crate) struct Plan {
     /// The streams whose messages are kept for late subscribers: their
     /// newest start every episode.
     pub(crate) kept: Vec<KeptStream>,
+    /// The streams with a pre-roll: their last seconds before an episode
+    /// starts it.
+    pub(crate) pre_roll: Vec<PreRollStream>,
     /// One per receiver thread: every UDP stream together, each TCP stream
     /// on its own, then every ROS 2 topic together.
     pub(crate) inputs: Vec<Input>,
@@ -176,13 +195,7 @@ pub(crate) fn plan(
         return Err(vec![invalid("no streams are declared".to_owned())]);
     }
     let mut errors = Vec::new();
-    let mut plan = Plan {
-        streams: Vec::new(),
-        detections: Vec::new(),
-        kept: kept_streams(declarations, settings),
-        inputs: Vec::new(),
-        cameras: cameras(declarations, settings),
-    };
+    let mut plan = Plan::new(declarations, settings);
     let mut sockets = Vec::new();
     let (mut udp_rate, mut udp_slot) = (0_u64, 1_u32);
     let mut topics = Vec::new();
@@ -356,6 +369,55 @@ fn kept_streams(declarations: &[StreamDeclaration], settings: &RecordSettings) -
         .collect()
 }
 
+impl Plan {
+    /// The plan for `declarations` before any stream is added to it: what
+    /// is kept for later episodes, and the cameras.
+    fn new(declarations: &[StreamDeclaration], settings: &RecordSettings) -> Self {
+        Self {
+            streams: Vec::new(),
+            detections: Vec::new(),
+            kept: kept_streams(declarations, settings),
+            pre_roll: pre_roll_streams(declarations, settings),
+            inputs: Vec::new(),
+            cameras: cameras(declarations, settings),
+        }
+    }
+}
+
+/// The streams with a pre-roll, each with the memory its seconds need at
+/// its rate and largest message, up to `settings.pre_roll_max_bytes`, and
+/// room in its index for a quarter more messages than its rate sends.
+fn pre_roll_streams(
+    declarations: &[StreamDeclaration],
+    settings: &RecordSettings,
+) -> Vec<PreRollStream> {
+    (0..=StreamIndex::MAX)
+        .zip(declarations)
+        .filter_map(|(stream, declaration)| {
+            let seconds = declaration.pre_roll?;
+            let rate = f64::from(declaration.rate_hz?);
+            let largest = declaration
+                .max_message_bytes
+                .unwrap_or(settings.default_max_message_bytes);
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "at most 60 s at 100 kHz: well within usize"
+            )]
+            let messages = (rate * seconds.as_secs_f64() * 1.25).ceil() as usize + 8;
+            let bytes = messages
+                .saturating_mul(usize::try_from(largest).unwrap_or(usize::MAX))
+                .min(settings.pre_roll_max_bytes);
+            Some(PreRollStream {
+                stream,
+                seconds,
+                bytes,
+                messages,
+            })
+        })
+        .collect()
+}
+
 /// The streams that are cameras, with their largest frame.
 fn cameras(
     declarations: &[StreamDeclaration],
@@ -522,12 +584,15 @@ pub(crate) fn recover(data_dir: &Path, recovered: &mut dyn FnMut(&EpisodeId)) {
 }
 
 /// Reads and checks `streams`, and works out the plan for its streams.
-pub(crate) fn load_plan(streams: &Path) -> Outcome<(Vec<StreamDeclaration>, Plan)> {
+pub(crate) fn load_plan(
+    streams: &Path,
+    settings: &RecordSettings,
+) -> Outcome<(Vec<StreamDeclaration>, Plan)> {
     let file = read_config_file(streams, true)
         .map_err(|error| vec![error])?
         .ok_or_else(|| vec![KaptoError::new(ErrorCode::ConfigFileNotFound)])?;
     let declarations = parse_streams(&file)?;
-    let plan = plan(&declarations, streams, &RecordSettings::default())?;
+    let plan = plan(&declarations, streams, settings)?;
     Ok((declarations, plan))
 }
 
@@ -738,7 +803,7 @@ fn session(
     duration: Duration,
 ) -> Outcome<()> {
     let (_, deployment) = crate::config::load(flags)?;
-    let (declarations, plan) = load_plan(streams)?;
+    let (declarations, plan) = load_plan(streams, &RecordSettings::of(&deployment))?;
     recover(&deployment.data_dir.value, &mut |_| {});
     let writer = crate::capture::writer_config(&deployment);
     let mut station = Station::open(
@@ -755,6 +820,7 @@ fn session(
     let streams = station.plan.streams.len();
     let mut next_second = 1;
     let finished = station.record(
+        monotonic_now(),
         &mut |episode, buffers| {
             eprintln!(
                 "Recording episode {episode} from {streams} streams for {} s (buffers: {} batches, {} MiB). Started.",

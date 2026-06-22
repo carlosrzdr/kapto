@@ -18,8 +18,8 @@ use std::collections::BTreeMap;
 use kapto_capture::reader::read_start;
 use kapto_capture::writer::{CARRIED_RECORD, CLOCK_MAP_RECORD, capture_record, carried_record};
 use kapto_capture::{
-    Batch, ChannelSchema, ChannelSpec, Compression, Kept, KeptStream, LossCounters, Recording,
-    RingConfig, StreamIndex, WriterConfig, discard, ring,
+    Batch, ChannelSchema, ChannelSpec, Compression, Kept, KeptStream, LossCounters, PreRoll,
+    Recording, RingConfig, StreamIndex, WriterConfig, discard, ring,
 };
 use kapto_core::{ClockMap, ClockSample, ErrorCode, RecvTime};
 
@@ -231,7 +231,13 @@ fn messages_kept_while_idle_start_the_next_recording_at_its_start_as_received() 
     );
     filler.send();
     drop(filler);
-    discard(&mut [drainer], None, &mut kept, Duration::from_millis(1));
+    discard(
+        &mut [drainer],
+        None,
+        &mut kept,
+        &mut PreRoll::default(),
+        Duration::from_millis(1),
+    );
 
     let counters = LossCounters::new(2);
     let mut recording = Recording::create(
@@ -264,6 +270,7 @@ fn messages_kept_while_idle_start_the_next_recording_at_its_start_as_received() 
             &counters,
             &std::sync::mpsc::channel().1,
             &mut kept,
+            &mut PreRoll::default(),
         )
         .unwrap();
     recording.finish(&clock()).unwrap();

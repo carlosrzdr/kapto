@@ -179,6 +179,15 @@ when capture starts (`kapto_capture::Kept`), and each episode starts with
 them, written at its start, with when they were received in the
 `kapto.carried` record ([recording format](../reference/recording.md#kaptocarried)).
 
+**Pre-roll** holds a stream's last seconds for the next episode
+([design](../design/pre-roll-and-post-roll.md)). `cap-writer` copies each
+message of a stream with `pre_roll_s` into a byte ring set aside when
+capture starts (`kapto_capture::PreRoll`), in every phase, the oldest
+giving way. Capture notes when each Start is asked; the episode then
+starts with each such stream's messages from its seconds before that up
+to when recording began, each at its own receive time, and spans its
+data from the first of them.
+
 Each recording is written in a staging folder, then moved, listed in a
 manifest with every file's checksum, and marked `_FINALISED` last, so a
 partial recording never looks finished. [Episodes on disk](episodes.md)

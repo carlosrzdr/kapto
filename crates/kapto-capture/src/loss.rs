@@ -123,6 +123,14 @@ impl LossCounters {
             })
     }
 
+    /// Counts `messages` of `stream` as received: messages received before
+    /// the episode began, held for it, as its pre-roll.
+    pub fn add_received(&self, stream: StreamIndex, messages: u64) {
+        if let Some(counters) = self.streams.get(usize::from(stream)) {
+            counters.received.fetch_add(messages, Ordering::Relaxed);
+        }
+    }
+
     /// Counts `messages` of `stream` as stored in the recording.
     pub fn add_written(&self, stream: StreamIndex, messages: u64) {
         if let Some(counters) = self.streams.get(usize::from(stream)) {

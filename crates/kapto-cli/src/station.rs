@@ -33,12 +33,12 @@ use kapto_capture::tap::frames::{FrameStats, FrameTotals};
 use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
-    Accounting, ChannelSpec, Drainer, Kept, KeptHeld, LossCounters, LossDetection, Recording,
-    RingStats, StreamIndex, StreamTotals, WriterConfig, discard, ring,
+    Accounting, ChannelSpec, Drainer, Kept, KeptHeld, LossCounters, LossDetection, PreRoll,
+    Recording, RingStats, StreamIndex, StreamTotals, WriterConfig, discard, ring,
 };
 use kapto_config::{MAX_DATAGRAM_BYTES, StreamDeclaration};
 use kapto_core::clock::monotonic_now;
-use kapto_core::{ClockMap, ClockSample, EpisodeId, ErrorCode, KaptoError, StreamId};
+use kapto_core::{ClockMap, ClockSample, EpisodeId, ErrorCode, KaptoError, RecvTime, StreamId};
 use kapto_store::records::{
     CAPTURE_RECORD, EPISODE_RECORD, EpisodeEnd, EpisodeStart, PREFLIGHT_RECORD, SUMMARY_RECORD,
 };
@@ -90,6 +90,9 @@ pub(crate) struct Station {
     /// The newest messages of the streams kept for late subscribers, from
     /// every phase so far.
     kept: Kept,
+    /// The last seconds of each stream with a pre-roll, from every phase so
+    /// far.
+    pre_roll: PreRoll,
 }
 
 /// The files a recording carries, and the package files it doesn't.
@@ -225,6 +228,7 @@ impl Station {
         };
         Ok(Self {
             kept: Kept::new(&plan.kept),
+            pre_roll: PreRoll::new(&plan.pre_roll),
             plan,
             data_dir,
             transports,
@@ -268,15 +272,43 @@ impl Station {
         end.receivers
     }
 
-    /// Records one episode into the data directory while `next` says so,
-    /// then finalises or discards it as `next` says. `started` is told the
-    /// episode's ID and buffer sizes once it is being recorded.
+    /// What the pre-roll keeps and the memory set aside for it, said when
+    /// capture starts; `None` without a pre-rolled stream.
+    pub(crate) fn pre_roll_said(&self) -> Option<String> {
+        if self.pre_roll.is_empty() {
+            return None;
+        }
+        let streams: Vec<String> = self
+            .plan
+            .pre_roll
+            .iter()
+            .filter_map(|held| {
+                let name = self.plan.streams.get(usize::from(held.stream))?.id.as_str();
+                Some(format!("{name} {} s", held.seconds.as_secs_f64()))
+            })
+            .collect();
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "a size shown to a tenth of a MiB"
+        )]
+        let mib = self.pre_roll.memory_bytes() as f64 / f64::from(1 << 20);
+        Some(format!(
+            "Pre-roll: each episode starts with the last seconds before it of {}; {mib:.1} MiB set aside.",
+            streams.join(", ")
+        ))
+    }
+
+    /// Records one episode, asked for at `asked`, into the data directory
+    /// while `next` says so, then finalises or discards it as `next` says.
+    /// `started` is told the episode's ID and buffer sizes once it is being
+    /// recorded. The pre-roll it starts with is reckoned from `asked`.
     ///
     /// # Errors
     ///
     /// The episode couldn't be created, written, finalised or discarded.
     pub(crate) fn record(
         &mut self,
+        asked: RecvTime,
         started: &mut dyn FnMut(&EpisodeId, &BufferSummary),
         next: &mut dyn FnMut(&Live<'_>, Duration) -> Next,
     ) -> Outcome<Finished> {
@@ -299,10 +331,8 @@ impl Station {
             &self.writer,
         )
         .map_err(one)?;
-        self.write_start_records(&mut recording, &episode, clock.to_utc_ns(begun))
-            .map_err(one)?;
-        let carried = self
-            .write_kept(&mut recording, clock.to_utc_ns(begun))
+        let (started_utc_ns, carried) = self
+            .write_start(&mut recording, &episode, (&clock, asked, begun), &counters)
             .map_err(one)?;
         let configs = self.plan.inputs.iter().map(|input| &input.ring);
         let buffers = BufferSummary {
@@ -361,7 +391,7 @@ impl Station {
 
         Episode::new(
             &episode,
-            (clock.to_utc_ns(begun), clock.to_utc_ns(ended)),
+            (started_utc_ns, clock.to_utc_ns(ended)),
             RECORDING_FILE,
             &clock,
             (buffers, durability.summary(self.writer.sync_interval)),
@@ -424,6 +454,28 @@ impl Station {
             recording.attach(&file.name, file.media_type, started_utc_ns, &file.data)?;
         }
         Ok(())
+    }
+
+    /// Starts `recording`: the records that say what it is, the kept
+    /// messages, then the pre-roll. The episode spans its data, so it
+    /// starts with its first message, the pre-roll's oldest if it holds any.
+    /// Returns when it starts and how many each kept stream started with.
+    fn write_start(
+        &self,
+        recording: &mut Recording,
+        episode: &EpisodeId,
+        (clock, asked, begun): (&ClockMap, RecvTime, RecvTime),
+        counters: &LossCounters,
+    ) -> Result<(i64, BTreeMap<StreamIndex, u64>), KaptoError> {
+        let first = self
+            .pre_roll
+            .earliest(asked, begun)
+            .map_or(begun, |earliest| earliest.min(begun));
+        let started_utc_ns = clock.to_utc_ns(first);
+        self.write_start_records(recording, episode, started_utc_ns)?;
+        let carried = self.write_kept(recording, started_utc_ns)?;
+        recording.write_pre_roll(&self.pre_roll, (asked, begun), counters)?;
+        Ok((started_utc_ns, carried))
     }
 
     /// Starts `recording` with the messages kept from before it, at its
@@ -526,7 +578,14 @@ impl Station {
         let tap = self.tap.take();
         let (transports, receiver_outcome, writer_outcome, tap) = run_threads(
             receivers,
-            (job, drainers, tap, events, &mut self.kept),
+            (
+                job,
+                drainers,
+                tap,
+                events,
+                &mut self.kept,
+                &mut self.pre_roll,
+            ),
             counters,
             &live,
             keep_going,
@@ -631,12 +690,13 @@ type Threads = (
 /// Returns the inputs, each side's outcome and the live view's feed.
 fn run_threads(
     receivers: Vec<(String, Receiver<Box<dyn Transport>>)>,
-    (job, mut drainers, mut tap, events, kept): (
+    (job, mut drainers, mut tap, events, kept, pre_roll): (
         Job,
         Vec<Drainer>,
         Option<TapFeed>,
         mpsc::Receiver<Event>,
         &mut Kept,
+        &mut PreRoll,
     ),
     counters: &Arc<LossCounters>,
     live: &Live<'_>,
@@ -670,8 +730,13 @@ fn run_threads(
                     if let Some(feed) = tap.take() {
                         recording.set_tap(feed);
                     }
-                    let result =
-                        recording.drain_with_events(&mut drainers, &writer_counters, &events, kept);
+                    let result = recording.drain_with_events(
+                        &mut drainers,
+                        &writer_counters,
+                        &events,
+                        kept,
+                        pre_roll,
+                    );
                     let tap = recording.take_tap();
                     (result.map(|()| Some(*recording)), tap)
                 }
@@ -680,6 +745,7 @@ fn run_threads(
                         &mut drainers,
                         tap.as_mut(),
                         kept,
+                        pre_roll,
                         WriterConfig::default().idle_wait,
                     );
                     (Ok(None), tap)

@@ -42,14 +42,14 @@ use kapto_capture::disk::{DiskLimits, DiskWatch, Room};
 use kapto_capture::tap::LatestValues;
 use kapto_capture::{Compression, WriterConfig};
 use kapto_config::DeploymentConfig;
-use kapto_core::clock::utc_now_ns;
-use kapto_core::{EpisodeId, ErrorCode, KaptoError};
+use kapto_core::clock::{monotonic_now, utc_now_ns};
+use kapto_core::{EpisodeId, ErrorCode, KaptoError, RecvTime};
 use kapto_store::{Event, PackageIdentity, Preflight as PreflightReport};
 
 use crate::SettingFlags;
 use crate::own_events::{Counts, OwnEvents};
 use crate::preflight::Preflight;
-use crate::record::{describe, load_plan, package_of, recover};
+use crate::record::{RecordSettings, describe, load_plan, package_of, recover};
 use crate::station::{Live, Next, Outcome, Station};
 use crate::viz_bridge::warning;
 
@@ -65,9 +65,24 @@ pub(crate) fn capture(flags: &SettingFlags, streams: &Path, mapping: Option<&Pat
     }
 }
 
+/// Says what capture receives and where it takes orders, and what its
+/// pre-roll keeps.
+fn say_receiving(station: &Station, deployment: &DeploymentConfig) {
+    eprintln!(
+        "Receiving {} streams, not recording. Orders on {}; live view on {}. Episodes are recorded with {}.",
+        station.plan.streams.len(),
+        deployment.control_socket.value.display(),
+        deployment.tap_socket.value.display(),
+        describe(station.package.as_ref()),
+    );
+    if let Some(pre_roll) = station.pre_roll_said() {
+        eprintln!("{pre_roll}");
+    }
+}
+
 fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcome<()> {
     let (_, deployment) = crate::config::load(flags)?;
-    let (declarations, plan) = load_plan(streams)?;
+    let (declarations, plan) = load_plan(streams, &RecordSettings::of(&deployment))?;
     let shutdown = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, Arc::clone(&shutdown)).map_err(|error| {
@@ -91,13 +106,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
         ControlServer::listen(&deployment.control_socket.value).map_err(|error| vec![error])?;
     recover_meanwhile(&control, deployment.data_dir.value.clone())?;
     let mut disk = DiskWatch::new(deployment.data_dir.value.clone(), disk_limits(&deployment));
-    eprintln!(
-        "Receiving {} streams, not recording. Orders on {}; live view on {}. Episodes are recorded with {}.",
-        station.plan.streams.len(),
-        deployment.control_socket.value.display(),
-        deployment.tap_socket.value.display(),
-        describe(station.package.as_ref()),
-    );
+    say_receiving(&station, &deployment);
 
     let mut preflight = Preflight::new(&deployment, &declarations);
     // What profiles are checked against; it doesn't change while capture runs.
@@ -105,8 +114,9 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
     let mut first = true;
     loop {
         let mut start = None;
-        // Starts asked for while pre-flight runs, oldest first.
-        let mut waiting: Vec<Pending> = Vec::new();
+        // Starts asked for while pre-flight runs, oldest first, each with
+        // when it was asked: its pre-roll is reckoned from then.
+        let mut waiting: Vec<(Pending, RecvTime)> = Vec::new();
         station.idle(&mut |live, elapsed| {
             if first {
                 preflight.begin(live, elapsed, None);
@@ -114,7 +124,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
             }
             for pending in control.pending() {
                 match pending.request {
-                    Request::Start { .. } => waiting.push(pending),
+                    Request::Start { .. } => waiting.push((pending, monotonic_now())),
                     Request::Preflight => preflight.begin(live, elapsed, Some(pending)),
                     Request::Status => {
                         let status = status(None, live, elapsed, preflight.latest());
@@ -135,15 +145,16 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
             preflight.finish(live, elapsed);
             if !preflight.running() {
                 let mut asked = waiting.drain(..);
-                start = asked.next().and_then(|pending| {
+                start = asked.next().and_then(|(pending, at)| {
                     startable(pending, &mut disk, package.as_ref(), &preflight)
+                        .map(|(pending, cleared)| (pending, cleared, at))
                 });
                 // Only one episode at a time: the first start wins.
-                asked.for_each(|pending| refuse(pending, ErrorCode::CaptureAlreadyRecording));
+                asked.for_each(|(pending, _)| refuse(pending, ErrorCode::CaptureAlreadyRecording));
             }
             start.is_none() && !shutdown.load(Ordering::Relaxed)
         })?;
-        if let Some((pending, cleared)) = start {
+        if let Some((pending, cleared, asked)) = start {
             let Request::Start {
                 duration_s,
                 profile,
@@ -161,7 +172,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
                 &mut station,
                 (&control, &mut disk),
                 &shutdown,
-                (pending, duration),
+                (pending, duration, asked),
                 timeout,
             );
         }
@@ -303,7 +314,7 @@ fn episode(
     station: &mut Station,
     (control, disk): (&ControlServer, &mut DiskWatch),
     shutdown: &AtomicBool,
-    (start, duration): (Pending, Option<Duration>),
+    (start, duration, asked): (Pending, Option<Duration>, RecvTime),
     control_timeout: Duration,
 ) {
     let start = RefCell::new(Some(start));
@@ -317,6 +328,7 @@ fn episode(
     let preflight = station.preflight.clone();
     let mut own = OwnEvents::new(station.plan.streams.iter().map(|spec| spec.id.to_string()));
     let finished = station.record(
+        asked,
         &mut |episode, buffers| {
             eprintln!(
                 "Recording episode {episode} from {streams} streams (buffers: {} batches, {} MiB). Started.",

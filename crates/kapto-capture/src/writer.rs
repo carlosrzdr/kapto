@@ -34,6 +34,7 @@ use crate::batch::{Batch, StreamIndex};
 use crate::durability::{DurabilityStats, DurabilityTracker};
 use crate::kept::Kept;
 use crate::loss::LossCounters;
+use crate::pre_roll::PreRoll;
 use crate::ring::{Drainer, RingConfig};
 
 /// How messages are compressed in the recording.
@@ -504,6 +505,48 @@ impl Recording {
         Ok(carried)
     }
 
+    /// Writes the messages `pre_roll` holds for an episode asked for at
+    /// `asked` and begun at `begun` (see [`PreRoll::messages`]), at the
+    /// times they were received, and counts them as received and written.
+    /// They were held on purpose, so how long they waited to be on disk
+    /// isn't counted.
+    ///
+    /// # Errors
+    ///
+    /// `capture.disk_full` or `capture.write_failed`; the recording can't be
+    /// written to afterwards.
+    pub fn write_pre_roll(
+        &mut self,
+        pre_roll: &PreRoll,
+        (asked, begun): (RecvTime, RecvTime),
+        counters: &LossCounters,
+    ) -> Result<(), KaptoError> {
+        for message in pre_roll.messages(asked, begun) {
+            let Some(Some(channel)) = self.channels.get(usize::from(message.stream)).copied()
+            else {
+                continue;
+            };
+            let log_time = u64::try_from(self.clock.to_utc_ns(message.received)).unwrap_or(0);
+            let header = MessageHeader {
+                channel_id: channel.id,
+                sequence: channel.next_sequence,
+                log_time,
+                publish_time: message.source_time.unwrap_or(log_time),
+            };
+            let written = match self.mcap.as_mut() {
+                Some(mcap) => mcap.write_to_known_channel(&header, message.payload),
+                None => return Err(self.earlier_failure()),
+            };
+            written.map_err(|error| self.fail(error))?;
+            if let Some(Some(written)) = self.channels.get_mut(usize::from(message.stream)) {
+                written.next_sequence = channel.next_sequence.wrapping_add(1);
+            }
+            counters.add_received(message.stream, 1);
+            counters.add_written(message.stream, 1);
+        }
+        Ok(())
+    }
+
     /// Writes every message of `batch` and counts it as written, its log
     /// time the batch's receive time and its publish time the time its
     /// source gave it, or the receive time without one. A message of a
@@ -610,13 +653,14 @@ impl Recording {
             counters,
             &std::sync::mpsc::channel().1,
             &mut Kept::default(),
+            &mut PreRoll::default(),
         )
     }
 
     /// [`Recording::drain`], also writing each event `events` hands over,
     /// between batches, until every receiver is gone; events still waiting
     /// then are written last. Each batch written is also offered to
-    /// `kept`, for the episodes after this one.
+    /// `kept` and held in `pre_roll`, for the episodes after this one.
     ///
     /// # Errors
     ///
@@ -627,6 +671,7 @@ impl Recording {
         counters: &LossCounters,
         events: &std::sync::mpsc::Receiver<Event>,
         kept: &mut Kept,
+        pre_roll: &mut PreRoll,
     ) -> Result<(), KaptoError> {
         let mut failure = None;
         loop {
@@ -642,6 +687,7 @@ impl Recording {
                         failure = Some(error);
                     } else {
                         kept.keep(&batch);
+                        pre_roll.hold(&batch);
                         #[cfg(unix)]
                         if let Some(tap) = &mut self.tap {
                             tap.offer(&batch);
@@ -726,14 +772,15 @@ impl Recording {
 }
 
 /// While no episode is being recorded: takes every batch from every ring,
-/// so receivers never wait, offers it to the viewer's `tap` and to `kept`,
-/// for the next episode, and discards it, until every receiver is gone and
-/// every batch is taken. Nothing is counted as written or dropped: these
-/// messages belong to no episode.
+/// so receivers never wait, offers it to the viewer's `tap`, to `kept` and
+/// to `pre_roll`, for the next episode, and discards it, until every
+/// receiver is gone and every batch is taken. Nothing is counted as written
+/// or dropped: these messages belong to no episode.
 pub fn discard(
     drainers: &mut [Drainer],
     #[cfg(unix)] mut tap: Option<&mut crate::tap::TapFeed>,
     kept: &mut Kept,
+    pre_roll: &mut PreRoll,
     idle_wait: Duration,
 ) {
     loop {
@@ -742,6 +789,7 @@ pub fn discard(
             while let Some(batch) = drainer.take() {
                 idle = false;
                 kept.keep(&batch);
+                pre_roll.hold(&batch);
                 #[cfg(unix)]
                 if let Some(tap) = tap.as_deref_mut() {
                     tap.offer(&batch);
