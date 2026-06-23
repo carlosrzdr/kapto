@@ -92,6 +92,9 @@ pub struct StreamDeclaration {
     /// How long before an episode's start its messages are kept, to start
     /// the episode with, if any: its pre-roll.
     pub pre_roll: Option<Duration>,
+    /// How long after an episode's stop its messages go on being recorded,
+    /// if at all: its post-roll.
+    pub post_roll: Option<Duration>,
     /// Where the stream arrives over UDP, if it does.
     pub udp: Option<UdpDeclaration>,
     /// Where the stream arrives over TCP, if it does.
@@ -204,8 +207,8 @@ pub enum ByteOrder {
     Big,
 }
 
-/// The longest pre-roll a stream may have, in seconds.
-const MAX_PRE_ROLL_S: f64 = 60.0;
+/// The longest pre-roll or post-roll a stream may have, in seconds.
+const MAX_ROLL_S: f64 = 60.0;
 
 const STREAM_KEYS: &[&str] = &[
     "rate_hz",
@@ -213,6 +216,7 @@ const STREAM_KEYS: &[&str] = &[
     "loss_settle_ms",
     "max_message_bytes",
     "pre_roll_s",
+    "post_roll_s",
     "udp",
     "tcp",
     "ros2",
@@ -423,16 +427,7 @@ impl Reader<'_> {
             .and_then(|rate| u32::try_from(rate).ok());
         let sequence = self.table(table, &format!("{path}."), "sequence");
         let sequence = sequence.and_then(|sequence| self.sequence(sequence, table, &path));
-        let loss_settle_ms = self
-            .integer(table, &path, "loss_settle_ms", 1..=MAX_LOSS_SETTLE_MS)
-            .and_then(|ms| u32::try_from(ms).ok());
-        if loss_settle_ms.is_some() && (rate_hz.is_none() || table.get("sequence").is_some()) {
-            let detail = format!(
-                "`{path}.loss_settle_ms` is for a stream whose loss is estimated from its \
-                 `rate_hz`, without a `sequence`"
-            );
-            self.invalid(table, "loss_settle_ms", detail);
-        }
+        let loss_settle_ms = self.loss_settle_ms(table, &path, rate_hz);
         let max_message_bytes = self
             .integer(
                 table,
@@ -505,6 +500,7 @@ impl Reader<'_> {
             loss_settle_ms,
             max_message_bytes,
             pre_roll: self.pre_roll(table, &path, rate_hz),
+            post_roll: self.seconds(table, &path, "post_roll_s"),
             udp,
             tcp,
             ros2,
@@ -513,7 +509,28 @@ impl Reader<'_> {
         })
     }
 
-    /// The stream's `pre_roll_s`: above 0 and at most [`MAX_PRE_ROLL_S`]
+    /// The stream's `loss_settle_ms`, for a stream whose loss is estimated
+    /// from its rate.
+    fn loss_settle_ms(
+        &mut self,
+        table: &dyn TableLike,
+        path: &str,
+        rate_hz: Option<u32>,
+    ) -> Option<u32> {
+        let loss_settle_ms = self
+            .integer(table, path, "loss_settle_ms", 1..=MAX_LOSS_SETTLE_MS)
+            .and_then(|ms| u32::try_from(ms).ok());
+        if loss_settle_ms.is_some() && (rate_hz.is_none() || table.get("sequence").is_some()) {
+            let detail = format!(
+                "`{path}.loss_settle_ms` is for a stream whose loss is estimated from its \
+                 `rate_hz`, without a `sequence`"
+            );
+            self.invalid(table, "loss_settle_ms", detail);
+        }
+        loss_settle_ms
+    }
+
+    /// The stream's `pre_roll_s`: above 0 and at most [`MAX_ROLL_S`]
     /// seconds, for a stream with a rate, which sizes what is kept.
     fn pre_roll(
         &mut self,
@@ -521,19 +538,26 @@ impl Reader<'_> {
         path: &str,
         rate_hz: Option<u32>,
     ) -> Option<Duration> {
-        let seconds = self.float(table, path, "pre_roll_s")?;
-        if !(seconds > 0.0 && seconds <= MAX_PRE_ROLL_S) {
-            let detail = format!(
-                "`{path}.pre_roll_s` must be a number of seconds above 0 and at most {MAX_PRE_ROLL_S}"
-            );
-            self.invalid(table, "pre_roll_s", detail);
-            return None;
-        }
+        let seconds = self.seconds(table, path, "pre_roll_s")?;
         if rate_hz.is_none() {
             let detail = format!(
                 "`{path}.pre_roll_s` needs `rate_hz`: the seconds kept are set aside for the stream's rate"
             );
             self.invalid(table, "pre_roll_s", detail);
+            return None;
+        }
+        Some(seconds)
+    }
+
+    /// The stream's `key`, a number of seconds above 0 and at most
+    /// [`MAX_ROLL_S`].
+    fn seconds(&mut self, table: &dyn TableLike, path: &str, key: &str) -> Option<Duration> {
+        let seconds = self.float(table, path, key)?;
+        if !(seconds > 0.0 && seconds <= MAX_ROLL_S) {
+            let detail = format!(
+                "`{path}.{key}` must be a number of seconds above 0 and at most {MAX_ROLL_S}"
+            );
+            self.invalid(table, key, detail);
             return None;
         }
         Some(Duration::from_secs_f64(seconds))
@@ -1125,6 +1149,7 @@ mod tests {
                     }),
                     loss_settle_ms: None,
                     pre_roll: None,
+                    post_roll: None,
                     max_message_bytes: None,
                     udp: None,
                     tcp: None,
@@ -1138,6 +1163,7 @@ mod tests {
                     sequence: None,
                     loss_settle_ms: None,
                     pre_roll: None,
+                    post_roll: None,
                     max_message_bytes: None,
                     udp: None,
                     tcp: None,
@@ -1314,6 +1340,25 @@ mod tests {
         assert_eq!(streams[0].pre_roll, Some(Duration::from_millis(1500)));
         assert_eq!(streams[1].pre_roll, Some(Duration::from_secs(5)));
         assert_eq!(streams[2].pre_roll, None);
+    }
+
+    #[test]
+    fn a_stream_may_go_on_being_recorded_for_seconds_after_an_episode_stops() {
+        let streams =
+            parse("[streams.voice]\npost_roll_s = 2.5\n[streams.arm]\nrate_hz = 100\n").unwrap();
+        assert_eq!(streams[0].post_roll, Some(Duration::from_millis(2500)));
+        assert_eq!(streams[1].post_roll, None);
+        let found =
+            problems("[streams.zero]\npost_roll_s = 0\n[streams.too_long]\npost_roll_s = 61\n");
+        assert_eq!(found.len(), 2, "{found:#?}");
+        for (problem, stream) in found.iter().zip(["zero", "too_long"]) {
+            assert!(
+                problem.contains(&format!(
+                    "`streams.{stream}.post_roll_s` must be a number of seconds above 0 and at most 60"
+                )),
+                "{problem}"
+            );
+        }
     }
 
     #[test]
