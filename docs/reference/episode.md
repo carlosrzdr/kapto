@@ -33,12 +33,28 @@ than it knows treats the file as unreadable rather than guess.
       "description": "How the host's clock behaved during the episode.",
       "$ref": "#/$defs/ClockSummary"
     },
+    "commanded_start_utc_ns": {
+      "description": "When Start was asked, or `kapto record` began, on the same clock.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64"
+    },
+    "commanded_stop_utc_ns": {
+      "description": "When Stop was asked, or the episode's duration was up, on the same\nclock. Absent if it ended otherwise: aborted, the disk full, the\nprocess stopped.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64"
+    },
     "durability": {
       "description": "How long received messages waited before they were on disk, which\nbounds what a power cut could have lost.",
       "$ref": "#/$defs/DurabilitySummary"
     },
     "ended_utc_ns": {
-      "description": "When recording ended, on the same clock.",
+      "description": "When recording ended, after any post-roll, on the same clock.",
       "type": "integer",
       "format": "int64"
     },
@@ -103,7 +119,7 @@ than it knows treats the file as unreadable rather than guess.
       ]
     },
     "started_utc_ns": {
-      "description": "When recording started: the receive clock mapped to UTC, in\nnanoseconds since the Unix epoch.",
+      "description": "When its first message was received, its pre-roll's if it has one,\nor when recording began if that was earlier: the receive clock\nmapped to UTC, in nanoseconds since the Unix epoch.",
       "type": "integer",
       "format": "int64"
     },
@@ -621,6 +637,24 @@ than it knows treats the file as unreadable rather than guess.
         "lost_upstream": {
           "description": "Messages the source sent that never reached Kapto.",
           "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "post_roll": {
+          "description": "For a stream with a post-roll: how many of `written` were received\nafter Stop was asked. Absent for other streams.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "pre_roll": {
+          "description": "For a stream with a pre-roll: how many of `written` were received\nbefore Start was asked. Absent for other streams.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint64",
           "minimum": 0
         },

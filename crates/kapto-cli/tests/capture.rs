@@ -290,6 +290,12 @@ fn an_episode_starts_with_the_last_second_before_it_was_started() {
         ),
         (300, 300, 0, 0)
     );
+    // 300 to 399 came before Start was asked, which is kept beside.
+    assert_eq!(stream.pre_roll, Some(100));
+    assert_eq!(stream.post_roll, None);
+    let commanded = episode.commanded_start_utc_ns.unwrap();
+    assert!(i64::try_from(messages[99].1).unwrap() < commanded);
+    assert!(commanded <= i64::try_from(messages[100].1).unwrap());
     let said = capture.stop();
     assert!(said.status.success());
 }
@@ -424,12 +430,22 @@ fn after_stop_only_a_stream_with_a_post_roll_goes_on_being_recorded_for_it() {
     let folder = stopping.join().unwrap();
 
     let episode = finalised(&folder);
-    let counts: Vec<(u64, u64, u64)> = episode
+    let counts: Vec<(u64, u64, u64, Option<u64>)> = episode
         .streams
         .iter()
-        .map(|stream| (stream.received, stream.written, stream.lost_upstream))
+        .map(|stream| {
+            (
+                stream.received,
+                stream.written,
+                stream.lost_upstream,
+                stream.post_roll,
+            )
+        })
         .collect();
-    assert_eq!(counts, [(100, 100, 0), (200, 200, 0)]);
+    assert_eq!(counts, [(100, 100, 0, None), (200, 200, 0, Some(100))]);
+    let stopped = episode.commanded_stop_utc_ns.unwrap();
+    assert!(episode.commanded_start_utc_ns.unwrap() < stopped);
+    assert!(stopped < episode.ended_utc_ns);
     assert!(capture.stop().status.success());
 }
 

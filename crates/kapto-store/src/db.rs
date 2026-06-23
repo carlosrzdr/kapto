@@ -1579,6 +1579,8 @@ mod tests {
                     lost_upstream: stream.lost_upstream,
                     disconnects: None,
                     carried: None,
+                    pre_roll: None,
+                    post_roll: None,
                 })
                 .collect(),
         );

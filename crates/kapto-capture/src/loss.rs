@@ -58,6 +58,10 @@ pub struct StreamTotals {
     pub lost_upstream: u64,
     /// Whether its publishers' own counts counted that loss.
     pub counted_by_publishers: bool,
+    /// Of `written`, those received before Start was asked: its pre-roll.
+    pub pre_roll: u64,
+    /// Of `written`, those received after Stop was asked: its post-roll.
+    pub post_roll: u64,
 }
 
 impl StreamTotals {
@@ -79,6 +83,8 @@ impl StreamTotals {
             lost_upstream: self.lost_upstream,
             disconnects: None,
             carried: None,
+            pre_roll: None,
+            post_roll: None,
         }
     }
 }
@@ -91,6 +97,8 @@ struct StreamCounters {
     dropped_by_us: AtomicU64,
     lost_upstream: AtomicU64,
     counted_by_publishers: AtomicBool,
+    pre_roll: AtomicU64,
+    post_roll: AtomicU64,
 }
 
 /// Every stream's counters, shared by the threads that update them and
@@ -121,6 +129,8 @@ impl LossCounters {
                 dropped_by_us: counters.dropped_by_us.load(Ordering::Relaxed),
                 lost_upstream: counters.lost_upstream.load(Ordering::Relaxed),
                 counted_by_publishers: counters.counted_by_publishers.load(Ordering::Relaxed),
+                pre_roll: counters.pre_roll.load(Ordering::Relaxed),
+                post_roll: counters.post_roll.load(Ordering::Relaxed),
             })
     }
 
@@ -149,6 +159,22 @@ impl LossCounters {
             counters
                 .lost_upstream
                 .fetch_add(gap.share_from(at, from).cast_unsigned(), Ordering::Relaxed);
+        }
+    }
+
+    /// Counts `messages` of `stream` written as received before Start was
+    /// asked.
+    pub fn add_pre_roll(&self, stream: StreamIndex, messages: u64) {
+        if let Some(counters) = self.streams.get(usize::from(stream)) {
+            counters.pre_roll.fetch_add(messages, Ordering::Relaxed);
+        }
+    }
+
+    /// Counts `messages` of `stream` written as received after Stop was
+    /// asked.
+    pub fn add_post_roll(&self, stream: StreamIndex, messages: u64) {
+        if let Some(counters) = self.streams.get(usize::from(stream)) {
+            counters.post_roll.fetch_add(messages, Ordering::Relaxed);
         }
     }
 

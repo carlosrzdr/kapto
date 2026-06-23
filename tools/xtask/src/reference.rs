@@ -465,6 +465,8 @@ fn example_end() -> std::collections::BTreeMap<String, String> {
         lost_upstream: 2,
         disconnects: None,
         carried: None,
+        pre_roll: None,
+        post_roll: None,
     };
     let kept = StreamSummary {
         id: "tf_static".into(),
@@ -476,6 +478,8 @@ fn example_end() -> std::collections::BTreeMap<String, String> {
         lost_upstream: 0,
         disconnects: None,
         carried: Some(2),
+        pre_roll: None,
+        post_roll: None,
     };
     EpisodeEnd::new(1_772_700_460_000_000_000, &clock, &buffers, &[stream, kept]).record()
 }

@@ -141,6 +141,12 @@ impl EpisodeStart {
 pub struct EpisodeEnd {
     /// When recording ended, in UTC nanoseconds since the Unix epoch.
     pub ended_utc_ns: i64,
+    /// When Start was asked, on the same clock.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commanded_start_utc_ns: Option<i64>,
+    /// When Stop was asked, on the same clock, if it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commanded_stop_utc_ns: Option<i64>,
     /// How the host's clock behaved.
     pub clock: ClockSummary,
     /// How close the buffers came to full.
@@ -170,10 +176,21 @@ impl EpisodeEnd {
             .collect();
         Self {
             ended_utc_ns,
+            commanded_start_utc_ns: None,
+            commanded_stop_utc_ns: None,
             clock: ClockSummary::of(clock),
             buffers: buffers.clone(),
             streams,
         }
+    }
+
+    /// The same, started when asked at `start` and stopped when asked at
+    /// `stop`, if it was, in UTC nanoseconds.
+    #[must_use]
+    pub fn with_commands(mut self, (start, stop): (i64, Option<i64>)) -> Self {
+        self.commanded_start_utc_ns = Some(start);
+        self.commanded_stop_utc_ns = stop;
+        self
     }
 
     /// The `kapto.summary` record's entries.
@@ -378,6 +395,8 @@ mod tests {
             lost_upstream: 3,
             disconnects: None,
             carried: None,
+            pre_roll: None,
+            post_roll: None,
         };
         let end = EpisodeEnd::new(
             1_772_700_460_000_000_000,

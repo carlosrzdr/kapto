@@ -43,11 +43,20 @@ pub struct Episode {
     pub id: String,
     /// The version of Kapto that recorded it.
     pub kapto_version: String,
-    /// When recording started: the receive clock mapped to UTC, in
-    /// nanoseconds since the Unix epoch.
+    /// When its first message was received, its pre-roll's if it has one,
+    /// or when recording began if that was earlier: the receive clock
+    /// mapped to UTC, in nanoseconds since the Unix epoch.
     pub started_utc_ns: i64,
-    /// When recording ended, on the same clock.
+    /// When recording ended, after any post-roll, on the same clock.
     pub ended_utc_ns: i64,
+    /// When Start was asked, or `kapto record` began, on the same clock.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commanded_start_utc_ns: Option<i64>,
+    /// When Stop was asked, or the episode's duration was up, on the same
+    /// clock. Absent if it ended otherwise: aborted, the disk full, the
+    /// process stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commanded_stop_utc_ns: Option<i64>,
     /// The recording's file name in the episode folder.
     pub recording: String,
     /// How the host's clock behaved during the episode.
@@ -364,6 +373,14 @@ pub struct StreamSummary {
     /// and not counted in `received` or `written`. Absent for other streams.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub carried: Option<u64>,
+    /// For a stream with a pre-roll: how many of `written` were received
+    /// before Start was asked. Absent for other streams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_roll: Option<u64>,
+    /// For a stream with a post-roll: how many of `written` were received
+    /// after Stop was asked. Absent for other streams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_roll: Option<u64>,
 }
 
 /// How a stream's upstream loss was detected.
@@ -424,6 +441,8 @@ impl Episode {
             kapto_version: env!("CARGO_PKG_VERSION").to_owned(),
             started_utc_ns,
             ended_utc_ns,
+            commanded_start_utc_ns: None,
+            commanded_stop_utc_ns: None,
             recording: recording.to_owned(),
             clock: ClockSummary::of(clock),
             buffers,
@@ -435,6 +454,15 @@ impl Episode {
             recovered: None,
             preflight: None,
         }
+    }
+
+    /// The same, started when asked at `start` and stopped when asked at
+    /// `stop`, if it was, in UTC nanoseconds.
+    #[must_use]
+    pub fn with_commands(mut self, (start, stop): (i64, Option<i64>)) -> Self {
+        self.commanded_start_utc_ns = Some(start);
+        self.commanded_stop_utc_ns = stop;
+        self
     }
 
     /// The same, recorded with `package`; `None` for an `unchecked` one.
@@ -579,6 +607,8 @@ mod tests {
                     lost_upstream: 3,
                     disconnects: None,
                     carried: None,
+                    pre_roll: None,
+                    post_roll: None,
                 },
                 StreamSummary {
                     id: "base_odometry".to_owned(),
@@ -590,6 +620,8 @@ mod tests {
                     lost_upstream: 40,
                     disconnects: Some(1),
                     carried: None,
+                    pre_roll: None,
+                    post_roll: None,
                 },
                 StreamSummary {
                     id: "tf_static".to_owned(),
@@ -601,6 +633,8 @@ mod tests {
                     lost_upstream: 0,
                     disconnects: None,
                     carried: Some(2),
+                    pre_roll: None,
+                    post_roll: None,
                 },
             ],
         )

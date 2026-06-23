@@ -156,6 +156,8 @@ fn describe(
                 lost_upstream: 0,
                 disconnects: None,
                 carried: None,
+                pre_roll: None,
+                post_roll: None,
             }),
         }
         ControlFlow::Continue(())

@@ -29,6 +29,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use kapto_capture::finalise::{RECORDING_FILE, Staged};
+use kapto_capture::post_roll::NOT_STOPPED;
 use kapto_capture::tap::frames::{FrameStats, FrameTotals};
 use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
@@ -397,7 +398,9 @@ impl Station {
         let streams = stream_summaries(&self.plan, &counters, &disconnects, &carried);
         // How it went, before the file is closed: a recording without this
         // record wasn't finished.
-        let summary = EpisodeEnd::new(clock.to_utc_ns(ended), &clock, &buffers, &streams);
+        let commands = self.commands(&clock, asked);
+        let summary = EpisodeEnd::new(clock.to_utc_ns(ended), &clock, &buffers, &streams)
+            .with_commands(commands);
         recording
             .write_record(SUMMARY_RECORD, summary.record())
             .map_err(one)?;
@@ -420,6 +423,7 @@ impl Station {
             (buffers, durability.summary(self.writer.sync_interval)),
             streams,
         )
+        .with_commands(commands)
         .with_package(self.package.clone())
         .with_session(self.session.0.clone(), self.session.1.clone())
         .with_preflight(self.preflight.clone())
@@ -437,6 +441,13 @@ impl Station {
             folder: Some(finalised.dir().to_path_buf()),
             receivers: end.receivers,
         })
+    }
+
+    /// When Start was asked (`asked`) and Stop, if it was, in UTC.
+    fn commands(&self, clock: &ClockMap, asked: RecvTime) -> (i64, Option<i64>) {
+        let stopped = self.post_roll.stopped();
+        let stop = (stopped != NOT_STOPPED).then(|| clock.to_utc_ns(RecvTime::from_nanos(stopped)));
+        (clock.to_utc_ns(asked), stop)
     }
 
     /// Writes what `recording` is, before its first message, so the file
@@ -1016,6 +1027,17 @@ fn stream_summaries(
             let mut summary = counters.totals(spec.stream).summary(&spec.id, detection);
             summary.disconnects = disconnects(spec.stream);
             summary.carried = carried.get(&spec.stream).copied();
+            let totals = counters.totals(spec.stream);
+            let pre_rolled = plan
+                .pre_roll
+                .iter()
+                .any(|held| held.stream == spec.stream && !held.seconds.is_zero());
+            summary.pre_roll = pre_rolled.then_some(totals.pre_roll);
+            let post_rolled = plan
+                .post_roll
+                .get(usize::from(spec.stream))
+                .is_some_and(|post_roll| !post_roll.is_zero());
+            summary.post_roll = post_rolled.then_some(totals.post_roll);
             summary
         })
         .collect()

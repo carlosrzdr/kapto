@@ -529,6 +529,9 @@ impl Recording {
         counters: &LossCounters,
     ) -> Result<(), KaptoError> {
         for message in pre_roll.messages(asked, begun) {
+            if message.received < asked {
+                counters.add_pre_roll(message.stream, 1);
+            }
             if let Some(gap) = &message.gap {
                 counters.add_gap(gap, message.received, from);
             }
@@ -611,6 +614,8 @@ impl Recording {
         let utc_ns = self.clock.to_utc_ns(batch.recv_time());
         let log_time = u64::try_from(utc_ns).unwrap_or(0);
         let source_times = batch.has_source_times();
+        let after_stop = batch.stopped() != crate::post_roll::NOT_STOPPED
+            && batch.recv_time().as_nanos() >= batch.stopped();
         let mut written_messages = 0;
         for (index, (stream, payload)) in batch.messages().enumerate() {
             if self
@@ -648,6 +653,9 @@ impl Recording {
             }
             channel.next_sequence = channel.next_sequence.wrapping_add(1);
             counters.add_written(stream, 1);
+            if after_stop {
+                counters.add_post_roll(stream, 1);
+            }
             written_messages += 1;
         }
         self.durability.written(batch.recv_time(), written_messages);
