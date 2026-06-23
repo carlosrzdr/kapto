@@ -115,6 +115,14 @@ impl<T: Transport> Receiver<T> {
     /// Returns the transport, still open, for the next receiver.
     pub fn finish(mut self) -> T {
         self.accounting.settle();
+        self.hand_over().0
+    }
+
+    /// Ends the receiver as [`Receiver::finish`] does, but without settling
+    /// any silence: returns its loss detection with the transport, to go on
+    /// in the next receiver, for when the episode starting holds what
+    /// follows.
+    pub fn hand_over(self) -> (T, Accounting) {
         for index in 0..self.counters.streams() {
             let Ok(stream) = StreamIndex::try_from(index) else {
                 break;
@@ -124,7 +132,7 @@ impl<T: Transport> Receiver<T> {
             self.counters
                 .add_discarded_on_arrival(stream, self.transport.stats().truncated(stream));
         }
-        self.transport
+        (self.transport, self.accounting)
     }
 
     fn send(&mut self) {

@@ -96,6 +96,9 @@ pub(crate) struct Station {
     /// The rings the last idle phase handed over as it ended, for the
     /// episode starting.
     handed: Vec<HandedOver>,
+    /// The last idle phase's loss detection, per input, to go on into the
+    /// episode starting.
+    accounting: Vec<Accounting>,
 }
 
 /// The files a recording carries, and the package files it doesn't.
@@ -235,6 +238,7 @@ impl Station {
             kept: Kept::new(&plan.kept),
             pre_roll: PreRoll::new(&plan.pre_roll),
             handed: Vec::new(),
+            accounting: Vec::new(),
             plan,
             data_dir,
             transports,
@@ -275,8 +279,10 @@ impl Station {
         keep_going: &mut dyn FnMut(&Live<'_>, Duration) -> bool,
     ) -> Outcome<()> {
         let counters = Arc::new(LossCounters::new(self.plan.streams.len()));
+        self.accounting.clear();
         let end = self.run(Job::Discard, &counters, keep_going)?;
         self.handed = end.handed;
+        self.accounting = end.accounting;
         end.receivers
     }
 
@@ -469,14 +475,15 @@ impl Station {
     /// Starts `recording`: the records that say what it is, the kept
     /// messages, the pre-roll, then what the idle phase handed over. The
     /// episode spans its data, so it starts with its first message, the
-    /// pre-roll's oldest if it holds any. Returns when it starts and how
-    /// many each kept stream started with.
+    /// pre-roll's oldest if it holds any; the idle phase's loss detection
+    /// goes on from there. Returns when it starts and how many each kept
+    /// stream started with.
     fn write_start(
         &mut self,
         recording: &mut Recording,
         episode: &EpisodeId,
         (clock, asked, begun): (&ClockMap, RecvTime, RecvTime),
-        counters: &LossCounters,
+        counters: &Arc<LossCounters>,
     ) -> Result<(i64, BTreeMap<StreamIndex, u64>), KaptoError> {
         let handed = std::mem::take(&mut self.handed);
         let first = self
@@ -487,6 +494,9 @@ impl Station {
             .fold(begun, RecvTime::min);
         let started_utc_ns = clock.to_utc_ns(first);
         self.pre_roll.waiting().set(None);
+        for accounting in &mut self.accounting {
+            accounting.resume(Arc::clone(counters), first);
+        }
         self.write_start_records(recording, episode, started_utc_ns)?;
         let carried = self.write_kept(recording, started_utc_ns)?;
         recording.write_pre_roll(&self.pre_roll, (asked, begun, first), counters)?;
@@ -546,6 +556,17 @@ impl Station {
             )]);
         }
         self.grow_rings();
+        // An episode goes on with the loss detection of the idle phase
+        // before it, if each input's is there, so a gap across its start is
+        // found; an idle phase starts afresh.
+        let mut carried =
+            if matches!(job, Job::Write(_)) && self.accounting.len() == self.plan.inputs.len() {
+                std::mem::take(&mut self.accounting)
+            } else {
+                Vec::new()
+            }
+            .into_iter();
+        self.accounting.clear();
         let mut receivers = Vec::new();
         let mut drainers = Vec::new();
         let mut rings = Vec::new();
@@ -570,7 +591,9 @@ impl Station {
                 Receiver::new(
                     transport,
                     (filler, ring_stats),
-                    Accounting::new(Arc::clone(counters), &detections),
+                    carried
+                        .next()
+                        .unwrap_or_else(|| Accounting::new(Arc::clone(counters), &detections)),
                     Arc::clone(counters),
                     ReceiverConfig::default(),
                 ),
@@ -597,7 +620,7 @@ impl Station {
             waiting: self.pre_roll.waiting(),
         };
         let tap = self.tap.take();
-        let (transports, receiver_outcome, (writer_outcome, handed), tap) = run_threads(
+        let (inputs, receiver_outcome, (writer_outcome, handed), tap) = run_threads(
             receivers,
             (
                 job,
@@ -611,6 +634,7 @@ impl Station {
             &live,
             keep_going,
         )?;
+        let (transports, accounting): (Vec<_>, Vec<_>) = inputs.into_iter().unzip();
         self.transports = transports;
         self.tap = tap;
         if self.transports.len() != self.plan.inputs.len() {
@@ -626,6 +650,7 @@ impl Station {
             rings,
             transports: transport_stats,
             handed,
+            accounting: accounting.into_iter().flatten().collect(),
         })
     }
 
@@ -700,10 +725,12 @@ struct PhaseEnd {
     transports: Vec<Arc<TransportStats>>,
     /// The rings a [`Job::Discard`] phase handed over as it ended.
     handed: Vec<HandedOver>,
+    /// A [`Job::Discard`] phase's loss detection, per input.
+    accounting: Vec<Accounting>,
 }
 
 type Threads = (
-    Vec<Box<dyn Transport>>,
+    Vec<(Box<dyn Transport>, Option<Accounting>)>,
     Outcome<()>,
     (Outcome<Option<Recording>>, Vec<HandedOver>),
     Option<TapFeed>,
@@ -728,6 +755,9 @@ fn run_threads(
 ) -> Outcome<Threads> {
     let stop = AtomicBool::new(false);
     let stop = &stop;
+    // An idle phase ends because an episode starts, or for good: its loss
+    // detection goes on into the episode, unsettled.
+    let hand_over = matches!(job, Job::Discard);
     thread::scope(|scope| {
         let mut receiving = Vec::new();
         for (name, mut receiver) in receivers {
@@ -736,7 +766,12 @@ fn run_threads(
                     .name(name.clone())
                     .spawn_scoped(scope, move || {
                         let result = receiver.run(stop);
-                        (result, receiver.finish())
+                        if hand_over {
+                            let (transport, accounting) = receiver.hand_over();
+                            (result, (transport, Some(accounting)))
+                        } else {
+                            (result, (receiver.finish(), None))
+                        }
                     });
             match spawned {
                 Ok(handle) => receiving.push((name, handle)),

@@ -18,7 +18,7 @@ use std::time::Duration;
 use kapto_capture::loss::{ByteOrder, SequenceField, SequenceWidth};
 use kapto_capture::{Accounting, Batch, Drainer, LossCounters, LossDetection, RingConfig, ring};
 use kapto_core::clock::monotonic_now;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, RecvTime};
 use kapto_transport::{
     Receiver, ReceiverConfig, Transport, TransportStats, UdpOptions, UdpSocketConfig, UdpTransport,
 };
@@ -186,6 +186,38 @@ fn messages_the_ring_had_no_room_for_are_counted_as_dropped_when_finished() {
     let totals = counters.totals(0);
     assert_eq!(totals.received, 12);
     assert_eq!(totals.dropped_by_us, 8);
+}
+
+#[test]
+fn loss_detection_handed_over_goes_on_in_the_next_receiver_and_finds_a_gap_across_them() {
+    let config = ring_config(4, 64);
+    let (mut idle, _drainer, before) = receiver(Scripted::new(5, 5), &config);
+    while before.totals(0).received < 5 {
+        idle.run(&AtomicBool::new(true)).unwrap();
+    }
+    let (_, mut accounting) = idle.hand_over();
+
+    // 0 to 4 arrived before; 5 to 9 never do.
+    let mut transport = Scripted::new(0, 5);
+    transport.queue = (10..15).collect();
+    let episode = Arc::new(LossCounters::new(1));
+    // The episode began before the first receiver's messages, so the whole
+    // gap is in it.
+    accounting.resume(Arc::clone(&episode), RecvTime::from_nanos(0));
+    let (filler, _drainer, stats) = ring(&config);
+    let mut next = Receiver::new(
+        transport,
+        (filler, stats),
+        accounting,
+        Arc::clone(&episode),
+        ReceiverConfig::default(),
+    );
+    while episode.totals(0).received < 5 {
+        next.run(&AtomicBool::new(true)).unwrap();
+    }
+    drop(next.finish());
+    assert_eq!(episode.totals(0).lost_upstream, 5);
+    assert_eq!(before.totals(0).lost_upstream, 0);
 }
 
 #[test]

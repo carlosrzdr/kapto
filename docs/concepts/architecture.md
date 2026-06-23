@@ -506,12 +506,14 @@ the [capture control protocol](../reference/capture-control.md);
 episode is ended like a stopped one and then deleted from staging, so
 nothing of it is kept. Between episodes,
 the writer thread only offers each batch to the live view and discards it.
-Each episode gets fresh rings, counters and loss tracking, so its counts
-cover exactly the messages received while it was recorded. When an
-episode starts, the writer thread stops taking batches at once and hands
-the idle rings over with what is left in them: the episode starts with
-those batches, counted as its own, so nothing that arrived while the
-threads changed over is lost. The inputs stay open in between, and the
+Each episode gets fresh rings and counters, so its counts cover exactly
+the messages it holds. When an episode starts, the writer thread stops
+taking batches at once and hands the idle rings over with what is left in
+them: the episode starts with those batches, counted as its own, so
+nothing that arrived while the threads changed over is lost. Loss
+detection goes on from the idle phase, so a gap across the start is
+found, and counts for the share of its time after the episode's first
+message. The inputs stay open in between, and the
 operating system's socket buffers hold the few milliseconds until the new
 receivers read them. SIGINT or SIGTERM finalises
 the episode being recorded and ends the process.

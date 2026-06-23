@@ -191,6 +191,9 @@ pub struct Accounting {
     /// Each stream's loss in the batch being counted, and when its last
     /// batch was received.
     gaps: Box<[StreamGap]>,
+    /// Loss is counted from here on: of a gap that began before, only its
+    /// share after.
+    from: RecvTime,
 }
 
 /// One stream's loss in the batch being counted, which becomes a
@@ -330,7 +333,17 @@ impl Accounting {
             detectors: detectors.into_boxed_slice(),
             published,
             gaps,
+            from: RecvTime::from_nanos(0),
         }
+    }
+
+    /// Goes on detecting loss into `counters`, as of the episode starting
+    /// at `from`: a gap found next that began before counts only for its
+    /// share from then. What each stream received last is kept, so a gap
+    /// across the start is found.
+    pub fn resume(&mut self, counters: Arc<LossCounters>, from: RecvTime) {
+        self.counters = counters;
+        self.from = from;
     }
 
     /// Counts every message of a batch just received, and records in it
@@ -449,17 +462,19 @@ impl Accounting {
             ];
             for (lost, since) in gaps {
                 if lost != 0 {
-                    batch.add_gap(Gap {
+                    let found = Gap {
                         stream,
                         lost,
                         since,
-                    });
+                    };
+                    batch.add_gap(found);
                     // A late message takes back loss counted earlier, so the
                     // change can be negative; adding it as two's complement
                     // wraps to the right total.
-                    counters
-                        .lost_upstream
-                        .fetch_add(lost.cast_unsigned(), Ordering::Relaxed);
+                    counters.lost_upstream.fetch_add(
+                        found.share_from(time, self.from).cast_unsigned(),
+                        Ordering::Relaxed,
+                    );
                 }
             }
             *gap = StreamGap {
@@ -583,6 +598,22 @@ mod tests {
         assert_eq!(gaps(&mut batch_of(&[(1, 0)], 1_700)), [gap(1, 1_598, 100)]);
         assert_eq!(counters.totals(0).lost_upstream, 4);
         assert_eq!(counters.totals(1).lost_upstream, 1_598);
+    }
+
+    #[test]
+    fn resumed_for_an_episode_a_gap_across_its_start_counts_its_share_after_it() {
+        let before = Arc::new(LossCounters::new(1));
+        let mut accounting = Accounting::new(Arc::clone(&before), &[(0, SEQUENCE)]);
+        accounting.count(&mut batch_of(&[(0, 1)], 100));
+        let episode = Arc::new(LossCounters::new(1));
+        accounting.resume(Arc::clone(&episode), RecvTime::from_nanos(150 * 1_000_000));
+        // 2 to 11 missing between 100 ms and 200 ms: half of it after 150 ms.
+        let mut batch = batch_of(&[(0, 12), (0, 14)], 200);
+        accounting.count(&mut batch);
+        assert_eq!(episode.totals(0).lost_upstream, 5 + 1);
+        assert_eq!(before.totals(0).lost_upstream, 0);
+        // The batch says the whole gap, for whatever holds it.
+        assert_eq!(batch.gaps()[0].lost, 10);
     }
 
     #[test]
