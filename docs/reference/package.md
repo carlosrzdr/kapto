@@ -71,6 +71,13 @@ max_dropped = 0
 | `statistics.include` | no | Statistics turned back on among those `statistics.exclude` turns off, written the same way, e.g. `["streams.camera.lost_upstream_ratio"]`. |
 | `streams.complete.enabled` | no | Whether the gate `streams.complete` runs: every message that reached Kapto was written. `true` by default. |
 | `streams.complete.max_dropped` | no | The most messages Kapto may drop from one stream before `streams.complete` fails the episode, from 0. `0` by default. |
+| `streams.present.enabled` | no | Whether the gate `streams.present` runs: every critical stream has messages in the episode. `true` by default. |
+| `streams.present.critical` | no | The streams `streams.present` fails an episode without, by name, e.g. `["joints", "wrist_camera"]`. Empty by default: then every stream is, but those kept for late subscribers, which may send nothing during an episode. |
+| `streams.empty.enabled` | no | Whether `streams.empty` runs: it flags each stream with no messages in the episode that `streams.present` doesn't fail it for, a stream kept for late subscribers that kept none too. Advisory. `true` by default. |
+| `episode.short.enabled` | no | Whether the gate `episode.short` runs: the episode lasts at least `min_seconds`. `true` by default. |
+| `episode.short.min_seconds` | no | The shortest episode accepted, in seconds, from 0 to 86400, from its first message to its end. `2` by default: shorter, it can hardly hold a task. |
+| `episode.long.enabled` | no | Whether `episode.long` runs: it flags an episode longer than `max_seconds`, as one left recording does. Advisory. `true` by default. |
+| `episode.long.max_seconds` | no | The longest episode not flagged, in seconds, from 1 to 86400. `600` by default. |
 | `motion.jump.enabled` | no | Whether `motion.jump` runs: it flags each moment a joint moved faster than `max_speed` between two messages, as a reading that jumped does. Advisory. `true` by default. |
 | `motion.jump.max_speed` | no | The fastest a joint can move, in rad/s for a turning joint or m/s for a sliding one, from 0.001 to 1000. `20` by default: faster than any arm's motors. |
 | `motion.frozen.enabled` | no | Whether `motion.frozen` runs: it flags each time a joint's reading stayed exactly the same for `max_seconds` right after it moved at `moving_speed`, while another joint moved, as a reading that stopped updating does. Advisory. `true` by default. |

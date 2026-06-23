@@ -32,7 +32,7 @@ pub const QA_FILE: &str = "qa.toml";
 
 /// Every key of `qa.toml`, in the order they are documented: a check's
 /// settings are named after its ID.
-pub const QA_KEYS: [FileKey; 30] = [
+pub const QA_KEYS: [FileKey; 37] = [
     FileKey {
         name: "qa_params_version",
         required: true,
@@ -57,6 +57,41 @@ pub const QA_KEYS: [FileKey; 30] = [
         name: "streams.complete.max_dropped",
         required: false,
         help: "The most messages Kapto may drop from one stream before `streams.complete` fails the episode, from 0. `0` by default.",
+    },
+    FileKey {
+        name: "streams.present.enabled",
+        required: false,
+        help: "Whether the gate `streams.present` runs: every critical stream has messages in the episode. `true` by default.",
+    },
+    FileKey {
+        name: "streams.present.critical",
+        required: false,
+        help: "The streams `streams.present` fails an episode without, by name, e.g. `[\"joints\", \"wrist_camera\"]`. Empty by default: then every stream is, but those kept for late subscribers, which may send nothing during an episode.",
+    },
+    FileKey {
+        name: "streams.empty.enabled",
+        required: false,
+        help: "Whether `streams.empty` runs: it flags each stream with no messages in the episode that `streams.present` doesn't fail it for, a stream kept for late subscribers that kept none too. Advisory. `true` by default.",
+    },
+    FileKey {
+        name: "episode.short.enabled",
+        required: false,
+        help: "Whether the gate `episode.short` runs: the episode lasts at least `min_seconds`. `true` by default.",
+    },
+    FileKey {
+        name: "episode.short.min_seconds",
+        required: false,
+        help: "The shortest episode accepted, in seconds, from 0 to 86400, from its first message to its end. `2` by default: shorter, it can hardly hold a task.",
+    },
+    FileKey {
+        name: "episode.long.enabled",
+        required: false,
+        help: "Whether `episode.long` runs: it flags an episode longer than `max_seconds`, as one left recording does. Advisory. `true` by default.",
+    },
+    FileKey {
+        name: "episode.long.max_seconds",
+        required: false,
+        help: "The longest episode not flagged, in seconds, from 1 to 86400. `600` by default.",
     },
     FileKey {
         name: "motion.jump.enabled",
@@ -194,6 +229,10 @@ pub struct QaSettings {
     pub statistics: StatisticsSelection,
     /// The gate `streams.complete`.
     pub streams_complete: StreamsCompleteSettings,
+    /// The gate `streams.present` and the advisory `streams.empty`.
+    pub streams_present: StreamsPresentSettings,
+    /// The gate `episode.short` and the advisory `episode.long`.
+    pub duration: DurationSettings,
     /// The advisory `motion.jump`.
     pub joint_jumps: JointJumpsSettings,
     /// The advisory `motion.frozen`.
@@ -222,6 +261,54 @@ impl Default for StreamsCompleteSettings {
         Self {
             enabled: true,
             max_dropped: 0,
+        }
+    }
+}
+
+/// The settings of the gate `streams.present` and the advisory
+/// `streams.empty`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StreamsPresentSettings {
+    /// Whether `streams.present` runs.
+    pub enabled: bool,
+    /// The streams it fails an episode without; empty for every stream
+    /// but those kept for late subscribers.
+    pub critical: Vec<String>,
+    /// Whether `streams.empty` runs.
+    pub empty_enabled: bool,
+}
+
+impl Default for StreamsPresentSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            critical: Vec::new(),
+            empty_enabled: true,
+        }
+    }
+}
+
+/// The settings of the gate `episode.short` and the advisory
+/// `episode.long`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DurationSettings {
+    /// Whether `episode.short` runs.
+    pub short_enabled: bool,
+    /// The shortest episode accepted, in seconds.
+    pub min_seconds: f64,
+    /// Whether `episode.long` runs.
+    pub long_enabled: bool,
+    /// The longest episode not flagged, in seconds.
+    pub max_seconds: f64,
+}
+
+impl Default for DurationSettings {
+    fn default() -> Self {
+        Self {
+            short_enabled: true,
+            min_seconds: 2.0,
+            long_enabled: true,
+            max_seconds: 600.0,
         }
     }
 }
@@ -571,14 +658,7 @@ fn read_settings(
             include: reader.texts("include", expected, is_pattern),
         };
     });
-    read_table(file, root, "streams.complete", errors, |reader, _| {
-        let check = &mut settings.streams_complete;
-        check.enabled = reader.switch("enabled").unwrap_or(check.enabled);
-        check.max_dropped = reader
-            .whole("max_dropped", 0..=i64::MAX)
-            .and_then(|whole| u64::try_from(whole).ok())
-            .unwrap_or(check.max_dropped);
-    });
+    read_episode_checks(file, root, settings, errors);
     read_table(file, root, "motion.jump", errors, |reader, _| {
         let check = &mut settings.joint_jumps;
         check.enabled = reader.switch("enabled").unwrap_or(check.enabled);
@@ -655,6 +735,52 @@ fn read_settings(
             read_autoencoder(reader, table, &mut settings.autoencoder_anomalies);
         },
     );
+}
+
+/// Reads the tables of the checks on the episode and its streams below
+/// `root` into `settings`, adding their problems to `errors`.
+fn read_episode_checks(
+    file: &ConfigFile,
+    root: &dyn TableLike,
+    settings: &mut QaSettings,
+    errors: &mut Vec<KaptoError>,
+) {
+    read_table(file, root, "streams.complete", errors, |reader, _| {
+        let check = &mut settings.streams_complete;
+        check.enabled = reader.switch("enabled").unwrap_or(check.enabled);
+        check.max_dropped = reader
+            .whole("max_dropped", 0..=i64::MAX)
+            .and_then(|whole| u64::try_from(whole).ok())
+            .unwrap_or(check.max_dropped);
+    });
+    read_table(file, root, "streams.present", errors, |reader, table| {
+        let check = &mut settings.streams_present;
+        check.enabled = reader.switch("enabled").unwrap_or(check.enabled);
+        // Left out, a profile or task keeps the package's.
+        if table.contains_key("critical") {
+            check.critical = reader.texts("critical", "stream names", |name| {
+                name.parse::<kapto_core::StreamId>().is_ok()
+            });
+        }
+    });
+    read_table(file, root, "streams.empty", errors, |reader, _| {
+        let check = &mut settings.streams_present;
+        check.empty_enabled = reader.switch("enabled").unwrap_or(check.empty_enabled);
+    });
+    read_table(file, root, "episode.short", errors, |reader, _| {
+        let check = &mut settings.duration;
+        check.short_enabled = reader.switch("enabled").unwrap_or(check.short_enabled);
+        check.min_seconds = reader
+            .number("min_seconds", 0.0..=86_400.0)
+            .unwrap_or(check.min_seconds);
+    });
+    read_table(file, root, "episode.long", errors, |reader, _| {
+        let check = &mut settings.duration;
+        check.long_enabled = reader.switch("enabled").unwrap_or(check.long_enabled);
+        check.max_seconds = reader
+            .number("max_seconds", 1.0..=86_400.0)
+            .unwrap_or(check.max_seconds);
+    });
 }
 
 /// Reads the table at the dotted `path` below `root`, if there is one,
@@ -783,6 +909,8 @@ mod tests {
                     enabled: true,
                     max_dropped: 0,
                 },
+                streams_present: StreamsPresentSettings::default(),
+                duration: DurationSettings::default(),
                 joint_jumps: JointJumpsSettings {
                     enabled: true,
                     max_speed: 20.0,
@@ -848,6 +976,43 @@ mod tests {
             problems("qa_params_version = \"1\"\n[statistics]\nexclude = [\"joints..jerk\"]\n"),
             [
                 "config.invalid_value 3: Invalid configuration value: `exclude` must be a list of statistic names, `*` for any part of one, e.g. \"joints.*.jerk\""
+            ]
+        );
+    }
+
+    #[test]
+    fn the_episode_and_stream_presence_checks_are_set_in_their_tables() {
+        let settings = parse(
+            "qa_params_version = \"1\"\n[streams.present]\ncritical = [\"joints\", \"wrist_camera\"]\n\
+             [streams.empty]\nenabled = false\n[episode.short]\nmin_seconds = 5\n\
+             [episode.long]\nenabled = false\nmax_seconds = 90\n",
+        )
+        .unwrap();
+        assert_eq!(
+            settings.streams_present,
+            StreamsPresentSettings {
+                enabled: true,
+                critical: vec!["joints".to_owned(), "wrist_camera".to_owned()],
+                empty_enabled: false,
+            }
+        );
+        assert_eq!(
+            settings.duration,
+            DurationSettings {
+                short_enabled: true,
+                min_seconds: 5.0,
+                long_enabled: false,
+                max_seconds: 90.0,
+            }
+        );
+        assert_eq!(
+            problems(
+                "qa_params_version = \"1\"\n[streams.present]\ncritical = [\"two words\"]\n\
+                 [episode.long]\nmax_seconds = 0\n"
+            ),
+            [
+                "config.invalid_value 3: Invalid configuration value: `critical` must be a list of stream names",
+                "config.invalid_value 5: Invalid configuration value: `max_seconds` must be a number from 1 to 86400"
             ]
         );
     }

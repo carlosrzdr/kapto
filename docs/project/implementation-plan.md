@@ -758,7 +758,11 @@ configuration complete (§4.15).
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
 | M10-02 `feat(qa): streaming checks` | Rate drop, gaps, frozen stream, sequence loss, clock skew (QA-2) | Synthetic signals: positive and negative case each | — |
-| M10-03 `feat(qa): timing and integrity checks` | Monotonic time, dropped/black/corrupt frames, duration/size bounds, segment coverage | Same | — |
+| M10-03a `feat(qa): episode duration and stream presence` | Gates `episode.short` (under `min_seconds`, 2 s) and `streams.present` (a critical stream, or with none named every stream but the kept, without messages); advisories `episode.long` (over `max_seconds`, 600 s) and `streams.empty` (the other empty streams), set in `qa.toml` | Positive and negative synthetic episodes; contract suite | — |
+| M10-03b `feat(qa): camera frames` | Gate `camera.format` (a camera's first frame isn't what its declared `format` says, e.g. no JPEG start-of-image marker) and advisory `camera.small_frames` (frames under a share of the median size: black, blank or broken), from the recording's index and first frame | Fixture frames, good and broken | — |
+| M10-03c `feat(qa): stream timing` | Advisories for a stream starting `N` s after the episode or ending `N` s before it, measured rate off its declared `rate_hz` by more than a share, rate at the end below a share of the start, and the longest silence on a stream (a gate for critical streams), each with where it is; from per-message times in the recording's index | Synthetic recordings with each fault | — |
+| M10-03d `feat(qa): segments` | From subtask events: none, a gap between subtasks over `N` s, coverage under a share of the episode, a subtask under `N` s, one with an empty prompt (a gate) | Synthetic event sequences | — |
+| M10-03e `feat(qa): monotonic time and size bounds` | Log times out of order within a channel; episode size outside bounds | Same | — |
 | M10-05 `feat(qa): sync checks` | Inter-camera sync, teleop lag, action/observation alignment (cross-correlation) | Injected known lags recovered within tolerance | — |
 | M10-06 `feat(qa): video quality` | Sharpness, exposure, motion on sampled frames | Fixture frames | CPU cost recorded |
 | M10-07 `feat(qa): urdf-aware checks` | Joint limits, saturation (a joint at its limit or its effort at the URDF's maximum, from M10-04), self-collision proximity, workspace bounds, FK vs reported EE (QA-3) | Injected violations; wrong mapping caught by FK-vs-EE | Why one kinematic model matters (§5) |

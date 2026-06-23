@@ -50,9 +50,10 @@ pub use mapping::{
 };
 pub use package::{PACKAGE_FILE, PACKAGE_KEYS, PackageManifest, parse_package_manifest};
 pub use qa::{
-    AutoencoderAnomaliesSettings, AutoencoderChoice, FrozenJointsSettings, GripperChatterSettings,
-    IdleSettings, JointJumpsSettings, QA_FILE, QA_KEYS, QaSettings, StatisticalAnomaliesSettings,
-    StatisticsSelection, StreamsCompleteSettings, parse_qa,
+    AutoencoderAnomaliesSettings, AutoencoderChoice, DurationSettings, FrozenJointsSettings,
+    GripperChatterSettings, IdleSettings, JointJumpsSettings, QA_FILE, QA_KEYS, QaSettings,
+    StatisticalAnomaliesSettings, StatisticsSelection, StreamsCompleteSettings,
+    StreamsPresentSettings, parse_qa,
 };
 pub use reader::FileKey;
 pub use session::{
