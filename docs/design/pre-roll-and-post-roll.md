@@ -74,10 +74,15 @@ the episode's start, as now.
 post-roll included, so they add up the way they always have. Beside them,
 optional `pre_roll` and `post_roll` say how many of the written came from
 before Start and after Stop. Loss detection runs between episodes as
-while recording; each gap it finds is held with its time in a small ring
-beside the messages, and those within the seconds written count in the
-episode's `lost_upstream`. A message the ring let go of to make room is
-not lost: it is older than what the episode holds.
+while recording. Each gap it finds goes with the batch it was found in,
+from when the stream's batch before was received (or, for a silence, from
+when it began) to that batch, and is held beside the stream's newest
+message in it. A gap counts in the episode's `lost_upstream` for its share
+of time within the episode's span: all of it once it began after the
+episode's first message, in proportion if it began before, so a long
+silence ending just before Start adds only what the episode holds of it.
+A message the ring let go of to make room is not lost: it is older than
+what the episode holds.
 
 ## Consequences
 

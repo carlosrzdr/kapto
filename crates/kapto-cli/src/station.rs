@@ -489,8 +489,12 @@ impl Station {
         self.pre_roll.waiting().set(None);
         self.write_start_records(recording, episode, started_utc_ns)?;
         let carried = self.write_kept(recording, started_utc_ns)?;
-        recording.write_pre_roll(&self.pre_roll, (asked, begun), counters)?;
-        recording.write_handed_over(handed, counters, (&mut self.kept, &mut self.pre_roll))?;
+        recording.write_pre_roll(&self.pre_roll, (asked, begun, first), counters)?;
+        recording.write_handed_over(
+            (handed, first),
+            counters,
+            (&mut self.kept, &mut self.pre_roll),
+        )?;
         Ok((started_utc_ns, carried))
     }
 

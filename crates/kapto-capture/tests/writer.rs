@@ -359,7 +359,11 @@ fn what_the_idle_writer_left_when_told_to_stop_starts_the_episode_with_its_drops
     )
     .unwrap();
     recording
-        .write_handed_over(handed, &counters, (&mut kept, &mut pre_roll))
+        .write_handed_over(
+            (handed, RecvTime::from_nanos(0)),
+            &counters,
+            (&mut kept, &mut pre_roll),
+        )
         .unwrap();
     recording.finish(&clock()).unwrap();
 

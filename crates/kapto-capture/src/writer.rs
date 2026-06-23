@@ -508,8 +508,9 @@ impl Recording {
 
     /// Writes the messages `pre_roll` holds for an episode asked for at
     /// `asked` and begun at `begun` (see [`PreRoll::messages`]), at the
-    /// times they were received, and counts them as received and written.
-    /// They were held on purpose, so how long they waited to be on disk
+    /// times they were received, and counts them as received and written,
+    /// and the gaps before them as lost from `from`, the episode's start,
+    /// on. They were held on purpose, so how long they waited to be on disk
     /// isn't counted.
     ///
     /// # Errors
@@ -519,10 +520,13 @@ impl Recording {
     pub fn write_pre_roll(
         &mut self,
         pre_roll: &PreRoll,
-        (asked, begun): (RecvTime, RecvTime),
+        (asked, begun, from): (RecvTime, RecvTime, RecvTime),
         counters: &LossCounters,
     ) -> Result<(), KaptoError> {
         for message in pre_roll.messages(asked, begun) {
+            if let Some(gap) = &message.gap {
+                counters.add_gap(gap, message.received, from);
+            }
             let Some(Some(channel)) = self.channels.get(usize::from(message.stream)).copied()
             else {
                 continue;
@@ -549,8 +553,9 @@ impl Recording {
     }
 
     /// Writes every batch left in `handed` once its receiver has stopped,
-    /// each message counted as received and written, and the messages each
-    /// ring dropped after it was handed over as received and dropped. Each
+    /// each message counted as received and written, its gaps as lost from
+    /// `from`, the episode's start, on, and the messages each ring dropped
+    /// after it was handed over as received and dropped. Each
     /// batch is also offered to `kept` and held in `pre_roll`, as the writer
     /// thread does.
     ///
@@ -560,7 +565,7 @@ impl Recording {
     /// written to afterwards.
     pub fn write_handed_over(
         &mut self,
-        handed: Vec<HandedOver>,
+        (handed, from): (Vec<HandedOver>, RecvTime),
         counters: &LossCounters,
         (kept, pre_roll): (&mut Kept, &mut PreRoll),
     ) -> Result<(), KaptoError> {
@@ -568,6 +573,9 @@ impl Recording {
             while let Some(batch) = handed.drainer.take() {
                 for (stream, _) in batch.messages() {
                     counters.add_received(stream, 1);
+                }
+                for gap in batch.gaps() {
+                    counters.add_gap(gap, batch.recv_time(), from);
                 }
                 self.write(&batch, counters)?;
                 kept.keep(&batch);

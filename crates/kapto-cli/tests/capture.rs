@@ -295,6 +295,42 @@ fn an_episode_starts_with_the_last_second_before_it_was_started() {
 }
 
 #[test]
+fn loss_in_the_seconds_before_the_start_counts_in_the_episode_and_earlier_loss_does_not() {
+    let folder = scratch("pre-roll-loss");
+    let port = free_udp_port();
+    let streams = format!(
+        "[streams.joints]\nrate_hz = 1000\npre_roll_s = 1\nudp = {{ bind = \"127.0.0.1:{port}\" }}\n\
+         sequence = {{ offset = 0, type = \"u32\" }}\n"
+    );
+    let mut capture = Capture::declaring(&folder, &streams, &port, &["--preflight", "warn"]);
+    let mut client = capture.client();
+
+    // 5 lost more than a second before the start, then 10 just before it.
+    capture.send(100);
+    capture.skip(5);
+    capture.send(100);
+    capture.wait_for("the first messages", |s| s.streams[0].received == 200);
+    std::thread::sleep(Duration::from_millis(1500));
+    capture.send(50);
+    capture.skip(10);
+    capture.send(50);
+    capture.wait_for("the last ones before the start", |s| {
+        s.streams[0].received == 300
+    });
+    start(&mut client);
+    capture.send(100);
+    capture.wait_for("the episode", |s| s.streams[0].written == 200);
+    let folder = stop(&mut client);
+
+    let stream = &finalised(&folder).streams[0];
+    assert_eq!(
+        (stream.received, stream.written, stream.lost_upstream),
+        (200, 200, 10)
+    );
+    assert!(capture.stop().status.success());
+}
+
+#[test]
 fn with_a_pre_roll_every_stream_starts_when_the_start_was_asked_however_long_it_waits() {
     let folder = scratch("start-waits");
     let (joints, wrist) = (free_udp_port(), free_udp_port());

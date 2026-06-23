@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use kapto_core::RecvTime;
 
-use crate::batch::{Batch, StreamIndex};
+use crate::batch::{Batch, Gap, StreamIndex};
 
 /// One stream with a pre-roll.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +94,10 @@ struct Held {
     len: usize,
     received: RecvTime,
     source_time: Option<u64>,
+    /// The messages of the stream missing before its batch, and since when;
+    /// 0 for none.
+    lost: i64,
+    since: RecvTime,
 }
 
 /// A message held, as it was received.
@@ -107,6 +111,9 @@ pub struct HeldMessage<'a> {
     pub received: RecvTime,
     /// The time its source gave it, in nanoseconds since the Unix epoch.
     pub source_time: Option<u64>,
+    /// The gap loss detection found before its batch, given with the
+    /// newest of the stream's messages in it.
+    pub gap: Option<Gap>,
 }
 
 impl PreRoll {
@@ -134,6 +141,8 @@ impl PreRoll {
                             len: 0,
                             received: RecvTime::from_nanos(0),
                             source_time: None,
+                            lost: 0,
+                            since: RecvTime::from_nanos(0),
                         };
                         stream.messages.max(1)
                     ]
@@ -174,7 +183,8 @@ impl PreRoll {
     }
 
     /// Holds each message of `batch` whose stream has a pre-roll, and those
-    /// of the streams with no seconds if a start waits since before it.
+    /// of the streams with no seconds if a start waits since before it,
+    /// each stream's gap before the batch with its newest message.
     pub fn hold(&mut self, batch: &Batch) {
         if self.rings.is_empty() {
             return;
@@ -186,6 +196,11 @@ impl PreRoll {
                 if waited_for || !ring.seconds.is_zero() {
                     ring.hold(payload, batch.recv_time(), batch.source_time(index));
                 }
+            }
+        }
+        for gap in batch.gaps() {
+            if let Some(Some(place)) = self.by_stream.get(usize::from(gap.stream)) {
+                self.rings[*place].attach(gap, batch.recv_time());
             }
         }
     }
@@ -219,6 +234,11 @@ impl PreRoll {
                     payload: &ring.data[held.offset..held.offset + held.len],
                     received: held.received,
                     source_time: held.source_time,
+                    gap: (held.lost != 0).then_some(Gap {
+                        stream: ring.stream,
+                        lost: held.lost,
+                        since: held.since,
+                    }),
                 })
         })
     }
@@ -256,9 +276,24 @@ impl Ring {
             len,
             received,
             source_time,
+            lost: 0,
+            since: received,
         };
         self.count += 1;
         self.write += len;
+    }
+
+    /// Gives `gap` to the newest message held, if it is of the batch
+    /// received at `received`: one the ring didn't hold has no gap to keep.
+    fn attach(&mut self, gap: &Gap, received: RecvTime) {
+        if self.count == 0 {
+            return;
+        }
+        let newest = &mut self.index[(self.oldest + self.count - 1) % self.index.len()];
+        if newest.received == received {
+            newest.lost = gap.lost;
+            newest.since = gap.since;
+        }
     }
 
     fn let_go(&mut self) {
@@ -413,6 +448,35 @@ mod tests {
                 (0, b"c".to_vec()),
                 (0, b"d".to_vec()),
                 (1, b"c".to_vec())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_gap_is_held_with_the_newest_message_of_its_stream_in_its_batch() {
+        let mut pre_roll = PreRoll::new(&[stream(0, 10, 1024, 16)]);
+        let gap = Gap {
+            stream: 0,
+            lost: 3,
+            since: RecvTime::from_nanos(1),
+        };
+        let mut gapped = batch(2, &[(0, b"a"), (1, b"other"), (0, b"b")]);
+        gapped.add_gap(gap);
+        gapped.add_gap(Gap { stream: 1, ..gap });
+        pre_roll.hold(&batch(1, &[(0, b"before")]));
+        pre_roll.hold(&gapped);
+        pre_roll.hold(&batch(3, &[(0, b"after")]));
+        let gaps: Vec<(Vec<u8>, Option<Gap>)> = pre_roll
+            .messages(RecvTime::from_nanos(4), RecvTime::from_nanos(4))
+            .map(|message| (message.payload.to_vec(), message.gap))
+            .collect();
+        assert_eq!(
+            gaps,
+            [
+                (b"before".to_vec(), None),
+                (b"a".to_vec(), None),
+                (b"b".to_vec(), Some(gap)),
+                (b"after".to_vec(), None)
             ]
         );
     }

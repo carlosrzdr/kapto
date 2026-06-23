@@ -189,7 +189,10 @@ to when recording began, each at its own receive time, and spans its
 data from the first of them. Every other stream gets a ring too, held
 only while a Start waits, from when it was asked: an episode with a
 pre-roll starts every stream at its Start, however long recording took
-to begin.
+to begin. The receiver threads' loss detection records each gap it finds
+in the batch it was found in (`kapto_capture::Gap`); the pre-roll holds
+it with the messages, and the episode counts each gap's share of time
+within its span as lost.
 
 Each recording is written in a staging folder, then moved, listed in a
 manifest with every file's checksum, and marked `_FINALISED` last, so a
