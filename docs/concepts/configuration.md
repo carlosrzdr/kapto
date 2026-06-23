@@ -326,6 +326,13 @@ its messages are held while a start waits, in memory set aside for
 session profile or task can't change a pre-roll: its memory is set aside
 before any is chosen.
 
+A stream may also go on being recorded after Stop, its post-roll:
+`post_roll_s = 2` records its next two seconds, while every stream
+without one stops at Stop. It is a stream's own, from 0 (none, the
+default) up to 60 s, and needs no memory set aside. The episode is
+finalised once the longest post-roll has passed, so Stop answers that
+much later; an abort doesn't wait.
+
 ### Decoding messages
 
 A stream whose messages have a fixed binary layout can declare it, so its

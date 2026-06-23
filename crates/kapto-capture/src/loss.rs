@@ -25,6 +25,7 @@ use kapto_core::{RecvTime, StreamId};
 use kapto_store::{LossDetectionKind, StreamSummary};
 
 use crate::batch::{Batch, Gap, Publication, StreamIndex};
+use crate::post_roll::PostRoll;
 
 pub use rate::{RateGap, RateGapDetector, Sent};
 pub use sequence::{ByteOrder, SequenceField, SequenceTracker, SequenceWidth};
@@ -194,6 +195,9 @@ pub struct Accounting {
     /// Loss is counted from here on: of a gap that began before, only its
     /// share after.
     from: RecvTime,
+    /// When the episode is stopped, after which each stream's messages past
+    /// its post-roll aren't counted.
+    post_roll: PostRoll,
 }
 
 /// One stream's loss in the batch being counted, which becomes a
@@ -334,7 +338,14 @@ impl Accounting {
             published,
             gaps,
             from: RecvTime::from_nanos(0),
+            post_roll: PostRoll::default(),
         }
+    }
+
+    /// Counts nothing of a stream's messages past its post-roll once
+    /// `post_roll` says the episode was stopped: they aren't the episode's.
+    pub fn set_post_roll(&mut self, post_roll: PostRoll) {
+        self.post_roll = post_roll;
     }
 
     /// Goes on detecting loss into `counters`, as of the episode starting
@@ -347,12 +358,19 @@ impl Accounting {
     }
 
     /// Counts every message of a batch just received, and records in it
-    /// the gap loss detection found before each stream's messages in it.
+    /// the gap loss detection found before each stream's messages in it,
+    /// and when the episode was stopped, if it was: a stream's messages
+    /// past its post-roll aren't counted, and the writer leaves them out.
     /// Never allocates.
     pub fn count(&mut self, batch: &mut Batch) {
         let numbered = batch.has_publications();
+        let stopped = self.post_roll.stopped();
+        batch.set_stopped(stopped);
         let mut run: Option<Run> = None;
         for (index, (stream, payload)) in batch.messages().enumerate() {
+            if self.post_roll.ended(stopped, stream, batch.recv_time()) {
+                continue;
+            }
             let mut current = match run {
                 Some(current) if current.stream == stream => current,
                 _ => {

@@ -329,6 +329,8 @@ fn episode(
     let current: RefCell<Option<EpisodeId>> = RefCell::new(None);
     // The stop or abort request being carried out, answered once done.
     let mut stop: Option<Pending> = None;
+    // When the episode ends once stopped: after the longest post-roll.
+    let mut ends: Option<Duration> = None;
     let mut next_second = 1;
     let mut told = DiskTold::default();
     let streams = station.plan.streams.len();
@@ -368,17 +370,15 @@ fn episode(
                 next_second += 1;
             }
             let full = told.check(disk);
+            let stopping = stop.is_some() || duration.is_some_and(|duration| elapsed >= duration);
             match &stop {
                 Some(pending) if pending.request == Request::Abort => Next::Discard,
-                Some(_) => Next::Finalise,
-                None if abandoned
-                    || full
-                    || shutdown.load(Ordering::Relaxed)
-                    || duration.is_some_and(|duration| elapsed >= duration) =>
-                {
+                _ if abandoned || full || shutdown.load(Ordering::Relaxed) => Next::Finalise,
+                // Stopped: the streams with a post-roll go on for theirs.
+                _ if stopping && elapsed >= *ends.get_or_insert_with(|| elapsed + live.stop()) => {
                     Next::Finalise
                 }
-                None => Next::Record,
+                _ => Next::Record,
             }
         },
     );

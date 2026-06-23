@@ -130,6 +130,9 @@ pub(crate) struct Plan {
     /// The streams with a pre-roll: their last seconds before an episode
     /// starts it.
     pub(crate) pre_roll: Vec<PreRollStream>,
+    /// Each stream's post-roll, by stream index: how long after Stop it
+    /// goes on being recorded.
+    pub(crate) post_roll: Vec<Duration>,
     /// One per receiver thread: every UDP stream together, each TCP stream
     /// on its own, then every ROS 2 topic together.
     pub(crate) inputs: Vec<Input>,
@@ -384,6 +387,10 @@ impl Plan {
             detections: Vec::new(),
             kept: kept_streams(declarations, settings),
             pre_roll: pre_roll_streams(declarations, settings),
+            post_roll: declarations
+                .iter()
+                .map(|declaration| declaration.post_roll.unwrap_or_default())
+                .collect(),
             inputs: Vec::new(),
             cameras: cameras(declarations, settings),
         }

@@ -79,6 +79,9 @@ pub struct Batch {
     /// it has messages.
     gaps: Box<[Gap]>,
     gap_count: usize,
+    /// When the episode was stopped, as its receiver saw when it counted
+    /// the batch: see [`crate::PostRoll`].
+    stopped: u64,
     max_message_len: usize,
     len: usize,
     recv_time: RecvTime,
@@ -106,6 +109,7 @@ impl Batch {
             ]
             .into_boxed_slice(),
             gap_count: 0,
+            stopped: crate::post_roll::NOT_STOPPED,
             max_message_len,
             len: 0,
             recv_time: RecvTime::from_nanos(0),
@@ -333,10 +337,23 @@ impl Batch {
         &self.gaps[..self.gap_count]
     }
 
+    /// When the episode was stopped as its receiver saw it, in nanoseconds,
+    /// or [`crate::post_roll::NOT_STOPPED`].
+    #[must_use]
+    pub fn stopped(&self) -> u64 {
+        self.stopped
+    }
+
+    /// Notes when the episode was stopped as its receiver saw it.
+    pub fn set_stopped(&mut self, stopped: u64) {
+        self.stopped = stopped;
+    }
+
     /// Forgets every message, keeping the memory.
     pub fn clear(&mut self) {
         self.len = 0;
         self.gap_count = 0;
+        self.stopped = crate::post_roll::NOT_STOPPED;
         self.any_source_time = false;
         self.any_publication = false;
     }

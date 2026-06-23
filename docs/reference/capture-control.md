@@ -55,7 +55,13 @@ view since the capture process started, as `offered` (its newest, at most
 slot), `superseded` (replaced by a newer frame before it could be sent),
 `not_sent` (no viewer bridge listening) and `sent`.
 
-`abort` ends the episode like `stop`, then deletes it instead of finalising
+`stop`, and the end of a start's `duration_s`, end each stream's messages
+at once, except those of a stream with a post-roll (`post_roll_s`), which
+goes on being recorded for its seconds. The episode is finalised after the
+longest post-roll, so `stop` answers that much later. A message received
+after its stream ended is neither written nor counted.
+
+`abort` ends the episode at once, ignoring post-rolls, then deletes it instead of finalising
 it: it was never moved out of staging, so nothing ever took it for an
 episode. A capture process older than `abort` answers it with
 `capture.control_invalid_request`.

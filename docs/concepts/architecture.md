@@ -194,6 +194,13 @@ in the batch it was found in (`kapto_capture::Gap`); the pre-roll holds
 it with the messages, and the episode counts each gap's share of time
 within its span as lost.
 
+**Post-roll** records a stream on after Stop. Capture notes when Stop is
+asked (`kapto_capture::PostRoll`); each receiver thread reads it once per
+batch and stamps it into the batch, and both its loss accounting and
+`cap-writer` leave out a stream's messages from after its `post_roll_s`,
+so the counts and the recording agree. The episode is finalised once the
+longest post-roll has passed.
+
 Each recording is written in a staging folder, then moved, listed in a
 manifest with every file's checksum, and marked `_FINALISED` last, so a
 partial recording never looks finished. [Episodes on disk](episodes.md)

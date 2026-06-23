@@ -10,6 +10,7 @@
 )]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::thread;
 use std::time::Duration;
@@ -19,8 +20,8 @@ use std::collections::BTreeMap;
 use kapto_capture::reader::read_start;
 use kapto_capture::writer::{CARRIED_RECORD, CLOCK_MAP_RECORD, capture_record, carried_record};
 use kapto_capture::{
-    Batch, ChannelSchema, ChannelSpec, Compression, Kept, KeptStream, LossCounters, PreRoll,
-    Recording, RingConfig, StreamIndex, WriterConfig, discard, ring,
+    Accounting, Batch, ChannelSchema, ChannelSpec, Compression, Kept, KeptStream, LossCounters,
+    PostRoll, PreRoll, Recording, RingConfig, StreamIndex, WriterConfig, discard, ring,
 };
 use kapto_core::{ClockMap, ClockSample, ErrorCode, RecvTime};
 
@@ -386,6 +387,48 @@ fn what_the_idle_writer_left_when_told_to_stop_starts_the_episode_with_its_drops
             (totals.received, totals.written, totals.dropped_by_us),
             (3, 2, 1)
         );
+    }
+}
+
+#[test]
+fn after_a_stop_the_writer_leaves_out_what_its_receiver_did_not_count() {
+    let file = TempFile::new("post-roll");
+    let post_roll = PostRoll::new(&[Duration::ZERO, Duration::from_secs(5)]);
+    let counters = Arc::new(LossCounters::new(2));
+    let mut accounting = Accounting::new(Arc::clone(&counters), &[]);
+    accounting.set_post_roll(post_roll.clone());
+    let mut recording = Recording::create(
+        &file.0,
+        &streams(&["joints", "voice"]),
+        &clock(),
+        &WriterConfig::default(),
+    )
+    .unwrap();
+    recording.set_post_roll(post_roll.clone());
+    let mut receive = |at: u64| {
+        let mut received = batch(&[(0, b"joints"), (1, b"voice")], at * SECOND);
+        accounting.count(&mut received);
+        recording.write(&received, &counters).unwrap();
+    };
+    receive(6);
+    post_roll.stop(Some(RecvTime::from_nanos(7 * SECOND)));
+    receive(8);
+    // Seen by its receiver before the stop, the batch is written whole.
+    post_roll.stop(None);
+    let mut early = batch(&[(0, b"joints"), (1, b"voice")], 9 * SECOND);
+    accounting.count(&mut early);
+    post_roll.stop(Some(RecvTime::from_nanos(7 * SECOND)));
+    recording.write(&early, &counters).unwrap();
+    recording.finish(&clock()).unwrap();
+
+    let topics: Vec<String> = read_back(&file.0)
+        .into_iter()
+        .map(|(topic, ..)| topic)
+        .collect();
+    assert_eq!(topics, ["joints", "voice", "voice", "joints", "voice"]);
+    for (stream, messages) in [(0, 2), (1, 3)] {
+        let totals = counters.totals(stream);
+        assert_eq!((totals.received, totals.written), (messages, messages));
     }
 }
 

@@ -35,6 +35,7 @@ use crate::batch::{Batch, StreamIndex};
 use crate::durability::{DurabilityStats, DurabilityTracker};
 use crate::kept::Kept;
 use crate::loss::LossCounters;
+use crate::post_roll::PostRoll;
 use crate::pre_roll::PreRoll;
 use crate::ring::{Drainer, RingConfig};
 
@@ -257,6 +258,9 @@ pub struct Recording {
     sync: SyncTimer,
     durability: DurabilityTracker,
     idle_wait: Duration,
+    /// When the episode was stopped, after which each stream's messages
+    /// past its post-roll are left out.
+    post_roll: PostRoll,
     /// Where each batch's newest messages are offered for the viewer.
     #[cfg(unix)]
     tap: Option<crate::tap::TapFeed>,
@@ -380,6 +384,7 @@ impl Recording {
             sync: SyncTimer::new(config.sync_interval, monotonic_now()),
             durability: DurabilityTracker::new(config.sync_interval, monotonic_now()),
             idle_wait: config.idle_wait,
+            post_roll: PostRoll::default(),
             #[cfg(unix)]
             tap: None,
         })
@@ -594,7 +599,9 @@ impl Recording {
     /// Writes every message of `batch` and counts it as written, its log
     /// time the batch's receive time and its publish time the time its
     /// source gave it, or the receive time without one. A message of a
-    /// stream without a channel is counted as dropped.
+    /// stream without a channel is counted as dropped. A message past its
+    /// stream's post-roll, as the batch's receiver saw the stop, is left
+    /// out, as its receiver didn't count it.
     ///
     /// # Errors
     ///
@@ -606,6 +613,12 @@ impl Recording {
         let source_times = batch.has_source_times();
         let mut written_messages = 0;
         for (index, (stream, payload)) in batch.messages().enumerate() {
+            if self
+                .post_roll
+                .ended(batch.stopped(), stream, batch.recv_time())
+            {
+                continue;
+            }
             let Some(Some(channel)) = self.channels.get_mut(usize::from(stream)) else {
                 counters.add_dropped_by_us(stream, 1);
                 continue;
@@ -670,6 +683,12 @@ impl Recording {
     #[cfg(unix)]
     pub fn set_tap(&mut self, feed: crate::tap::TapFeed) {
         self.tap = Some(feed);
+    }
+
+    /// Leaves out each stream's messages past its post-roll once `post_roll`
+    /// says the episode was stopped.
+    pub fn set_post_roll(&mut self, post_roll: PostRoll) {
+        self.post_roll = post_roll;
     }
 
     /// Gives the viewer's feed back, for the next episode or to end the

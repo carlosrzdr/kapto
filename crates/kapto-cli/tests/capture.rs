@@ -388,6 +388,52 @@ fn with_a_pre_roll_every_stream_starts_when_the_start_was_asked_however_long_it_
 }
 
 #[test]
+fn after_stop_only_a_stream_with_a_post_roll_goes_on_being_recorded_for_it() {
+    let folder = scratch("post-roll");
+    let (joints, voice) = (free_udp_port(), free_udp_port());
+    let streams = format!(
+        "[streams.joints]\nrate_hz = 1000\nudp = {{ bind = \"127.0.0.1:{joints}\" }}\n\
+         sequence = {{ offset = 0, type = \"u32\" }}\n\
+         [streams.voice]\nrate_hz = 1000\npost_roll_s = 2\nudp = {{ bind = \"127.0.0.1:{voice}\" }}\n\
+         sequence = {{ offset = 0, type = \"u32\" }}\n"
+    );
+    let capture = Capture::declaring(&folder, &streams, &joints, &["--preflight", "warn"]);
+    let robot = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let send = |port: &str, numbers: std::ops::Range<u32>| {
+        for number in numbers {
+            let mut message = [0_u8; 32];
+            message[..4].copy_from_slice(&number.to_le_bytes());
+            robot
+                .send_to(&message, format!("127.0.0.1:{port}"))
+                .unwrap();
+        }
+    };
+    let mut client = capture.client();
+    start(&mut client);
+    send(&joints, 0..100);
+    send(&voice, 0..100);
+    capture.wait_for("both streams", |s| {
+        s.streams[0].written == 100 && s.streams[1].written == 100
+    });
+    let stopping = std::thread::spawn(move || stop(&mut client));
+    // Once Stop is noted, at the next tenth of a second, both send more:
+    // only the voice is still being recorded.
+    std::thread::sleep(Duration::from_millis(500));
+    send(&joints, 100..200);
+    send(&voice, 100..200);
+    let folder = stopping.join().unwrap();
+
+    let episode = finalised(&folder);
+    let counts: Vec<(u64, u64, u64)> = episode
+        .streams
+        .iter()
+        .map(|stream| (stream.received, stream.written, stream.lost_upstream))
+        .collect();
+    assert_eq!(counts, [(100, 100, 0), (200, 200, 0)]);
+    assert!(capture.stop().status.success());
+}
+
+#[test]
 fn the_status_carries_each_streams_newest_decoded_values() {
     let folder = scratch("values");
     let mut capture = Capture::start(&folder);

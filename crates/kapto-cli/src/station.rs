@@ -34,7 +34,8 @@ use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
     Accounting, ChannelSpec, Drainer, HandedOver, Kept, KeptHeld, LossCounters, LossDetection,
-    PreRoll, Recording, RingStats, StreamIndex, StreamTotals, Waiting, WriterConfig, discard, ring,
+    PostRoll, PreRoll, Recording, RingStats, StreamIndex, StreamTotals, Waiting, WriterConfig,
+    discard, ring,
 };
 use kapto_config::{MAX_DATAGRAM_BYTES, StreamDeclaration};
 use kapto_core::clock::monotonic_now;
@@ -99,6 +100,9 @@ pub(crate) struct Station {
     /// The last idle phase's loss detection, per input, to go on into the
     /// episode starting.
     accounting: Vec<Accounting>,
+    /// When the episode being recorded was stopped, and each stream's
+    /// post-roll after it.
+    post_roll: PostRoll,
 }
 
 /// The files a recording carries, and the package files it doesn't.
@@ -167,6 +171,8 @@ pub(crate) struct Live<'a> {
     pub(crate) kept: KeptHeld,
     /// Where a start waiting is noted, for the pre-roll.
     waiting: Waiting,
+    /// Where Stop is noted, for the post-roll.
+    post_roll: PostRoll,
 }
 
 impl Station {
@@ -239,6 +245,7 @@ impl Station {
             pre_roll: PreRoll::new(&plan.pre_roll),
             handed: Vec::new(),
             accounting: Vec::new(),
+            post_roll: PostRoll::new(&plan.post_roll),
             plan,
             data_dir,
             transports,
@@ -494,6 +501,8 @@ impl Station {
             .fold(begun, RecvTime::min);
         let started_utc_ns = clock.to_utc_ns(first);
         self.pre_roll.waiting().set(None);
+        self.post_roll.stop(None);
+        recording.set_post_roll(self.post_roll.clone());
         for accounting in &mut self.accounting {
             accounting.resume(Arc::clone(counters), first);
         }
@@ -556,34 +565,17 @@ impl Station {
             )]);
         }
         self.grow_rings();
-        // An episode goes on with the loss detection of the idle phase
-        // before it, if each input's is there, so a gap across its start is
-        // found; an idle phase starts afresh.
-        let mut carried =
-            if matches!(job, Job::Write(_)) && self.accounting.len() == self.plan.inputs.len() {
-                std::mem::take(&mut self.accounting)
-            } else {
-                Vec::new()
-            }
-            .into_iter();
-        self.accounting.clear();
+        let accounting = self.accounting(matches!(job, Job::Write(_)), counters);
         let mut receivers = Vec::new();
         let mut drainers = Vec::new();
         let mut rings = Vec::new();
         let mut transport_stats = Vec::new();
-        for (input, transport) in self.plan.inputs.iter().zip(self.transports.drain(..)) {
+        let inputs = self.plan.inputs.iter().zip(accounting);
+        for ((input, accounting), transport) in inputs.zip(self.transports.drain(..)) {
             // Each phase counts from zero; no receiver runs right now.
             transport.stats().reset();
             transport_stats.push(Arc::clone(transport.stats()));
             let (filler, drainer, ring_stats) = ring(&input.ring);
-            let streams = input.source.streams();
-            let detections: Vec<(StreamIndex, LossDetection)> = self
-                .plan
-                .detections
-                .iter()
-                .filter(|(stream, _)| streams.contains(stream))
-                .copied()
-                .collect();
             rings.push(Arc::clone(&ring_stats));
             drainers.push(drainer);
             receivers.push((
@@ -591,9 +583,7 @@ impl Station {
                 Receiver::new(
                     transport,
                     (filler, ring_stats),
-                    carried
-                        .next()
-                        .unwrap_or_else(|| Accounting::new(Arc::clone(counters), &detections)),
+                    accounting,
                     Arc::clone(counters),
                     ReceiverConfig::default(),
                 ),
@@ -618,6 +608,7 @@ impl Station {
             latest: self.latest.as_deref(),
             kept: self.kept.held(),
             waiting: self.pre_roll.waiting(),
+            post_roll: self.post_roll.clone(),
         };
         let tap = self.tap.take();
         let (inputs, receiver_outcome, (writer_outcome, handed), tap) = run_threads(
@@ -652,6 +643,43 @@ impl Station {
             handed,
             accounting: accounting.into_iter().flatten().collect(),
         })
+    }
+
+    /// Each input's loss detection for a phase counting into `counters`. An
+    /// episode (`recording`) goes on with the idle phase's before it, if
+    /// each input's is there, so a gap across its start is found, and
+    /// leaves out what comes after each stream's post-roll; an idle phase
+    /// starts afresh.
+    fn accounting(&mut self, recording: bool, counters: &Arc<LossCounters>) -> Vec<Accounting> {
+        let carried = std::mem::take(&mut self.accounting);
+        if recording && carried.len() == self.plan.inputs.len() {
+            return carried
+                .into_iter()
+                .map(|mut accounting| {
+                    accounting.set_post_roll(self.post_roll.clone());
+                    accounting
+                })
+                .collect();
+        }
+        self.plan
+            .inputs
+            .iter()
+            .map(|input| {
+                let streams = input.source.streams();
+                let detections: Vec<(StreamIndex, LossDetection)> = self
+                    .plan
+                    .detections
+                    .iter()
+                    .filter(|(stream, _)| streams.contains(stream))
+                    .copied()
+                    .collect();
+                let mut accounting = Accounting::new(Arc::clone(counters), &detections);
+                if recording {
+                    accounting.set_post_roll(self.post_roll.clone());
+                }
+                accounting
+            })
+            .collect()
     }
 
     /// Gives each input whose ring the writer let fill up in the last phase
@@ -864,6 +892,14 @@ impl Live<'_> {
     /// own are held from then, so the episode starts with them too.
     pub(crate) fn start_waiting(&self, asked: Option<RecvTime>) {
         self.waiting.set(asked);
+    }
+
+    /// Notes that Stop was asked now: each stream's messages after its
+    /// post-roll are left out of the episode. Returns how long the episode
+    /// goes on, the longest post-roll.
+    pub(crate) fn stop(&self) -> Duration {
+        self.post_roll.stop(Some(monotonic_now()));
+        self.post_roll.longest()
     }
 
     /// Hands `event` to the writer to be written into the episode's
