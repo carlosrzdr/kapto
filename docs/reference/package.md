@@ -78,6 +78,9 @@ max_dropped = 0
 | `episode.short.min_seconds` | no | The shortest episode accepted, in seconds, from 0 to 86400, from its first message to its end. `2` by default: shorter, it can hardly hold a task. |
 | `episode.long.enabled` | no | Whether `episode.long` runs: it flags an episode longer than `max_seconds`, as one left recording does. Advisory. `true` by default. |
 | `episode.long.max_seconds` | no | The longest episode not flagged, in seconds, from 1 to 86400. `600` by default. |
+| `camera.format.enabled` | no | Whether the gate `camera.format` runs: each camera's first frame holds a picture of the kind its stream declares (JPEG or PNG for a compressed camera, enough pixels for a raw one). `true` by default. |
+| `camera.frames.enabled` | no | Whether `camera.frames` runs: it flags a camera's frames that hold no picture, and those under `min_size_ratio` of its median size, as black, blank or cut-short pictures are. Advisory. `true` by default. |
+| `camera.frames.min_size_ratio` | no | The share of a camera's median frame size below which `camera.frames` flags a frame, from 0 to 1. `0.3` by default. |
 | `motion.jump.enabled` | no | Whether `motion.jump` runs: it flags each moment a joint moved faster than `max_speed` between two messages, as a reading that jumped does. Advisory. `true` by default. |
 | `motion.jump.max_speed` | no | The fastest a joint can move, in rad/s for a turning joint or m/s for a sliding one, from 0.001 to 1000. `20` by default: faster than any arm's motors. |
 | `motion.frozen.enabled` | no | Whether `motion.frozen` runs: it flags each time a joint's reading stayed exactly the same for `max_seconds` right after it moved at `moving_speed`, while another joint moved, as a reading that stopped updating does. Advisory. `true` by default. |

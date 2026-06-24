@@ -32,7 +32,7 @@ pub const QA_FILE: &str = "qa.toml";
 
 /// Every key of `qa.toml`, in the order they are documented: a check's
 /// settings are named after its ID.
-pub const QA_KEYS: [FileKey; 37] = [
+pub const QA_KEYS: [FileKey; 40] = [
     FileKey {
         name: "qa_params_version",
         required: true,
@@ -92,6 +92,21 @@ pub const QA_KEYS: [FileKey; 37] = [
         name: "episode.long.max_seconds",
         required: false,
         help: "The longest episode not flagged, in seconds, from 1 to 86400. `600` by default.",
+    },
+    FileKey {
+        name: "camera.format.enabled",
+        required: false,
+        help: "Whether the gate `camera.format` runs: each camera's first frame holds a picture of the kind its stream declares (JPEG or PNG for a compressed camera, enough pixels for a raw one). `true` by default.",
+    },
+    FileKey {
+        name: "camera.frames.enabled",
+        required: false,
+        help: "Whether `camera.frames` runs: it flags a camera's frames that hold no picture, and those under `min_size_ratio` of its median size, as black, blank or cut-short pictures are. Advisory. `true` by default.",
+    },
+    FileKey {
+        name: "camera.frames.min_size_ratio",
+        required: false,
+        help: "The share of a camera's median frame size below which `camera.frames` flags a frame, from 0 to 1. `0.3` by default.",
     },
     FileKey {
         name: "motion.jump.enabled",
@@ -233,6 +248,8 @@ pub struct QaSettings {
     pub streams_present: StreamsPresentSettings,
     /// The gate `episode.short` and the advisory `episode.long`.
     pub duration: DurationSettings,
+    /// The gate `camera.format` and the advisory `camera.frames`.
+    pub cameras: CameraSettings,
     /// The advisory `motion.jump`.
     pub joint_jumps: JointJumpsSettings,
     /// The advisory `motion.frozen`.
@@ -309,6 +326,28 @@ impl Default for DurationSettings {
             min_seconds: 2.0,
             long_enabled: true,
             max_seconds: 600.0,
+        }
+    }
+}
+
+/// The settings of the gate `camera.format` and the advisory
+/// `camera.frames`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CameraSettings {
+    /// Whether `camera.format` runs.
+    pub format_enabled: bool,
+    /// Whether `camera.frames` runs.
+    pub frames_enabled: bool,
+    /// The share of the median frame size below which a frame is flagged.
+    pub min_size_ratio: f64,
+}
+
+impl Default for CameraSettings {
+    fn default() -> Self {
+        Self {
+            format_enabled: true,
+            frames_enabled: true,
+            min_size_ratio: 0.3,
         }
     }
 }
@@ -774,6 +813,17 @@ fn read_episode_checks(
             .number("min_seconds", 0.0..=86_400.0)
             .unwrap_or(check.min_seconds);
     });
+    read_table(file, root, "camera.format", errors, |reader, _| {
+        let check = &mut settings.cameras;
+        check.format_enabled = reader.switch("enabled").unwrap_or(check.format_enabled);
+    });
+    read_table(file, root, "camera.frames", errors, |reader, _| {
+        let check = &mut settings.cameras;
+        check.frames_enabled = reader.switch("enabled").unwrap_or(check.frames_enabled);
+        check.min_size_ratio = reader
+            .number("min_size_ratio", 0.0..=1.0)
+            .unwrap_or(check.min_size_ratio);
+    });
     read_table(file, root, "episode.long", errors, |reader, _| {
         let check = &mut settings.duration;
         check.long_enabled = reader.switch("enabled").unwrap_or(check.long_enabled);
@@ -911,6 +961,7 @@ mod tests {
                 },
                 streams_present: StreamsPresentSettings::default(),
                 duration: DurationSettings::default(),
+                cameras: CameraSettings::default(),
                 joint_jumps: JointJumpsSettings {
                     enabled: true,
                     max_speed: 20.0,
@@ -1003,6 +1054,20 @@ mod tests {
                 min_seconds: 5.0,
                 long_enabled: false,
                 max_seconds: 90.0,
+            }
+        );
+        let cameras = parse(
+            "qa_params_version = \"1\"\n[camera.format]\nenabled = false\n\
+             [camera.frames]\nmin_size_ratio = 0.2\n",
+        )
+        .unwrap()
+        .cameras;
+        assert_eq!(
+            cameras,
+            CameraSettings {
+                format_enabled: false,
+                frames_enabled: true,
+                min_size_ratio: 0.2,
             }
         );
         assert_eq!(
