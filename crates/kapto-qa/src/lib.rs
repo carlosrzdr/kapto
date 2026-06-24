@@ -23,6 +23,7 @@ pub use roles::RoleColumn;
 
 pub mod anomalies;
 pub mod autoencoder;
+pub mod cameras;
 pub mod carried;
 pub mod checks;
 pub mod conformance;
@@ -38,6 +39,7 @@ pub struct EpisodeView {
     folder: PathBuf,
     episode: Episode,
     roles: BTreeMap<Role, RoleColumn>,
+    cameras: BTreeMap<String, cameras::CameraFrames>,
 }
 
 impl EpisodeView {
@@ -57,7 +59,22 @@ impl EpisodeView {
             folder: folder.to_owned(),
             episode,
             roles: BTreeMap::new(),
+            cameras: BTreeMap::new(),
         }
+    }
+
+    /// The same, with its cameras' frames, by stream name.
+    #[must_use]
+    pub fn with_cameras(mut self, cameras: BTreeMap<String, cameras::CameraFrames>) -> Self {
+        self.cameras = cameras;
+        self
+    }
+
+    /// Each camera's frames, by stream name, once read
+    /// ([`roles::read_episode`]).
+    #[must_use]
+    pub fn cameras(&self) -> &BTreeMap<String, cameras::CameraFrames> {
+        &self.cameras
     }
 
     /// The same, with its values by role.

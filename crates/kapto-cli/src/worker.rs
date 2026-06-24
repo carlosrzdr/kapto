@@ -30,7 +30,7 @@ use kapto_qa::anomalies::{self, AnomalyDetector, Session, run_detectors};
 use kapto_qa::autoencoder::AutoencoderAnomalies;
 use kapto_qa::carried::carried;
 use kapto_qa::episode_statistics::Statistics;
-use kapto_qa::roles::read_roles;
+use kapto_qa::roles::read_episode;
 use kapto_qa::{
     Check, CheckKind, EpisodeView, Finding, QaResult, QaRun, checks, episode_statistics, run_checks,
 };
@@ -164,7 +164,8 @@ impl Job for Quality {
         // made without a package; results made with them have no
         // `qa_params_version`.
         let settings = carried(&recording, QA_FILE, parse_qa)?.unwrap_or_default();
-        let episode = episode.with_roles(read_roles(&recording, between)?);
+        let (roles, cameras) = read_episode(&recording, between)?;
+        let episode = episode.with_roles(roles).with_cameras(cameras);
         between()?;
         let made = checks::from_settings(&settings);
         let checks: Vec<&dyn Check> = made.iter().map(AsRef::as_ref).collect();

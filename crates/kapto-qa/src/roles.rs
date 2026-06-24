@@ -14,6 +14,7 @@ use kapto_config::{FieldReference, parse_mapping};
 use kapto_core::{KaptoError, Role};
 use kapto_decode::{Decoder, DecoderDeclaration, Value};
 
+use crate::cameras::{CameraFrames, CameraReader};
 use crate::carried::carried;
 
 /// The name of the robot package's mapping, as recordings carry it.
@@ -21,6 +22,10 @@ const MAPPING_FILE: &str = "mapping.toml";
 
 /// How many messages are read between two calls to `between`.
 const STEP: u64 = 10_000;
+
+/// What checks read of a recording: every role's values, and every
+/// camera's frames by stream name.
+pub type Recorded = (BTreeMap<Role, RoleColumn>, BTreeMap<String, CameraFrames>);
 
 /// One role's values through an episode: a row for each message of its
 /// stream that could be decoded, in the order received.
@@ -79,10 +84,35 @@ pub fn read_roles(
     recording: &Path,
     between: &mut dyn FnMut() -> Result<(), KaptoError>,
 ) -> Result<BTreeMap<Role, RoleColumn>, KaptoError> {
-    let Some(mapping) = carried(recording, MAPPING_FILE, parse_mapping)? else {
-        return Ok(BTreeMap::new());
-    };
-    let wanted = mapping.all_roles();
+    read_recorded(recording, CameraReader::default(), between).map(|(roles, _)| roles)
+}
+
+/// What checks read of the recording at `recording`: every role it has,
+/// with its values, as [`read_roles`] reads them, and every camera's
+/// frames, read in the same pass. The recording isn't read at all if it
+/// has neither.
+///
+/// # Errors
+///
+/// As [`read_roles`].
+pub fn read_episode(
+    recording: &Path,
+    between: &mut dyn FnMut() -> Result<(), KaptoError>,
+) -> Result<Recorded, KaptoError> {
+    read_recorded(recording, CameraReader::of(recording)?, between)
+}
+
+fn read_recorded(
+    recording: &Path,
+    mut cameras: CameraReader,
+    between: &mut dyn FnMut() -> Result<(), KaptoError>,
+) -> Result<Recorded, KaptoError> {
+    let wanted = carried(recording, MAPPING_FILE, parse_mapping)?
+        .map(|mapping| mapping.all_roles())
+        .unwrap_or_default();
+    if wanted.is_empty() && cameras.is_empty() {
+        return Ok((BTreeMap::new(), cameras.finish()));
+    }
     let mut streams: BTreeMap<String, Option<StreamRoles>> = BTreeMap::new();
     let mut columns: BTreeMap<Role, RoleColumn> = BTreeMap::new();
     let mut read = 0_u64;
@@ -95,6 +125,7 @@ pub fn read_roles(
             stopped = Some(error);
             return ControlFlow::Break(());
         }
+        cameras.take(&channel.topic, message.log_time, message.data);
         let stream = streams
             .entry(channel.topic.clone())
             .or_insert_with(|| stream_roles(channel, &wanted));
@@ -127,7 +158,7 @@ pub fn read_roles(
     })?;
     match stopped {
         Some(error) => Err(error),
-        None => Ok(columns),
+        None => Ok((columns, cameras.finish())),
     }
 }
 
