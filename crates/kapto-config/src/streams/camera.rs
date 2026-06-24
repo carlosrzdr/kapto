@@ -13,6 +13,7 @@
 //!
 //! A ROS 2 camera needs no table: its type says so.
 
+use kapto_decode::camera::CameraKind;
 use toml_edit::TableLike;
 
 use super::{MAX_MESSAGE_BYTES, Reader};
@@ -53,41 +54,39 @@ impl CameraDeclaration {
     }
 }
 
-/// How a raw frame's pixels are laid out, named as ROS 2 names them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PixelEncoding {
-    /// `rgb8`: red, green and blue, a byte each.
-    Rgb8,
-    /// `bgr8`: blue, green and red, a byte each.
-    Bgr8,
-    /// `rgba8`: red, green, blue and alpha, a byte each.
-    Rgba8,
-    /// `bgra8`: blue, green, red and alpha, a byte each.
-    Bgra8,
-    /// `mono8`: grey, a byte.
-    Mono8,
-}
+pub use kapto_decode::camera::PixelEncoding;
 
-impl PixelEncoding {
-    /// Its name in `streams.toml`.
+impl super::StreamDeclaration {
+    /// How the stream's frames are laid out, if it is a camera: by its
+    /// `camera` table, or for a ROS 2 topic by its type.
     #[must_use]
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Rgb8 => "rgb8",
-            Self::Bgr8 => "bgr8",
-            Self::Rgba8 => "rgba8",
-            Self::Bgra8 => "bgra8",
-            Self::Mono8 => "mono8",
+    pub fn camera_kind(&self) -> Option<CameraKind> {
+        if let Some(camera) = self.camera {
+            // A delimiter isn't part of the message; a length prefix is.
+            let skip = match self.tcp.as_ref().map(|tcp| &tcp.framing) {
+                Some(super::FramingDeclaration::LengthPrefix { header_bytes, .. }) => {
+                    usize::from(*header_bytes)
+                }
+                _ => 0,
+            };
+            return Some(match camera {
+                CameraDeclaration::Jpeg => CameraKind::Jpeg { skip },
+                CameraDeclaration::Raw {
+                    width,
+                    height,
+                    encoding,
+                } => CameraKind::Raw {
+                    width,
+                    height,
+                    encoding,
+                    skip,
+                },
+            });
         }
-    }
-
-    /// Bytes per pixel.
-    #[must_use]
-    pub fn bytes_per_pixel(self) -> u64 {
-        match self {
-            Self::Rgb8 | Self::Bgr8 => 3,
-            Self::Rgba8 | Self::Bgra8 => 4,
-            Self::Mono8 => 1,
+        match self.ros2.as_ref()?.message_type.as_str() {
+            "sensor_msgs/msg/CompressedImage" => Some(CameraKind::CompressedImage),
+            "sensor_msgs/msg/Image" => Some(CameraKind::Image),
+            _ => None,
         }
     }
 }
@@ -121,14 +120,7 @@ impl Reader<'_> {
         }
         let width = self.integer(table, &path, "width", 1..=MAX_SIDE);
         let height = self.integer(table, &path, "height", 1..=MAX_SIDE);
-        let encodings = [
-            PixelEncoding::Rgb8,
-            PixelEncoding::Bgr8,
-            PixelEncoding::Rgba8,
-            PixelEncoding::Bgra8,
-            PixelEncoding::Mono8,
-        ]
-        .map(|encoding| (encoding.name(), encoding));
+        let encodings = PixelEncoding::ALL.map(|encoding| (encoding.name(), encoding));
         let encoding = self.choice(table, &path, "encoding", &encodings);
         for key in RAW_KEYS.iter().filter(|key| table.get(key).is_none()) {
             self.invalid(

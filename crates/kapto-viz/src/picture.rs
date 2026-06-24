@@ -12,80 +12,12 @@
 use std::fmt;
 
 use jpeg_encoder::{ColorType, Encoder};
-use kapto_config::{CameraDeclaration, FramingDeclaration, PixelEncoding, StreamDeclaration};
+pub use kapto_decode::camera::{CameraKind, PictureFormat};
+use kapto_decode::camera::{Frame, FrameError, frame};
 
 /// How raw pictures are encoded: good enough to watch, about a tenth of
 /// the pixels' size.
 const QUALITY: u8 = 80;
-
-/// How a camera's frames are laid out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CameraKind {
-    /// A ROS 2 `sensor_msgs/msg/CompressedImage`, as CDR.
-    CompressedImage,
-    /// A ROS 2 `sensor_msgs/msg/Image`, as CDR.
-    Image,
-    /// A TCP camera's JPEG pictures, each a message.
-    Jpeg {
-        /// The bytes before the picture: the framing's header, which a
-        /// length-prefixed message is stored with.
-        skip: usize,
-    },
-    /// A TCP camera's raw pictures of a fixed size, each a message.
-    Raw {
-        /// Pixels per row.
-        width: u32,
-        /// Rows.
-        height: u32,
-        /// How each pixel is laid out.
-        encoding: PixelEncoding,
-        /// The bytes before the pixels, as for [`CameraKind::Jpeg`].
-        skip: usize,
-    },
-}
-
-impl CameraKind {
-    /// How `declaration`'s frames are laid out, if it is a camera.
-    #[must_use]
-    pub fn of(declaration: &StreamDeclaration) -> Option<Self> {
-        if let Some(camera) = declaration.camera {
-            // A delimiter isn't part of the message; a length prefix is.
-            let skip = match declaration.tcp.as_ref().map(|tcp| &tcp.framing) {
-                Some(FramingDeclaration::LengthPrefix { header_bytes, .. }) => {
-                    usize::from(*header_bytes)
-                }
-                _ => 0,
-            };
-            return Some(match camera {
-                CameraDeclaration::Jpeg => Self::Jpeg { skip },
-                CameraDeclaration::Raw {
-                    width,
-                    height,
-                    encoding,
-                } => Self::Raw {
-                    width,
-                    height,
-                    encoding,
-                    skip,
-                },
-            });
-        }
-        match declaration.ros2.as_ref()?.message_type.as_str() {
-            "sensor_msgs/msg/CompressedImage" => Some(Self::CompressedImage),
-            "sensor_msgs/msg/Image" => Some(Self::Image),
-            _ => None,
-        }
-    }
-}
-
-/// What a browser decodes a picture as.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PictureFormat {
-    /// `image/jpeg`.
-    Jpeg,
-    /// `image/png`.
-    Png,
-}
 
 /// A picture a browser can draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +51,15 @@ pub enum Unshown {
     },
     /// A raw picture wider or taller than JPEG holds (65 535).
     TooLarge(u32, u32),
+}
+
+impl From<FrameError> for Unshown {
+    fn from(error: FrameError) -> Self {
+        match error {
+            FrameError::Unreadable(why) => Self::Unreadable(why),
+            FrameError::Format(format) => Self::Format(format),
+        }
+    }
 }
 
 impl fmt::Display for Unshown {
@@ -169,42 +110,21 @@ impl Pictures {
     pub fn picture<'a>(
         &'a mut self,
         kind: &CameraKind,
-        frame: &'a [u8],
+        frame_bytes: &'a [u8],
     ) -> Result<Picture<'a>, Unshown> {
-        let after = |skip: usize| {
-            frame
-                .get(skip..)
-                .ok_or(Unshown::Unreadable("shorter than its framing's header"))
-        };
-        match *kind {
-            CameraKind::Jpeg { skip } => compressed(after(skip)?, "jpeg"),
-            CameraKind::CompressedImage => {
-                let mut cdr = Cdr::new(frame)?;
-                cdr.header()?;
-                let format = cdr.string()?;
-                let data = cdr.bytes()?;
-                compressed(data, format)
-            }
-            CameraKind::Raw {
+        match frame(kind, frame_bytes)? {
+            Frame::Compressed { format, data } => Ok(Picture {
+                format,
+                size: None,
+                bytes: data,
+            }),
+            Frame::Raw {
+                data,
                 width,
                 height,
+                step,
                 encoding,
-                skip,
-            } => {
-                let step = u64::from(width) * encoding.bytes_per_pixel();
-                self.encode(after(skip)?, (width, height, step), encoding.name())
-            }
-            CameraKind::Image => {
-                let mut cdr = Cdr::new(frame)?;
-                cdr.header()?;
-                let height = cdr.u32()?;
-                let width = cdr.u32()?;
-                let encoding = cdr.string()?;
-                cdr.u8()?;
-                let step = cdr.u32()?;
-                let data = cdr.bytes()?;
-                self.encode(data, (width, height, u64::from(step)), encoding)
-            }
+            } => self.encode(data, (width, height, step), encoding),
         }
     }
 
@@ -267,98 +187,4 @@ impl Pictures {
 
 fn to_usize(value: u64) -> usize {
     usize::try_from(value).unwrap_or(usize::MAX)
-}
-
-/// A compressed picture, told JPEG or PNG by its first bytes rather than
-/// the `format` its message names, which cameras fill in loosely.
-fn compressed<'a>(data: &'a [u8], format: &str) -> Result<Picture<'a>, Unshown> {
-    let format = if data.starts_with(&[0xff, 0xd8, 0xff]) {
-        PictureFormat::Jpeg
-    } else if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        PictureFormat::Png
-    } else {
-        return Err(Unshown::Format(format.to_owned()));
-    };
-    Ok(Picture {
-        format,
-        size: None,
-        bytes: data,
-    })
-}
-
-/// Reads a message serialised as CDR, field by field: just what a camera's
-/// two message types need.
-struct Cdr<'a> {
-    /// The message after its 4-byte encapsulation header, from which
-    /// alignment counts.
-    bytes: &'a [u8],
-    at: usize,
-    little_endian: bool,
-}
-
-impl<'a> Cdr<'a> {
-    fn new(message: &'a [u8]) -> Result<Self, Unshown> {
-        let little_endian = match message.get(..2) {
-            Some([0, 0]) => false,
-            Some([0, 1]) => true,
-            Some(_) => return Err(Unshown::Unreadable("not plain CDR")),
-            None => return Err(Unshown::Unreadable("shorter than its header")),
-        };
-        Ok(Self {
-            bytes: message
-                .get(4..)
-                .ok_or(Unshown::Unreadable("shorter than its header"))?,
-            at: 0,
-            little_endian,
-        })
-    }
-
-    fn take(&mut self, length: usize) -> Result<&'a [u8], Unshown> {
-        let end = self
-            .at
-            .checked_add(length)
-            .filter(|&end| end <= self.bytes.len())
-            .ok_or(Unshown::Unreadable("cut short"))?;
-        let taken = &self.bytes[self.at..end];
-        self.at = end;
-        Ok(taken)
-    }
-
-    fn u8(&mut self) -> Result<u8, Unshown> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u32(&mut self) -> Result<u32, Unshown> {
-        self.at = self.at.next_multiple_of(4);
-        let bytes: [u8; 4] = self
-            .take(4)?
-            .try_into()
-            .map_err(|_| Unshown::Unreadable("cut short"))?;
-        Ok(if self.little_endian {
-            u32::from_le_bytes(bytes)
-        } else {
-            u32::from_be_bytes(bytes)
-        })
-    }
-
-    /// A string, without its terminating zero byte.
-    fn string(&mut self) -> Result<&'a str, Unshown> {
-        let text = self.bytes()?;
-        let text = text.strip_suffix(&[0]).unwrap_or(text);
-        std::str::from_utf8(text).map_err(|_| Unshown::Unreadable("a string that isn't UTF-8"))
-    }
-
-    /// A sequence of bytes.
-    fn bytes(&mut self) -> Result<&'a [u8], Unshown> {
-        let length = self.u32()?;
-        self.take(usize::try_from(length).map_err(|_| Unshown::Unreadable("cut short"))?)
-    }
-
-    /// A `std_msgs/msg/Header`: its stamp and frame ID, skipped.
-    fn header(&mut self) -> Result<(), Unshown> {
-        self.u32()?;
-        self.u32()?;
-        self.string()?;
-        Ok(())
-    }
 }

@@ -20,6 +20,7 @@
 //! [`cdr`] reads ROS 2 messages: CDR payloads with their `.msg` definitions.
 //! [`protobuf`] reads Protobuf messages with a descriptor set.
 
+pub mod camera;
 pub mod cdr;
 pub mod declaration;
 pub mod field;

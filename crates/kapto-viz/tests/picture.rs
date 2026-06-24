@@ -313,7 +313,9 @@ fn a_tcp_cameras_pictures_start_after_its_length_prefix_but_a_fixed_frame_is_all
                  tcp = {{ listen = \"0.0.0.0:7010\", framing = {framing} }}\ncamera = {camera}\n"
             ),
         };
-        CameraKind::of(&kapto_config::parse_streams(&file).unwrap()[0]).unwrap()
+        kapto_config::parse_streams(&file).unwrap()[0]
+            .camera_kind()
+            .unwrap()
     };
     assert_eq!(
         declared(

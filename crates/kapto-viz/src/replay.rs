@@ -397,7 +397,7 @@ pub fn recorded_cameras(recording: &Path) -> Result<Vec<(String, CameraKind)>, K
     let streams = carried_streams(&start, recording, manifest.as_ref())?;
     Ok(streams
         .iter()
-        .filter_map(|stream| Some((stream.id.to_string(), CameraKind::of(stream)?)))
+        .filter_map(|stream| Some((stream.id.to_string(), stream.camera_kind()?)))
         .collect())
 }
 

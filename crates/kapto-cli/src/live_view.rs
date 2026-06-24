@@ -55,7 +55,7 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
     } = prepared;
     let cameras: Vec<(u16, CameraKind)> = (0..=u16::MAX)
         .zip(&streams)
-        .filter_map(|(stream, declaration)| Some((stream, CameraKind::of(declaration)?)))
+        .filter_map(|(stream, declaration)| Some((stream, declaration.camera_kind()?)))
         .collect();
     let clock = ClockSample::now();
     let live = LiveRobot::new(&robot, kinematics, &map, streams.len(), clock);
