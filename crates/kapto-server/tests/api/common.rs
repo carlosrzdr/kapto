@@ -237,6 +237,9 @@ pub(crate) fn finalised_episode_with(
         (start, start + 1_000_000_000),
         vec![kapto_testkit::stream("arm_joints", 2000)],
     )
+    // Started and stopped a fifth of a second inside its span, as a
+    // pre-roll and a post-roll leave it.
+    .with_commands((start + 200_000_000, Some(start + 800_000_000)))
     .with_package(package)
     .write(&staged.dir())
     .unwrap();

@@ -1,7 +1,7 @@
 // An episode replayed in the live view: what its stretches hold, and what
 // happened in it, drawn along the timeline.
 
-import type { EpisodeEvents, EpisodeQuality, ReplayOpening } from "../api-types";
+import type { EpisodeDetail, EpisodeEvents, EpisodeQuality, ReplayOpening } from "../api-types";
 import { type Item, MarkLog } from "./marks";
 import { type Opening, STREAM_VERSION } from "./stream";
 
@@ -45,10 +45,21 @@ export function openingOf(replay: ReplayOpening): Opening {
 }
 
 /**
- * What the timeline draws for a replayed episode: its events, as the live
- * view draws them, and each moment a check found, as a `check` stretch.
+ * What the timeline draws for a replayed episode: when Start and Stop were
+ * asked, as the live view marks an episode's start and end (an episode
+ * with a pre-roll or post-roll holds data on either side), its events, as
+ * the live view draws them, and each moment a check found, as a `check`
+ * stretch. The commands are drawn within `span`, the replay's from its
+ * first message to its last, UTC nanoseconds: Stop is asked a moment after
+ * the last message of an episode without a post-roll, and is drawn at its
+ * end rather than left off.
  */
-export function replayItems(events: EpisodeEvents | null, quality: EpisodeQuality | null): Item[] {
+export function replayItems(
+  events: EpisodeEvents | null,
+  quality: EpisodeQuality | null,
+  episode: EpisodeDetail | null = null,
+  span: [number, number] | null = null,
+): Item[] {
   const log = new MarkLog();
   log.add(
     (events?.events ?? []).map((event) => ({
@@ -74,5 +85,15 @@ export function replayItems(events: EpisodeEvents | null, quality: EpisodeQualit
       label: `${check.check}: ${check.message}`,
     })),
   );
-  return [...log.items, ...found].sort((a, b) => a.startMs - b.startMs);
+  const commands: Item[] = [
+    [episode?.commanded_start_utc_ns, "Start asked"] as const,
+    [episode?.commanded_stop_utc_ns, "Stop asked"] as const,
+  ].flatMap(([asked, label]) => {
+    if (typeof asked !== "number") {
+      return [];
+    }
+    const at = span ? Math.min(Math.max(asked, span[0]), span[1]) / 1e6 : asked / 1e6;
+    return [{ kind: "episode", startMs: at, endMs: at, label }];
+  });
+  return [...commands, ...log.items, ...found].sort((a, b) => a.startMs - b.startMs);
 }

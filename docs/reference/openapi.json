@@ -2203,6 +2203,22 @@
             "$ref": "#/components/schemas/EpisodeClock",
             "description": "The wall clock while it was recorded."
           },
+          "commanded_start_utc_ns": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When Start was asked, in UTC nanoseconds since the Unix epoch: later\nthan `started_utc_ns` by its pre-roll. `null` for an episode recorded\nbefore Kapto kept it."
+          },
+          "commanded_stop_utc_ns": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When Stop was asked; `null` if it ended otherwise (aborted, the disk\nfull, the process stopped). Earlier than `ended_utc_ns` by its\npost-roll."
+          },
           "durability": {
             "$ref": "#/components/schemas/EpisodeDurability",
             "description": "How quickly what was received reached the disk."

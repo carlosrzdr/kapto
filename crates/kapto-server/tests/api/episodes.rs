@@ -311,9 +311,17 @@ async fn an_episode_in_full_has_its_streams_files_buffers_and_durability() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["id"], id);
     assert_eq!(body["folder"], data.join(id).display().to_string());
+    let started = body["started_utc_ns"].as_i64().unwrap();
     assert_eq!(
-        body["ended_utc_ns"].as_i64().unwrap() - body["started_utc_ns"].as_i64().unwrap(),
+        body["ended_utc_ns"].as_i64().unwrap() - started,
         1_000_000_000
+    );
+    assert_eq!(
+        (
+            body["commanded_start_utc_ns"].as_i64().unwrap() - started,
+            body["commanded_stop_utc_ns"].as_i64().unwrap() - started
+        ),
+        (200_000_000, 800_000_000)
     );
     let stream = &body["streams"][0];
     assert_eq!(stream["stream"], "arm_joints");

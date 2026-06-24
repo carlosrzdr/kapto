@@ -245,14 +245,17 @@
   async function showReplay(made: ReplayStatus) {
     const id = made.episode;
     try {
-      const [opening, events, quality] = await Promise.all([
+      const [opening, events, quality, episode] = await Promise.all([
         getReplayOpening(id),
         getEpisodeEvents(id).catch(() => null),
         getEpisodeQuality(id).catch(() => null),
+        getEpisode(id).catch(() => null),
       ]);
       if (replay?.episode === id) {
         const atMs = replayAt === null ? null : replayAt / 1e6;
-        replaying = { id, opening, items: replayItems(events, quality), atMs, asked: replayAsked };
+        const span: [number, number] = [opening.start_utc_ns, opening.end_utc_ns];
+        const items = replayItems(events, quality, episode, span);
+        replaying = { id, opening, items, atMs, asked: replayAsked };
       }
     } catch (error) {
       problem = failure(error);

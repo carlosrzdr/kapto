@@ -163,6 +163,18 @@ export interface EpisodeDetail {
   buffers: EpisodeBuffers;
   /** The wall clock while it was recorded. */
   clock: EpisodeClock;
+  /**
+   * When Start was asked, in UTC nanoseconds since the Unix epoch: later
+   * than `started_utc_ns` by its pre-roll. `null` for an episode recorded
+   * before Kapto kept it.
+   */
+  commanded_start_utc_ns?: number | null;
+  /**
+   * When Stop was asked; `null` if it ended otherwise (aborted, the disk
+   * full, the process stopped). Earlier than `ended_utc_ns` by its
+   * post-roll.
+   */
+  commanded_stop_utc_ns?: number | null;
   /** How quickly what was received reached the disk. */
   durability: EpisodeDurability;
   /** When it ended, in UTC nanoseconds since the Unix epoch. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { EpisodeEvents, EpisodeQuality } from "../api-types";
+import type { EpisodeDetail, EpisodeEvents, EpisodeQuality } from "../api-types";
 import { openingOf, replayItems } from "./replay";
 import { plotStreams } from "./plots";
 
@@ -39,6 +39,30 @@ describe("replayItems", () => {
     ]);
     expect(items[1]?.label).toBe("motion.frozen: stopped dead");
     expect(items[2]?.label).toContain("dropped it");
+  });
+
+  it("marks when Start and Stop were asked, inside the span a pre-roll and post-roll widen", () => {
+    const episode = {
+      started_utc_ns: second(0),
+      ended_utc_ns: second(14),
+      commanded_start_utc_ns: second(2),
+      commanded_stop_utc_ns: second(12),
+    } as unknown as EpisodeDetail;
+    const items = replayItems(null, null, episode);
+    expect(items.map((item) => [item.kind, item.startMs, item.label])).toEqual([
+      ["episode", second(2) / 1e6, "Start asked"],
+      ["episode", second(12) / 1e6, "Stop asked"],
+    ]);
+    // Stop asked just after the last message, as without a post-roll: drawn
+    // at the replay's end.
+    const drawn = replayItems(null, null, { ...episode, commanded_stop_utc_ns: second(15) } as unknown as EpisodeDetail, [
+      second(0),
+      second(14),
+    ]);
+    expect(drawn.map((item) => item.startMs)).toEqual([second(2) / 1e6, second(14) / 1e6]);
+    // Stopped otherwise: only Start is marked.
+    const aborted = { ...episode, commanded_stop_utc_ns: null } as unknown as EpisodeDetail;
+    expect(replayItems(null, null, aborted).map((item) => item.label)).toEqual(["Start asked"]);
   });
 
   it("draws nothing for an episode whose events and checks aren't known", () => {

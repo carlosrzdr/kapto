@@ -29,6 +29,14 @@ pub struct EpisodeDetail {
     pub started_utc_ns: i64,
     /// When it ended, in UTC nanoseconds since the Unix epoch.
     pub ended_utc_ns: i64,
+    /// When Start was asked, in UTC nanoseconds since the Unix epoch: later
+    /// than `started_utc_ns` by its pre-roll. `null` for an episode recorded
+    /// before Kapto kept it.
+    pub commanded_start_utc_ns: Option<i64>,
+    /// When Stop was asked; `null` if it ended otherwise (aborted, the disk
+    /// full, the process stopped). Earlier than `ended_utc_ns` by its
+    /// post-roll.
+    pub commanded_stop_utc_ns: Option<i64>,
     /// The Kapto version that recorded it.
     pub kapto_version: String,
     /// The robot package it was recorded with; `null` if it is
@@ -316,6 +324,8 @@ fn detail(
         stored_here,
         started_utc_ns: episode.started_utc_ns,
         ended_utc_ns: episode.ended_utc_ns,
+        commanded_start_utc_ns: episode.commanded_start_utc_ns,
+        commanded_stop_utc_ns: episode.commanded_stop_utc_ns,
         kapto_version: episode.kapto_version,
         package: episode.package.map(EpisodePackage::from),
         profile: episode.profile.map(|profile| EpisodeProfile {
