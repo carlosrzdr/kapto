@@ -18,6 +18,10 @@ API (`/api/episodes/{id}/qa`, `/api/episodes/{id}/statistics`).
 | Check | Kind | Passes when |
 |---|---|---|
 | `streams.complete` | gate | Kapto dropped no more than `max_dropped` messages from any stream (0 by default). Messages lost before they reached Kapto are the robot's or the network's, and don't count. |
+| `streams.present` | gate | Every critical stream has messages in the episode, and every one named is in it. Name them with `critical` (e.g. `["joints", "wrist_camera"]`); with none named, every stream is, but those kept for late subscribers, which may send nothing while an episode is recorded. A camera unplugged or a topic never published leaves the episode without what it was recorded for. |
+| `streams.empty` | advisory | Every other stream has messages; a kept stream counts those it started with. |
+| `episode.short` | gate | The episode lasted at least `min_seconds` (2 s), from its first message to its end: shorter, it can hardly hold a task. |
+| `episode.long` | advisory | It lasted no longer than `max_seconds` (600 s): one far longer was likely left recording. |
 | `motion.jump` | advisory | No joint moved faster than `max_speed` (20 rad/s or m/s by default) between two messages: no motor turns that fast, so a reading that does jumped (a glitch, a wrapped angle, a sensor catching up after it froze). Each jump is named with where it happened. |
 | `motion.frozen` | advisory | No joint's reading stayed exactly the same for `max_seconds` (1 s) right after it moved at `moving_speed` (0.05) or more, while another joint moved: stopping dead mid-motion is what a reading that stopped updating does. A joint slowing down to rest gets slower than `moving_speed` first, and isn't flagged; nor is a robot of one joint. |
 | `motion.chatter` | advisory | No gripper (each role ending in `opening`) closed more than `max_closings` times (3) within `window_seconds` (2 s), counted with the same hysteresis as its cycles: chattering, from a loose grasp, a controller hunting, or a reading flickering. |

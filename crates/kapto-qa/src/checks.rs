@@ -9,8 +9,10 @@ use kapto_core::KaptoError;
 use crate::{Check, CheckKind, EpisodeView, Finding};
 
 mod motion;
+mod presence;
 
 pub use motion::{FrozenJoints, GripperChatter, Idle, JointJumps};
+pub use presence::{EpisodeLong, EpisodeShort, StreamsEmpty, StreamsPresent};
 
 /// The checks `settings` turn on, each made with its settings, in the order
 /// they run.
@@ -21,6 +23,28 @@ pub fn from_settings(settings: &QaSettings) -> Vec<Box<dyn Check>> {
     if complete.enabled {
         checks.push(Box::new(StreamsComplete {
             max_dropped: complete.max_dropped,
+        }));
+    }
+    let present = &settings.streams_present;
+    if present.enabled {
+        checks.push(Box::new(StreamsPresent {
+            critical: present.critical.clone(),
+        }));
+    }
+    if present.empty_enabled {
+        checks.push(Box::new(StreamsEmpty {
+            critical: present.critical.clone(),
+        }));
+    }
+    let duration = &settings.duration;
+    if duration.short_enabled {
+        checks.push(Box::new(EpisodeShort {
+            min_seconds: duration.min_seconds,
+        }));
+    }
+    if duration.long_enabled {
+        checks.push(Box::new(EpisodeLong {
+            max_seconds: duration.max_seconds,
         }));
     }
     let jumps = &settings.joint_jumps;

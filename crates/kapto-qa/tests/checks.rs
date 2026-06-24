@@ -10,10 +10,12 @@
 use std::path::Path;
 
 use kapto_config::{
-    FrozenJointsSettings, GripperChatterSettings, IdleSettings, JointJumpsSettings, QaSettings,
-    StreamsCompleteSettings,
+    DurationSettings, FrozenJointsSettings, GripperChatterSettings, IdleSettings,
+    JointJumpsSettings, QaSettings, StreamsCompleteSettings, StreamsPresentSettings,
 };
-use kapto_qa::checks::{StreamsComplete, from_settings};
+use kapto_qa::checks::{
+    EpisodeLong, EpisodeShort, StreamsComplete, StreamsEmpty, StreamsPresent, from_settings,
+};
 use kapto_qa::conformance::check_meets_the_contract;
 use kapto_qa::{Check, CheckKind, EpisodeView, Verdict};
 use kapto_store::StreamSummary;
@@ -85,6 +87,29 @@ fn streams_complete_meets_the_check_contract() {
 }
 
 #[test]
+fn the_episode_and_stream_presence_checks_meet_the_check_contract() {
+    let episodes = [
+        episode(vec![stream("arm_joints", 0)]),
+        episode(vec![StreamSummary {
+            written: 0,
+            ..stream("arm_joints", 0)
+        }]),
+        episode(Vec::new()),
+    ];
+    let critical = vec!["arm_joints".to_owned()];
+    check_meets_the_contract(&EpisodeShort { min_seconds: 2.0 }, &episodes);
+    check_meets_the_contract(&EpisodeLong { max_seconds: 600.0 }, &episodes);
+    check_meets_the_contract(&StreamsPresent::default(), &episodes);
+    check_meets_the_contract(
+        &StreamsPresent {
+            critical: critical.clone(),
+        },
+        &episodes,
+    );
+    check_meets_the_contract(&StreamsEmpty { critical }, &episodes);
+}
+
+#[test]
 fn streams_complete_allows_up_to_its_threshold_per_stream() {
     let episode = episode(vec![stream("arm_joints", 12), stream("gripper", 3)]);
     let lenient = StreamsComplete { max_dropped: 12 }.run(&episode).unwrap();
@@ -113,6 +138,10 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
         ids(&QaSettings::default()),
         [
             "streams.complete",
+            "streams.present",
+            "streams.empty",
+            "episode.short",
+            "episode.long",
             "motion.jump",
             "motion.frozen",
             "motion.chatter",
@@ -140,6 +169,16 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
         idle: IdleSettings {
             enabled: false,
             ..IdleSettings::default()
+        },
+        streams_present: StreamsPresentSettings {
+            enabled: false,
+            empty_enabled: false,
+            ..StreamsPresentSettings::default()
+        },
+        duration: DurationSettings {
+            short_enabled: false,
+            long_enabled: false,
+            ..DurationSettings::default()
         },
         ..QaSettings::default()
     };

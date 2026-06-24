@@ -29,7 +29,7 @@ fn the_showcase_records_ordinary_episodes_then_finds_what_the_robot_did_wrong() 
             "--episodes",
             "3",
             "--seconds",
-            "1",
+            "3",
         ])
         .args(["--robot-port", &free_udp_port()])
         .args(["--port", &port, "--viewer-stream-port", &stream])

@@ -65,7 +65,7 @@ fn summarised(data: &Path, id: &str, dropped: u64) {
         dropped_by_us: dropped,
         ..kapto_testkit::stream("arm_joints", 2000)
     };
-    kapto_testkit::episode(id, (start, start + 1_000_000_000), vec![stream])
+    kapto_testkit::episode(id, (start, start + 10_000_000_000), vec![stream])
         .write(&data.join(id))
         .unwrap();
 }
@@ -386,10 +386,10 @@ fn recorded(data: &Path, id: &str, qa: Option<&str>) {
 /// [`recorded`].
 fn has_its_statistics(run: &kapto_store::QaRun) {
     // With its statistics: from the summary, and by role from the recording.
-    assert_eq!(run.statistics["episode.duration_s"], json!({"value": 1.0}));
+    assert_eq!(run.statistics["episode.duration_s"], json!({"value": 10.0}));
     assert_eq!(
         run.statistics["streams.arm_joints.rate_hz"],
-        json!({"value": 2000.0})
+        json!({"value": 200.0})
     );
     let speed = &run.statistics["joints.shoulder.speed"]["distribution"];
     assert_eq!(speed["count"], 99);
@@ -413,6 +413,10 @@ fn each_check_ran(run: &kapto_store::QaRun) {
             .collect::<Vec<_>>(),
         [
             ("streams.complete", Verdict::Passed),
+            ("streams.present", Verdict::Passed),
+            ("streams.empty", Verdict::NotApplicable),
+            ("episode.short", Verdict::Passed),
+            ("episode.long", Verdict::Passed),
             ("motion.jump", Verdict::Passed),
             // One joint: still can't be told from frozen.
             ("motion.frozen", Verdict::NotApplicable),
@@ -448,6 +452,8 @@ fn the_worker_checks_each_episode_with_the_quality_settings_its_recording_carrie
             12,
             Some(
                 "qa_params_version = \"8\"\n[streams.complete]\nenabled = false\n\
+                 [streams.present]\nenabled = false\n[streams.empty]\nenabled = false\n\
+                 [episode.short]\nenabled = false\n[episode.long]\nenabled = false\n\
                  [motion.jump]\nenabled = false\n[motion.frozen]\nenabled = false\n\
                  [motion.chatter]\nenabled = false\n[motion.idle]\nenabled = false\n\
                  [anomalies.statistics]\nenabled = false\n\
