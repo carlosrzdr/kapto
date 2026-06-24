@@ -417,6 +417,9 @@ fn each_check_ran(run: &kapto_store::QaRun) {
             ("streams.empty", Verdict::NotApplicable),
             ("episode.short", Verdict::Passed),
             ("episode.long", Verdict::Passed),
+            // No camera.
+            ("camera.format", Verdict::NotApplicable),
+            ("camera.frames", Verdict::NotApplicable),
             ("motion.jump", Verdict::Passed),
             // One joint: still can't be told from frozen.
             ("motion.frozen", Verdict::NotApplicable),
@@ -454,6 +457,7 @@ fn the_worker_checks_each_episode_with_the_quality_settings_its_recording_carrie
                 "qa_params_version = \"8\"\n[streams.complete]\nenabled = false\n\
                  [streams.present]\nenabled = false\n[streams.empty]\nenabled = false\n\
                  [episode.short]\nenabled = false\n[episode.long]\nenabled = false\n\
+                 [camera.format]\nenabled = false\n[camera.frames]\nenabled = false\n\
                  [motion.jump]\nenabled = false\n[motion.frozen]\nenabled = false\n\
                  [motion.chatter]\nenabled = false\n[motion.idle]\nenabled = false\n\
                  [anomalies.statistics]\nenabled = false\n\

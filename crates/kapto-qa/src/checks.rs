@@ -8,9 +8,11 @@ use kapto_core::KaptoError;
 
 use crate::{Check, CheckKind, EpisodeView, Finding};
 
+mod camera;
 mod motion;
 mod presence;
 
+pub use camera::{CameraFormat, CameraFrameSizes};
 pub use motion::{FrozenJoints, GripperChatter, Idle, JointJumps};
 pub use presence::{EpisodeLong, EpisodeShort, StreamsEmpty, StreamsPresent};
 
@@ -45,6 +47,15 @@ pub fn from_settings(settings: &QaSettings) -> Vec<Box<dyn Check>> {
     if duration.long_enabled {
         checks.push(Box::new(EpisodeLong {
             max_seconds: duration.max_seconds,
+        }));
+    }
+    let cameras = &settings.cameras;
+    if cameras.format_enabled {
+        checks.push(Box::new(CameraFormat));
+    }
+    if cameras.frames_enabled {
+        checks.push(Box::new(CameraFrameSizes {
+            min_size_ratio: cameras.min_size_ratio,
         }));
     }
     let jumps = &settings.joint_jumps;

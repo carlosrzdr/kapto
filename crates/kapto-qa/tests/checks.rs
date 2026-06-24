@@ -10,11 +10,13 @@
 use std::path::Path;
 
 use kapto_config::{
-    DurationSettings, FrozenJointsSettings, GripperChatterSettings, IdleSettings,
+    CameraSettings, DurationSettings, FrozenJointsSettings, GripperChatterSettings, IdleSettings,
     JointJumpsSettings, QaSettings, StreamsCompleteSettings, StreamsPresentSettings,
 };
+use kapto_qa::cameras::CameraFrames;
 use kapto_qa::checks::{
-    EpisodeLong, EpisodeShort, StreamsComplete, StreamsEmpty, StreamsPresent, from_settings,
+    CameraFormat, CameraFrameSizes, EpisodeLong, EpisodeShort, StreamsComplete, StreamsEmpty,
+    StreamsPresent, from_settings,
 };
 use kapto_qa::conformance::check_meets_the_contract;
 use kapto_qa::{Check, CheckKind, EpisodeView, Verdict};
@@ -110,6 +112,38 @@ fn the_episode_and_stream_presence_checks_meet_the_check_contract() {
 }
 
 #[test]
+fn the_camera_checks_meet_the_check_contract() {
+    let camera = |sizes: &[u64], first_unreadable: Option<&str>| {
+        let frames = CameraFrames {
+            times_utc_ns: (0..).take(sizes.len()).collect(),
+            sizes: sizes.to_vec(),
+            first_unreadable: first_unreadable.map(str::to_owned),
+            ..CameraFrames::default()
+        };
+        episode(vec![stream("wrist", 0)])
+            .with_cameras([("wrist".to_owned(), frames)].into_iter().collect())
+    };
+    let episodes = [
+        camera(&[1000; 12], None),
+        camera(
+            &[
+                1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 9,
+            ],
+            None,
+        ),
+        camera(&[1000; 3], Some("pictures in `jpeg`, neither JPEG nor PNG")),
+        episode(Vec::new()),
+    ];
+    check_meets_the_contract(&CameraFormat, &episodes);
+    check_meets_the_contract(
+        &CameraFrameSizes {
+            min_size_ratio: 0.3,
+        },
+        &episodes,
+    );
+}
+
+#[test]
 fn streams_complete_allows_up_to_its_threshold_per_stream() {
     let episode = episode(vec![stream("arm_joints", 12), stream("gripper", 3)]);
     let lenient = StreamsComplete { max_dropped: 12 }.run(&episode).unwrap();
@@ -142,6 +176,8 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
             "streams.empty",
             "episode.short",
             "episode.long",
+            "camera.format",
+            "camera.frames",
             "motion.jump",
             "motion.frozen",
             "motion.chatter",
@@ -179,6 +215,11 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
             short_enabled: false,
             long_enabled: false,
             ..DurationSettings::default()
+        },
+        cameras: CameraSettings {
+            format_enabled: false,
+            frames_enabled: false,
+            ..CameraSettings::default()
         },
         ..QaSettings::default()
     };
