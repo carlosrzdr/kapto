@@ -14,9 +14,9 @@ use std::time::Duration;
 
 use kapto_capture::reader::{RecordingStart, read_events, read_recording, read_start};
 use kapto_capture::tap::wire::TapSample;
+use kapto_config::carried::{carried_file, carried_manifest, carried_streams, slash_path};
 use kapto_config::{
-    ConfigFile, MappingDeclaration, PACKAGE_FILE, PackageManifest, StreamDeclaration, parse_layout,
-    parse_mapping, parse_package_manifest, parse_streams_with,
+    MappingDeclaration, PackageManifest, StreamDeclaration, parse_layout, parse_mapping,
 };
 use kapto_core::{ClockSample, ErrorCode, KaptoError, RecvTime};
 use kapto_decode::{Decoder, Value};
@@ -169,8 +169,8 @@ fn replay(
     let mut links = Vec::new();
     let mut drawn = None;
     let mut replayed = Replayed::default();
-    let manifest = carried_manifest(&start, recording)?;
-    let streams = carried_streams(&start, recording, manifest.as_ref())?;
+    let manifest = carried_manifest(&start.attachments, recording)?;
+    let streams = carried_streams(&start.attachments, recording, manifest.as_ref())?;
     // Receive times in a recording are already UTC.
     let utc = ClockSample {
         mono: RecvTime::from_nanos(0),
@@ -365,24 +365,6 @@ impl Player {
     }
 }
 
-/// The `package.toml` the recording carries, if it was recorded with a
-/// robot package.
-fn carried_manifest(
-    start: &RecordingStart,
-    recording: &Path,
-) -> Result<Option<PackageManifest>, KaptoError> {
-    start
-        .attachments
-        .get(PACKAGE_FILE)
-        .map(|data| parse_package_manifest(&carried_file(recording, PACKAGE_FILE, data)))
-        .transpose()
-        .map_err(first)
-}
-
-/// The stream declarations the recording carries: its package's, or, for
-/// one recorded without a package, the only file it carries. None if it
-/// carries none. The `.msg` files of its ROS 2 messages are the ones the
-/// recording carries beside it, not those of the package as it is now.
 /// The streams of the recording at `recording` that are cameras, by the
 /// `streams.toml` it carries: each one's name and how its frames are laid
 /// out, in declaration order.
@@ -393,40 +375,12 @@ fn carried_manifest(
 /// file's error if it can't be parsed.
 pub fn recorded_cameras(recording: &Path) -> Result<Vec<(String, CameraKind)>, KaptoError> {
     let start = read_start(recording)?;
-    let manifest = carried_manifest(&start, recording)?;
-    let streams = carried_streams(&start, recording, manifest.as_ref())?;
+    let manifest = carried_manifest(&start.attachments, recording)?;
+    let streams = carried_streams(&start.attachments, recording, manifest.as_ref())?;
     Ok(streams
         .iter()
         .filter_map(|stream| Some((stream.id.to_string(), stream.camera_kind()?)))
         .collect())
-}
-
-fn carried_streams(
-    start: &RecordingStart,
-    recording: &Path,
-    manifest: Option<&PackageManifest>,
-) -> Result<Vec<StreamDeclaration>, KaptoError> {
-    let file = match manifest {
-        Some(manifest) => {
-            let name = slash_path(&manifest.streams);
-            start.attachments.get_key_value(name.as_str())
-        }
-        None if start.attachments.len() == 1 => start.attachments.iter().next(),
-        None => None,
-    };
-    match file {
-        Some((name, data)) => {
-            let folder = name.rsplit_once('/').map_or("", |(folder, _)| folder);
-            let mut msg_files = |package: &str, type_name: &str| {
-                let path = format!("{folder}/msg/{package}/msg/{type_name}.msg");
-                let path = path.trim_start_matches('/');
-                let data = start.attachments.get(path)?;
-                Some(String::from_utf8_lossy(data).into_owned())
-            };
-            parse_streams_with(&carried_file(recording, name, data), &mut msg_files).map_err(first)
-        }
-        None => Ok(Vec::new()),
-    }
 }
 
 /// The robot the recording was made with and how its joints are driven,
@@ -595,35 +549,5 @@ impl Drop for Unpacked {
     fn drop(&mut self) {
         // Nothing to do about a failure: it is in the temporary folder.
         let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-/// A file the recording carries, named after where it is so its problems
-/// say so.
-fn carried_file(recording: &Path, name: &str, data: &[u8]) -> ConfigFile {
-    ConfigFile {
-        path: recording.join(name),
-        contents: String::from_utf8_lossy(data).into_owned(),
-    }
-}
-
-/// A path in a package as the recording names its files: separated by `/`.
-fn slash_path(path: &Path) -> String {
-    path.components()
-        .map(|part| part.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-fn first(errors: Vec<KaptoError>) -> KaptoError {
-    let more = errors.len().saturating_sub(1);
-    let first = errors
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| KaptoError::new(ErrorCode::ConfigInvalidValue));
-    if more == 0 {
-        first
-    } else {
-        first.context("more problems", more.to_string())
     }
 }

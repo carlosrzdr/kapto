@@ -17,6 +17,7 @@
 //! Session setups saved in the configuration folder, profiles and tasks,
 //! are read with [`parse_profile`] and [`parse_task`].
 
+pub mod carried;
 mod deployment;
 mod destination;
 mod file;
