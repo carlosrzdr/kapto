@@ -88,6 +88,18 @@ fn each_episode_has_its_duration_and_each_streams_rate_and_loss() {
 }
 
 #[test]
+fn an_episode_ending_before_it_starts_has_no_duration_and_no_rate() {
+    let episode = kapto_testkit::episode(
+        "20260305T192345.123Z-1a2b3c4d",
+        (START, START - 1_000_000_000),
+        vec![kapto_testkit::stream("arm_joints", 100)],
+    );
+    let statistics = of_episode(&EpisodeView::new(Path::new("/data/episode"), episode));
+    assert_eq!(value(&statistics, "episode.duration_s"), 0.0);
+    assert_eq!(value(&statistics, "streams.arm_joints.rate_hz"), 0.0);
+}
+
+#[test]
 fn a_joints_speed_comes_from_its_velocity_if_mapped_otherwise_from_its_positions() {
     let roles = BTreeMap::from([
         // Turning at 0.5 rad/s, then back at 2 rad/s.

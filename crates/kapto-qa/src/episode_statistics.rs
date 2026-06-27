@@ -74,7 +74,13 @@ pub fn of_episode(episode: &EpisodeView) -> Statistics {
         clippy::cast_precision_loss,
         reason = "durations and counts stay far below 2^53"
     )]
-    let duration_s = (summary.ended_utc_ns - summary.started_utc_ns) as f64 / 1e9;
+    // Never negative, even for an episode.json whose end is before its
+    // start: no rate is worked out from it then.
+    let duration_s = summary
+        .ended_utc_ns
+        .saturating_sub(summary.started_utc_ns)
+        .max(0) as f64
+        / 1e9;
     statistics.insert(
         "episode.duration_s".to_owned(),
         Statistic::Value(duration_s),
