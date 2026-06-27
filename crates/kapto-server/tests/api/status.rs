@@ -211,7 +211,7 @@ async fn storage_of_a_data_directory_that_isnt_there_is_an_error_with_its_cause(
 
 #[test]
 fn the_openapi_document_describes_every_route_and_its_error_body() {
-    let document: Value = serde_json::from_str(&openapi_json()).unwrap();
+    let document: Value = serde_json::from_str(&openapi_json().unwrap()).unwrap();
     let mut paths: Vec<&str> = document["paths"]
         .as_object()
         .unwrap()

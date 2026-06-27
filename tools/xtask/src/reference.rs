@@ -18,21 +18,21 @@ const HEADER: &str =
 /// A generated page: its path from the repository root and how to render it.
 pub(crate) struct Page {
     pub(crate) path: &'static str,
-    render: fn() -> String,
+    render: fn() -> Result<String, String>,
 }
 
 pub(crate) const PAGES: &[Page] = &[
     Page {
         path: "docs/reference/cli.md",
-        render: cli,
+        render: || Ok(cli()),
     },
     Page {
         path: "docs/reference/configuration.md",
-        render: configuration,
+        render: || Ok(configuration()),
     },
     Page {
         path: "docs/reference/error-codes.md",
-        render: error_codes,
+        render: || Ok(error_codes()),
     },
     Page {
         path: "docs/reference/api.md",
@@ -48,35 +48,35 @@ pub(crate) const PAGES: &[Page] = &[
     },
     Page {
         path: "docs/reference/episode.md",
-        render: episode,
+        render: || Ok(episode()),
     },
     Page {
         path: "docs/reference/manifest.md",
-        render: manifest,
+        render: || Ok(manifest()),
     },
     Page {
         path: "docs/reference/upload-marker.md",
-        render: upload_marker,
+        render: || Ok(upload_marker()),
     },
     Page {
         path: "docs/reference/recording.md",
-        render: recording,
+        render: || Ok(recording()),
     },
     Page {
         path: "docs/reference/struct-layout.md",
-        render: struct_layout,
+        render: || Ok(struct_layout()),
     },
     Page {
         path: "docs/reference/path-layout.md",
-        render: path_layout,
+        render: || Ok(path_layout()),
     },
     Page {
         path: "docs/reference/package.md",
-        render: package,
+        render: || Ok(package()),
     },
     Page {
         path: "docs/reference/profiles.md",
-        render: profiles,
+        render: || Ok(profiles()),
     },
 ];
 
@@ -95,7 +95,9 @@ pub(crate) fn run(root: &Path, check: bool) -> ExitCode {
     }
     for page in PAGES {
         let path = root.join(page.path);
-        if let Err(error) = std::fs::write(&path, (page.render)()) {
+        let written = (page.render)()
+            .and_then(|content| std::fs::write(&path, content).map_err(|error| error.to_string()));
+        if let Err(error) = written {
             eprintln!("Can't write {}: {error}", path.display());
             return ExitCode::FAILURE;
         }
@@ -108,7 +110,7 @@ pub(crate) fn run(root: &Path, check: bool) -> ExitCode {
 pub(crate) fn stale_pages(root: &Path) -> Vec<&'static str> {
     PAGES
         .iter()
-        .filter(|page| std::fs::read_to_string(root.join(page.path)).ok() != Some((page.render)()))
+        .filter(|page| std::fs::read_to_string(root.join(page.path)).ok() != (page.render)().ok())
         .map(|page| page.path)
         .collect()
 }
@@ -235,21 +237,31 @@ fn error_codes() -> String {
     page
 }
 
-fn ui_api_types() -> String {
+/// The OpenAPI document, or why it can't be written.
+fn openapi_document() -> Result<String, String> {
+    kapto_server::api::openapi_json()
+        .map_err(|error| format!("the OpenAPI document can't be written: {error}"))
+}
+
+fn ui_api_types() -> Result<String, String> {
     let document: serde_json::Value =
-        serde_json::from_str(&kapto_server::api::openapi_json()).unwrap_or_default();
-    crate::typescript::api_types(&document, kapto_server::api::API_VERSION)
+        serde_json::from_str(&openapi_document()?).map_err(|error| error.to_string())?;
+    Ok(crate::typescript::api_types(
+        &document,
+        kapto_server::api::API_VERSION,
+    ))
 }
 
 /// The OpenAPI document itself, for tools; `cargo xtask api-diff` compares
 /// it with an earlier one.
-fn openapi() -> String {
-    kapto_server::api::openapi_json() + "\n"
+fn openapi() -> Result<String, String> {
+    Ok(openapi_document()? + "\n")
 }
 
-fn api() -> String {
-    let document = kapto_server::api::openapi_json();
-    let parsed: serde_json::Value = serde_json::from_str(&document).unwrap_or_default();
+fn api() -> Result<String, String> {
+    let document = openapi_document()?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&document).map_err(|error| error.to_string())?;
     let mut page = String::from(HEADER);
     let _ = write!(
         page,
@@ -287,7 +299,7 @@ fn api() -> String {
          (OpenAPI 3.1). Changes that could break a client within the version are\n\
          found with `cargo xtask api-diff`.\n",
     );
-    page
+    Ok(page)
 }
 
 /// A schema as indented JSON with every object's keys sorted, so the page
@@ -1123,7 +1135,11 @@ mod tests {
             } else {
                 HEADER
             };
-            assert!((page.render)().starts_with(header), "{}", page.path);
+            assert!(
+                (page.render)().unwrap().starts_with(header),
+                "{}",
+                page.path
+            );
         }
     }
 

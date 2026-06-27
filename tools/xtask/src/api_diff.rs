@@ -22,7 +22,13 @@ const OASDIFF_IMAGE: &str =
 const DOCUMENT: &str = "docs/reference/openapi.json";
 
 pub(crate) fn run(root: &Path, base: &str) -> ExitCode {
-    let current = kapto_server::api::openapi_json();
+    let current = match kapto_server::api::openapi_json() {
+        Ok(current) => current,
+        Err(error) => {
+            eprintln!("The OpenAPI document can't be written: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let Some(earlier) = committed(root, base) else {
         println!("No {DOCUMENT} at {base}: nothing to compare with.");
         return ExitCode::SUCCESS;
@@ -142,7 +148,8 @@ mod tests {
 
     /// The API's document with `change` made to it.
     fn changed(change: impl FnOnce(&mut Value)) -> String {
-        let mut document: Value = serde_json::from_str(&kapto_server::api::openapi_json()).unwrap();
+        let mut document: Value =
+            serde_json::from_str(&kapto_server::api::openapi_json().unwrap()).unwrap();
         change(&mut document);
         document.to_string()
     }
@@ -151,7 +158,7 @@ mod tests {
     #[test]
     #[ignore = "needs Docker"]
     fn oasdiff_finds_a_removed_field_or_endpoint_and_accepts_an_added_field() {
-        let current = kapto_server::api::openapi_json();
+        let current = kapto_server::api::openapi_json().unwrap();
         let without_field = changed(|document| {
             let summary = &mut document["components"]["schemas"]["EpisodeSummary"];
             summary["properties"]

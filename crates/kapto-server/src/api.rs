@@ -372,11 +372,14 @@ pub struct ApiDoc;
 
 /// The OpenAPI document as indented JSON. Its version is the API's, so a
 /// client (or a check for breaking changes) can tell versions apart.
-#[must_use]
-pub fn openapi_json() -> String {
+///
+/// # Errors
+///
+/// The document couldn't be written as JSON.
+pub fn openapi_json() -> Result<String, serde_json::Error> {
     let mut document = ApiDoc::openapi();
     document.info.version = API_VERSION.to_string();
-    document.to_pretty_json().unwrap_or_default()
+    document.to_pretty_json()
 }
 
 /// A refused or failed request.
