@@ -226,7 +226,7 @@ delimiter is not part of the message. Two streams can't listen on the same
 TCP port.
 
 A TCP stream whose messages are a camera's frames says so in a `camera`
-table, so the live view can show them *(planned)*: JPEG pictures, or raw
+table, so the live view can show them: JPEG pictures, or raw
 ones of a fixed size and pixel layout. A raw camera's frames, with a length
 prefix's header, must fit `max_message_bytes`, and a fixed framing's `size`
 must be one frame. The live view finds each picture after the length

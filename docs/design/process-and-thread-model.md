@@ -22,15 +22,16 @@ binary:
 |---|---|---|
 | server | Supervises the others; API and web UI; the only writer of the runtime database | async, small runtime |
 | capture | Receives, timestamps and records data | one thread per input, one writer thread, one stats thread; normal or real-time priority |
-| viewer bridge | Turns a lossy copy of live data into Rerun views | threads, slightly lowered priority |
+| viewer bridge | Turns a lossy copy of live data into the web UI's live view, and recordings into replays | threads, slightly lowered priority |
 | worker | Checks, statistics, relevance selection, labelling, export, upload | low priority; thread pool for CPU work, small async runtime for uploads |
 
 - The server restarts the viewer bridge and the worker if they crash. It never
   restarts capture during a recording. If the server dies, capture keeps
   recording and finishes the current episode.
 - Control messages travel over Unix sockets. Live data reaches the viewer
-  bridge and the worker over non-blocking datagrams that are dropped, and
-  counted, when the reader is slow, so a slow reader can never slow capture.
+  bridge over non-blocking datagrams that are dropped, and counted, when the
+  reader is slow, so a slow reader can never slow capture. The worker reads
+  finished recordings, never live data.
 - Python plugins run as separate, time-limited processes.
 - Every thread is named, so system tools and profilers show where time goes.
 
