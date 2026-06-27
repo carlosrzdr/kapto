@@ -115,7 +115,11 @@ pub fn read_events(path: &Path) -> Result<Vec<Event>, KaptoError> {
 
 /// Reads the messages of every channel `wanted` names, in file order,
 /// calling `on_message` for each until it returns `Break`.
-fn read_channels(
+///
+/// # Errors
+///
+/// `recording.unreadable`, as for [`read_recording`].
+pub fn read_channels(
     path: &Path,
     wanted: impl Fn(&str) -> bool,
     mut on_message: impl FnMut(&RecordedChannel, RecordedMessage<'_>) -> ControlFlow<()>,

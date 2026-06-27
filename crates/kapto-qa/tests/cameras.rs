@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! An episode's cameras' frames and its streams' timing, read from real
+//! An episode's cameras' frames, its streams' timing and its events, read from real
 //! recordings by the `streams.toml` they carry.
 
 #![allow(
@@ -8,6 +8,7 @@
     reason = "test helpers fail the test loudly when the setup itself breaks"
 )]
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -15,6 +16,7 @@ use kapto_capture::{Batch, ChannelSpec, LossCounters, Recording, WriterConfig};
 use kapto_core::{ClockMap, ClockSample, RecvTime};
 use kapto_qa::cameras::CameraFrames;
 use kapto_qa::roles::read_episode;
+use kapto_store::{Event, Phase};
 
 /// A recording for one test, removed when dropped.
 struct TempFile(PathBuf);
@@ -83,6 +85,18 @@ fn record(file: &TempFile, streams: Option<&str>, frames: &[Vec<u8>]) {
             recording.write(&batch, &counters).unwrap();
         }
     }
+    recording
+        .write_event(&Event {
+            kind: "subtask.reach".to_owned(),
+            at_utc_ns: 1_000_005_000_000_000,
+            until_utc_ns: Some(1_000_005_002_000_000),
+            phase: Phase::Stretch,
+            id: None,
+            source: "page".to_owned(),
+            text: None,
+            attributes: BTreeMap::new(),
+        })
+        .unwrap();
     recording.finish(&clock).unwrap();
 }
 
@@ -105,6 +119,13 @@ fn each_cameras_frames_are_read_with_their_pictures_sizes_and_those_without_one(
         .collect();
     assert_eq!(timing, [("arm", 4), ("wrist", 4)]);
     assert_eq!(recorded.timing["wrist"].rate_hz, Some(30));
+    // And the events, in the same pass.
+    let kinds: Vec<&str> = recorded
+        .events
+        .iter()
+        .map(|event| event.kind.as_str())
+        .collect();
+    assert_eq!(kinds, ["subtask.reach"]);
     let cameras = recorded.cameras;
     let at = |ms: i64| 1_000_005_000_000_000 + ms * 1_000_000;
     assert_eq!(

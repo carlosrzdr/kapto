@@ -116,7 +116,8 @@ fn qa_job(c: &mut Criterion) {
                             .clone()
                             .with_roles(recorded.roles)
                             .with_cameras(recorded.cameras)
-                            .with_timing(recorded.timing);
+                            .with_timing(recorded.timing)
+                            .with_events(recorded.events);
                         let run = run_checks(&checks, &episode, None);
                         black_box((run, episode_statistics::of_episode(&episode)))
                     });

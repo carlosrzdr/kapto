@@ -9,10 +9,11 @@ use std::collections::BTreeMap;
 use std::ops::ControlFlow;
 use std::path::Path;
 
-use kapto_capture::reader::{RecordedChannel, read_recording};
+use kapto_capture::reader::{RecordedChannel, is_kapto_channel, read_channels};
 use kapto_config::{FieldReference, parse_mapping};
 use kapto_core::{KaptoError, Role};
 use kapto_decode::{Decoder, DecoderDeclaration, Value};
+use kapto_store::{EVENTS_CHANNEL, Event};
 
 use crate::cameras::{CameraFrames, CameraReader, declared_streams};
 use crate::carried::carried;
@@ -33,6 +34,9 @@ pub struct Recorded {
     pub cameras: BTreeMap<String, CameraFrames>,
     /// When every stream's messages arrived.
     pub timing: BTreeMap<String, StreamTiming>,
+    /// Every event the episode holds, in the order written; one that
+    /// can't be read is left out.
+    pub events: Vec<Event>,
 }
 
 /// One role's values through an episode: a row for each message of its
@@ -132,13 +136,22 @@ fn read_recorded(
     let mut columns: BTreeMap<Role, RoleColumn> = BTreeMap::new();
     let mut read = 0_u64;
     let mut stopped = None;
-    read_recording(recording, |channel, message| {
+    let mut events = Vec::new();
+    // The streams, and the events beside them for an episode's checks.
+    let with_events = timing.is_some();
+    let channels =
+        move |topic: &str| !is_kapto_channel(topic) || (with_events && topic == EVENTS_CHANNEL);
+    read_channels(recording, channels, |channel, message| {
         read += 1;
         if read.is_multiple_of(STEP)
             && let Err(error) = between()
         {
             stopped = Some(error);
             return ControlFlow::Break(());
+        }
+        if channel.topic == EVENTS_CHANNEL {
+            events.extend(Event::from_json(message.data));
+            return ControlFlow::Continue(());
         }
         cameras.take(&channel.topic, message.log_time, message.data);
         if let Some(timing) = &mut timing {
@@ -180,6 +193,7 @@ fn read_recorded(
             roles: columns,
             cameras: cameras.finish(),
             timing: timing.map(TimingReader::finish).unwrap_or_default(),
+            events,
         }),
     }
 }

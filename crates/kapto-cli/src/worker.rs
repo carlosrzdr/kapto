@@ -170,7 +170,8 @@ impl Job for Quality {
         let episode = episode
             .with_roles(recorded.roles)
             .with_cameras(recorded.cameras)
-            .with_timing(recorded.timing);
+            .with_timing(recorded.timing)
+            .with_events(recorded.events);
         between()?;
         let made = checks::from_settings(&settings);
         let checks: Vec<&dyn Check> = made.iter().map(AsRef::as_ref).collect();

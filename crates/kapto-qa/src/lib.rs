@@ -42,6 +42,7 @@ pub struct EpisodeView {
     roles: BTreeMap<Role, RoleColumn>,
     cameras: BTreeMap<String, cameras::CameraFrames>,
     timing: BTreeMap<String, timing::StreamTiming>,
+    events: Vec<kapto_store::Event>,
 }
 
 impl EpisodeView {
@@ -63,7 +64,22 @@ impl EpisodeView {
             roles: BTreeMap::new(),
             cameras: BTreeMap::new(),
             timing: BTreeMap::new(),
+            events: Vec::new(),
         }
+    }
+
+    /// The same, with the events it holds.
+    #[must_use]
+    pub fn with_events(mut self, events: Vec<kapto_store::Event>) -> Self {
+        self.events = events;
+        self
+    }
+
+    /// The events it holds, in the order written, once read
+    /// ([`roles::read_episode`]).
+    #[must_use]
+    pub fn events(&self) -> &[kapto_store::Event] {
+        &self.events
     }
 
     /// The same, with when each stream's messages arrived, by stream name.
