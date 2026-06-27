@@ -18,7 +18,7 @@ use kapto_config::{
 use kapto_qa::cameras::CameraFrames;
 use kapto_qa::checks::{
     CameraFormat, CameraFrameSizes, EpisodeLong, EpisodeShort, StreamsComplete, StreamsEmpty,
-    StreamsGap, StreamsPresent, StreamsTiming, from_settings,
+    StreamsGap, StreamsPresent, StreamsRate, StreamsTiming, from_settings,
 };
 use kapto_qa::conformance::check_meets_the_contract;
 use kapto_qa::timing::StreamTiming;
@@ -149,6 +149,13 @@ fn the_stream_timing_checks_meet_the_check_contract() {
         },
         &episodes,
     );
+    check_meets_the_contract(
+        &StreamsRate {
+            max_error: 0.15,
+            min_end_ratio: 0.5,
+        },
+        &episodes,
+    );
     check_meets_the_contract(&StreamsGap { max_seconds: 2.0 }, &episodes);
 }
 
@@ -218,6 +225,7 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
             "episode.short",
             "episode.long",
             "streams.timing",
+            "streams.rate",
             "streams.gap",
             "camera.format",
             "camera.frames",

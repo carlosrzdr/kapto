@@ -16,7 +16,7 @@ mod timing;
 pub use camera::{CameraFormat, CameraFrameSizes};
 pub use motion::{FrozenJoints, GripperChatter, Idle, JointJumps};
 pub use presence::{EpisodeLong, EpisodeShort, StreamsEmpty, StreamsPresent};
-pub use timing::{StreamsGap, StreamsTiming};
+pub use timing::{StreamsGap, StreamsRate, StreamsTiming};
 
 /// The checks `settings` turn on, each made with its settings, in the order
 /// they run.
@@ -56,6 +56,12 @@ pub fn from_settings(settings: &QaSettings) -> Vec<Box<dyn Check>> {
         checks.push(Box::new(StreamsTiming {
             max_start_delay_s: timing.max_start_delay_s,
             max_end_gap_s: timing.max_end_gap_s,
+        }));
+    }
+    if timing.rate_enabled {
+        checks.push(Box::new(StreamsRate {
+            max_error: timing.max_rate_error,
+            min_end_ratio: timing.min_end_rate_ratio,
         }));
     }
     if timing.gap_enabled {

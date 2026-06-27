@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Checks of when each stream's messages arrived, from the timing read
-//! with the episode's roles: when it started and ended, and its silences. A stream kept for late subscribers, which may rightly send
+//! with the episode's roles: when it started and ended, its rate, and its
+//! silences. A stream kept for late subscribers, which may rightly send
 //! nothing for long, and one that sent nothing at all (`streams.present`'s)
 //! are left out.
 
 use kapto_core::KaptoError;
 use kapto_store::TimeRange;
 
-use crate::timing::{LONGEST, StreamTiming};
+use crate::timing::{BINS, LONGEST, StreamTiming};
 use crate::{Check, CheckKind, EpisodeView, Finding};
 
 const SECOND: f64 = 1e9;
@@ -25,6 +26,19 @@ pub struct StreamsTiming {
     pub max_end_gap_s: f64,
 }
 
+/// Each stream with a declared rate kept to it: measured from its first
+/// message to its last, no more than `max_error` off, and in the last fifth
+/// of the episode no slower than `min_end_ratio` of the first: advisory, as
+/// a source that is slower than declared, or slows down as it goes (a CPU
+/// throttling, a network filling), records less than asked.
+#[derive(Clone, Copy, Debug)]
+pub struct StreamsRate {
+    /// The largest share the measured rate may be off the declared one.
+    pub max_error: f64,
+    /// The least share of its starting rate a stream keeps at the end.
+    pub min_end_ratio: f64,
+}
+
 /// No stream was silent longer than `max_seconds`, or three of its periods
 /// if that is longer: advisory, as a silence is a stretch of the episode
 /// without it. Each one is named with where it is.
@@ -33,6 +47,13 @@ pub struct StreamsGap {
     /// The longest silence not flagged, in seconds.
     pub max_seconds: f64,
 }
+
+/// The parts the rate at the start and at the end are measured over: a
+/// fifth of the episode each.
+const FIFTH: usize = BINS / 5;
+
+/// The fewest messages in the first fifth for a drop to be judged.
+const MIN_TO_JUDGE: u64 = 10;
 
 /// The streams the timing checks look at: those with messages, but the
 /// kept ones.
@@ -113,6 +134,75 @@ impl Check for StreamsTiming {
             Finding::failed(problems.join("; "))
         }
         .with_value("late_or_early", problems.len() as f64);
+        Ok(ranges.into_iter().fold(finding, Finding::with_range))
+    }
+}
+
+impl Check for StreamsRate {
+    fn id(&self) -> &'static str {
+        "streams.rate"
+    }
+
+    fn version(&self) -> u32 {
+        1
+    }
+
+    fn kind(&self) -> CheckKind {
+        CheckKind::Advisory
+    }
+
+    fn run(&self, episode: &EpisodeView) -> Result<Finding, KaptoError> {
+        let streams: Vec<(&str, &StreamTiming, u32)> = timed(episode)
+            .into_iter()
+            .filter_map(|(name, timing)| Some((name, timing, timing.rate_hz?)))
+            .filter(|(_, timing, _)| timing.messages >= 2)
+            .collect();
+        if streams.is_empty() {
+            return Ok(Finding::not_applicable(
+                "no stream with a declared rate sent two messages",
+            ));
+        }
+        let summary = episode.summary();
+        let span = summary.ended_utc_ns - summary.started_utc_ns;
+        let mut problems = Vec::new();
+        let mut finding_values = Vec::new();
+        let mut ranges = Vec::new();
+        for (name, timing, declared) in streams {
+            let lasted = seconds(timing.last_utc_ns - timing.first_utc_ns).max(f64::EPSILON);
+            #[allow(clippy::cast_precision_loss, reason = "a count of messages")]
+            let measured = (timing.messages - 1) as f64 / lasted;
+            let error = (measured / f64::from(declared) - 1.0).abs();
+            if error > self.max_error {
+                problems.push(format!("{name} at {measured:.0} Hz, declared {declared}"));
+            }
+            finding_values.push((format!("{name}.rate_hz"), measured));
+            let (start, end) = (timing.sent_in(0, FIFTH), timing.sent_in(BINS - FIFTH, BINS));
+            if start >= MIN_TO_JUDGE {
+                #[allow(clippy::cast_precision_loss, reason = "counts of messages")]
+                let kept = end as f64 / start as f64;
+                if kept < self.min_end_ratio {
+                    problems.push(format!(
+                        "{name} sent {:.0} % as fast in the last fifth as in the first",
+                        kept * 100.0
+                    ));
+                    ranges.push(TimeRange {
+                        start_utc_ns: summary.ended_utc_ns - span / 5,
+                        end_utc_ns: summary.ended_utc_ns,
+                    });
+                }
+                finding_values.push((format!("{name}.end_ratio"), kept));
+            }
+        }
+        let finding = if problems.is_empty() {
+            Finding::passed("every stream kept to its declared rate")
+        } else {
+            Finding::failed(problems.join("; "))
+        };
+        let finding = finding_values
+            .into_iter()
+            .fold(finding, |finding, (name, value)| {
+                finding.with_value(&name, value)
+            });
         Ok(ranges.into_iter().fold(finding, Finding::with_range))
     }
 }
@@ -238,6 +328,10 @@ mod tests {
         max_start_delay_s: 2.0,
         max_end_gap_s: 5.0,
     };
+    const RATE: StreamsRate = StreamsRate {
+        max_error: 0.15,
+        min_end_ratio: 0.5,
+    };
     const GAP: StreamsGap = StreamsGap { max_seconds: 2.0 };
 
     fn verdict(check: &dyn Check, episode: &EpisodeView) -> (Verdict, String) {
@@ -248,9 +342,11 @@ mod tests {
     #[test]
     fn a_stream_sending_at_its_rate_from_start_to_end_passes_every_timing_check() {
         let fine = episode(steady(0.0, 10.0));
-        for check in [&TIMING as &dyn Check, &GAP] {
+        for check in [&TIMING as &dyn Check, &RATE, &GAP] {
             assert_eq!(verdict(check, &fine).0, Verdict::Passed, "{}", check.id());
         }
+        let rate = RATE.run(&fine).unwrap();
+        assert!((rate.values["arm.rate_hz"] - 100.0).abs() < 0.5);
     }
 
     #[test]
@@ -270,6 +366,25 @@ mod tests {
                 end_utc_ns: START + 9 * NS
             }]
         );
+    }
+
+    #[test]
+    fn a_stream_off_its_rate_or_slowing_down_is_flagged() {
+        // Every 13 ms: 77 Hz where 100 are declared.
+        let slow = episode((0..770).map(|n| f64::from(n) * 0.013));
+        assert_eq!(
+            verdict(&RATE, &slow),
+            (Verdict::Failed, "arm at 77 Hz, declared 100".to_owned())
+        );
+        // At its rate for 8 s, then one message in five.
+        let slowing = episode(steady(0.0, 8.0).chain(steady(8.0, 10.0).step_by(5)));
+        let finding = RATE.run(&slowing).unwrap();
+        // Which slows it on average too.
+        assert_eq!(
+            finding.message,
+            "arm at 84 Hz, declared 100; arm sent 20 % as fast in the last fifth as in the first"
+        );
+        assert_eq!(finding.ranges[0].start_utc_ns, START + 8 * NS);
     }
 
     #[test]

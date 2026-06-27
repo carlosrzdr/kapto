@@ -420,6 +420,8 @@ fn each_check_ran(run: &kapto_store::QaRun) {
             // Its summary is written apart from its recording, at another
             // time: the stream is far from the episode's start and end.
             ("streams.timing", Verdict::Failed),
+            // No declared rate: no streams.toml carried.
+            ("streams.rate", Verdict::NotApplicable),
             ("streams.gap", Verdict::Passed),
             // No camera.
             ("camera.format", Verdict::NotApplicable),
