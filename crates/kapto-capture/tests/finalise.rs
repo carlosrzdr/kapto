@@ -62,9 +62,16 @@ fn final_dir(out: &Path) -> PathBuf {
     out.join(episode().to_string())
 }
 
-/// Anything reading the output folder refuses the episode.
+/// Anything reading the output folder refuses the episode, as never
+/// finalised: whatever else is there, its marker isn't.
 fn assert_incomplete(out: &Path) {
-    assert!(verify_episode(&final_dir(out)).is_err());
+    let error = verify_episode(&final_dir(out)).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ManifestUnreadable);
+    assert!(
+        error.message().contains("never finalised"),
+        "{}",
+        error.message()
+    );
 }
 
 #[test]
