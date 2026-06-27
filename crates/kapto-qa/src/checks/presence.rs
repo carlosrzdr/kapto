@@ -8,8 +8,8 @@ use kapto_store::StreamSummary;
 
 use crate::{Check, CheckKind, EpisodeView, Finding};
 
-/// The episode lasted at least `min_seconds`, from its first message to its
-/// end: a gate, as one shorter can hardly hold a task (a start pressed by
+/// The episode was recorded for at least `min_seconds`, from Start to
+/// Stop: a gate, as one shorter can hardly hold a task (a start pressed by
 /// mistake, a recording cut short).
 #[derive(Clone, Copy, Debug)]
 pub struct EpisodeShort {
@@ -17,7 +17,8 @@ pub struct EpisodeShort {
     pub min_seconds: f64,
 }
 
-/// The episode lasted no longer than `max_seconds`: advisory, as one far
+/// The episode was recorded for no longer than `max_seconds`, from Start to
+/// Stop: advisory, as one far
 /// longer than its task was likely left recording.
 #[derive(Clone, Copy, Debug)]
 pub struct EpisodeLong {
@@ -25,13 +26,22 @@ pub struct EpisodeLong {
     pub max_seconds: f64,
 }
 
-/// How long `episode` lasted, in seconds.
+/// How long `episode` was recorded for, in seconds: from Start being asked
+/// to Stop, what the operator chose, without the seconds a pre-roll or a
+/// post-roll add on either side; its own start and end where those
+/// weren't kept.
 fn seconds(episode: &EpisodeView) -> f64 {
     let summary = episode.summary();
+    let start = summary
+        .commanded_start_utc_ns
+        .unwrap_or(summary.started_utc_ns);
+    let stop = summary
+        .commanded_stop_utc_ns
+        .unwrap_or(summary.ended_utc_ns);
     // Nanosecond spans stay far below 2^53 s, so the loss is below a
     // nanosecond.
     #[allow(clippy::cast_precision_loss, reason = "a span in seconds")]
-    let seconds = summary.ended_utc_ns.saturating_sub(summary.started_utc_ns) as f64 / 1e9;
+    let seconds = stop.saturating_sub(start) as f64 / 1e9;
     seconds.max(0.0)
 }
 
@@ -41,7 +51,7 @@ impl Check for EpisodeShort {
     }
 
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     fn kind(&self) -> CheckKind {
@@ -52,11 +62,11 @@ impl Check for EpisodeShort {
         let seconds = seconds(episode);
         let finding = if seconds < self.min_seconds {
             Finding::failed(format!(
-                "the episode lasted {seconds:.1} s, shorter than the {} s accepted",
+                "the episode was recorded for {seconds:.1} s, shorter than the {} s accepted",
                 self.min_seconds
             ))
         } else {
-            Finding::passed(format!("the episode lasted {seconds:.1} s"))
+            Finding::passed(format!("the episode was recorded for {seconds:.1} s"))
         };
         Ok(finding.with_value("duration_s", seconds))
     }
@@ -68,7 +78,7 @@ impl Check for EpisodeLong {
     }
 
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     fn kind(&self) -> CheckKind {
@@ -79,11 +89,11 @@ impl Check for EpisodeLong {
         let seconds = seconds(episode);
         let finding = if seconds > self.max_seconds {
             Finding::failed(format!(
-                "the episode lasted {seconds:.0} s, longer than {} s: was it left recording?",
+                "the episode was recorded for {seconds:.0} s, longer than {} s: was it left recording?",
                 self.max_seconds
             ))
         } else {
-            Finding::passed(format!("the episode lasted {seconds:.1} s"))
+            Finding::passed(format!("the episode was recorded for {seconds:.1} s"))
         };
         Ok(finding.with_value("duration_s", seconds))
     }
@@ -258,7 +268,7 @@ mod tests {
             verdict(&short, &episode(1, streams())),
             (
                 Verdict::Failed,
-                "the episode lasted 1.0 s, shorter than the 2 s accepted".to_owned()
+                "the episode was recorded for 1.0 s, shorter than the 2 s accepted".to_owned()
             )
         );
         assert_eq!(verdict(&short, &episode(2, streams())).0, Verdict::Passed);
@@ -267,11 +277,31 @@ mod tests {
             verdict(&long, &episode(601, streams())),
             (
                 Verdict::Failed,
-                "the episode lasted 601 s, longer than 600 s: was it left recording?".to_owned()
+                "the episode was recorded for 601 s, longer than 600 s: was it left recording?"
+                    .to_owned()
             )
         );
         let finding = short.run(&episode(30, streams())).unwrap();
         assert_eq!(finding.values["duration_s"], 30.0);
+    }
+
+    #[test]
+    fn the_duration_is_from_start_to_stop_without_a_pre_roll_or_post_roll() {
+        let short = EpisodeShort { min_seconds: 2.0 };
+        // 10 s of data, of which 1.5 s between Start and Stop: the rest is
+        // pre-roll and post-roll.
+        let start = 1_772_700_400_000_000_000;
+        let rolled = kapto_testkit::episode(
+            "20260305T192345.123Z-1a2b3c4d",
+            (start, start + 10_000_000_000),
+            vec![stream("joints", 10)],
+        )
+        .with_commands((start + 4_000_000_000, Some(start + 5_500_000_000)));
+        let finding = short
+            .run(&EpisodeView::new(std::path::Path::new("."), rolled))
+            .unwrap();
+        assert_eq!(finding.verdict, Verdict::Failed);
+        assert_eq!(finding.values["duration_s"], 1.5);
     }
 
     #[test]

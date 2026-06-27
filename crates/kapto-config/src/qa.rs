@@ -116,17 +116,17 @@ pub const QA_KEYS: [FileKey; 48] = [
     FileKey {
         name: "episode.short.enabled",
         required: false,
-        help: "Whether the gate `episode.short` runs: the episode lasts at least `min_seconds`. `true` by default.",
+        help: "Whether the gate `episode.short` runs: the episode was recorded for at least `min_seconds`, from Start to Stop, the seconds of a pre-roll or post-roll left out. `true` by default.",
     },
     FileKey {
         name: "episode.short.min_seconds",
         required: false,
-        help: "The shortest episode accepted, in seconds, from 0 to 86400, from its first message to its end. `2` by default: shorter, it can hardly hold a task.",
+        help: "The shortest episode accepted, in seconds from Start to Stop, from 0 to 86400. `2` by default: shorter, it can hardly hold a task.",
     },
     FileKey {
         name: "episode.long.enabled",
         required: false,
-        help: "Whether `episode.long` runs: it flags an episode longer than `max_seconds`, as one left recording does. Advisory. `true` by default.",
+        help: "Whether `episode.long` runs: it flags an episode recorded for longer than `max_seconds` from Start to Stop, as one left recording is. Advisory. `true` by default.",
     },
     FileKey {
         name: "episode.long.max_seconds",

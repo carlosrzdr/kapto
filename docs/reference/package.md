@@ -82,9 +82,9 @@ max_dropped = 0
 | `streams.rate.min_end_ratio` | no | The least share of its rate at the start a stream keeps at the end, from 0 to 1. `0.5` by default. |
 | `streams.gap.enabled` | no | Whether `streams.gap` runs: it flags each silence between two messages of a stream longer than `max_seconds`, or three of its periods if that is longer, naming where. Advisory. `true` by default. |
 | `streams.gap.max_seconds` | no | The longest silence not flagged, in seconds, from 0.001 to 3600. `2` by default. |
-| `episode.short.enabled` | no | Whether the gate `episode.short` runs: the episode lasts at least `min_seconds`. `true` by default. |
-| `episode.short.min_seconds` | no | The shortest episode accepted, in seconds, from 0 to 86400, from its first message to its end. `2` by default: shorter, it can hardly hold a task. |
-| `episode.long.enabled` | no | Whether `episode.long` runs: it flags an episode longer than `max_seconds`, as one left recording does. Advisory. `true` by default. |
+| `episode.short.enabled` | no | Whether the gate `episode.short` runs: the episode was recorded for at least `min_seconds`, from Start to Stop, the seconds of a pre-roll or post-roll left out. `true` by default. |
+| `episode.short.min_seconds` | no | The shortest episode accepted, in seconds from Start to Stop, from 0 to 86400. `2` by default: shorter, it can hardly hold a task. |
+| `episode.long.enabled` | no | Whether `episode.long` runs: it flags an episode recorded for longer than `max_seconds` from Start to Stop, as one left recording is. Advisory. `true` by default. |
 | `episode.long.max_seconds` | no | The longest episode not flagged, in seconds, from 1 to 86400. `600` by default. |
 | `camera.format.enabled` | no | Whether the gate `camera.format` runs: each camera's first frame holds a picture of the kind its stream declares (JPEG or PNG for a compressed camera, enough pixels for a raw one). `true` by default. |
 | `camera.frames.enabled` | no | Whether `camera.frames` runs: it flags a camera's frames that hold no picture, and those under `min_size_ratio` of its median size, as black, blank or cut-short pictures are. Advisory. `true` by default. |

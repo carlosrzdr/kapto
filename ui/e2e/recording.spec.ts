@@ -104,6 +104,9 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await expect(page.getByText(/ left at this rate$/)).toBeVisible();
   const written = stream.getByRole("cell").nth(2);
   await expect(written).not.toHaveText(/^(0|–)$/);
+  // Long enough to be accepted: shorter than 2 s from Start to Stop, an
+  // episode is rejected (episode.short).
+  await page.waitForTimeout(2_500);
 
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(page.getByText("Live, not recording")).toBeVisible();
