@@ -77,7 +77,15 @@ pub(crate) enum EpisodeCommand {
 }
 
 pub(crate) fn episode(flags: &SettingFlags, command: &EpisodeCommand) -> ExitCode {
-    match order(flags, command) {
+    let deployment = match crate::config::load(flags) {
+        Ok((_, deployment)) => deployment,
+        Err(errors) => {
+            let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
+            eprintln!("{}", reports.join("\n\n"));
+            return ExitCode::FAILURE;
+        }
+    };
+    match order(flags, &deployment, command) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
@@ -89,9 +97,11 @@ pub(crate) fn episode(flags: &SettingFlags, command: &EpisodeCommand) -> ExitCod
 
 /// Carries out `command`. Returns whether what it found is good: false
 /// only for a pre-flight with a failed check.
-fn order(flags: &SettingFlags, command: &EpisodeCommand) -> Result<bool, KaptoError> {
-    let (_, deployment) = crate::config::load(flags)
-        .map_err(|errors| errors.into_iter().next().unwrap_or_else(|| unexpected("")))?;
+fn order(
+    flags: &SettingFlags,
+    deployment: &kapto_config::DeploymentConfig,
+    command: &EpisodeCommand,
+) -> Result<bool, KaptoError> {
     let mut client = ControlClient::connect(&deployment.control_socket.value, ANSWER_TIMEOUT)?;
     let request = match command {
         EpisodeCommand::Start {

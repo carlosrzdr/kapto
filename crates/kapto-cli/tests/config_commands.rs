@@ -171,6 +171,24 @@ fn validate_reports_every_problem_and_exits_with_failure() {
 }
 
 #[test]
+fn the_episode_commands_report_every_problem_of_the_configuration() {
+    let config = TempConfig::new(
+        "episode-bad",
+        "[server]\nprot = 7701\n[log]\nlevel = \"loud\"\n",
+    );
+    let output = kapto(
+        &["episode", "status", "--config", config.path()],
+        &[("HOME", "/home/u")],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let errors = stderr(&output);
+    assert!(errors.contains("error[config.unknown_key]"), "{errors}");
+    assert!(errors.contains("error[config.invalid_value]"), "{errors}");
+    // Not taken for capture not answering: it was never asked.
+    assert!(!errors.contains("capture.control_unreachable"), "{errors}");
+}
+
+#[test]
 fn a_config_file_named_explicitly_must_exist() {
     let output = kapto(
         &["config", "validate", "--config", "/nonexistent/kapto.toml"],
