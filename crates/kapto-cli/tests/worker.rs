@@ -423,6 +423,8 @@ fn each_check_ran(run: &kapto_store::QaRun) {
             // No declared rate: no streams.toml carried.
             ("streams.rate", Verdict::NotApplicable),
             ("streams.gap", Verdict::Passed),
+            // No subtask marked.
+            ("segments.layout", Verdict::NotApplicable),
             // No camera.
             ("camera.format", Verdict::NotApplicable),
             ("camera.frames", Verdict::NotApplicable),
@@ -466,6 +468,7 @@ fn the_worker_checks_each_episode_with_the_quality_settings_its_recording_carrie
                  [camera.format]\nenabled = false\n[camera.frames]\nenabled = false\n\
                  [streams.timing]\nenabled = false\n[streams.rate]\nenabled = false\n\
                  [streams.gap]\nenabled = false\n\
+                 [segments.present]\nenabled = false\n[segments.layout]\nenabled = false\n\
                  [motion.jump]\nenabled = false\n[motion.frozen]\nenabled = false\n\
                  [motion.chatter]\nenabled = false\n[motion.idle]\nenabled = false\n\
                  [anomalies.statistics]\nenabled = false\n\

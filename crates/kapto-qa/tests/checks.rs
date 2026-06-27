@@ -12,18 +12,19 @@ use std::path::Path;
 
 use kapto_config::{
     CameraSettings, DurationSettings, FrozenJointsSettings, GripperChatterSettings, IdleSettings,
-    JointJumpsSettings, QaSettings, StreamTimingSettings, StreamsCompleteSettings,
+    JointJumpsSettings, QaSettings, SegmentSettings, StreamTimingSettings, StreamsCompleteSettings,
     StreamsPresentSettings,
 };
 use kapto_qa::cameras::CameraFrames;
 use kapto_qa::checks::{
-    CameraFormat, CameraFrameSizes, EpisodeLong, EpisodeShort, StreamsComplete, StreamsEmpty,
-    StreamsGap, StreamsPresent, StreamsRate, StreamsTiming, from_settings,
+    CameraFormat, CameraFrameSizes, EpisodeLong, EpisodeShort, SegmentsLayout, SegmentsPresent,
+    StreamsComplete, StreamsEmpty, StreamsGap, StreamsPresent, StreamsRate, StreamsTiming,
+    from_settings,
 };
 use kapto_qa::conformance::check_meets_the_contract;
 use kapto_qa::timing::StreamTiming;
 use kapto_qa::{Check, CheckKind, EpisodeView, Verdict};
-use kapto_store::StreamSummary;
+use kapto_store::{Event, Phase, SessionTask, StreamSummary};
 
 const ID: &str = "20260305T192345.123Z-1a2b3c4d";
 
@@ -160,6 +161,53 @@ fn the_stream_timing_checks_meet_the_check_contract() {
 }
 
 #[test]
+fn the_segment_checks_meet_the_check_contract() {
+    let start = 1_772_700_400_000_000_000;
+    let marked = |events: Vec<Event>| {
+        let mut summary = kapto_testkit::episode(
+            ID,
+            (start, start + 60_000_000_000),
+            vec![stream("arm_joints", 0)],
+        );
+        summary.task = Some(SessionTask {
+            id: "pick".to_owned(),
+            hash: None,
+            name: None,
+            description: None,
+            prompt: None,
+            objects: Vec::new(),
+            subtasks: vec!["reach".to_owned()],
+        });
+        EpisodeView::new(Path::new("/data").join(ID).as_path(), summary).with_events(events)
+    };
+    let reach = |from: i64, until: i64| Event {
+        kind: "subtask.reach".to_owned(),
+        at_utc_ns: start + from,
+        until_utc_ns: Some(start + until),
+        phase: Phase::Stretch,
+        id: None,
+        source: "page".to_owned(),
+        text: None,
+        attributes: BTreeMap::new(),
+    };
+    let episodes = [
+        marked(vec![reach(0, 60_000_000_000)]),
+        marked(vec![reach(0, 1_000), reach(50_000_000_000, 51_000_000_000)]),
+        marked(Vec::new()),
+        episode(Vec::new()),
+    ];
+    check_meets_the_contract(&SegmentsPresent, &episodes);
+    check_meets_the_contract(
+        &SegmentsLayout {
+            max_gap_s: 5.0,
+            min_coverage: 0.5,
+            min_seconds: 1.0,
+        },
+        &episodes,
+    );
+}
+
+#[test]
 fn the_camera_checks_meet_the_check_contract() {
     let camera = |sizes: &[u64], first_unreadable: Option<&str>| {
         let frames = CameraFrames {
@@ -227,6 +275,7 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
             "streams.timing",
             "streams.rate",
             "streams.gap",
+            "segments.layout",
             "camera.format",
             "camera.frames",
             "motion.jump",
@@ -271,6 +320,11 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
             format_enabled: false,
             frames_enabled: false,
             ..CameraSettings::default()
+        },
+        segments: SegmentSettings {
+            present_enabled: false,
+            layout_enabled: false,
+            ..SegmentSettings::default()
         },
         stream_timing: StreamTimingSettings {
             timing_enabled: false,
