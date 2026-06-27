@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! An episode's cameras' frames, read from real recordings by the
-//! `streams.toml` they carry.
+//! An episode's cameras' frames and its streams' timing, read from real
+//! recordings by the `streams.toml` they carry.
 
 #![allow(
     clippy::unwrap_used,
@@ -42,6 +42,9 @@ const STREAMS: &str = "[streams.wrist]\nrate_hz = 30\nmax_message_bytes = 65536\
                        tcp = { listen = \"127.0.0.1:7010\", framing = { kind = \"length_prefix\", length_bytes = 4 } }\n\
                        camera = { format = \"jpeg\" }\n\
                        [streams.arm]\nrate_hz = 100\nudp = { bind = \"127.0.0.1:9000\" }\n";
+
+/// The episodes' span: their messages from UTC 1 000 005 s on.
+const SPAN: (i64, i64) = (1_000_005_000_000_000, 1_000_006_000_000_000);
 
 /// A frame as the camera sends it: its length, then a JPEG of `size`
 /// bytes.
@@ -91,8 +94,18 @@ fn each_cameras_frames_are_read_with_their_pictures_sizes_and_those_without_one(
         Some(STREAMS),
         &[jpeg(900), jpeg(1000), vec![0, 0, 0], jpeg(10)],
     );
-    let (roles, cameras) = read_episode(&file.0, &mut || Ok(())).unwrap();
-    assert!(roles.is_empty());
+    let recorded = read_episode(&file.0, SPAN, &mut || Ok(())).unwrap();
+    assert!(recorded.roles.is_empty());
+    // Every stream's timing, read in the same pass: the camera's broken
+    // frame arrived as much as the others.
+    let timing: Vec<(&str, u64)> = recorded
+        .timing
+        .iter()
+        .map(|(name, timing)| (name.as_str(), timing.messages))
+        .collect();
+    assert_eq!(timing, [("arm", 4), ("wrist", 4)]);
+    assert_eq!(recorded.timing["wrist"].rate_hz, Some(30));
+    let cameras = recorded.cameras;
     let at = |ms: i64| 1_000_005_000_000_000 + ms * 1_000_000;
     assert_eq!(
         cameras.into_iter().collect::<Vec<_>>(),
@@ -117,7 +130,7 @@ fn a_camera_whose_first_frame_is_not_its_kind_says_why_and_one_unrecorded_has_no
     let mut raw = vec![0, 0, 0, 3];
     raw.extend([1, 2, 3]);
     record(&file, Some(STREAMS), &[raw, jpeg(900)]);
-    let (_, cameras) = read_episode(&file.0, &mut || Ok(())).unwrap();
+    let cameras = read_episode(&file.0, SPAN, &mut || Ok(())).unwrap().cameras;
     assert_eq!(
         cameras["wrist"].first_unreadable.as_deref(),
         Some("pictures in `jpeg`, neither JPEG nor PNG")
@@ -126,12 +139,19 @@ fn a_camera_whose_first_frame_is_not_its_kind_says_why_and_one_unrecorded_has_no
 
     let silent = TempFile::new("silent");
     record(&silent, Some(STREAMS), &[]);
-    let (_, cameras) = read_episode(&silent.0, &mut || Ok(())).unwrap();
+    let cameras = read_episode(&silent.0, SPAN, &mut || Ok(()))
+        .unwrap()
+        .cameras;
     assert_eq!(cameras["wrist"], CameraFrames::default());
     // Without its streams.toml, a recording's cameras aren't known.
     let bare = TempFile::new("bare");
     record(&bare, None, &[jpeg(900)]);
-    assert!(read_episode(&bare.0, &mut || Ok(())).unwrap().1.is_empty());
+    assert!(
+        read_episode(&bare.0, SPAN, &mut || Ok(()))
+            .unwrap()
+            .cameras
+            .is_empty()
+    );
     // Nor with another file only, which isn't a streams.toml.
     let other = TempFile::new("other");
     record(
@@ -139,5 +159,10 @@ fn a_camera_whose_first_frame_is_not_its_kind_says_why_and_one_unrecorded_has_no
         Some("[joints]\nshoulder = \"arm.position\"\n"),
         &[jpeg(900)],
     );
-    assert!(read_episode(&other.0, &mut || Ok(())).unwrap().1.is_empty());
+    assert!(
+        read_episode(&other.0, SPAN, &mut || Ok(()))
+            .unwrap()
+            .cameras
+            .is_empty()
+    );
 }

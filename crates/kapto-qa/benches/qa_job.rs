@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! How long checking an episode takes once it is recorded: reading its
-//! recording by role, running the checks and working out its statistics,
-//! what the worker's `qa` job does before its detectors (whose learning has
-//! a benchmark of its own).
+//! recording by role, camera and stream timing, running the checks and
+//! working out its statistics, what the worker's `qa` job does before its
+//! detectors (whose learning has a benchmark of its own).
 //!
 //! Each run is one episode of a seven-joint arm at 1 kHz, across episode
 //! lengths (messages) and message sizes (positions only, or positions,
@@ -25,7 +25,7 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use kapto_capture::{Batch, ChannelSchema, ChannelSpec, LossCounters, Recording, WriterConfig};
 use kapto_core::{ClockMap, ClockSample, RecvTime, StreamId};
 use kapto_decode::{FieldSpec, STRUCT_ENCODING, ScalarType, StructLayout};
-use kapto_qa::roles::read_roles;
+use kapto_qa::roles::read_episode;
 use kapto_qa::{Check, EpisodeView, checks, episode_statistics, run_checks};
 use kapto_testkit::TempDir;
 
@@ -109,8 +109,14 @@ fn qa_job(c: &mut Criterion) {
                 BenchmarkId::from_parameter(format!("{messages}x{size}B")),
                 |b| {
                     b.iter(|| {
-                        let roles = read_roles(black_box(&recording), &mut || Ok(())).unwrap();
-                        let episode = episode.clone().with_roles(roles);
+                        let span = (0, i64::from(messages) * 1_000_000);
+                        let recorded =
+                            read_episode(black_box(&recording), span, &mut || Ok(())).unwrap();
+                        let episode = episode
+                            .clone()
+                            .with_roles(recorded.roles)
+                            .with_cameras(recorded.cameras)
+                            .with_timing(recorded.timing);
                         let run = run_checks(&checks, &episode, None);
                         black_box((run, episode_statistics::of_episode(&episode)))
                     });

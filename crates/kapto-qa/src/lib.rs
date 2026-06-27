@@ -30,6 +30,7 @@ pub mod conformance;
 pub mod episode_statistics;
 pub mod roles;
 pub mod statistics;
+pub mod timing;
 
 /// A recorded episode as checks see it: what `episode.json` says about it,
 /// its folder, and its values by role once read ([`roles::read_roles`]).
@@ -40,6 +41,7 @@ pub struct EpisodeView {
     episode: Episode,
     roles: BTreeMap<Role, RoleColumn>,
     cameras: BTreeMap<String, cameras::CameraFrames>,
+    timing: BTreeMap<String, timing::StreamTiming>,
 }
 
 impl EpisodeView {
@@ -60,7 +62,22 @@ impl EpisodeView {
             episode,
             roles: BTreeMap::new(),
             cameras: BTreeMap::new(),
+            timing: BTreeMap::new(),
         }
+    }
+
+    /// The same, with when each stream's messages arrived, by stream name.
+    #[must_use]
+    pub fn with_timing(mut self, timing: BTreeMap<String, timing::StreamTiming>) -> Self {
+        self.timing = timing;
+        self
+    }
+
+    /// When each stream's messages arrived, by stream name, once read
+    /// ([`roles::read_episode`]).
+    #[must_use]
+    pub fn timing(&self) -> &BTreeMap<String, timing::StreamTiming> {
+        &self.timing
     }
 
     /// The same, with its cameras' frames, by stream name.

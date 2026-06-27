@@ -164,8 +164,13 @@ impl Job for Quality {
         // made without a package; results made with them have no
         // `qa_params_version`.
         let settings = carried(&recording, QA_FILE, parse_qa)?.unwrap_or_default();
-        let (roles, cameras) = read_episode(&recording, between)?;
-        let episode = episode.with_roles(roles).with_cameras(cameras);
+        let summary = episode.summary();
+        let span = (summary.started_utc_ns, summary.ended_utc_ns);
+        let recorded = read_episode(&recording, span, between)?;
+        let episode = episode
+            .with_roles(recorded.roles)
+            .with_cameras(recorded.cameras)
+            .with_timing(recorded.timing);
         between()?;
         let made = checks::from_settings(&settings);
         let checks: Vec<&dyn Check> = made.iter().map(AsRef::as_ref).collect();

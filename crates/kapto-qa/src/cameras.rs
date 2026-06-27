@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use kapto_capture::reader::read_start;
+use kapto_config::StreamDeclaration;
 use kapto_config::carried::{carried_manifest, carried_streams};
 use kapto_core::KaptoError;
 use kapto_decode::camera::{CameraKind, Frame, PixelEncoding, frame};
@@ -50,23 +51,16 @@ pub(crate) struct CameraReader {
 }
 
 impl CameraReader {
-    /// The cameras the recording at `recording` declares, by the
-    /// `streams.toml` it carries. A recording whose stream declarations
-    /// can't be read, as one recorded without a package carrying another
-    /// file only, has none known: its other checks still run.
-    pub(crate) fn of(recording: &Path) -> Result<Self, KaptoError> {
-        let start = read_start(recording)?;
-        let streams = carried_manifest(&start.attachments, recording)
-            .and_then(|manifest| carried_streams(&start.attachments, recording, manifest.as_ref()));
-        let kinds = streams
-            .unwrap_or_default()
+    /// The cameras among `declared`.
+    pub(crate) fn of(declared: &[StreamDeclaration]) -> Self {
+        let kinds = declared
             .iter()
             .filter_map(|stream| Some((stream.id.to_string(), stream.camera_kind()?)))
             .collect();
-        Ok(Self {
+        Self {
             kinds,
             frames: BTreeMap::new(),
-        })
+        }
     }
 
     /// Whether the recording has no camera.
@@ -102,6 +96,17 @@ impl CameraReader {
         }
         self.frames
     }
+}
+
+/// The streams the recording at `recording` declares, by the `streams.toml`
+/// it carries. A recording whose stream declarations can't be read, as one
+/// recorded without a package carrying another file only, has none known:
+/// its other checks still run.
+pub(crate) fn declared_streams(recording: &Path) -> Result<Vec<StreamDeclaration>, KaptoError> {
+    let start = read_start(recording)?;
+    Ok(carried_manifest(&start.attachments, recording)
+        .and_then(|manifest| carried_streams(&start.attachments, recording, manifest.as_ref()))
+        .unwrap_or_default())
 }
 
 /// The size of the picture in `data`, a frame of a camera of `kind`, or why

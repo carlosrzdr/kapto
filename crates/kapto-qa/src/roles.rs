@@ -14,8 +14,9 @@ use kapto_config::{FieldReference, parse_mapping};
 use kapto_core::{KaptoError, Role};
 use kapto_decode::{Decoder, DecoderDeclaration, Value};
 
-use crate::cameras::{CameraFrames, CameraReader};
+use crate::cameras::{CameraFrames, CameraReader, declared_streams};
 use crate::carried::carried;
+use crate::timing::{StreamTiming, TimingReader};
 
 /// The name of the robot package's mapping, as recordings carry it.
 const MAPPING_FILE: &str = "mapping.toml";
@@ -23,9 +24,16 @@ const MAPPING_FILE: &str = "mapping.toml";
 /// How many messages are read between two calls to `between`.
 const STEP: u64 = 10_000;
 
-/// What checks read of a recording: every role's values, and every
-/// camera's frames by stream name.
-pub type Recorded = (BTreeMap<Role, RoleColumn>, BTreeMap<String, CameraFrames>);
+/// What checks read of a recording, by role and by stream name.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Recorded {
+    /// Every role's values.
+    pub roles: BTreeMap<Role, RoleColumn>,
+    /// Every camera's frames.
+    pub cameras: BTreeMap<String, CameraFrames>,
+    /// When every stream's messages arrived.
+    pub timing: BTreeMap<String, StreamTiming>,
+}
 
 /// One role's values through an episode: a row for each message of its
 /// stream that could be decoded, in the order received.
@@ -84,34 +92,41 @@ pub fn read_roles(
     recording: &Path,
     between: &mut dyn FnMut() -> Result<(), KaptoError>,
 ) -> Result<BTreeMap<Role, RoleColumn>, KaptoError> {
-    read_recorded(recording, CameraReader::default(), between).map(|(roles, _)| roles)
+    read_recorded(recording, (CameraReader::default(), None), between)
+        .map(|recorded| recorded.roles)
 }
 
-/// What checks read of the recording at `recording`: every role it has,
-/// with its values, as [`read_roles`] reads them, and every camera's
-/// frames, read in the same pass. The recording isn't read at all if it
-/// has neither.
+/// What checks read of the recording at `recording`, of an episode
+/// spanning `span` in UTC nanoseconds: every role it has, with its values,
+/// as [`read_roles`] reads them, every camera's frames, and when every
+/// stream's messages arrived, all read in one pass.
 ///
 /// # Errors
 ///
 /// As [`read_roles`].
 pub fn read_episode(
     recording: &Path,
+    span: (i64, i64),
     between: &mut dyn FnMut() -> Result<(), KaptoError>,
 ) -> Result<Recorded, KaptoError> {
-    read_recorded(recording, CameraReader::of(recording)?, between)
+    let declared = declared_streams(recording)?;
+    let readers = (
+        CameraReader::of(&declared),
+        Some(TimingReader::new(span, &declared)),
+    );
+    read_recorded(recording, readers, between)
 }
 
 fn read_recorded(
     recording: &Path,
-    mut cameras: CameraReader,
+    (mut cameras, mut timing): (CameraReader, Option<TimingReader>),
     between: &mut dyn FnMut() -> Result<(), KaptoError>,
 ) -> Result<Recorded, KaptoError> {
     let wanted = carried(recording, MAPPING_FILE, parse_mapping)?
         .map(|mapping| mapping.all_roles())
         .unwrap_or_default();
-    if wanted.is_empty() && cameras.is_empty() {
-        return Ok((BTreeMap::new(), cameras.finish()));
+    if wanted.is_empty() && cameras.is_empty() && timing.is_none() {
+        return Ok(Recorded::default());
     }
     let mut streams: BTreeMap<String, Option<StreamRoles>> = BTreeMap::new();
     let mut columns: BTreeMap<Role, RoleColumn> = BTreeMap::new();
@@ -126,6 +141,9 @@ fn read_recorded(
             return ControlFlow::Break(());
         }
         cameras.take(&channel.topic, message.log_time, message.data);
+        if let Some(timing) = &mut timing {
+            timing.take(&channel.topic, message.log_time);
+        }
         let stream = streams
             .entry(channel.topic.clone())
             .or_insert_with(|| stream_roles(channel, &wanted));
@@ -158,7 +176,11 @@ fn read_recorded(
     })?;
     match stopped {
         Some(error) => Err(error),
-        None => Ok((columns, cameras.finish())),
+        None => Ok(Recorded {
+            roles: columns,
+            cameras: cameras.finish(),
+            timing: timing.map(TimingReader::finish).unwrap_or_default(),
+        }),
     }
 }
 
