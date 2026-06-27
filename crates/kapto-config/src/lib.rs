@@ -53,8 +53,8 @@ pub use package::{PACKAGE_FILE, PACKAGE_KEYS, PackageManifest, parse_package_man
 pub use qa::{
     AutoencoderAnomaliesSettings, AutoencoderChoice, CameraSettings, DurationSettings,
     FrozenJointsSettings, GripperChatterSettings, IdleSettings, JointJumpsSettings, QA_FILE,
-    QA_KEYS, QaSettings, StatisticalAnomaliesSettings, StatisticsSelection, StreamTimingSettings,
-    StreamsCompleteSettings, StreamsPresentSettings, parse_qa,
+    QA_KEYS, QaSettings, SegmentSettings, StatisticalAnomaliesSettings, StatisticsSelection,
+    StreamTimingSettings, StreamsCompleteSettings, StreamsPresentSettings, parse_qa,
 };
 pub use reader::FileKey;
 pub use session::{

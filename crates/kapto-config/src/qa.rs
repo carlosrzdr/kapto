@@ -32,7 +32,7 @@ pub const QA_FILE: &str = "qa.toml";
 
 /// Every key of `qa.toml`, in the order they are documented: a check's
 /// settings are named after its ID.
-pub const QA_KEYS: [FileKey; 48] = [
+pub const QA_KEYS: [FileKey; 53] = [
     FileKey {
         name: "qa_params_version",
         required: true,
@@ -132,6 +132,31 @@ pub const QA_KEYS: [FileKey; 48] = [
         name: "episode.long.max_seconds",
         required: false,
         help: "The longest episode not flagged, in seconds, from 1 to 86400. `600` by default.",
+    },
+    FileKey {
+        name: "segments.present.enabled",
+        required: false,
+        help: "Whether the gate `segments.present` runs: an episode of a task that declares subtasks marks at least one of them (`subtask.<name>` events). `false` by default: turn it on where every episode's subtasks are marked.",
+    },
+    FileKey {
+        name: "segments.layout.enabled",
+        required: false,
+        help: "Whether `segments.layout` runs: it flags subtasks with more than `max_gap_s` between two, covering less than `min_coverage` of the time from Start to Stop, or lasting less than `min_seconds`. Advisory. `true` by default.",
+    },
+    FileKey {
+        name: "segments.layout.max_gap_s",
+        required: false,
+        help: "The longest time between two subtasks not flagged, in seconds, from 0 to 3600. `5` by default.",
+    },
+    FileKey {
+        name: "segments.layout.min_coverage",
+        required: false,
+        help: "The least share of the time from Start to Stop the subtasks cover, from 0 to 1. `0.5` by default.",
+    },
+    FileKey {
+        name: "segments.layout.min_seconds",
+        required: false,
+        help: "The shortest subtask not flagged, in seconds, from 0 to 3600. `1` by default.",
     },
     FileKey {
         name: "camera.format.enabled",
@@ -292,6 +317,8 @@ pub struct QaSettings {
     pub cameras: CameraSettings,
     /// The advisories `streams.timing`, `streams.rate` and `streams.gap`.
     pub stream_timing: StreamTimingSettings,
+    /// The gate `segments.present` and the advisory `segments.layout`.
+    pub segments: SegmentSettings,
     /// The advisory `motion.jump`.
     pub joint_jumps: JointJumpsSettings,
     /// The advisory `motion.frozen`.
@@ -368,6 +395,36 @@ impl Default for DurationSettings {
             min_seconds: 2.0,
             long_enabled: true,
             max_seconds: 600.0,
+        }
+    }
+}
+
+/// The settings of the gate `segments.present` and the advisory
+/// `segments.layout`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SegmentSettings {
+    /// Whether `segments.present` runs.
+    pub present_enabled: bool,
+    /// Whether `segments.layout` runs.
+    pub layout_enabled: bool,
+    /// The longest time between two subtasks not flagged, in seconds.
+    pub max_gap_s: f64,
+    /// The least share of the time from Start to Stop the subtasks cover.
+    pub min_coverage: f64,
+    /// The shortest subtask not flagged, in seconds.
+    pub min_seconds: f64,
+}
+
+impl Default for SegmentSettings {
+    fn default() -> Self {
+        Self {
+            // Only those who mark every episode's subtasks hold episodes to
+            // it: on by default, every unmarked one would be rejected.
+            present_enabled: false,
+            layout_enabled: true,
+            max_gap_s: 5.0,
+            min_coverage: 0.5,
+            min_seconds: 1.0,
         }
     }
 }
@@ -919,6 +976,23 @@ fn read_episode_checks(
             .number("max_seconds", 0.001..=3600.0)
             .unwrap_or(check.max_gap_s);
     });
+    read_table(file, root, "segments.present", errors, |reader, _| {
+        let check = &mut settings.segments;
+        check.present_enabled = reader.switch("enabled").unwrap_or(check.present_enabled);
+    });
+    read_table(file, root, "segments.layout", errors, |reader, _| {
+        let check = &mut settings.segments;
+        check.layout_enabled = reader.switch("enabled").unwrap_or(check.layout_enabled);
+        check.max_gap_s = reader
+            .number("max_gap_s", 0.0..=3600.0)
+            .unwrap_or(check.max_gap_s);
+        check.min_coverage = reader
+            .number("min_coverage", 0.0..=1.0)
+            .unwrap_or(check.min_coverage);
+        check.min_seconds = reader
+            .number("min_seconds", 0.0..=3600.0)
+            .unwrap_or(check.min_seconds);
+    });
     read_table(file, root, "camera.format", errors, |reader, _| {
         let check = &mut settings.cameras;
         check.format_enabled = reader.switch("enabled").unwrap_or(check.format_enabled);
@@ -1069,6 +1143,7 @@ mod tests {
                 duration: DurationSettings::default(),
                 cameras: CameraSettings::default(),
                 stream_timing: StreamTimingSettings::default(),
+                segments: SegmentSettings::default(),
                 joint_jumps: JointJumpsSettings {
                     enabled: true,
                     max_speed: 20.0,
@@ -1177,6 +1252,20 @@ mod tests {
                 gap_enabled: false,
                 max_gap_s: 0.5,
                 ..StreamTimingSettings::default()
+            }
+        );
+        let segments = parse(
+            "qa_params_version = \"1\"\n[segments.present]\nenabled = true\n\
+             [segments.layout]\nmin_coverage = 0.8\n",
+        )
+        .unwrap()
+        .segments;
+        assert_eq!(
+            segments,
+            SegmentSettings {
+                present_enabled: true,
+                min_coverage: 0.8,
+                ..SegmentSettings::default()
             }
         );
         let cameras = parse(
