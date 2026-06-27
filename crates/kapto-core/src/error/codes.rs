@@ -681,12 +681,6 @@ error_codes! {
         remedy: "The message says why: a picture neither JPEG nor PNG, a raw encoding other than rgb8, bgr8, rgba8, bgra8 or mono8, or a frame that isn't what the camera's stream declares. The frame is recorded as received all the same; export the episode to look at it with another tool.",
     }
 
-    /// The viewer bridge stopped being able to hand data to the viewer.
-    ViewerLoggingFailed = "viewer.logging_failed" {
-        summary: "The viewer stopped taking data",
-        remedy: "Restart the viewer bridge; recording isn't affected. If it happens again, report it with the full message.",
-    }
-
     /// An episode's replay file can't be written.
     ViewerReplayWriteFailed = "viewer.replay_write_failed" {
         summary: "Can't write the episode's replay file",
