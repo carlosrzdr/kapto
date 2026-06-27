@@ -223,7 +223,7 @@ Try Kapto without a robot: run it with the built-in sample arm and a synthetic r
 |---|---|
 | `--robot-port <PORT>` | UDP port the synthetic robot sends to and Kapto receives on |
 | `--rate <HZ>` | Messages per second the synthetic robot sends |
-| `--no-camera <NO_CAMERA>` | Leave out the synthetic wrist camera, whose pictures (640x480 JPEG, 30 a second) Kapto receives over TCP on the port after the robot's |
+| `--no-camera` | Leave out the synthetic wrist camera, whose pictures (640x480 JPEG, 30 a second) Kapto receives over TCP on the port after the robot's |
 
 ## `kapto showcase`
 
@@ -231,7 +231,7 @@ Show Kapto to people in one command: the demo, narrated step by step, recording 
 
 | Option | Description |
 |---|---|
-| `--unattended <UNATTENDED>` | Run every step on by itself instead of waiting for Enter |
+| `--unattended` | Run every step on by itself instead of waiting for Enter |
 | `--episodes <N>` | Ordinary episodes recorded before the robot misbehaves: what the anomaly model learns from (3 or more) |
 | `--seconds <SECONDS>` | Seconds each ordinary episode lasts |
 | `--robot-port <PORT>` | UDP port the synthetic robot sends to and Kapto receives on |
@@ -273,7 +273,7 @@ List the ROS 2 topics this machine's ROS 2 network has, with their message types
 | Option | Description |
 |---|---|
 | `--wait <SECONDS>` | Seconds to wait for publishers to announce themselves before listing their topics |
-| `--streams <STREAMS>` | Print each topic as a `streams.toml` declaration, with the rate it published at while Kapto listened (another --wait seconds), and the largest message seen where that is larger than the default |
+| `--streams` | Print each topic as a `streams.toml` declaration, with the rate it published at while Kapto listened (another --wait seconds), and the largest message seen where that is larger than the default |
 
 ## `kapto export`
 

@@ -162,8 +162,9 @@ fn option(arg: &clap::Arg) -> String {
         .get_long()
         .map(|long| format!("--{long}"))
         .unwrap_or_default();
+    // A switch takes no value, whatever names clap gives it.
     match arg.get_value_names() {
-        Some(names) if !names.is_empty() => {
+        Some(names) if !names.is_empty() && arg.get_action().takes_values() => {
             let names: Vec<String> = names.iter().map(|name| format!("<{name}>")).collect();
             format!("`{long} {}`", names.join(" "))
         }
@@ -1095,6 +1096,17 @@ fn package() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_switch_is_shown_without_a_value_and_an_option_with_its_own() {
+        let switch = clap::Arg::new("unattended")
+            .long("unattended")
+            .value_name("UNATTENDED")
+            .action(clap::ArgAction::SetTrue);
+        assert_eq!(option(&switch), "`--unattended`");
+        let valued = clap::Arg::new("port").long("port").value_name("PORT");
+        assert_eq!(option(&valued), "`--port <PORT>`");
+    }
 
     #[test]
     fn every_page_says_it_is_generated() {
