@@ -417,6 +417,10 @@ fn each_check_ran(run: &kapto_store::QaRun) {
             ("streams.empty", Verdict::NotApplicable),
             ("episode.short", Verdict::Passed),
             ("episode.long", Verdict::Passed),
+            // Its summary is written apart from its recording, at another
+            // time: the stream is far from the episode's start and end.
+            ("streams.timing", Verdict::Failed),
+            ("streams.gap", Verdict::Passed),
             // No camera.
             ("camera.format", Verdict::NotApplicable),
             ("camera.frames", Verdict::NotApplicable),
@@ -458,6 +462,8 @@ fn the_worker_checks_each_episode_with_the_quality_settings_its_recording_carrie
                  [streams.present]\nenabled = false\n[streams.empty]\nenabled = false\n\
                  [episode.short]\nenabled = false\n[episode.long]\nenabled = false\n\
                  [camera.format]\nenabled = false\n[camera.frames]\nenabled = false\n\
+                 [streams.timing]\nenabled = false\n[streams.rate]\nenabled = false\n\
+                 [streams.gap]\nenabled = false\n\
                  [motion.jump]\nenabled = false\n[motion.frozen]\nenabled = false\n\
                  [motion.chatter]\nenabled = false\n[motion.idle]\nenabled = false\n\
                  [anomalies.statistics]\nenabled = false\n\

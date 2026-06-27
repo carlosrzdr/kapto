@@ -7,18 +7,21 @@
     reason = "test helpers fail the test loudly when the setup itself breaks"
 )]
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use kapto_config::{
     CameraSettings, DurationSettings, FrozenJointsSettings, GripperChatterSettings, IdleSettings,
-    JointJumpsSettings, QaSettings, StreamsCompleteSettings, StreamsPresentSettings,
+    JointJumpsSettings, QaSettings, StreamTimingSettings, StreamsCompleteSettings,
+    StreamsPresentSettings,
 };
 use kapto_qa::cameras::CameraFrames;
 use kapto_qa::checks::{
     CameraFormat, CameraFrameSizes, EpisodeLong, EpisodeShort, StreamsComplete, StreamsEmpty,
-    StreamsPresent, from_settings,
+    StreamsGap, StreamsPresent, StreamsTiming, from_settings,
 };
 use kapto_qa::conformance::check_meets_the_contract;
+use kapto_qa::timing::StreamTiming;
 use kapto_qa::{Check, CheckKind, EpisodeView, Verdict};
 use kapto_store::StreamSummary;
 
@@ -112,6 +115,44 @@ fn the_episode_and_stream_presence_checks_meet_the_check_contract() {
 }
 
 #[test]
+fn the_stream_timing_checks_meet_the_check_contract() {
+    let timed = |messages: &[(i64, &str)]| {
+        let mut timing = BTreeMap::new();
+        for &(at, name) in messages {
+            let stream: &mut StreamTiming = timing.entry(name.to_owned()).or_insert(StreamTiming {
+                rate_hz: Some(100),
+                messages: 0,
+                first_utc_ns: at,
+                last_utc_ns: at,
+                bins: vec![0; kapto_qa::timing::BINS],
+                silences: Vec::new(),
+            });
+            stream.messages += 1;
+            stream.last_utc_ns = at;
+            stream.bins[0] += 1;
+        }
+        episode(vec![stream("arm_joints", 0)]).with_timing(timing)
+    };
+    let start = 1_772_700_400_000_000_000;
+    let episodes = [
+        timed(&[(start, "arm_joints"), (start + 10_000_000, "arm_joints")]),
+        timed(&[
+            (start + 50_000_000_000, "arm_joints"),
+            (start + 59_000_000_000, "arm_joints"),
+        ]),
+        episode(Vec::new()),
+    ];
+    check_meets_the_contract(
+        &StreamsTiming {
+            max_start_delay_s: 2.0,
+            max_end_gap_s: 5.0,
+        },
+        &episodes,
+    );
+    check_meets_the_contract(&StreamsGap { max_seconds: 2.0 }, &episodes);
+}
+
+#[test]
 fn the_camera_checks_meet_the_check_contract() {
     let camera = |sizes: &[u64], first_unreadable: Option<&str>| {
         let frames = CameraFrames {
@@ -176,6 +217,8 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
             "streams.empty",
             "episode.short",
             "episode.long",
+            "streams.timing",
+            "streams.gap",
             "camera.format",
             "camera.frames",
             "motion.jump",
@@ -220,6 +263,12 @@ fn the_settings_make_each_check_they_turn_on_with_its_threshold() {
             format_enabled: false,
             frames_enabled: false,
             ..CameraSettings::default()
+        },
+        stream_timing: StreamTimingSettings {
+            timing_enabled: false,
+            rate_enabled: false,
+            gap_enabled: false,
+            ..StreamTimingSettings::default()
         },
         ..QaSettings::default()
     };

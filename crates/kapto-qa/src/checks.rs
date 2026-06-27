@@ -11,10 +11,12 @@ use crate::{Check, CheckKind, EpisodeView, Finding};
 mod camera;
 mod motion;
 mod presence;
+mod timing;
 
 pub use camera::{CameraFormat, CameraFrameSizes};
 pub use motion::{FrozenJoints, GripperChatter, Idle, JointJumps};
 pub use presence::{EpisodeLong, EpisodeShort, StreamsEmpty, StreamsPresent};
+pub use timing::{StreamsGap, StreamsTiming};
 
 /// The checks `settings` turn on, each made with its settings, in the order
 /// they run.
@@ -47,6 +49,18 @@ pub fn from_settings(settings: &QaSettings) -> Vec<Box<dyn Check>> {
     if duration.long_enabled {
         checks.push(Box::new(EpisodeLong {
             max_seconds: duration.max_seconds,
+        }));
+    }
+    let timing = &settings.stream_timing;
+    if timing.timing_enabled {
+        checks.push(Box::new(StreamsTiming {
+            max_start_delay_s: timing.max_start_delay_s,
+            max_end_gap_s: timing.max_end_gap_s,
+        }));
+    }
+    if timing.gap_enabled {
+        checks.push(Box::new(StreamsGap {
+            max_seconds: timing.max_gap_s,
         }));
     }
     let cameras = &settings.cameras;
