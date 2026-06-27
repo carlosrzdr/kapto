@@ -74,6 +74,14 @@ max_dropped = 0
 | `streams.present.enabled` | no | Whether the gate `streams.present` runs: every critical stream has messages in the episode. `true` by default. |
 | `streams.present.critical` | no | The streams `streams.present` fails an episode without, by name, e.g. `["joints", "wrist_camera"]`. Empty by default: then every stream is, but those kept for late subscribers, which may send nothing during an episode. |
 | `streams.empty.enabled` | no | Whether `streams.empty` runs: it flags each stream with no messages in the episode that `streams.present` doesn't fail it for, a stream kept for late subscribers that kept none too. Advisory. `true` by default. |
+| `streams.timing.enabled` | no | Whether `streams.timing` runs: it flags a stream whose first message came more than `max_start_delay_s` after Start was asked, or whose last came more than `max_end_gap_s` before Stop was asked (the episode's own start and end without them). Advisory. `true` by default. |
+| `streams.timing.max_start_delay_s` | no | The longest a stream may take to send its first message, in seconds, from 0 to 3600. `2` by default. |
+| `streams.timing.max_end_gap_s` | no | The longest a stream may be silent before the end, in seconds, from 0 to 3600. `5` by default. |
+| `streams.rate.enabled` | no | Whether `streams.rate` runs: it flags a stream whose measured rate, from its first message to its last, is more than `max_error` off its declared `rate_hz`, or whose rate in the last fifth of the episode is under `min_end_ratio` of its rate in the first fifth. Advisory. `true` by default. |
+| `streams.rate.max_error` | no | The largest share a stream's measured rate may be off its declared one, from 0 to 10. `0.15` by default. |
+| `streams.rate.min_end_ratio` | no | The least share of its rate at the start a stream keeps at the end, from 0 to 1. `0.5` by default. |
+| `streams.gap.enabled` | no | Whether `streams.gap` runs: it flags each silence between two messages of a stream longer than `max_seconds`, or three of its periods if that is longer, naming where. Advisory. `true` by default. |
+| `streams.gap.max_seconds` | no | The longest silence not flagged, in seconds, from 0.001 to 3600. `2` by default. |
 | `episode.short.enabled` | no | Whether the gate `episode.short` runs: the episode lasts at least `min_seconds`. `true` by default. |
 | `episode.short.min_seconds` | no | The shortest episode accepted, in seconds, from 0 to 86400, from its first message to its end. `2` by default: shorter, it can hardly hold a task. |
 | `episode.long.enabled` | no | Whether `episode.long` runs: it flags an episode longer than `max_seconds`, as one left recording does. Advisory. `true` by default. |

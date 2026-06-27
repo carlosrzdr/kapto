@@ -32,7 +32,7 @@ pub const QA_FILE: &str = "qa.toml";
 
 /// Every key of `qa.toml`, in the order they are documented: a check's
 /// settings are named after its ID.
-pub const QA_KEYS: [FileKey; 40] = [
+pub const QA_KEYS: [FileKey; 48] = [
     FileKey {
         name: "qa_params_version",
         required: true,
@@ -72,6 +72,46 @@ pub const QA_KEYS: [FileKey; 40] = [
         name: "streams.empty.enabled",
         required: false,
         help: "Whether `streams.empty` runs: it flags each stream with no messages in the episode that `streams.present` doesn't fail it for, a stream kept for late subscribers that kept none too. Advisory. `true` by default.",
+    },
+    FileKey {
+        name: "streams.timing.enabled",
+        required: false,
+        help: "Whether `streams.timing` runs: it flags a stream whose first message came more than `max_start_delay_s` after Start was asked, or whose last came more than `max_end_gap_s` before Stop was asked (the episode's own start and end without them). Advisory. `true` by default.",
+    },
+    FileKey {
+        name: "streams.timing.max_start_delay_s",
+        required: false,
+        help: "The longest a stream may take to send its first message, in seconds, from 0 to 3600. `2` by default.",
+    },
+    FileKey {
+        name: "streams.timing.max_end_gap_s",
+        required: false,
+        help: "The longest a stream may be silent before the end, in seconds, from 0 to 3600. `5` by default.",
+    },
+    FileKey {
+        name: "streams.rate.enabled",
+        required: false,
+        help: "Whether `streams.rate` runs: it flags a stream whose measured rate, from its first message to its last, is more than `max_error` off its declared `rate_hz`, or whose rate in the last fifth of the episode is under `min_end_ratio` of its rate in the first fifth. Advisory. `true` by default.",
+    },
+    FileKey {
+        name: "streams.rate.max_error",
+        required: false,
+        help: "The largest share a stream's measured rate may be off its declared one, from 0 to 10. `0.15` by default.",
+    },
+    FileKey {
+        name: "streams.rate.min_end_ratio",
+        required: false,
+        help: "The least share of its rate at the start a stream keeps at the end, from 0 to 1. `0.5` by default.",
+    },
+    FileKey {
+        name: "streams.gap.enabled",
+        required: false,
+        help: "Whether `streams.gap` runs: it flags each silence between two messages of a stream longer than `max_seconds`, or three of its periods if that is longer, naming where. Advisory. `true` by default.",
+    },
+    FileKey {
+        name: "streams.gap.max_seconds",
+        required: false,
+        help: "The longest silence not flagged, in seconds, from 0.001 to 3600. `2` by default.",
     },
     FileKey {
         name: "episode.short.enabled",
@@ -250,6 +290,8 @@ pub struct QaSettings {
     pub duration: DurationSettings,
     /// The gate `camera.format` and the advisory `camera.frames`.
     pub cameras: CameraSettings,
+    /// The advisories `streams.timing`, `streams.rate` and `streams.gap`.
+    pub stream_timing: StreamTimingSettings,
     /// The advisory `motion.jump`.
     pub joint_jumps: JointJumpsSettings,
     /// The advisory `motion.frozen`.
@@ -326,6 +368,43 @@ impl Default for DurationSettings {
             min_seconds: 2.0,
             long_enabled: true,
             max_seconds: 600.0,
+        }
+    }
+}
+
+/// The settings of the advisories `streams.timing`, `streams.rate` and
+/// `streams.gap`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StreamTimingSettings {
+    /// Whether `streams.timing` runs.
+    pub timing_enabled: bool,
+    /// The longest a stream may take to send its first message, in seconds.
+    pub max_start_delay_s: f64,
+    /// The longest a stream may be silent before the end, in seconds.
+    pub max_end_gap_s: f64,
+    /// Whether `streams.rate` runs.
+    pub rate_enabled: bool,
+    /// The largest share a measured rate may be off the declared one.
+    pub max_rate_error: f64,
+    /// The least share of its starting rate a stream keeps at the end.
+    pub min_end_rate_ratio: f64,
+    /// Whether `streams.gap` runs.
+    pub gap_enabled: bool,
+    /// The longest silence not flagged, in seconds.
+    pub max_gap_s: f64,
+}
+
+impl Default for StreamTimingSettings {
+    fn default() -> Self {
+        Self {
+            timing_enabled: true,
+            max_start_delay_s: 2.0,
+            max_end_gap_s: 5.0,
+            rate_enabled: true,
+            max_rate_error: 0.15,
+            min_end_rate_ratio: 0.5,
+            gap_enabled: true,
+            max_gap_s: 2.0,
         }
     }
 }
@@ -813,6 +892,33 @@ fn read_episode_checks(
             .number("min_seconds", 0.0..=86_400.0)
             .unwrap_or(check.min_seconds);
     });
+    read_table(file, root, "streams.timing", errors, |reader, _| {
+        let check = &mut settings.stream_timing;
+        check.timing_enabled = reader.switch("enabled").unwrap_or(check.timing_enabled);
+        check.max_start_delay_s = reader
+            .number("max_start_delay_s", 0.0..=3600.0)
+            .unwrap_or(check.max_start_delay_s);
+        check.max_end_gap_s = reader
+            .number("max_end_gap_s", 0.0..=3600.0)
+            .unwrap_or(check.max_end_gap_s);
+    });
+    read_table(file, root, "streams.rate", errors, |reader, _| {
+        let check = &mut settings.stream_timing;
+        check.rate_enabled = reader.switch("enabled").unwrap_or(check.rate_enabled);
+        check.max_rate_error = reader
+            .number("max_error", 0.0..=10.0)
+            .unwrap_or(check.max_rate_error);
+        check.min_end_rate_ratio = reader
+            .number("min_end_ratio", 0.0..=1.0)
+            .unwrap_or(check.min_end_rate_ratio);
+    });
+    read_table(file, root, "streams.gap", errors, |reader, _| {
+        let check = &mut settings.stream_timing;
+        check.gap_enabled = reader.switch("enabled").unwrap_or(check.gap_enabled);
+        check.max_gap_s = reader
+            .number("max_seconds", 0.001..=3600.0)
+            .unwrap_or(check.max_gap_s);
+    });
     read_table(file, root, "camera.format", errors, |reader, _| {
         let check = &mut settings.cameras;
         check.format_enabled = reader.switch("enabled").unwrap_or(check.format_enabled);
@@ -962,6 +1068,7 @@ mod tests {
                 streams_present: StreamsPresentSettings::default(),
                 duration: DurationSettings::default(),
                 cameras: CameraSettings::default(),
+                stream_timing: StreamTimingSettings::default(),
                 joint_jumps: JointJumpsSettings {
                     enabled: true,
                     max_speed: 20.0,
@@ -1054,6 +1161,22 @@ mod tests {
                 min_seconds: 5.0,
                 long_enabled: false,
                 max_seconds: 90.0,
+            }
+        );
+        let timing = parse(
+            "qa_params_version = \"1\"\n[streams.timing]\nmax_start_delay_s = 1\n\
+             [streams.rate]\nmax_error = 0.3\n[streams.gap]\nenabled = false\nmax_seconds = 0.5\n",
+        )
+        .unwrap()
+        .stream_timing;
+        assert_eq!(
+            timing,
+            StreamTimingSettings {
+                max_start_delay_s: 1.0,
+                max_rate_error: 0.3,
+                gap_enabled: false,
+                max_gap_s: 0.5,
+                ..StreamTimingSettings::default()
             }
         );
         let cameras = parse(
