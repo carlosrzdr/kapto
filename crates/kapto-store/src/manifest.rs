@@ -7,7 +7,6 @@
 //! `_FINALISED`, and its files match the manifest. Anything reading episodes
 //! (uploads, exporters, other tools) checks exactly that, and nothing else.
 
-use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::Path;
@@ -289,11 +288,7 @@ fn hash_file(
         bytes += read as u64;
         between().map_err(Stopped::Between)?;
     }
-    let mut hex = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        let _ = write!(hex, "{byte:02x}");
-    }
-    Ok((bytes, hex))
+    Ok((bytes, kapto_core::hex(&hasher.finalize())))
 }
 
 fn write_failed(dir: &Path, error: io::Error) -> KaptoError {

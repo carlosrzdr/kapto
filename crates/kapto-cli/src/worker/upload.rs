@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use kapto_config::UploadDestination;
 use kapto_core::clock::utc_now_ns;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, hex};
 use kapto_server::jobs::{Found, JOB_SOCKET, JobClient, JobOrder, JobRequest, UPLOAD};
 use kapto_store::manifest::MANIFEST_FILE;
 use kapto_store::{Episode, JobFailure, UploadCounts, UploadedObject, episode_folder};
@@ -251,13 +251,5 @@ async fn to(
         episode: episode.to_owned(),
         destination: name.clone(),
         objects,
-    })
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
     })
 }

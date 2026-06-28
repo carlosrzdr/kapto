@@ -28,7 +28,7 @@ use kapto_config::{
     Layout, PACKAGE_FILE, PackageManifest, QA_FILE, QaSettings, parse_layout,
     parse_package_manifest, parse_qa, read_config_file,
 };
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, hex};
 use sha2::{Digest, Sha256};
 
 /// A loaded robot package.
@@ -353,12 +353,4 @@ fn hash_file(path: &Path) -> std::io::Result<(u64, String)> {
         bytes += read as u64;
     }
     Ok((bytes, hex(&hasher.finalize())))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut text = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        let _ = write!(text, "{byte:02x}");
-    }
-    text
 }

@@ -11,7 +11,6 @@
 //! with, as they were when recording started.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -174,12 +173,7 @@ pub fn content_hash<T: Serialize>(copy: &T) -> String {
         .filter(|(key, _)| key.as_str() != "id" && key.as_str() != "hash")
         .collect();
     let text = serde_json::to_string(&fields).unwrap_or_default();
-    Sha256::digest(text.as_bytes())
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
+    kapto_core::hex(&Sha256::digest(text.as_bytes()))
 }
 
 impl OperationMode {
@@ -565,6 +559,7 @@ pub fn episode_folder(data_dir: &Path, id: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
     use std::time::Duration;
 
     use kapto_core::{ClockSample, RecvTime};

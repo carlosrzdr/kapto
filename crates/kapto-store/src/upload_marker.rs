@@ -11,7 +11,7 @@
 //! never overwritten. Anyone reading the bucket treats a folder without it
 //! as not there yet.
 
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, hex};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -122,14 +122,6 @@ impl UploadMarker {
 struct Head {
     format: String,
     version: u32,
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
 }
 
 #[cfg(test)]

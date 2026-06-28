@@ -36,7 +36,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, hex};
 use kapto_store::manifest::{FileEntry, MANIFEST_FILE, Manifest};
 use kapto_store::upload_marker::{SUCCESS_FILE, UploadMarker};
 use object_store::multipart::{MultipartStore, PartId};
@@ -654,14 +654,6 @@ fn unreadable(path: &std::path::Path, error: &dyn std::fmt::Display) -> KaptoErr
     KaptoError::new(ErrorCode::UploadEpisodeUnreadable)
         .detail(error.to_string())
         .context("path", path.display().to_string())
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    bytes.iter().fold(String::new(), |mut text, byte| {
-        let _ = write!(text, "{byte:02x}");
-        text
-    })
 }
 
 #[cfg(test)]
