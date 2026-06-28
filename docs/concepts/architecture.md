@@ -5,27 +5,37 @@ that changes.
 
 ## What exists
 
-Kapto is a single binary, `kapto`, built from a Cargo workspace. Today it
-can load and check its configuration, and `kapto record` records UDP and
-TCP streams into a finalised episode for a fixed time.
+Kapto is a single binary, `kapto`, built from a Cargo workspace. It records
+UDP, TCP and ROS 2 streams into finalised episodes, shows them live and in
+replay in its web UI, checks each episode, and uploads it to the storage
+configured. Selection (what is worth keeping) doesn't exist yet.
 
 ```
 kapto (binary, crates/kapto-cli)
- │  commands: config validate, config show, demo, serve, record, capture,
- │            episode, decode, viz-bridge, replay
+ │  commands: config, record, capture, episode, package, profile, task,
+ │            decode, demo, showcase, serve, viz-bridge, worker, topics,
+ │            export, upload
  │  flags for every setting
  ▼
-kapto-config ─── reads kapto.toml, environment variables and flags,
- │                resolves each setting and records where it came from
+kapto-server ─── supervisor, REST/WebSocket API, the embedded web UI
+kapto-capture ── rings, loss accounting, the MCAP writer, finalisation
+kapto-transport  UDP, TCP and ROS 2 receivers
+kapto-viz ────── the live view's bridge and replays
+kapto-qa ─────── checks, statistics and anomaly detectors
+kapto-upload ─── uploads through object_store
+kapto-robot ──── robot packages, URDF, meshes, forward kinematics
+kapto-decode ─── payloads into named values; camera frames
+kapto-store ──── kapto.db, episode.json, manifests
+kapto-config ─── kapto.toml, environment variables and flags, each
+ │                setting's source; streams, mappings, quality settings
  ▼
 kapto-core ───── shared types: error codes and reports, episode and
                   stream IDs, roles, receive and source timestamps,
                   reading the host's clocks and mapping them to UTC
 ```
 
-The first pieces of the recording path exist, not yet used by the binary: a
-**transport** that receives messages, and the **ring** that carries them from
-a receiver thread to the writer thread.
+The recording path starts with a **transport** that receives messages, and
+the **ring** that carries them from a receiver thread to the writer thread.
 
 `kapto-transport` defines what every input provides (the `Transport` trait)
 and its first implementation, **UDP**: one receiver thread listens on any
@@ -224,8 +234,9 @@ Streams declared outside a package are still recorded, and the episode is
 message layout in `streams.toml`; the recorder stores that layout in the
 recording (as the MCAP channel's schema), so every recording can be decoded
 later: `kapto decode` reads a recording, piece by piece so its size doesn't
-matter, and prints each stream's values as a table or CSV. Nothing decodes
-messages while recording yet.
+matter, and prints each stream's values as a table or CSV. While
+recording, only the live view's tap decodes, off the recording path
+(below).
 A **struct layout** describes a message with a fixed binary layout: each
 field at a byte offset, with a type, byte order, optional array length,
 scale and unit. A layout is checked once (every problem reported with its
@@ -236,7 +247,7 @@ through serde without building the message, with one set of conversion
 rules for both. **CDR**, as ROS 2 serialises messages, is read with the
 message's `.msg` definitions as rosbag2 stores them, through the same path
 follower; it is checked against messages ROS 2 itself serialised
-(`cargo xtask golden cdr`), but no stream declares it yet. **Protobuf** is
+(`cargo xtask golden cdr`), and is how a ROS 2 topic's messages are decoded. **Protobuf** is
 read with a descriptor set and found by path the same way, checked against
 messages encoded by buf; no stream declares it yet either. Payloads are
 always recorded exactly as received; decoding only reads them.
@@ -277,11 +288,11 @@ a batch form computes many samples at once. Its results are checked against
 ROS 2's robot_state_publisher (`cargo xtask golden fk`). A package's
 `mapping.toml` says which decoded value drives which joint; it is checked
 against the robot and its streams and turned into where each joint's value
-sits among a stream's decoded values. The viewer bridge, below, uses all of
-them; recording doesn't.
+sits among a stream's decoded values. The viewer bridge and the quality
+checks, below, use them; recording doesn't.
 
-The other crates in `crates/` exist but are empty: each has a one-line
-description in its `Cargo.toml` of what it will hold.
+`kapto-select`, `kapto-py` and `kapto-wasm` exist but are empty: each has
+a one-line description in its `Cargo.toml` of what it will hold.
 
 It is also packaged as two container images built from one Dockerfile
 (`docker/Dockerfile`): `kapto`, on a slim Debian base, and `kapto-ros2`, on a
@@ -289,8 +300,9 @@ ROS 2 base image. The ROS 2 image's Kapto is built with the `ros2` feature,
 linking ROS 2's own client library (rcl) through `r2r`, so it joins the
 robot's ROS 2 network as the robot's nodes do, over whichever middleware
 `RMW_IMPLEMENTATION` names: the image has Fast DDS (the default), Cyclone
-DDS and Zenoh ([the ROS 2 design](../design/ros-2-through-rcl.md)); so far
-it lists the topics there (`kapto topics`). The slim image's Kapto has no ROS 2 code.
+DDS and Zenoh ([the ROS 2 design](../design/ros-2-through-rcl.md)). It
+lists the topics there (`kapto topics`) and records them, cameras included.
+The slim image's Kapto has no ROS 2 code.
 Building with the feature needs ROS 2 and libclang, so it is only built
 and checked in the ROS 2 image (`cargo xtask ros2`). The node is torn down
 in a few lines of C++ (`teardown.cpp`): a C++ middleware such as Zenoh's
