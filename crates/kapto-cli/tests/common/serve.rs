@@ -79,7 +79,7 @@ impl Serve {
             .arg(folder.join("data"))
             // The robot is silent until a test sends: pre-flight's failed
             // checks mustn't refuse its episodes.
-            .args(["--preflight", "warn"])
+            .args(["--capture-preflight", "warn"])
             .args(flags)
             .env_clear()
             .envs(ros2_environment())

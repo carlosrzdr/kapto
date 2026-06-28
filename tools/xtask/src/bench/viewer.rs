@@ -351,7 +351,7 @@ pub(super) fn start_bridge(
         .arg("--mapping")
         .arg(bridged.mapping)
         .args(["--viewer-stream-port", stream_port])
-        .arg("--tap-socket")
+        .arg("--viewer-tap-socket")
         .arg(bridged.tap_socket)
         .arg("--data-dir")
         .arg(&bridge_dir)

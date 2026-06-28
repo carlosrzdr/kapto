@@ -63,31 +63,51 @@ struct SettingFlags {
     /// Configuration file to use instead of the default location.
     #[arg(long, global = true, value_name = "FILE")]
     config: Option<PathBuf>,
-    /// Address the API and web UI listen on (server.bind).
-    #[arg(long, global = true, value_name = "ADDRESS")]
+    /// Address the API and web UI listen on (`server.bind`)
+    #[arg(
+        long = "server-bind",
+        visible_alias = "bind",
+        global = true,
+        value_name = "ADDRESS"
+    )]
     bind: Option<String>,
-    /// Port of the API and web UI (server.port).
-    #[arg(long, global = true, value_name = "PORT")]
+    /// Port of the API and web UI (`server.port`)
+    #[arg(
+        long = "server-port",
+        visible_alias = "port",
+        global = true,
+        value_name = "PORT"
+    )]
     port: Option<String>,
     /// Port the viewer bridge streams poses and plotted values on (`viewer.stream_port`).
     #[arg(long, global = true, value_name = "PORT")]
     viewer_stream_port: Option<String>,
     /// Unix socket live samples are sent to, for the viewer (`viewer.tap_socket`).
-    #[arg(long, global = true, value_name = "PATH")]
+    #[arg(long = "viewer-tap-socket", global = true, value_name = "PATH")]
     tap_socket: Option<String>,
     /// Unix socket the capture process takes its orders on (`capture.control_socket`).
-    #[arg(long, global = true, value_name = "PATH")]
+    #[arg(long = "capture-control-socket", global = true, value_name = "PATH")]
     control_socket: Option<String>,
-    /// Where recordings and runtime state are stored (paths.data).
-    #[arg(long, global = true, value_name = "DIR")]
+    /// Where recordings and runtime state are stored (`paths.data`)
+    #[arg(
+        long = "paths-data",
+        visible_alias = "data-dir",
+        global = true,
+        value_name = "DIR"
+    )]
     data_dir: Option<String>,
-    /// Where robot packages are stored (paths.packages).
-    #[arg(long, global = true, value_name = "DIR")]
+    /// Where robot packages are stored (`paths.packages`)
+    #[arg(
+        long = "paths-packages",
+        visible_alias = "packages-dir",
+        global = true,
+        value_name = "DIR"
+    )]
     packages_dir: Option<String>,
     /// How many times a second the live view moves the robot (`viewer.display_rate`).
     #[arg(long, global = true, value_name = "HZ")]
     viewer_display_rate: Option<String>,
-    /// MiB of recent live data the viewer bridge keeps for later viewers (viewer.history).
+    /// MiB of recent live data the viewer bridge keeps for later viewers (`viewer.history`)
     #[arg(long, global = true, value_name = "MIB")]
     viewer_history: Option<String>,
     /// Seconds the live view can look back over (`viewer.history_age`).
@@ -97,49 +117,73 @@ struct SettingFlags {
     #[arg(long, global = true, value_name = "SECONDS")]
     viewer_stop_grace: Option<String>,
     /// MiB replays of recorded episodes may take in the cache (`viewer.replay_cache_size`).
-    #[arg(long, global = true, value_name = "MIB")]
+    #[arg(long = "viewer-replay-cache-size", global = true, value_name = "MIB")]
     replay_cache_size: Option<String>,
     /// Days unopened after which a replay leaves the cache (`viewer.replay_cache_age`).
-    #[arg(long, global = true, value_name = "DAYS")]
+    #[arg(long = "viewer-replay-cache-age", global = true, value_name = "DAYS")]
     replay_cache_age: Option<String>,
     /// Seconds capture keeps recording after serve has gone (`capture.control_timeout`).
-    #[arg(long, global = true, value_name = "SECONDS")]
+    #[arg(
+        long = "capture-control-timeout",
+        global = true,
+        value_name = "SECONDS"
+    )]
     control_timeout: Option<String>,
     /// Seconds the capture process may take to stop before it is killed (`capture.stop_grace`).
     #[arg(long, global = true, value_name = "SECONDS")]
     capture_stop_grace: Option<String>,
     /// MiB free below which Kapto warns the disk is running low (`capture.disk_warn_below`).
-    #[arg(long, global = true, value_name = "MIB")]
+    #[arg(long = "capture-disk-warn-below", global = true, value_name = "MIB")]
     disk_warn_below: Option<String>,
     /// MiB free below which recording stops and none starts (`capture.disk_stop_below`).
-    #[arg(long, global = true, value_name = "MIB")]
+    #[arg(long = "capture-disk-stop-below", global = true, value_name = "MIB")]
     disk_stop_below: Option<String>,
-    /// The most MiB set aside for one stream's pre-roll (`capture.pre_roll_max_mib`).
-    #[arg(long, global = true, value_name = "MIB")]
-    pre_roll_max_mib: Option<String>,
+    /// The most MiB set aside for one stream's pre-roll (`capture.pre_roll_max`).
+    #[arg(long = "capture-pre-roll-max", global = true, value_name = "MIB")]
+    pre_roll_max: Option<String>,
     /// Seconds pre-flight watches the streams (`capture.preflight_window`).
-    #[arg(long, global = true, value_name = "SECONDS")]
+    #[arg(
+        long = "capture-preflight-window",
+        global = true,
+        value_name = "SECONDS"
+    )]
     preflight_window: Option<String>,
     /// Seconds of recording pre-flight checks the disk has room for (`capture.preflight_disk_time`).
-    #[arg(long, global = true, value_name = "SECONDS")]
+    #[arg(
+        long = "capture-preflight-disk-time",
+        global = true,
+        value_name = "SECONDS"
+    )]
     preflight_disk_time: Option<String>,
     /// What a failed pre-flight check does to a start: refuse or warn (`capture.preflight`).
-    #[arg(long, global = true, value_name = "POLICY")]
+    #[arg(long = "capture-preflight", global = true, value_name = "POLICY")]
     preflight: Option<String>,
     /// Whether recordings also carry the robot package's meshes (`capture.attach_meshes`).
-    #[arg(long, global = true, value_name = "BOOL")]
+    #[arg(long = "capture-attach-meshes", global = true, value_name = "BOOL")]
     attach_meshes: Option<String>,
     /// How recordings are compressed: lz4, zstd or none (`capture.compression`).
     #[arg(long, global = true, value_name = "COMPRESSION")]
     capture_compression: Option<String>,
     /// Seconds before a process that exited is started again (`supervisor.restart_delay`).
-    #[arg(long, global = true, value_name = "SECONDS")]
+    #[arg(
+        long = "supervisor-restart-delay",
+        global = true,
+        value_name = "SECONDS"
+    )]
     restart_delay: Option<String>,
     /// The longest wait before a process is started again (`supervisor.restart_max_delay`).
-    #[arg(long, global = true, value_name = "SECONDS")]
+    #[arg(
+        long = "supervisor-restart-max-delay",
+        global = true,
+        value_name = "SECONDS"
+    )]
     restart_max_delay: Option<String>,
     /// Seconds a process must run for its exit to count as a new failure (`supervisor.stable_after`).
-    #[arg(long, global = true, value_name = "SECONDS")]
+    #[arg(
+        long = "supervisor-stable-after",
+        global = true,
+        value_name = "SECONDS"
+    )]
     restart_stable_after: Option<String>,
     /// How many times the worker may start a job (`worker.max_attempts`).
     #[arg(long, global = true, value_name = "COUNT")]
@@ -199,41 +243,47 @@ struct SettingFlags {
     #[arg(long, global = true, value_name = "SECONDS")]
     upload_timeout_request: Option<String>,
     /// Frames a second, at most, of each camera sent to the live view (`viewer.camera_max_fps`).
-    #[arg(long, global = true, value_name = "HZ")]
+    #[arg(long = "viewer-camera-max-fps", global = true, value_name = "HZ")]
     camera_max_fps: Option<String>,
     /// Unix socket cameras' frames are sent to, for the viewer (`viewer.frame_socket`).
-    #[arg(long, global = true, value_name = "PATH")]
+    #[arg(long = "viewer-frame-socket", global = true, value_name = "PATH")]
     frame_socket: Option<String>,
 }
 
 /// The flag that sets each deployment setting, as `(setting, flag)`.
 pub const SETTING_FLAGS: &[(&str, &str)] = &[
-    ("server.bind", "--bind"),
-    ("server.port", "--port"),
+    ("server.bind", "--server-bind"),
+    ("server.port", "--server-port"),
     ("viewer.stream_port", "--viewer-stream-port"),
-    ("viewer.tap_socket", "--tap-socket"),
-    ("capture.control_socket", "--control-socket"),
-    ("paths.data", "--data-dir"),
-    ("paths.packages", "--packages-dir"),
+    ("viewer.tap_socket", "--viewer-tap-socket"),
+    ("capture.control_socket", "--capture-control-socket"),
+    ("paths.data", "--paths-data"),
+    ("paths.packages", "--paths-packages"),
     ("viewer.display_rate", "--viewer-display-rate"),
     ("viewer.history", "--viewer-history"),
     ("viewer.history_age", "--viewer-history-age"),
     ("viewer.stop_grace", "--viewer-stop-grace"),
-    ("viewer.replay_cache_size", "--replay-cache-size"),
-    ("viewer.replay_cache_age", "--replay-cache-age"),
-    ("capture.control_timeout", "--control-timeout"),
+    ("viewer.replay_cache_size", "--viewer-replay-cache-size"),
+    ("viewer.replay_cache_age", "--viewer-replay-cache-age"),
+    ("capture.control_timeout", "--capture-control-timeout"),
     ("capture.stop_grace", "--capture-stop-grace"),
-    ("capture.disk_warn_below", "--disk-warn-below"),
-    ("capture.disk_stop_below", "--disk-stop-below"),
-    ("capture.pre_roll_max_mib", "--pre-roll-max-mib"),
-    ("capture.preflight_window", "--preflight-window"),
-    ("capture.preflight_disk_time", "--preflight-disk-time"),
-    ("capture.preflight", "--preflight"),
-    ("capture.attach_meshes", "--attach-meshes"),
+    ("capture.disk_warn_below", "--capture-disk-warn-below"),
+    ("capture.disk_stop_below", "--capture-disk-stop-below"),
+    ("capture.pre_roll_max", "--capture-pre-roll-max"),
+    ("capture.preflight_window", "--capture-preflight-window"),
+    (
+        "capture.preflight_disk_time",
+        "--capture-preflight-disk-time",
+    ),
+    ("capture.preflight", "--capture-preflight"),
+    ("capture.attach_meshes", "--capture-attach-meshes"),
     ("capture.compression", "--capture-compression"),
-    ("supervisor.restart_delay", "--restart-delay"),
-    ("supervisor.restart_max_delay", "--restart-max-delay"),
-    ("supervisor.stable_after", "--restart-stable-after"),
+    ("supervisor.restart_delay", "--supervisor-restart-delay"),
+    (
+        "supervisor.restart_max_delay",
+        "--supervisor-restart-max-delay",
+    ),
+    ("supervisor.stable_after", "--supervisor-stable-after"),
     ("worker.max_attempts", "--worker-max-attempts"),
     (
         "worker.pause_while_recording",
@@ -262,8 +312,8 @@ pub const SETTING_FLAGS: &[(&str, &str)] = &[
     ("upload.backoff_max", "--upload-backoff-max"),
     ("upload.timeout_connect", "--upload-timeout-connect"),
     ("upload.timeout_request", "--upload-timeout-request"),
-    ("viewer.camera_max_fps", "--camera-max-fps"),
-    ("viewer.frame_socket", "--frame-socket"),
+    ("viewer.camera_max_fps", "--viewer-camera-max-fps"),
+    ("viewer.frame_socket", "--viewer-frame-socket"),
 ];
 
 impl SettingFlags {
@@ -303,7 +353,7 @@ impl SettingFlags {
             &self.capture_stop_grace,
             &self.disk_warn_below,
             &self.disk_stop_below,
-            &self.pre_roll_max_mib,
+            &self.pre_roll_max,
             &self.preflight_window,
             &self.preflight_disk_time,
             &self.preflight,
@@ -516,32 +566,32 @@ mod tests {
     fn every_flag_sets_the_setting_listed_for_it() {
         let all = SettingFlags {
             config: None,
-            bind: Some("bind".into()),
-            port: Some("port".into()),
+            bind: Some("server-bind".into()),
+            port: Some("server-port".into()),
             viewer_stream_port: Some("viewer-stream-port".into()),
-            tap_socket: Some("tap-socket".into()),
-            control_socket: Some("control-socket".into()),
-            data_dir: Some("data-dir".into()),
-            packages_dir: Some("packages-dir".into()),
+            tap_socket: Some("viewer-tap-socket".into()),
+            control_socket: Some("capture-control-socket".into()),
+            data_dir: Some("paths-data".into()),
+            packages_dir: Some("paths-packages".into()),
             viewer_display_rate: Some("viewer-display-rate".into()),
             viewer_history: Some("viewer-history".into()),
             viewer_history_age: Some("viewer-history-age".into()),
             viewer_stop_grace: Some("viewer-stop-grace".into()),
-            replay_cache_size: Some("replay-cache-size".into()),
-            replay_cache_age: Some("replay-cache-age".into()),
-            control_timeout: Some("control-timeout".into()),
+            replay_cache_size: Some("viewer-replay-cache-size".into()),
+            replay_cache_age: Some("viewer-replay-cache-age".into()),
+            control_timeout: Some("capture-control-timeout".into()),
             capture_stop_grace: Some("capture-stop-grace".into()),
-            disk_warn_below: Some("disk-warn-below".into()),
-            disk_stop_below: Some("disk-stop-below".into()),
-            pre_roll_max_mib: Some("pre-roll-max-mib".into()),
-            preflight_window: Some("preflight-window".into()),
-            preflight_disk_time: Some("preflight-disk-time".into()),
-            preflight: Some("preflight".into()),
-            attach_meshes: Some("attach-meshes".into()),
+            disk_warn_below: Some("capture-disk-warn-below".into()),
+            disk_stop_below: Some("capture-disk-stop-below".into()),
+            pre_roll_max: Some("capture-pre-roll-max".into()),
+            preflight_window: Some("capture-preflight-window".into()),
+            preflight_disk_time: Some("capture-preflight-disk-time".into()),
+            preflight: Some("capture-preflight".into()),
+            attach_meshes: Some("capture-attach-meshes".into()),
             capture_compression: Some("capture-compression".into()),
-            restart_delay: Some("restart-delay".into()),
-            restart_max_delay: Some("restart-max-delay".into()),
-            restart_stable_after: Some("restart-stable-after".into()),
+            restart_delay: Some("supervisor-restart-delay".into()),
+            restart_max_delay: Some("supervisor-restart-max-delay".into()),
+            restart_stable_after: Some("supervisor-stable-after".into()),
             worker_max_attempts: Some("worker-max-attempts".into()),
             worker_pause_while_recording: Some("worker-pause-while-recording".into()),
             upload_when: Some("upload-when".into()),
@@ -561,11 +611,14 @@ mod tests {
             upload_backoff_max: Some("upload-backoff-max".into()),
             upload_timeout_connect: Some("upload-timeout-connect".into()),
             upload_timeout_request: Some("upload-timeout-request".into()),
-            camera_max_fps: Some("camera-max-fps".into()),
-            frame_socket: Some("frame-socket".into()),
+            camera_max_fps: Some("viewer-camera-max-fps".into()),
+            frame_socket: Some("viewer-frame-socket".into()),
         };
         for flag in all.overrides() {
             assert_eq!(format!("--{}", flag.value), flag.flag, "{}", flag.key);
+            // One rule for every flag: its setting's section and name.
+            let ruled = format!("--{}", flag.key.replace(['.', '_'], "-"));
+            assert_eq!(flag.flag, ruled, "{}", flag.key);
         }
     }
 
@@ -586,9 +639,9 @@ mod tests {
             [
                 "--config",
                 "/etc/kapto.toml",
-                "--port",
+                "--server-port",
                 "7701",
-                "--data-dir",
+                "--paths-data",
                 "/data"
             ]
         );
@@ -615,7 +668,7 @@ mod tests {
             capture_stop_grace: Some(String::new()),
             disk_warn_below: Some(String::new()),
             disk_stop_below: Some(String::new()),
-            pre_roll_max_mib: Some(String::new()),
+            pre_roll_max: Some(String::new()),
             preflight_window: Some(String::new()),
             preflight_disk_time: Some(String::new()),
             preflight: Some(String::new()),

@@ -178,7 +178,12 @@ impl Kapto {
             .arg("--config")
             .arg(config)
             // Once killed, capture stays down for the second step.
-            .args(["--restart-delay", "3600", "--restart-max-delay", "3600"])
+            .args([
+                "--supervisor-restart-delay",
+                "3600",
+                "--supervisor-restart-max-delay",
+                "3600",
+            ])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()

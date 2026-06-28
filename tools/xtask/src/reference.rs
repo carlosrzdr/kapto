@@ -164,6 +164,22 @@ fn option(arg: &clap::Arg) -> String {
         .get_long()
         .map(|long| format!("--{long}"))
         .unwrap_or_default();
+    let aliases: Vec<String> = arg
+        .get_visible_aliases()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|alias| format!("`--{alias}`"))
+        .collect();
+    let named = option_named(arg, &long);
+    if aliases.is_empty() {
+        named
+    } else {
+        format!("{named} (or {})", aliases.join(", "))
+    }
+}
+
+/// `arg` as written: its long name, with its value's name if it takes one.
+fn option_named(arg: &clap::Arg, long: &str) -> String {
     // A switch takes no value, whatever names clap gives it.
     match arg.get_value_names() {
         Some(names) if !names.is_empty() && arg.get_action().takes_values() => {
@@ -1156,6 +1172,11 @@ mod tests {
         assert_eq!(option(&switch), "`--unattended`");
         let valued = clap::Arg::new("port").long("port").value_name("PORT");
         assert_eq!(option(&valued), "`--port <PORT>`");
+        let aliased = clap::Arg::new("port")
+            .long("server-port")
+            .visible_alias("port")
+            .value_name("PORT");
+        assert_eq!(option(&aliased), "`--server-port <PORT>` (or `--port`)");
     }
 
     #[test]
@@ -1196,7 +1217,7 @@ mod tests {
             assert!(page.contains(&format!("## `{}`", key.path)));
             assert!(page.contains(&format!("`{}`", key.env_var())));
         }
-        assert!(page.contains("| Flag | `--port` |"));
+        assert!(page.contains("| Flag | `--server-port` |"));
         assert!(page.contains("| Default | `7700` |"));
     }
 
@@ -1204,6 +1225,7 @@ mod tests {
     fn cli_page_lists_global_options_and_every_command() {
         let page = cli();
         assert!(page.contains("| `--config <FILE>` |"));
+        assert!(page.contains("| `--server-port <PORT>` (or `--port`) |"));
         assert!(page.contains("## `kapto config validate`"));
         assert!(page.contains("## `kapto config show`"));
     }

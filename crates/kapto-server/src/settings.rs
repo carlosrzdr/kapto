@@ -28,7 +28,7 @@ pub struct Setting {
     pub value: String,
     /// Where the value came from: `default`, a file and line such as
     /// `/config/kapto.toml:2`, an environment variable such as
-    /// `env KAPTO_SERVER_PORT`, or a flag such as `flag --port`.
+    /// `env KAPTO_SERVER_PORT`, or a flag such as `flag --server-port`.
     pub source: String,
     /// The unit its value is in, e.g. `s`, `MiB` or `Hz`; `null` for a
     /// value that is no quantity, or a plain count.

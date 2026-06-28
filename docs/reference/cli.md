@@ -9,32 +9,32 @@
 | Option | Description |
 |---|---|
 | `--config <FILE>` | Configuration file to use instead of the default location |
-| `--bind <ADDRESS>` | Address the API and web UI listen on (server.bind) |
-| `--port <PORT>` | Port of the API and web UI (server.port) |
+| `--server-bind <ADDRESS>` (or `--bind`) | Address the API and web UI listen on (`server.bind`) |
+| `--server-port <PORT>` (or `--port`) | Port of the API and web UI (`server.port`) |
 | `--viewer-stream-port <PORT>` | Port the viewer bridge streams poses and plotted values on (`viewer.stream_port`) |
-| `--tap-socket <PATH>` | Unix socket live samples are sent to, for the viewer (`viewer.tap_socket`) |
-| `--control-socket <PATH>` | Unix socket the capture process takes its orders on (`capture.control_socket`) |
-| `--data-dir <DIR>` | Where recordings and runtime state are stored (paths.data) |
-| `--packages-dir <DIR>` | Where robot packages are stored (paths.packages) |
+| `--viewer-tap-socket <PATH>` | Unix socket live samples are sent to, for the viewer (`viewer.tap_socket`) |
+| `--capture-control-socket <PATH>` | Unix socket the capture process takes its orders on (`capture.control_socket`) |
+| `--paths-data <DIR>` (or `--data-dir`) | Where recordings and runtime state are stored (`paths.data`) |
+| `--paths-packages <DIR>` (or `--packages-dir`) | Where robot packages are stored (`paths.packages`) |
 | `--viewer-display-rate <HZ>` | How many times a second the live view moves the robot (`viewer.display_rate`) |
-| `--viewer-history <MIB>` | MiB of recent live data the viewer bridge keeps for later viewers (viewer.history) |
+| `--viewer-history <MIB>` | MiB of recent live data the viewer bridge keeps for later viewers (`viewer.history`) |
 | `--viewer-history-age <SECONDS>` | Seconds the live view can look back over (`viewer.history_age`) |
 | `--viewer-stop-grace <SECONDS>` | Seconds the viewer bridge may take to stop before it is killed (`viewer.stop_grace`) |
-| `--replay-cache-size <MIB>` | MiB replays of recorded episodes may take in the cache (`viewer.replay_cache_size`) |
-| `--replay-cache-age <DAYS>` | Days unopened after which a replay leaves the cache (`viewer.replay_cache_age`) |
-| `--control-timeout <SECONDS>` | Seconds capture keeps recording after serve has gone (`capture.control_timeout`) |
+| `--viewer-replay-cache-size <MIB>` | MiB replays of recorded episodes may take in the cache (`viewer.replay_cache_size`) |
+| `--viewer-replay-cache-age <DAYS>` | Days unopened after which a replay leaves the cache (`viewer.replay_cache_age`) |
+| `--capture-control-timeout <SECONDS>` | Seconds capture keeps recording after serve has gone (`capture.control_timeout`) |
 | `--capture-stop-grace <SECONDS>` | Seconds the capture process may take to stop before it is killed (`capture.stop_grace`) |
-| `--disk-warn-below <MIB>` | MiB free below which Kapto warns the disk is running low (`capture.disk_warn_below`) |
-| `--disk-stop-below <MIB>` | MiB free below which recording stops and none starts (`capture.disk_stop_below`) |
-| `--pre-roll-max-mib <MIB>` | The most MiB set aside for one stream's pre-roll (`capture.pre_roll_max_mib`) |
-| `--preflight-window <SECONDS>` | Seconds pre-flight watches the streams (`capture.preflight_window`) |
-| `--preflight-disk-time <SECONDS>` | Seconds of recording pre-flight checks the disk has room for (`capture.preflight_disk_time`) |
-| `--preflight <POLICY>` | What a failed pre-flight check does to a start: refuse or warn (`capture.preflight`) |
-| `--attach-meshes <BOOL>` | Whether recordings also carry the robot package's meshes (`capture.attach_meshes`) |
+| `--capture-disk-warn-below <MIB>` | MiB free below which Kapto warns the disk is running low (`capture.disk_warn_below`) |
+| `--capture-disk-stop-below <MIB>` | MiB free below which recording stops and none starts (`capture.disk_stop_below`) |
+| `--capture-pre-roll-max <MIB>` | The most MiB set aside for one stream's pre-roll (`capture.pre_roll_max`) |
+| `--capture-preflight-window <SECONDS>` | Seconds pre-flight watches the streams (`capture.preflight_window`) |
+| `--capture-preflight-disk-time <SECONDS>` | Seconds of recording pre-flight checks the disk has room for (`capture.preflight_disk_time`) |
+| `--capture-preflight <POLICY>` | What a failed pre-flight check does to a start: refuse or warn (`capture.preflight`) |
+| `--capture-attach-meshes <BOOL>` | Whether recordings also carry the robot package's meshes (`capture.attach_meshes`) |
 | `--capture-compression <COMPRESSION>` | How recordings are compressed: lz4, zstd or none (`capture.compression`) |
-| `--restart-delay <SECONDS>` | Seconds before a process that exited is started again (`supervisor.restart_delay`) |
-| `--restart-max-delay <SECONDS>` | The longest wait before a process is started again (`supervisor.restart_max_delay`) |
-| `--restart-stable-after <SECONDS>` | Seconds a process must run for its exit to count as a new failure (`supervisor.stable_after`) |
+| `--supervisor-restart-delay <SECONDS>` | Seconds before a process that exited is started again (`supervisor.restart_delay`) |
+| `--supervisor-restart-max-delay <SECONDS>` | The longest wait before a process is started again (`supervisor.restart_max_delay`) |
+| `--supervisor-stable-after <SECONDS>` | Seconds a process must run for its exit to count as a new failure (`supervisor.stable_after`) |
 | `--worker-max-attempts <COUNT>` | How many times the worker may start a job (`worker.max_attempts`) |
 | `--worker-pause-while-recording <BOOL>` | Whether the worker waits while an episode is recorded (`worker.pause_while_recording`) |
 | `--upload-when <WHEN>` | Which episodes are uploaded by themselves (`upload.when`) |
@@ -54,8 +54,8 @@
 | `--upload-backoff-max <SECONDS>` | The longest wait before a request is tried again (`upload.backoff_max`) |
 | `--upload-timeout-connect <SECONDS>` | How long connecting may take (`upload.timeout_connect`) |
 | `--upload-timeout-request <SECONDS>` | How long one request may take (`upload.timeout_request`) |
-| `--camera-max-fps <HZ>` | Frames a second, at most, of each camera sent to the live view (`viewer.camera_max_fps`) |
-| `--frame-socket <PATH>` | Unix socket cameras' frames are sent to, for the viewer (`viewer.frame_socket`) |
+| `--viewer-camera-max-fps <HZ>` | Frames a second, at most, of each camera sent to the live view (`viewer.camera_max_fps`) |
+| `--viewer-frame-socket <PATH>` | Unix socket cameras' frames are sent to, for the viewer (`viewer.frame_socket`) |
 | `-h`, `--help` | Print help |
 | `-V`, `--version` | Print the version (top level only) |
 

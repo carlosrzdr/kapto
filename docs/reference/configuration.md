@@ -17,7 +17,7 @@ Address the API, web UI and viewer listen on. Loopback by default, so only this 
 | Accepts | an IP address such as "127.0.0.1" or "::1" |
 | Default | `127.0.0.1` |
 | Environment variable | `KAPTO_SERVER_BIND` |
-| Flag | `--bind` |
+| Flag | `--server-bind` |
 
 ## `server.port`
 
@@ -29,7 +29,7 @@ Port of the API and web UI.
 | Accepts | an integer from 1 to 65535 |
 | Default | `7700` |
 | Environment variable | `KAPTO_SERVER_PORT` |
-| Flag | `--port` |
+| Flag | `--server-port` |
 
 ## `viewer.stream_port`
 
@@ -65,7 +65,7 @@ How many frames a second, at most, of each camera the recording hands to the liv
 | Accepts | a whole number of times per second from 1 to 1000 |
 | Default | `30` |
 | Environment variable | `KAPTO_VIEWER_CAMERA_MAX_FPS` |
-| Flag | `--camera-max-fps` |
+| Flag | `--viewer-camera-max-fps` |
 
 ## `viewer.history`
 
@@ -113,7 +113,7 @@ How much room, in MiB, replays of recorded episodes may take in the data directo
 | Accepts | a whole number of MiB from 1 to 1048576 |
 | Default | `2048` |
 | Environment variable | `KAPTO_VIEWER_REPLAY_CACHE_SIZE` |
-| Flag | `--replay-cache-size` |
+| Flag | `--viewer-replay-cache-size` |
 
 ## `viewer.replay_cache_age`
 
@@ -125,7 +125,7 @@ After how many days without being opened a replay of a recorded episode is remov
 | Accepts | a whole number of days from 1 to 3650 |
 | Default | `7` |
 | Environment variable | `KAPTO_VIEWER_REPLAY_CACHE_AGE` |
-| Flag | `--replay-cache-age` |
+| Flag | `--viewer-replay-cache-age` |
 
 ## `viewer.tap_socket`
 
@@ -137,7 +137,7 @@ Unix socket the recording sends live samples to, for the viewer. Sending never w
 | Accepts | a non-empty path |
 | Default | `tap.sock` inside the data directory |
 | Environment variable | `KAPTO_VIEWER_TAP_SOCKET` |
-| Flag | `--tap-socket` |
+| Flag | `--viewer-tap-socket` |
 
 ## `viewer.frame_socket`
 
@@ -149,7 +149,7 @@ Unix socket the recording sends cameras' frames to, for the viewer: frames are t
 | Accepts | a non-empty path |
 | Default | `frames.sock` inside the data directory |
 | Environment variable | `KAPTO_VIEWER_FRAME_SOCKET` |
-| Flag | `--frame-socket` |
+| Flag | `--viewer-frame-socket` |
 
 ## `capture.control_socket`
 
@@ -161,7 +161,7 @@ Unix socket the capture process takes its orders on: start and stop episodes, re
 | Accepts | a non-empty path |
 | Default | `capture.sock` inside the data directory |
 | Environment variable | `KAPTO_CAPTURE_CONTROL_SOCKET` |
-| Flag | `--control-socket` |
+| Flag | `--capture-control-socket` |
 
 ## `capture.control_timeout`
 
@@ -173,7 +173,7 @@ How long, in seconds, the capture process keeps recording after `kapto serve` ha
 | Accepts | a number of seconds above 0 and at most 3600, such as 1.5 |
 | Default | `60` |
 | Environment variable | `KAPTO_CAPTURE_CONTROL_TIMEOUT` |
-| Flag | `--control-timeout` |
+| Flag | `--capture-control-timeout` |
 
 ## `capture.stop_grace`
 
@@ -197,7 +197,7 @@ Below how much free space, in MiB, on the disk holding the data directory Kapto 
 | Accepts | a whole number of MiB from 1 to 1048576 |
 | Default | `10240` |
 | Environment variable | `KAPTO_CAPTURE_DISK_WARN_BELOW` |
-| Flag | `--disk-warn-below` |
+| Flag | `--capture-disk-warn-below` |
 
 ## `capture.disk_stop_below`
 
@@ -209,19 +209,19 @@ Below how much free space, in MiB, on the disk holding the data directory the ca
 | Accepts | a whole number of MiB from 1 to 1048576 |
 | Default | `2048` |
 | Environment variable | `KAPTO_CAPTURE_DISK_STOP_BELOW` |
-| Flag | `--disk-stop-below` |
+| Flag | `--capture-disk-stop-below` |
 
-## `capture.pre_roll_max_mib`
+## `capture.pre_roll_max`
 
 The most memory, in MiB, set aside for one stream's pre-roll (`pre_roll_s` in `streams.toml`): what it needs for its seconds at its rate and largest message, up to this. A stream whose messages are larger than that allows holds fewer seconds; the capture process says the total it sets aside when it starts.
 
 | | |
 |---|---|
-| Section and name | `[capture]` `pre_roll_max_mib` |
+| Section and name | `[capture]` `pre_roll_max` |
 | Accepts | a whole number of MiB from 1 to 1048576 |
 | Default | `64` |
-| Environment variable | `KAPTO_CAPTURE_PRE_ROLL_MAX_MIB` |
-| Flag | `--pre-roll-max-mib` |
+| Environment variable | `KAPTO_CAPTURE_PRE_ROLL_MAX` |
+| Flag | `--capture-pre-roll-max` |
 
 ## `capture.preflight_window`
 
@@ -233,7 +233,7 @@ How long, in seconds, pre-flight watches the streams to check each arrives at ro
 | Accepts | a number of seconds above 0 and at most 3600, such as 1.5 |
 | Default | `5` |
 | Environment variable | `KAPTO_CAPTURE_PREFLIGHT_WINDOW` |
-| Flag | `--preflight-window` |
+| Flag | `--capture-preflight-window` |
 
 ## `capture.preflight_disk_time`
 
@@ -245,7 +245,7 @@ How long a recording, in seconds, pre-flight checks the disk has room for at the
 | Accepts | a number of seconds above 0 and at most 3600, such as 1.5 |
 | Default | `600` |
 | Environment variable | `KAPTO_CAPTURE_PREFLIGHT_DISK_TIME` |
-| Flag | `--preflight-disk-time` |
+| Flag | `--capture-preflight-disk-time` |
 
 ## `capture.preflight`
 
@@ -257,7 +257,7 @@ What a failed pre-flight check does to starting an episode: `refuse` refuses the
 | Accepts | one of "refuse", "warn" |
 | Default | `refuse` |
 | Environment variable | `KAPTO_CAPTURE_PREFLIGHT` |
-| Flag | `--preflight` |
+| Flag | `--capture-preflight` |
 
 ## `capture.compression`
 
@@ -281,7 +281,7 @@ Whether each recording also carries the robot package's meshes, and the textures
 | Accepts | true or false |
 | Default | `false` |
 | Environment variable | `KAPTO_CAPTURE_ATTACH_MESHES` |
-| Flag | `--attach-meshes` |
+| Flag | `--capture-attach-meshes` |
 
 ## `supervisor.restart_delay`
 
@@ -293,7 +293,7 @@ How long, in seconds, `kapto serve` waits before starting a process that exited 
 | Accepts | a number of seconds above 0 and at most 3600, such as 1.5 |
 | Default | `1` |
 | Environment variable | `KAPTO_SUPERVISOR_RESTART_DELAY` |
-| Flag | `--restart-delay` |
+| Flag | `--supervisor-restart-delay` |
 
 ## `supervisor.restart_max_delay`
 
@@ -305,7 +305,7 @@ The longest wait, in seconds, before `kapto serve` starts a process again, howev
 | Accepts | a number of seconds above 0 and at most 3600, such as 1.5 |
 | Default | `30` |
 | Environment variable | `KAPTO_SUPERVISOR_RESTART_MAX_DELAY` |
-| Flag | `--restart-max-delay` |
+| Flag | `--supervisor-restart-max-delay` |
 
 ## `supervisor.stable_after`
 
@@ -317,7 +317,7 @@ How long, in seconds, a process must have run for its exit to count as a new fai
 | Accepts | a number of seconds above 0 and at most 3600, such as 1.5 |
 | Default | `60` |
 | Environment variable | `KAPTO_SUPERVISOR_STABLE_AFTER` |
-| Flag | `--restart-stable-after` |
+| Flag | `--supervisor-stable-after` |
 
 ## `worker.max_attempts`
 
@@ -557,7 +557,7 @@ Where recordings and Kapto's runtime state are stored.
 | Accepts | a non-empty path |
 | Default | `$XDG_DATA_HOME/kapto`, else `~/.local/share/kapto`, else `kapto-data` in the working directory |
 | Environment variable | `KAPTO_PATHS_DATA` |
-| Flag | `--data-dir` |
+| Flag | `--paths-data` |
 
 ## `paths.packages`
 
@@ -569,4 +569,4 @@ Where robot packages are stored. Defaults to `packages` inside the data director
 | Accepts | a non-empty path |
 | Default | `packages` inside the data directory |
 | Environment variable | `KAPTO_PATHS_PACKAGES` |
-| Flag | `--packages-dir` |
+| Flag | `--paths-packages` |

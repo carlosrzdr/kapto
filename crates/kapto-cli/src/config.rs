@@ -243,7 +243,7 @@ mod tests {
         let cli = [CliOverride {
             key: "paths.packages",
             value: "/srv/packages".to_owned(),
-            flag: "--packages-dir".to_owned(),
+            flag: "--paths-packages".to_owned(),
         }];
         let config = DeploymentConfig::resolve(&Inputs {
             file: Some(&file),
@@ -254,7 +254,7 @@ mod tests {
         assert_eq!(
             config.packages_dir.source,
             Source::Cli {
-                flag: "--packages-dir".into()
+                flag: "--paths-packages".into()
             }
         );
         assert_eq!(
@@ -278,7 +278,7 @@ capture.control_timeout           60                                       defau
 capture.stop_grace                30                                       default
 capture.disk_warn_below           10240                                    default
 capture.disk_stop_below           2048                                     default
-capture.pre_roll_max_mib          64                                       default
+capture.pre_roll_max              64                                       default
 capture.preflight_window          5                                        default
 capture.preflight_disk_time       600                                      default
 capture.preflight                 refuse                                   default
@@ -307,7 +307,7 @@ upload.backoff_max                300                                      defau
 upload.timeout_connect            10                                       default
 upload.timeout_request            60                                       default
 paths.data                        /home/u/.local/share/kapto               default
-paths.packages                    /srv/packages                            flag --packages-dir
+paths.packages                    /srv/packages                            flag --paths-packages
 "
         );
     }

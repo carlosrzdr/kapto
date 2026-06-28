@@ -33,7 +33,7 @@ What else holds:
 `pre_roll_s` on the stream in `streams.toml`, 0 by default. Capture sets
 aside, when it starts, a ring of bytes per such stream: the stream's rate
 times its seconds times its largest message, capped at
-`capture.pre_roll_max_mib` (a deployment key, 64 MiB by default), and says
+`capture.pre_roll_max` (a deployment key, 64 MiB by default), and says
 the total it set aside. The writer thread copies each message of the
 stream into the ring as it takes the batch, between episodes and during
 them alike, the oldest giving way: what the ring holds is the stream's
@@ -94,7 +94,7 @@ what the episode holds.
   camera a copy of each frame. Measured with the writer's benchmark and
   the system benchmark, and set down in `perf-budget.toml`.
 - Memory grows by the rings set aside, said when capture starts and
-  bounded by `capture.pre_roll_max_mib` per stream.
+  bounded by `capture.pre_roll_max` per stream.
 - `pre_roll_s` and `post_roll_s` are a stream's, in the package: a session
   profile or task can't change them, since the rings are set aside when
   capture starts.

@@ -92,7 +92,7 @@ fn show_names_the_source_of_each_overridden_value() {
     assert!(
         text.contains("9091") && text.contains("environment variable KAPTO_VIEWER_STREAM_PORT")
     );
-    assert!(text.contains("/srv/packages") && text.contains("flag --packages-dir"));
+    assert!(text.contains("/srv/packages") && text.contains("flag --paths-packages"));
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn validate_reports_every_problem_and_exits_with_failure() {
     assert!(errors.contains("error[config.unknown_key]"), "{errors}");
     assert!(errors.contains("did you mean `server.port`?"));
     assert!(errors.contains("error[config.invalid_value]"));
-    assert!(errors.contains("--port \"0\" must be"));
+    assert!(errors.contains("--server-port \"0\" must be"));
     assert!(
         errors.ends_with("\n3 configuration problems found.\n"),
         "{errors}"

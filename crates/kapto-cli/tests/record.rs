@@ -89,7 +89,7 @@ fn start_recording_with(
         .args(args)
         .arg("--data-dir")
         .arg(data)
-        .arg("--tap-socket")
+        .arg("--viewer-tap-socket")
         .arg(tap_socket)
         .env_clear()
         .envs(env.iter().copied())
@@ -480,7 +480,7 @@ fn an_episode_names_the_robot_package_its_streams_were_declared_in_or_none() {
     let (_, with_meshes, _) = record_a_second(
         &package.join("streams.toml"),
         &dir.0.join("data-meshes"),
-        &["--attach-meshes", "true"],
+        &["--capture-attach-meshes", "true"],
     );
     assert_eq!(
         with_meshes,

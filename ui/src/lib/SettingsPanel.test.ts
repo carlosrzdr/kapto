@@ -8,7 +8,7 @@ const settings: SettingsOverview = {
   file: "/home/u/.config/kapto/kapto.toml",
   file_found: false,
   settings: [
-    { key: "server.port", value: "7701", source: "flag --port", default: false, help: "Port of the API and web UI." },
+    { key: "server.port", value: "7701", source: "flag --server-port", default: false, help: "Port of the API and web UI." },
     { key: "log.level", value: "info", source: "default", default: true, help: "How much to log." },
     { key: "worker.max_attempts", value: "3", source: "default", default: true, help: "Starts of a job." },
     { key: "worker.pause_while_recording", value: "false", source: "flag --worker-pause-while-recording", default: false, help: "Wait while recording." },
@@ -26,7 +26,7 @@ describe("SettingsPanel", () => {
     await fireEvent.click(screen.getByText(/4 settings/));
     const port = screen.getByRole("row", { name: /^server\.port/ });
     expect(port.textContent).toContain("7701");
-    expect(port.textContent).toContain("flag --port");
+    expect(port.textContent).toContain("flag --server-port");
     expect(port.classList.contains("changed")).toBe(true);
     expect(port.getAttribute("title")).toBe("Port of the API and web UI.");
     expect(screen.getByRole("row", { name: /^log\.level/ }).classList.contains("changed")).toBe(false);

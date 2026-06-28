@@ -281,7 +281,7 @@ fn the_api_lists_the_settings_serve_runs_with_and_where_each_came_from() {
             .clone()
     };
     // Given as flags by the test.
-    assert_eq!(setting("server.port")["source"], "flag --port");
+    assert_eq!(setting("server.port")["source"], "flag --server-port");
     assert_eq!(setting("server.port")["default"], false);
     assert_eq!(setting("viewer.display_rate")["source"], "default");
     assert_eq!(setting("viewer.display_rate")["default"], true);
@@ -382,7 +382,7 @@ fn capture_keeps_recording_when_serve_is_killed_while_the_bridge_and_worker_end_
     let mut serve = Serve::start_with(
         &folder,
         &root().join("packages/arm7/mapping.toml"),
-        &["--control-timeout", "1"],
+        &["--capture-control-timeout", "1"],
     );
     serve.wait_for("Kapto is running: ", 1);
     let (capture, bridge, worker) = (

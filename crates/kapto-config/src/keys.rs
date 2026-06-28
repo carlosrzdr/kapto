@@ -161,7 +161,7 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         default: DefaultValue::Fixed("2048"),
     },
     Key {
-        path: "capture.pre_roll_max_mib",
+        path: "capture.pre_roll_max",
         value_type: ValueType::Mebibytes,
         help: "The most memory, in MiB, set aside for one stream's pre-roll (`pre_roll_s` in `streams.toml`): what it needs for its seconds at its rate and largest message, up to this. A stream whose messages are larger than that allows holds fewer seconds; the capture process says the total it sets aside when it starts.",
         default: DefaultValue::Fixed("64"),

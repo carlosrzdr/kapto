@@ -80,7 +80,7 @@ pub struct DeploymentConfig {
     /// Below how much free space, in MiB, recording stops.
     pub disk_stop_below_mib: Effective<u64>,
     /// The most memory, in MiB, set aside for one stream's pre-roll.
-    pub pre_roll_max_mib: Effective<u64>,
+    pub pre_roll_max: Effective<u64>,
     /// How long pre-flight watches the streams.
     pub preflight_window: Effective<Duration>,
     /// How long a recording pre-flight checks the disk has room for.
@@ -186,7 +186,7 @@ impl DeploymentConfig {
             capture_stop_grace: take(&mut values, "capture.stop_grace", seconds),
             disk_warn_below_mib: take(&mut values, "capture.disk_warn_below", mebibytes),
             disk_stop_below_mib: take(&mut values, "capture.disk_stop_below", mebibytes),
-            pre_roll_max_mib: take(&mut values, "capture.pre_roll_max_mib", mebibytes),
+            pre_roll_max: take(&mut values, "capture.pre_roll_max", mebibytes),
             preflight_window: take(&mut values, "capture.preflight_window", seconds),
             preflight_disk_time: take(&mut values, "capture.preflight_disk_time", seconds),
             preflight_failures: take(&mut values, "capture.preflight", |value| match value {
@@ -238,7 +238,7 @@ impl DeploymentConfig {
                     "capture.stop_grace" => seconds_text(&self.capture_stop_grace),
                     "capture.disk_warn_below" => text(&self.disk_warn_below_mib),
                     "capture.disk_stop_below" => text(&self.disk_stop_below_mib),
-                    "capture.pre_roll_max_mib" => text(&self.pre_roll_max_mib),
+                    "capture.pre_roll_max" => text(&self.pre_roll_max),
                     "capture.preflight_window" => seconds_text(&self.preflight_window),
                     "capture.preflight_disk_time" => seconds_text(&self.preflight_disk_time),
                     "capture.preflight" => text(&self.preflight_failures),
@@ -813,7 +813,7 @@ mod tests {
         let file = file("[server]\nport = 7701\n");
         let file_env = env(&[]);
         let env_env = env(&[("KAPTO_SERVER_PORT", "7702")]);
-        let flags = [cli("server.port", "7703", "--port")];
+        let flags = [cli("server.port", "7703", "--server-port")];
 
         let cases: [PrecedenceCase<'_>; 4] = [
             (None, &file_env, &[], 7700, Source::Default),
@@ -833,7 +833,7 @@ mod tests {
                 &flags,
                 7703,
                 Source::Cli {
-                    flag: "--port".into(),
+                    flag: "--server-port".into(),
                 },
             ),
         ];
@@ -1291,9 +1291,10 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
 
     #[test]
     fn an_invalid_flag_value_names_the_flag() {
-        let errors = resolve(None, &env(&[]), &[cli("server.port", "x", "--port")]).unwrap_err();
+        let errors =
+            resolve(None, &env(&[]), &[cli("server.port", "x", "--server-port")]).unwrap_err();
         assert_eq!(codes(&errors), [ErrorCode::ConfigInvalidValue]);
-        assert!(errors[0].message().contains("--port \"x\" must be"));
+        assert!(errors[0].message().contains("--server-port \"x\" must be"));
     }
 
     #[test]
@@ -1415,7 +1416,7 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.capture_stop_grace.value, Duration::from_secs(30));
         assert_eq!(config.disk_warn_below_mib.value, 10_240);
         assert_eq!(config.disk_stop_below_mib.value, 2_048);
-        assert_eq!(config.pre_roll_max_mib.value, 64);
+        assert_eq!(config.pre_roll_max.value, 64);
         assert_eq!(config.preflight_window.value, Duration::from_secs(5));
         assert_eq!(config.preflight_disk_time.value, Duration::from_secs(600));
         assert_eq!(config.viewer_stop_grace.value, Duration::from_secs(5));
@@ -1440,8 +1441,12 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
             ("KAPTO_VIEWER_CAMERA_MAX_FPS", "10"),
         ]);
         let flags = [
-            cli("supervisor.stable_after", "15", "--restart-stable-after"),
-            cli("viewer.replay_cache_size", "512", "--replay-cache-size"),
+            cli("supervisor.stable_after", "15", "--supervisor-stable-after"),
+            cli(
+                "viewer.replay_cache_size",
+                "512",
+                "--viewer-replay-cache-size",
+            ),
         ];
         let config = resolve(Some(&file), &vars, &flags).unwrap();
         assert_eq!(config.restart_delay.value, Duration::from_millis(500));

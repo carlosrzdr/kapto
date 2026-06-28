@@ -45,13 +45,13 @@ impl Capture {
     }
 
     /// The same, with more flags. Pre-flight's failed checks don't refuse
-    /// a start unless the flags say `--preflight refuse`: the robot is
+    /// a start unless the flags say `--capture-preflight refuse`: the robot is
     /// silent until a test sends.
     fn start_with(folder: &Path, flags: &[&str]) -> Self {
-        let warn: &[&str] = if flags.contains(&"--preflight") {
+        let warn: &[&str] = if flags.contains(&"--capture-preflight") {
             &[]
         } else {
-            &["--preflight", "warn"]
+            &["--capture-preflight", "warn"]
         };
         let port = free_udp_port();
         let streams = format!(
@@ -241,7 +241,8 @@ fn an_episode_starts_with_the_last_second_before_it_was_started() {
         "[streams.joints]\nrate_hz = 1000\npre_roll_s = 1\nudp = {{ bind = \"127.0.0.1:{port}\" }}\n\
          sequence = {{ offset = 0, type = \"u32\" }}\n"
     );
-    let mut capture = Capture::declaring(&folder, &streams, &port, &["--preflight", "warn"]);
+    let mut capture =
+        Capture::declaring(&folder, &streams, &port, &["--capture-preflight", "warn"]);
     let mut client = capture.client();
 
     // Numbers 0 to 299 more than a second before the start, 300 to 399
@@ -308,7 +309,8 @@ fn loss_in_the_seconds_before_the_start_counts_in_the_episode_and_earlier_loss_d
         "[streams.joints]\nrate_hz = 1000\npre_roll_s = 1\nudp = {{ bind = \"127.0.0.1:{port}\" }}\n\
          sequence = {{ offset = 0, type = \"u32\" }}\n"
     );
-    let mut capture = Capture::declaring(&folder, &streams, &port, &["--preflight", "warn"]);
+    let mut capture =
+        Capture::declaring(&folder, &streams, &port, &["--capture-preflight", "warn"]);
     let mut client = capture.client();
 
     // 5 lost more than a second before the start, then 10 just before it.
@@ -347,7 +349,12 @@ fn with_a_pre_roll_every_stream_starts_when_the_start_was_asked_however_long_it_
     );
     // Pre-flight watches the streams for 3 s once capture starts, and a
     // start asked meanwhile waits for it.
-    let flags = ["--preflight", "warn", "--preflight-window", "3"];
+    let flags = [
+        "--capture-preflight",
+        "warn",
+        "--capture-preflight-window",
+        "3",
+    ];
     let capture = Capture::declaring(&folder, &streams, &joints, &flags);
     let mut client = capture.client();
     let starting = std::thread::spawn(move || start(&mut client));
@@ -403,7 +410,7 @@ fn after_stop_only_a_stream_with_a_post_roll_goes_on_being_recorded_for_it() {
          [streams.voice]\nrate_hz = 1000\npost_roll_s = 2\nudp = {{ bind = \"127.0.0.1:{voice}\" }}\n\
          sequence = {{ offset = 0, type = \"u32\" }}\n"
     );
-    let capture = Capture::declaring(&folder, &streams, &joints, &["--preflight", "warn"]);
+    let capture = Capture::declaring(&folder, &streams, &joints, &["--capture-preflight", "warn"]);
     let robot = UdpSocket::bind("127.0.0.1:0").unwrap();
     let send = |port: &str, numbers: std::ops::Range<u32>| {
         for number in numbers {
@@ -458,7 +465,8 @@ fn datagrams_from_a_source_not_allowed_are_counted_apart_from_the_streams_messag
          udp = {{ bind = \"127.0.0.1:{port}\", allowed_sources = [\"127.0.0.1\"] }}\n\
          sequence = {{ offset = 0, type = \"u32\" }}\n"
     );
-    let mut capture = Capture::declaring(&folder, &streams, &port, &["--preflight", "warn"]);
+    let mut capture =
+        Capture::declaring(&folder, &streams, &port, &["--capture-preflight", "warn"]);
     let mut client = capture.client();
     start(&mut client);
     capture.send(100);
@@ -521,7 +529,12 @@ fn no_episode_starts_on_a_disk_below_the_stopping_limit_and_a_low_one_still_reco
     let limit = above_free(&folder, 1024);
     let capture = Capture::start_with(
         &folder,
-        &["--disk-stop-below", &limit, "--disk-warn-below", &limit],
+        &[
+            "--capture-disk-stop-below",
+            &limit,
+            "--capture-disk-warn-below",
+            &limit,
+        ],
     );
     let error = capture
         .client()
@@ -543,7 +556,7 @@ fn no_episode_starts_on_a_disk_below_the_stopping_limit_and_a_low_one_still_reco
     // Only low: warned, and recorded as usual.
     let folder = scratch("disk-low");
     let limit = above_free(&folder, 1024);
-    let mut capture = Capture::start_with(&folder, &["--disk-warn-below", &limit]);
+    let mut capture = Capture::start_with(&folder, &["--capture-disk-warn-below", &limit]);
     let mut client = capture.client();
     start(&mut client);
     capture.send(100);
@@ -787,7 +800,7 @@ fn kapto_records_its_own_events_around_what_clients_send() {
 #[test]
 fn an_episode_is_finalised_once_its_supervisor_has_been_gone_for_the_control_timeout() {
     let folder = scratch("timeout");
-    let mut capture = Capture::start_with(&folder, &["--control-timeout", "1"]);
+    let mut capture = Capture::start_with(&folder, &["--capture-control-timeout", "1"]);
     let mut supervisor = capture.client();
     assert_eq!(
         supervisor.ask(&Request::Supervise).unwrap(),
@@ -1048,7 +1061,12 @@ fn a_start_is_refused_while_pre_flight_failed_and_records_the_check_once_waived(
     let folder = scratch("preflight-refused");
     let capture = Capture::start_with(
         &folder,
-        &["--preflight", "refuse", "--preflight-window", "1"],
+        &[
+            "--capture-preflight",
+            "refuse",
+            "--capture-preflight-window",
+            "1",
+        ],
     );
     let episode = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_kapto"))
@@ -1115,7 +1133,7 @@ fn a_start_is_refused_while_pre_flight_failed_and_records_the_check_once_waived(
 #[test]
 fn pre_flight_runs_at_start_and_on_demand_and_never_while_recording() {
     let folder = scratch("preflight");
-    let mut capture = Capture::start_with(&folder, &["--preflight-window", "1"]);
+    let mut capture = Capture::start_with(&folder, &["--capture-preflight-window", "1"]);
     let failed = |response: Response| {
         let Response::Preflight(report) = response else {
             panic!("not a pre-flight: {response:?}");
@@ -1225,11 +1243,11 @@ fn a_cameras_frames_on_their_way_to_the_live_view_are_counted_in_the_status() {
         &declared,
         &port,
         &[
-            "--preflight",
+            "--capture-preflight",
             "warn",
-            "--frame-socket",
+            "--viewer-frame-socket",
             frame_socket,
-            "--camera-max-fps",
+            "--viewer-camera-max-fps",
             "100",
         ],
     );

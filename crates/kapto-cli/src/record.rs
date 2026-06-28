@@ -49,7 +49,7 @@ pub(crate) struct RecordSettings {
     /// full Ethernet frame's UDP payload.
     pub(crate) default_max_message_bytes: u32,
     /// The most bytes set aside for one stream's pre-roll
-    /// (`capture.pre_roll_max_mib`).
+    /// (`capture.pre_roll_max`).
     pub(crate) pre_roll_max_bytes: usize,
     /// How long a start may wait for pre-flight to end: the streams without
     /// a pre-roll are held that long while one waits.
@@ -59,7 +59,7 @@ pub(crate) struct RecordSettings {
 impl RecordSettings {
     /// The settings `deployment` gives, the rest their defaults.
     pub(crate) fn of(deployment: &kapto_config::DeploymentConfig) -> Self {
-        let mib = usize::try_from(deployment.pre_roll_max_mib.value).unwrap_or(usize::MAX);
+        let mib = usize::try_from(deployment.pre_roll_max.value).unwrap_or(usize::MAX);
         Self {
             pre_roll_max_bytes: mib.saturating_mul(1 << 20),
             // Pre-flight's disk test may outlast its window by a little.

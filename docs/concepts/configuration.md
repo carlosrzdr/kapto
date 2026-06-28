@@ -25,7 +25,7 @@ server.bind         127.0.0.1                             default
 server.port         7701                                  /home/me/.config/kapto/kapto.toml:2
 viewer.stream_port  9091                                  environment variable KAPTO_VIEWER_STREAM_PORT
 paths.data          /home/me/.local/share/kapto           default
-paths.packages      /srv/packages                         flag --packages-dir
+paths.packages      /srv/packages                         flag --paths-packages
 ```
 
 ## The settings
@@ -314,7 +314,7 @@ each at the time it was received, followed by everything after. It is a
 stream's own, from 0 (none, the default) up to 60 s, and needs the
 stream's `rate_hz`. The capture process sets aside its memory when it
 starts, enough for the seconds at the stream's rate and largest message,
-up to `capture.pre_roll_max_mib` (64 MiB); a stream whose messages are
+up to `capture.pre_roll_max` (64 MiB); a stream whose messages are
 larger than that allows keeps fewer seconds. It says what it set aside
 when it starts. The messages count in the episode's numbers like any
 other, and the episode starts with the first of them. Once one stream

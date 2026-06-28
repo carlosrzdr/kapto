@@ -538,7 +538,10 @@ fn start_recording(
         work.join("data").display().to_string(),
     ];
     if let Some(tap_socket) = &spec.tap_socket {
-        kapto_args.extend(["--tap-socket".to_owned(), tap_socket.display().to_string()]);
+        kapto_args.extend([
+            "--viewer-tap-socket".to_owned(),
+            tap_socket.display().to_string(),
+        ]);
     }
     let container = format!("kapto-bench-{}", std::process::id());
     let mut command = match spec.place {

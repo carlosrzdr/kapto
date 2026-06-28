@@ -68,8 +68,8 @@ mod tests {
         };
         assert_eq!(env.to_string(), "environment variable KAPTO_SERVER_PORT");
         let cli = Source::Cli {
-            flag: "--port".into(),
+            flag: "--server-port".into(),
         };
-        assert_eq!(cli.to_string(), "flag --port");
+        assert_eq!(cli.to_string(), "flag --server-port");
     }
 }

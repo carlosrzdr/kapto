@@ -181,7 +181,7 @@ fn an_episode_keeps_the_profile_and_task_it_was_started_with_as_they_were() {
         .arg(&streams)
         .args(settings(&folder))
         // Its robot never sends: pre-flight's failed checks mustn't refuse.
-        .args(["--preflight", "warn"])
+        .args(["--capture-preflight", "warn"])
         .env_clear()
         .stdout(Stdio::null())
         .stderr(Stdio::null())

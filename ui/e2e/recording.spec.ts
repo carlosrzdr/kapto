@@ -84,7 +84,7 @@ test("the page shows the robot's stream, records an episode and lists it", async
   }
   // xtask starts the demo with its ports as flags.
   await page.getByText(/ changed from the default$/).click();
-  await expect(page.getByRole("row", { name: /^server\.port / })).toContainText("flag --port");
+  await expect(page.getByRole("row", { name: /^server\.port / })).toContainText("flag --server-port");
 
   await open(page, /^Robot/);
   const joints = page.getByRole("table", { name: "Joints" });
