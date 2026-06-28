@@ -52,6 +52,9 @@
     return `Live view: ${parts.join(" · ")}`;
   }
 
+  /** A stream's name in the pieces a line may break between: after each `_`. */
+  const words = (name: string): string[] => name.split(/(?<=_)/);
+
   /** What a stream's dot says, for a screen reader and on hover. */
   function said(state: "silent" | "slow" | "ok" | "kept", expected: number | null | undefined): string {
     if (state === "silent") {
@@ -84,7 +87,9 @@
       <tr>
         <th scope="row">
           <span class="named"
-            ><span class="name">{stream.stream}</span>{#if state}<span
+            ><span class="name"
+              >{#each words(stream.stream) as word, index (index)}{#if index > 0}<wbr />{/if}{word}{/each}</span
+            >{#if state}<span
                 class="dot {state}"
                 role="img"
                 aria-label={said(state, declared[stream.stream])}
@@ -162,9 +167,11 @@
     gap: 0.5rem;
     max-width: 100%;
   }
+  /* Its pieces break apart first; a name without any breaks anywhere, so
+     the table never grows past the panel. */
   .name {
     min-width: 0;
-    overflow-wrap: break-word;
+    overflow-wrap: anywhere;
   }
   .dot {
     flex: none;

@@ -934,6 +934,26 @@ test("a column of more plots than fit scrolls, each plot keeping room for its ch
   await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
 });
 
+test("streams with long names still fit the side panel with every count", async ({ page }) => {
+  const long = { arm_joints: "front_left_actuator_calibration_offsets", wrist_camera: "rear_conveyor_belt_motor_temperatures" };
+  await page.route("**/api/status", async (route) => {
+    const status = await (await route.fetch()).json();
+    for (const stream of status.capture?.streams ?? []) {
+      stream.stream = long[stream.stream as keyof typeof long] ?? stream.stream;
+    }
+    await route.fulfill({ json: status });
+  });
+  for (const size of [
+    { width: 1400, height: 900 },
+    { width: 1024, height: 768 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.goto("/");
+    await expect(page.locator("aside").getByRole("rowheader", { name: /^front_left_actuator/ })).toBeVisible({ timeout: 20_000 });
+    await fitsPanel(page, `with long stream names at ${size.width}×${size.height}`);
+  }
+});
+
 test("the demo's wrist camera is shown live beside the arm", async ({ page }) => {
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
