@@ -48,7 +48,7 @@ use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
-use kapto_capture::control::{self, ControlClient, Request};
+use kapto_capture::control::{self, ANSWER_TIMEOUT, ControlClient, Request};
 use kapto_capture::disk::DiskLimits;
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_store::Writer;
@@ -112,10 +112,6 @@ use uploads::{
 
 /// The API's version: it only ever gains endpoints and fields within one.
 pub const API_VERSION: u32 = 1;
-
-/// How long the capture process may take to answer: stopping finalises the
-/// episode, which writes and syncs its files.
-const CAPTURE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What the API needs to know about this machine.
 #[derive(Clone, Debug)]
@@ -475,7 +471,7 @@ fn invalid(rejection: &JsonRejection) -> Failure {
 async fn ask(state: &ApiState, request: Request) -> Result<control::Response, Failure> {
     let socket = state.control_socket.clone();
     tokio::task::spawn_blocking(move || {
-        ControlClient::connect(&socket, CAPTURE_TIMEOUT)?.ask(&request)
+        ControlClient::connect(&socket, ANSWER_TIMEOUT)?.ask(&request)
     })
     .await
     .map_err(|error| {

@@ -41,6 +41,9 @@ use crate::record::{RecordSettings, load_plan};
 use crate::station::Outcome;
 use crate::viz_bridge::prepare;
 
+/// How long the capture process may take to answer its greeting, once it
+/// listens.
+const CAPTURE_HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long the capture process may take to start answering orders.
 const CAPTURE_START_TIMEOUT: Duration = Duration::from_secs(10);
 /// The processes serve runs, by name.
@@ -422,7 +425,7 @@ fn children(
 fn greet_capture(socket: &Path, shutdown: &AtomicBool) -> Result<(), KaptoError> {
     let deadline = Instant::now() + CAPTURE_START_TIMEOUT;
     loop {
-        match ControlClient::connect(socket, Duration::from_secs(5)) {
+        match ControlClient::connect(socket, CAPTURE_HELLO_TIMEOUT) {
             Ok(_) => return Ok(()),
             Err(error) if error.code() == ErrorCode::CaptureControlUnreachable => {
                 if Instant::now() >= deadline || shutdown.load(Ordering::Relaxed) {

@@ -16,7 +16,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use clap::Args;
-use kapto_capture::control::{ControlClient, NewEvent, Request, Response};
+use kapto_capture::control::{ANSWER_TIMEOUT, ControlClient, NewEvent, Request, Response};
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_loadgen::faults::{Fault, Faults};
 use kapto_loadgen::{Config, Transport, run_with_faults};
@@ -265,7 +265,7 @@ impl Story<'_> {
     fn connect(&self) -> Result<ControlClient, KaptoError> {
         let until = Instant::now() + START_TIMEOUT;
         loop {
-            match ControlClient::connect(&self.control, Duration::from_secs(10)) {
+            match ControlClient::connect(&self.control, ANSWER_TIMEOUT) {
                 Ok(client) => return Ok(client),
                 Err(error) if Instant::now() > until || self.stop.load(Ordering::Relaxed) => {
                     return Err(error);

@@ -5,19 +5,14 @@
 
 use std::fmt::Write as _;
 use std::process::ExitCode;
-use std::time::Duration;
 
 use clap::Subcommand;
-use kapto_capture::control::{ControlClient, NewEvent, Request, Response, Status};
+use kapto_capture::control::{ANSWER_TIMEOUT, ControlClient, NewEvent, Request, Response, Status};
 use kapto_core::clock::utc_now_ns;
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_store::{Event, Phase, Preflight};
 
 use crate::SettingFlags;
-
-/// How long an answer may take: stopping finalises the episode, which
-/// writes and syncs its files.
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Subcommand)]
 pub(crate) enum EpisodeCommand {

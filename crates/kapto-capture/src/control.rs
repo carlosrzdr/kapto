@@ -52,6 +52,12 @@ use crate::tap::MAX_PATH_BYTES;
 /// The protocol version this code speaks.
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// How long a client waits for the capture process's answer to an order:
+/// a stop answers once the episode is finalised, after the longest
+/// post-roll (a minute at most) and the writing and syncing of its files
+/// (up to a minute more on a slow disk).
+pub const ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// The longest request line accepted, so a stuck or hostile client can't
 /// make the capture process buffer without end.
 const MAX_LINE_BYTES: usize = 4096;
