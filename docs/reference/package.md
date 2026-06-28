@@ -126,8 +126,9 @@ How the live view and replays are arranged: columns side by side, each a
 stack of panels, the timeline always under them. Below a width of 70rem
 the columns stack, in order. A package without one is shown with a layout
 made from what it declares: the robot on the left if a joint of it moves;
-on the right each camera, a plot per group of roles (the joints' positions
-first), a plot per stream of the fields no role covers (but its counters
+on the right each camera, a plot per group of roles and per stream (the
+joints' positions first, a robot's arms on streams of their own each in
+its own), a plot per stream of the fields no role covers (but its counters
 and clocks, which only ever climb); the streams' health is beside the view
 in the console. At most 24 panels: beyond, the page can't
 keep its frame rate. A panel naming a stream, field or role the package

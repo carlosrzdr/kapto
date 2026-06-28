@@ -89,6 +89,61 @@ fn the_ros2_sample_arm_is_made_the_same_way_from_its_topics() {
     );
 }
 
+#[test]
+fn two_arms_on_streams_of_their_own_get_a_plot_each_of_their_joints() {
+    let arm = |id: &str| DeclaredStream {
+        id: id.to_owned(),
+        camera: false,
+        fields: vec![("joint_positions".to_owned(), 2), ("gripper".to_owned(), 1)],
+        unplotted: Vec::new(),
+    };
+    let role = |role: &str, field: &str| (role.parse().unwrap(), field.parse().unwrap());
+    let declared = Declared {
+        robot_moves: true,
+        streams: vec![arm("right_arm"), arm("left_arm")],
+        roles: vec![
+            role(
+                "joints.right_shoulder.position",
+                "right_arm.joint_positions[0]",
+            ),
+            role(
+                "joints.right_elbow.position",
+                "right_arm.joint_positions[1]",
+            ),
+            role(
+                "joints.left_shoulder.position",
+                "left_arm.joint_positions[0]",
+            ),
+            role("joints.left_elbow.position", "left_arm.joint_positions[1]"),
+            // One group across both: still a plot each.
+            role("grippers.right.opening", "right_arm.gripper"),
+            role("grippers.left.opening", "left_arm.gripper"),
+        ],
+    };
+    let made = layout(&made(&declared));
+    let plots: Vec<String> = made.columns[1]
+        .panels
+        .iter()
+        .map(|panel| match &panel.kind {
+            PanelKind::Plot { fields } => fields
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" "),
+            other => panic!("not a plot: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        plots,
+        [
+            "role:joints.right_shoulder.position role:joints.right_elbow.position",
+            "role:joints.left_shoulder.position role:joints.left_elbow.position",
+            "role:grippers.right.opening",
+            "role:grippers.left.opening",
+        ]
+    );
+}
+
 /// A robot that doesn't move, two cameras, and a stream of 40 fields.
 fn rig() -> Declared {
     let camera = |id: &str| DeclaredStream {

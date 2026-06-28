@@ -77,9 +77,9 @@ impl Declared {
 }
 
 /// The layout made from what a package declares: the robot on the left if
-/// it moves; on the right each camera, a plot per group of roles (the
-/// joints' positions first), and a plot per stream of its fields no role
-/// covers. The streams' health isn't among them: the console shows it
+/// it moves; on the right each camera, a plot per group of roles and per
+/// stream (the joints' positions first), and a plot per stream of its
+/// fields no role covers. The streams' health isn't among them: the console shows it
 /// beside the view. The same declarations always give the same layout, and
 /// never more panels than a page can draw.
 #[must_use]
@@ -115,9 +115,10 @@ fn panel(kind: PanelKind) -> Panel {
     Panel { kind, height: 1 }
 }
 
-/// A plot per group of roles: the joints' positions, velocities and
-/// efforts, then the other roles by their first segment, in the order they
-/// first appear; each split in plots of at most [`MAX_PLOT_FIELDS`].
+/// A plot per group of roles and stream: the joints' positions, velocities
+/// and efforts, then the other roles by their first segment, in the order
+/// they first appear; each group's streams in the order their roles first
+/// appear, and each split in plots of at most [`MAX_PLOT_FIELDS`].
 fn role_plots(roles: &[(Role, FieldReference)]) -> Vec<PanelKind> {
     let group = |role: &Role| -> String {
         let segments: Vec<&str> = role.segments().collect();
@@ -139,12 +140,25 @@ fn role_plots(roles: &[(Role, FieldReference)]) -> Vec<PanelKind> {
     groups
         .iter()
         .flat_map(|name| {
-            let fields: Vec<PlotField> = roles
-                .iter()
-                .filter(|(role, _)| group(role) == *name)
-                .map(|(role, _)| PlotField::Role(role.clone()))
-                .collect();
-            plots_of(&fields)
+            // A plot draws a chart per stream, so each stream's fields get
+            // a plot of their own rather than sharing one panel's height.
+            let mut streams: Vec<&str> = Vec::new();
+            for (role, source) in roles {
+                if group(role) == *name && !streams.contains(&source.stream.as_str()) {
+                    streams.push(&source.stream);
+                }
+            }
+            streams
+                .into_iter()
+                .flat_map(|stream| {
+                    let fields: Vec<PlotField> = roles
+                        .iter()
+                        .filter(|(role, source)| group(role) == *name && source.stream == stream)
+                        .map(|(role, _)| PlotField::Role(role.clone()))
+                        .collect();
+                    plots_of(&fields)
+                })
+                .collect::<Vec<_>>()
         })
         .collect()
 }
