@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type PlotStream, plotStreams, resolvePlot, SampleBuffer, shortLabels } from "./plots";
+import { type PlotStream, plotStreams, resolvePlot, SampleBuffer, shortLabels, shownStretch } from "./plots";
 import type { Opening } from "./stream";
 
 /** A sample of two values: the first at `value`, the second at its double. */
@@ -116,5 +116,31 @@ describe("shortLabels", () => {
     expect(shortLabels(["gripper.opening"])).toEqual({ heading: "", labels: ["gripper.opening"] });
     expect(shortLabels(["joint_positions[0]", "gripper"])).toEqual({ heading: "", labels: ["joint_positions[0]", "gripper"] });
     expect(shortLabels(["a.b", "a.b"])).toEqual({ heading: "a", labels: ["b", "b"] });
+  });
+});
+
+describe("shownStretch", () => {
+  // 30 s across 600 pixels: 50 ms a pixel.
+  it("shows the span, ending within a pixel of the newest sample", () => {
+    const [from, to] = shownStretch(1_000_037, 30_000, 600);
+    expect(to - from).toBeCloseTo(30);
+    expect(to).toBe(1000);
+    expect(1_000_037 - to * 1000).toBeLessThan(50);
+  });
+
+  it("stays put while samples arrive within the same pixel", () => {
+    expect(shownStretch(1_000_001, 30_000, 600)).toEqual(shownStretch(1_000_049, 30_000, 600));
+  });
+
+  it("moves by whole pixels as samples arrive", () => {
+    const [, before] = shownStretch(1_000_049, 30_000, 600);
+    const [, after] = shownStretch(1_000_149, 30_000, 600);
+    expect((after - before) * 1000).toBeCloseTo(100);
+  });
+
+  it("ends at the newest sample before the plot has a width", () => {
+    const [from, to] = shownStretch(1_000_037, 30_000, 0);
+    expect(from).toBeCloseTo(970.037);
+    expect(to).toBeCloseTo(1000.037);
   });
 });

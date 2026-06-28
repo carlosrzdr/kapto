@@ -4,7 +4,7 @@
   import "uplot/dist/uPlot.min.css";
 
   import { axisTimes, axisTimesSpace } from "./format";
-  import { type PlotPart, type PlotStream, resolvePlot, shortLabels } from "./viewer/plots";
+  import { type PlotPart, type PlotStream, resolvePlot, shortLabels, shownStretch } from "./viewer/plots";
   import { SERIES, token } from "./theme";
 
   interface Props {
@@ -59,6 +59,9 @@
       height: Math.max(80, Math.floor((holder?.clientHeight ?? 160) / Math.max(charts.length, 1)) - 26),
     });
 
+    /** Where the stretch shown ends, UTC milliseconds, as last drawn. */
+    let ending = 0;
+
     /** A chart per stream drawn, each of its values a band from its minimum to its maximum. */
     const build = (next: PlotPart[]) => {
       charts.forEach(({ plot }) => plot.destroy());
@@ -86,7 +89,9 @@
             padding: [8, Math.ceil(timeSpace / 2), 0, 0],
             legend: { show: false },
             cursor: { show: false },
-            scales: { x: { time: true } },
+            // The span shown, rather than the samples' own, so the time axis
+            // doesn't stretch and shrink as they arrive.
+            scales: { x: { time: true, range: (chart) => shownStretch(ending, spanMs, chart.bbox.width) } },
             axes: [
               {
                 ...axis,
@@ -136,7 +141,8 @@
         if (end === null) {
           continue;
         }
-        const data = part.stream.samples.stretch(end - spanMs, part.values);
+        ending = end;
+        const data = part.stream.samples.stretch(shownStretch(end, spanMs, plot.bbox.width)[0] * 1000, part.values);
         // Only up to the end shown: while looking back, nothing after it.
         const [times] = data;
         let last = times?.length ?? 0;

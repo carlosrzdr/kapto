@@ -104,6 +104,18 @@ export class SampleBuffer {
 }
 
 /**
+ * The stretch a plot of `widthPx` shows, `spanMs` long and ending at
+ * `endMs`, in seconds as uPlot takes them. Its end is moved back to a whole
+ * pixel, so that, drawn again as samples arrive, the curve moves by whole
+ * pixels and keeps its shape rather than shimmering.
+ */
+export function shownStretch(endMs: number, spanMs: number, widthPx: number): [number, number] {
+  const msPerPixel = spanMs / widthPx;
+  const end = widthPx > 0 ? Math.floor(endMs / msPerPixel) * msPerPixel : endMs;
+  return [(end - spanMs) / 1000, end / 1000];
+}
+
+/**
  * Each stream's plots from the stream's opening message: a field holding
  * one value is one plot, an array's values share one; values that aren't
  * plotted (counters, clocks) are left out, and a stream with none has no
