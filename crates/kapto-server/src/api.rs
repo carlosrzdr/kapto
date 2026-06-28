@@ -436,7 +436,10 @@ impl From<KaptoError> for Failure {
             | ErrorCode::UploadCredentialsMissing => StatusCode::CONFLICT,
             // The destination answered, or didn't: its trouble, not the
             // request's.
-            ErrorCode::UploadUnreachable
+            // Another party answered, but not as expected: capture, or
+            // an upload destination.
+            ErrorCode::CaptureControlUnexpectedAnswer
+            | ErrorCode::UploadUnreachable
             | ErrorCode::UploadDenied
             | ErrorCode::UploadFailed
             | ErrorCode::UploadVerifyFailed => StatusCode::BAD_GATEWAY,
@@ -485,7 +488,7 @@ async fn ask(state: &ApiState, request: Request) -> Result<control::Response, Fa
 
 fn unexpected(response: &control::Response) -> Failure {
     Failure::from(
-        KaptoError::new(ErrorCode::CaptureControlUnreachable)
+        KaptoError::new(ErrorCode::CaptureControlUnexpectedAnswer)
             .detail(format!("unexpected answer: {response:?}")),
     )
 }

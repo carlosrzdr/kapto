@@ -261,6 +261,6 @@ fn table(status: &Status) -> String {
 }
 
 fn unexpected(detail: &str) -> KaptoError {
-    KaptoError::new(ErrorCode::CaptureControlUnreachable)
+    KaptoError::new(ErrorCode::CaptureControlUnexpectedAnswer)
         .detail(format!("unexpected answer {detail}"))
 }

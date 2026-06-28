@@ -295,6 +295,33 @@ fn a_clients_requests_reach_the_owner_and_its_answers_and_refusals_come_back() {
     );
 }
 
+#[test]
+fn an_error_this_side_doesnt_know_is_an_unexpected_answer_not_capture_gone() {
+    let folder = scratch("unknown-error");
+    let socket = folder.join("c.sock");
+    let server = ControlServer::listen(&socket).unwrap();
+    let client = thread::spawn({
+        let socket = socket.clone();
+        move || {
+            let mut client = ControlClient::connect(&socket, TIMEOUT).unwrap();
+            client.ask(&Request::Status).unwrap_err()
+        }
+    });
+    answer_until(&server, &|| client.is_finished(), &|_| Response::Error {
+        code: "capture.from_a_later_release".to_owned(),
+        message: "Something new".to_owned(),
+    });
+    let error = client.join().unwrap();
+    assert_eq!(error.code(), ErrorCode::CaptureControlUnexpectedAnswer);
+    assert!(
+        error
+            .message()
+            .contains("capture.from_a_later_release: Something new"),
+        "{}",
+        error.message()
+    );
+}
+
 /// Waits until `check` holds.
 fn eventually(what: &str, check: impl Fn() -> bool) {
     let deadline = Instant::now() + TIMEOUT;

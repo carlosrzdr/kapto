@@ -18,6 +18,7 @@ for how to read an error report.
 | `capture.control_invalid_request` | The control request couldn't be understood | Each request is one line of JSON, and a connection starts with {"command":"hello","version":1}. Use `kapto episode` or the API rather than writing to the socket by hand. |
 | `capture.control_version_mismatch` | The capture process speaks another control protocol version | Run the capture process and whatever controls it from the same Kapto release, and restart both after an upgrade. |
 | `capture.control_unreachable` | Can't reach the capture process | Check that `kapto capture` is running and that both use the same capture.control_socket (by default `capture.sock` in the data directory). |
+| `capture.control_unexpected_answer` | The capture process answered with something unexpected | Run the capture process and whatever controls it from the same Kapto release, and restart both after an upgrade. If they are, report it with the message. |
 | `capture.already_recording` | An episode is already being recorded | Stop the current episode first; one episode is recorded at a time. |
 | `capture.not_recording` | No episode is being recorded | Start an episode first. If it was started with a duration, it may already have ended. |
 | `capture.preflight_failed` | Pre-flight failed: this machine may not record what the robot sends | Fix what each failed check says and run pre-flight again (`kapto episode preflight`), or record anyway by waiving each failed check (`kapto episode start --waive <code>`); the episode then says which were waived. |

@@ -837,12 +837,12 @@ fn refused(code: &str, message: &str) -> KaptoError {
                 KaptoError::new(code).detail(detail.to_owned())
             }
         }
-        None => KaptoError::new(ErrorCode::CaptureControlUnreachable)
+        None => KaptoError::new(ErrorCode::CaptureControlUnexpectedAnswer)
             .detail(format!("{code}: {message}")),
     }
 }
 
 fn unexpected(response: &Response) -> KaptoError {
-    KaptoError::new(ErrorCode::CaptureControlUnreachable)
+    KaptoError::new(ErrorCode::CaptureControlUnexpectedAnswer)
         .detail(format!("unexpected answer: {response:?}"))
 }

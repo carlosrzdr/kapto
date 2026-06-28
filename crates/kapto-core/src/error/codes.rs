@@ -72,6 +72,13 @@ error_codes! {
         remedy: "Check that `kapto capture` is running and that both use the same capture.control_socket (by default `capture.sock` in the data directory).",
     }
 
+    /// The capture process answered, but not as this side expects: an
+    /// answer of another kind, or an error it doesn't know.
+    CaptureControlUnexpectedAnswer = "capture.control_unexpected_answer" {
+        summary: "The capture process answered with something unexpected",
+        remedy: "Run the capture process and whatever controls it from the same Kapto release, and restart both after an upgrade. If they are, report it with the message.",
+    }
+
     /// An episode was asked to start while one is being recorded.
     CaptureAlreadyRecording = "capture.already_recording" {
         summary: "An episode is already being recorded",
