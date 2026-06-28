@@ -62,7 +62,16 @@ impl ExtensionHandler for FindPackage {
         let current = self.current.borrow();
         Finder::new(&current, &self.search_paths)
             .package_folder(package)
-            .map(|folder| Some(folder.display().to_string()))
+            // Absolute: xacro reads a relative include from beside the
+            // file that names it, which would join the path twice.
+            .map(|folder| {
+                Some(
+                    std::path::absolute(&folder)
+                        .unwrap_or(folder)
+                        .display()
+                        .to_string(),
+                )
+            })
             .ok_or_else(|| {
                 format!(
                     "no package `{package}` beside {} or in the packages folder",

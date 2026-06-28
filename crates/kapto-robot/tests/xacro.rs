@@ -116,6 +116,38 @@ fn universal_robots_ur5e_expands_to_the_robot_ros_own_xacro_makes_of_it() {
 }
 
 #[test]
+fn a_description_given_by_a_relative_path_includes_from_its_own_package() {
+    let dir = TempDir::new("xacro-relative");
+    // Deeper than where the test runs, so that a path joined twice can't
+    // climb back to the root and land on the file by chance.
+    dir.write(
+        "deep/a/b/c/d/e/f/g/h/arm_description/package.xml",
+        br#"<?xml version="1.0"?><package format="3"><name>arm_description</name></package>"#,
+    );
+    dir.write(
+        "deep/a/b/c/d/e/f/g/h/arm_description/urdf/link.xacro",
+        br#"<robot xmlns:xacro="http://www.ros.org/wiki/xacro"><link name="forearm"/></robot>"#,
+    );
+    let arm = dir.write(
+        "deep/a/b/c/d/e/f/g/h/arm_description/urdf/arm.urdf.xacro",
+        br#"<robot name="arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+             <xacro:include filename="$(find arm_description)/urdf/link.xacro"/>
+           </robot>"#,
+    );
+    // As given on the command line to Kapto run from here.
+    let up = "../".repeat(std::env::current_dir().unwrap().components().count() - 1);
+    let relative = PathBuf::from(format!(
+        "{up}{}",
+        arm.display().to_string().trim_start_matches('/')
+    ));
+    assert!(relative.is_relative());
+    let text = expand_xacro(&relative, &args(&[]), &[]).unwrap();
+    let model = parse_urdf(&text, &arm.with_extension(""), &[]).unwrap();
+    assert_eq!(model.links.len(), 1);
+    assert_eq!(model.links[0].name, "forearm");
+}
+
+#[test]
 fn find_names_the_folder_kapto_finds_a_package_in_and_what_isnt_found_says_where() {
     let dir = TempDir::new("xacro-find");
     // Cloned into folders named otherwise than the packages they declare.
