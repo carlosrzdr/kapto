@@ -15,10 +15,14 @@
 //! by its path through the message (see [`path`]). It compiles into a
 //! [`PathDecoder`].
 //!
-//! [`DecoderDeclaration`] is either, as a stream declares it.
-//!
 //! [`cdr`] reads ROS 2 messages: CDR payloads with their `.msg` definitions.
-//! [`protobuf`] reads Protobuf messages with a descriptor set.
+//! [`protobuf`] reads Protobuf messages with a descriptor set; no stream
+//! can declare it yet.
+//!
+//! [`DecoderDeclaration`] is a struct layout, a path layout or a CDR
+//! layout, as a stream declares it.
+//!
+//! [`camera`] reads a camera's frames: the picture in each.
 
 pub mod camera;
 pub mod cdr;

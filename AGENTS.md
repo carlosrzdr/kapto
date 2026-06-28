@@ -65,7 +65,7 @@ command (benchmarks, golden files, the demo, serve, the load generator).
 | `crates/kapto-core` | Shared types: IDs, timestamps, roles, cause-coded errors, clocks |
 | `crates/kapto-config` | TOML config: schemas, precedence, source tracking |
 | `crates/kapto-transport` | `Transport` trait; UDP, TCP, ROS 2 (feature `ros2`) |
-| `crates/kapto-decode` | `Decoder` trait; struct layout, CDR, Protobuf, FlatBuffers, JSON, MsgPack |
+| `crates/kapto-decode` | `Decoder` trait; struct layout, CDR, Protobuf, JSON, MsgPack; camera frames; FlatBuffers *(planned)* |
 | `crates/kapto-capture` | Batches, rings, loss accounting, MCAP writer, finalisation, kept messages |
 | `crates/kapto-robot` | Robot packages, URDF, meshes, mapping, linter, forward kinematics |
 | `crates/kapto-qa` | `Check` trait, checks, statistics, labellers |
