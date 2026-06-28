@@ -1112,6 +1112,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_cause_code_the_web_ui_gives_is_one_kapto_lists() {
+        let ui = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/src");
+        let mut unlisted = Vec::new();
+        let mut seen = 0;
+        let mut folders = vec![ui];
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(&folder).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    folders.push(path);
+                    continue;
+                }
+                let name = path.to_string_lossy().into_owned();
+                let extension = path.extension().and_then(|extension| extension.to_str());
+                let source = matches!(extension, Some("ts" | "svelte"))
+                    && !name.contains(".test.")
+                    && !name.ends_with("api-types.ts");
+                if !source {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                for (at, _) in text.match_indices("code: \"ui.") {
+                    let rest = &text[at + "code: \"".len()..];
+                    let code = &rest[..rest.find('"').unwrap()];
+                    seen += 1;
+                    if !ErrorCode::ALL.iter().any(|listed| listed.id() == code) {
+                        unlisted.push(format!("{name}: {code}"));
+                    }
+                }
+            }
+        }
+        assert!(seen > 0, "no `ui.` cause code found in the UI's source");
+        assert_eq!(unlisted, Vec::<String>::new());
+    }
+
+    #[test]
     fn a_switch_is_shown_without_a_value_and_an_option_with_its_own() {
         let switch = clap::Arg::new("unattended")
             .long("unattended")

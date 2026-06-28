@@ -298,7 +298,7 @@
   function failure(error: unknown): ApiFailure {
     return error instanceof ApiFailure
       ? error
-      : new ApiFailure({ code: "ui.error", message: String(error), remedy: "Reload the page." });
+      : new ApiFailure({ code: "ui.page_failed", message: String(error), remedy: "Reload the page; if it happens again, report it with the message." });
   }
 
   async function refresh() {

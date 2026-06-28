@@ -360,6 +360,36 @@ error_codes! {
         remedy: "The message names what couldn't be read. Check that the file is plain URDF XML with a <robot> element; a .xacro file must first be expanded, e.g. `xacro robot.urdf.xacro > robot.urdf`.",
     }
 
+    /// The web UI asked Kapto something and had no answer in time.
+    UiServerSlow = "ui.server_slow" {
+        summary: "Kapto didn't answer the page in time",
+        remedy: "Check what `kapto serve` is doing; the page asks again by itself.",
+    }
+
+    /// The web UI can't reach Kapto at all.
+    UiServerUnreachable = "ui.server_unreachable" {
+        summary: "Kapto doesn't answer the page",
+        remedy: "Check that `kapto serve` is running, then reload the page.",
+    }
+
+    /// Kapto answered the web UI with an error that isn't one of its own.
+    UiUnexpectedResponse = "ui.unexpected_response" {
+        summary: "Kapto answered the page with something it doesn't understand",
+        remedy: "Reload the page; if it happens again, report it.",
+    }
+
+    /// The web UI was built for another version of Kapto's API.
+    UiApiVersionMismatch = "ui.api_version_mismatch" {
+        summary: "The page was built for another version of Kapto",
+        remedy: "Reload the page so the browser takes the UI that Kapto serves now.",
+    }
+
+    /// The web UI itself failed, outside any request to Kapto.
+    UiPageFailed = "ui.page_failed" {
+        summary: "The page failed",
+        remedy: "Reload the page; if it happens again, report it with the message.",
+    }
+
     /// An API request's body isn't what the endpoint takes.
     ApiInvalidRequest = "api.invalid_request" {
         summary: "The request isn't what this endpoint takes",

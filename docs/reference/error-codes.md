@@ -64,6 +64,11 @@ for how to read an error report.
 | `robot.xacro_failed` | Can't expand the robot description from xacro | The message says which file and what went wrong in it. Give the arguments the description expects with `--arg name:=value`, and check that each package it finds with `$(find)` is beside it or in the packages folder. |
 | `robot.mesh_unsupported_format` | Kapto can't read this mesh format | Convert the mesh to STL, OBJ, COLLADA (.dae) or glTF (.gltf or .glb), e.g. with Blender, and point the robot description at the converted file. |
 | `robot.urdf_invalid` | The robot description isn't valid URDF | The message names what couldn't be read. Check that the file is plain URDF XML with a <robot> element; a .xacro file must first be expanded, e.g. `xacro robot.urdf.xacro > robot.urdf`. |
+| `ui.server_slow` | Kapto didn't answer the page in time | Check what `kapto serve` is doing; the page asks again by itself. |
+| `ui.server_unreachable` | Kapto doesn't answer the page | Check that `kapto serve` is running, then reload the page. |
+| `ui.unexpected_response` | Kapto answered the page with something it doesn't understand | Reload the page; if it happens again, report it. |
+| `ui.api_version_mismatch` | The page was built for another version of Kapto | Reload the page so the browser takes the UI that Kapto serves now. |
+| `ui.page_failed` | The page failed | Reload the page; if it happens again, report it with the message. |
 | `api.invalid_request` | The request isn't what this endpoint takes | Send a JSON body with `Content-Type: application/json`, as described in the API reference; an endpoint without fields takes `{}`. |
 | `api.host_not_allowed` | The request was addressed to a host name this server doesn't answer to | Open Kapto as http://localhost:<port> or http://127.0.0.1:<port>. While server.bind is a loopback address, Kapto only answers to those, so a web page can't reach it through a DNS name that points to this machine. To reach it under another name, set server.bind to an address on the network. |
 | `api.origin_not_allowed` | A page from another site may not open the event stream | Open the event stream from Kapto's own web UI, or from a program that doesn't send an Origin header. Browsers send it, so other sites' pages are refused. |
