@@ -13,8 +13,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use kapto_capture::{Batch, ChannelSpec, LossCounters, Recording, WriterConfig};
+use kapto_capture::{Batch, ChannelSchema, ChannelSpec, LossCounters, Recording, WriterConfig};
 use kapto_core::{ClockMap, ClockSample, ErrorCode, KaptoError, RecvTime};
+use kapto_decode::{FieldSpec, STRUCT_ENCODING, ScalarType, StructLayout};
 use kapto_robot::{is_mesh_or_texture, load_package};
 use kapto_store::records::EPISODE_RECORD;
 use kapto_testkit::TempDir;
@@ -245,6 +246,56 @@ fn a_recording_made_without_a_package_is_replayed_as_values_without_a_robot() {
     assert_eq!(view.about().scene, None);
     let records = view.records(0, i64::MIN, i64::MAX).unwrap();
     assert!(records.iter().all(|record| record.poses.is_none()));
+}
+
+#[test]
+fn a_recording_carrying_no_stream_declarations_is_replayed_by_its_stored_layouts() {
+    let folder = TempDir::new("replay-stored-layouts");
+    let path = folder.0.join("recording.mcap");
+    let clock = ClockMap::new(ClockSample {
+        mono: RecvTime::from_nanos(0),
+        utc_ns: START_UTC_NS,
+        uncertainty: Duration::ZERO,
+    });
+    // The arm's message, as the channel's stored layout says it: nothing
+    // else is carried.
+    let layout = StructLayout {
+        fields: vec![
+            FieldSpec::new("sequence", ScalarType::U32, 0),
+            FieldSpec {
+                count: 7,
+                ..FieldSpec::new("angles", ScalarType::F64, 12)
+            },
+        ],
+    };
+    let arm = ChannelSpec {
+        stream: 0,
+        id: "arm_joints".parse().unwrap(),
+        schema: Some(ChannelSchema {
+            message_encoding: STRUCT_ENCODING.to_owned(),
+            name: "arm_joints".to_owned(),
+            encoding: STRUCT_ENCODING.to_owned(),
+            data: layout.to_schema_json().into_bytes(),
+            metadata: BTreeMap::new(),
+        }),
+    };
+    let mut recording = Recording::create(&path, &[arm], &clock, &WriterConfig::default()).unwrap();
+    let counters = LossCounters::new(1);
+    for n in 0..10 {
+        let payload = message(n, f64::from(n) / 1000.0);
+        let mut batch = Batch::new(1, payload.len());
+        batch.push(0, &payload);
+        batch.set_recv_time(RecvTime::from_nanos(u64::from(n) * PERIOD_NS));
+        recording.write(&batch, &counters).unwrap();
+    }
+    recording.finish(&clock).unwrap();
+
+    let (view, _, _) = replayed(&path, &folder.0);
+    assert_eq!(view.about().messages, 10);
+    // Its values, plotted, as a recording that carries its streams.toml.
+    let (_, panels) = layout_of(&view);
+    let kinds: Vec<&str> = panels.iter().map(|(kind, _)| kind.as_str()).collect();
+    assert_eq!(kinds, ["plot"]);
 }
 
 #[test]

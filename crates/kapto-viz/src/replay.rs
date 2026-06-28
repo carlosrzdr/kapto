@@ -12,11 +12,14 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kapto_capture::reader::{RecordingStart, read_events, read_recording, read_start};
+use kapto_capture::reader::{
+    RecordingStart, is_kapto_channel, read_events, read_recording, read_start, recorded_channels,
+};
 use kapto_capture::tap::wire::TapSample;
 use kapto_config::carried::{carried_file, carried_manifest, carried_streams, slash_path};
 use kapto_config::{
-    MappingDeclaration, PackageManifest, StreamDeclaration, parse_layout, parse_mapping,
+    DecoderDeclaration, MappingDeclaration, PackageManifest, StreamDeclaration, parse_layout,
+    parse_mapping,
 };
 use kapto_core::{ClockSample, ErrorCode, KaptoError, RecvTime};
 use kapto_decode::{Decoder, Value};
@@ -170,7 +173,10 @@ fn replay(
     let mut drawn = None;
     let mut replayed = Replayed::default();
     let manifest = carried_manifest(&start.attachments, recording)?;
-    let streams = carried_streams(&start.attachments, recording, manifest.as_ref())?;
+    let mut streams = carried_streams(&start.attachments, recording, manifest.as_ref())?;
+    if streams.is_empty() {
+        streams = stored_streams(recording)?;
+    }
     // Receive times in a recording are already UTC.
     let utc = ClockSample {
         mono: RecvTime::from_nanos(0),
@@ -385,6 +391,43 @@ pub fn recorded_cameras(recording: &Path) -> Result<Vec<(String, CameraKind)>, K
 
 /// The robot the recording was made with and how its joints are driven,
 /// with its meshes that can't be shown; or why there is no robot to show.
+/// The streams of a recording that carries no stream declarations, as one
+/// recorded without a package beside other files does: each channel's, with
+/// the decoder its stored schema gives, as `kapto decode` and the checks
+/// read it.
+fn stored_streams(recording: &Path) -> Result<Vec<StreamDeclaration>, KaptoError> {
+    Ok(recorded_channels(recording)?
+        .into_iter()
+        .map(|summary| summary.channel)
+        .filter(|channel| !is_kapto_channel(&channel.topic))
+        .filter_map(|channel| {
+            let decoder = channel.schema.as_ref().and_then(|schema| {
+                DecoderDeclaration::from_stored(
+                    &schema.name,
+                    &schema.encoding,
+                    &schema.data,
+                    &channel.metadata,
+                )?
+                .ok()
+            });
+            Some(StreamDeclaration {
+                id: channel.topic.parse().ok()?,
+                rate_hz: None,
+                sequence: None,
+                loss_settle_ms: None,
+                max_message_bytes: None,
+                pre_roll: None,
+                post_roll: None,
+                udp: None,
+                tcp: None,
+                ros2: None,
+                decoder,
+                camera: None,
+            })
+        })
+        .collect())
+}
+
 fn carried_robot(
     start: &RecordingStart,
     recording: &Path,
