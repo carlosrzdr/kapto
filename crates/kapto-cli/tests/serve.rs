@@ -283,9 +283,9 @@ fn the_api_lists_the_settings_serve_runs_with_and_where_each_came_from() {
     // Given as flags by the test.
     assert_eq!(setting("server.port")["source"], "flag --port");
     assert_eq!(setting("server.port")["default"], false);
-    assert_eq!(setting("log.level")["source"], "default");
-    assert_eq!(setting("log.level")["default"], true);
-    assert_ne!(setting("log.level")["help"], "");
+    assert_eq!(setting("viewer.display_rate")["source"], "default");
+    assert_eq!(setting("viewer.display_rate")["default"], true);
+    assert_ne!(setting("viewer.display_rate")["help"], "");
 }
 
 #[test]

@@ -342,12 +342,6 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         help: "Where robot packages are stored. Defaults to `packages` inside the data directory.",
         default: DefaultValue::Computed("`packages` inside the data directory"),
     },
-    Key {
-        path: "log.level",
-        value_type: ValueType::LogLevel,
-        help: "How much Kapto logs: error, warn, info, debug or trace.",
-        default: DefaultValue::Fixed("info"),
-    },
 ];
 
 /// The setting with the given `section.name` path.

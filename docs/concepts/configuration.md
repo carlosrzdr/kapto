@@ -17,7 +17,7 @@ Each setting can come from four places. Each one overrides the one before:
 Kapto remembers where every value came from. `kapto config show` lists them:
 
 ```
-$ KAPTO_VIEWER_STREAM_PORT=9091 kapto config show --log-level debug
+$ KAPTO_VIEWER_STREAM_PORT=9091 kapto config show --packages-dir /srv/packages
 Configuration file: /home/me/.config/kapto/kapto.toml
 
 SETTING             VALUE                                 SOURCE
@@ -25,8 +25,7 @@ server.bind         127.0.0.1                             default
 server.port         7701                                  /home/me/.config/kapto/kapto.toml:2
 viewer.stream_port  9091                                  environment variable KAPTO_VIEWER_STREAM_PORT
 paths.data          /home/me/.local/share/kapto           default
-paths.packages      /home/me/.local/share/kapto/packages  default
-log.level           debug                                 flag --log-level
+paths.packages      /srv/packages                         flag --packages-dir
 ```
 
 ## The settings

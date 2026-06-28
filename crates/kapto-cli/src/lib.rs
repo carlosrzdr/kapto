@@ -84,9 +84,6 @@ struct SettingFlags {
     /// Where robot packages are stored (paths.packages).
     #[arg(long, global = true, value_name = "DIR")]
     packages_dir: Option<String>,
-    /// How much to log: error, warn, info, debug or trace (log.level).
-    #[arg(long, global = true, value_name = "LEVEL")]
-    log_level: Option<String>,
     /// How many times a second the live view moves the robot (`viewer.display_rate`).
     #[arg(long, global = true, value_name = "HZ")]
     viewer_display_rate: Option<String>,
@@ -218,7 +215,6 @@ pub const SETTING_FLAGS: &[(&str, &str)] = &[
     ("capture.control_socket", "--control-socket"),
     ("paths.data", "--data-dir"),
     ("paths.packages", "--packages-dir"),
-    ("log.level", "--log-level"),
     ("viewer.display_rate", "--viewer-display-rate"),
     ("viewer.history", "--viewer-history"),
     ("viewer.history_age", "--viewer-history-age"),
@@ -297,7 +293,6 @@ impl SettingFlags {
             &self.control_socket,
             &self.data_dir,
             &self.packages_dir,
-            &self.log_level,
             &self.viewer_display_rate,
             &self.viewer_history,
             &self.viewer_history_age,
@@ -528,7 +523,6 @@ mod tests {
             control_socket: Some("control-socket".into()),
             data_dir: Some("data-dir".into()),
             packages_dir: Some("packages-dir".into()),
-            log_level: Some("log-level".into()),
             viewer_display_rate: Some("viewer-display-rate".into()),
             viewer_history: Some("viewer-history".into()),
             viewer_history_age: Some("viewer-history-age".into()),
@@ -611,7 +605,6 @@ mod tests {
             control_socket: Some(String::new()),
             data_dir: Some(String::new()),
             packages_dir: Some(String::new()),
-            log_level: Some(String::new()),
             viewer_display_rate: Some(String::new()),
             viewer_history: Some(String::new()),
             viewer_history_age: Some(String::new()),

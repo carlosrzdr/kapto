@@ -570,15 +570,3 @@ Where robot packages are stored. Defaults to `packages` inside the data director
 | Default | `packages` inside the data directory |
 | Environment variable | `KAPTO_PATHS_PACKAGES` |
 | Flag | `--packages-dir` |
-
-## `log.level`
-
-How much Kapto logs: error, warn, info, debug or trace.
-
-| | |
-|---|---|
-| Section and name | `[log]` `level` |
-| Accepts | one of "error", "warn", "info", "debug", "trace" |
-| Default | `info` |
-| Environment variable | `KAPTO_LOG_LEVEL` |
-| Flag | `--log-level` |

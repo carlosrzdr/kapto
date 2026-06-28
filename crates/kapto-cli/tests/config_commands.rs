@@ -80,8 +80,8 @@ fn show_names_the_source_of_each_overridden_value() {
             "show",
             "--config",
             config.path(),
-            "--log-level",
-            "debug",
+            "--packages-dir",
+            "/srv/packages",
         ],
         &[("HOME", "/home/u"), ("KAPTO_VIEWER_STREAM_PORT", "9091")],
     );
@@ -92,7 +92,7 @@ fn show_names_the_source_of_each_overridden_value() {
     assert!(
         text.contains("9091") && text.contains("environment variable KAPTO_VIEWER_STREAM_PORT")
     );
-    assert!(text.contains("debug") && text.contains("flag --log-level"));
+    assert!(text.contains("/srv/packages") && text.contains("flag --packages-dir"));
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn validate_warns_about_a_destination_without_the_completeness_marker_but_accept
 fn validate_reports_every_problem_and_exits_with_failure() {
     let config = TempConfig::new(
         "validate-bad",
-        "[server]\nprot = 7701\n[log]\nlevel = \"loud\"\n",
+        "[server]\nprot = 7701\n[capture]\ncompression = \"gzip\"\n",
     );
     let output = kapto(
         &[
@@ -174,7 +174,7 @@ fn validate_reports_every_problem_and_exits_with_failure() {
 fn the_episode_commands_report_every_problem_of_the_configuration() {
     let config = TempConfig::new(
         "episode-bad",
-        "[server]\nprot = 7701\n[log]\nlevel = \"loud\"\n",
+        "[server]\nprot = 7701\n[capture]\ncompression = \"gzip\"\n",
     );
     let output = kapto(
         &["episode", "status", "--config", config.path()],

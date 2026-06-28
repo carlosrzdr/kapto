@@ -18,7 +18,7 @@ use crate::located::{at_line, line_of, syntax_error, unknown_key};
 use crate::source::{Effective, Source};
 use crate::suggest::closest;
 use crate::upload::UploadSettings;
-use crate::value::{Compression, LogLevel, PreflightFailures, Value, ValueType};
+use crate::value::{Compression, PreflightFailures, Value, ValueType};
 
 /// A setting given on the command line, e.g. `--port 7701` for `server.port`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,8 +110,6 @@ pub struct DeploymentConfig {
     pub data_dir: Effective<PathBuf>,
     /// Where robot packages are stored.
     pub packages_dir: Effective<PathBuf>,
-    /// How much Kapto logs.
-    pub log_level: Effective<LogLevel>,
 }
 
 /// One resolved setting, for listing.
@@ -212,10 +210,6 @@ impl DeploymentConfig {
             upload_destinations,
             data_dir: take(&mut values, "paths.data", path),
             packages_dir: take(&mut values, "paths.packages", path),
-            log_level: take(&mut values, "log.level", |value| match value {
-                Value::LogLevel(level) => Some(level),
-                _ => None,
-            }),
         };
         Ok(config)
     }
@@ -276,7 +270,6 @@ impl DeploymentConfig {
                     "upload.timeout_request" => seconds_text(&self.upload.timeout_request),
                     "paths.data" => display_path(&self.data_dir),
                     "paths.packages" => display_path(&self.packages_dir),
-                    "log.level" => text(&self.log_level),
                     other => unreachable!("{other} is listed but has no field"),
                 };
                 Entry { key, value, source }
@@ -807,7 +800,6 @@ mod tests {
             config.packages_dir.value,
             Path::new("/home/u/.local/share/kapto/packages")
         );
-        assert_eq!(config.log_level.value, LogLevel::Info);
         assert!(
             config
                 .entries()
@@ -855,13 +847,13 @@ mod tests {
     #[test]
     fn file_values_record_the_line_they_are_on() {
         let file = file(
-            "# Kapto\n\n[server]\nbind = \"0.0.0.0\"\nport = 7701\n\n[log]\nlevel = \"debug\"\n",
+            "# Kapto\n\n[server]\nbind = \"0.0.0.0\"\nport = 7701\n\n[paths]\npackages = \"/srv/packages\"\n",
         );
         let config = resolve(Some(&file), &env(&[]), &[]).unwrap();
         assert_eq!(config.server_bind.source, line_source(4));
         assert_eq!(config.server_port.source, line_source(5));
-        assert_eq!(config.log_level.value, LogLevel::Debug);
-        assert_eq!(config.log_level.source, line_source(8));
+        assert_eq!(config.packages_dir.value, Path::new("/srv/packages"));
+        assert_eq!(config.packages_dir.source, line_source(8));
     }
 
     #[test]
@@ -1038,7 +1030,10 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
                 "[server]\nbind = \"localhost\"\n",
                 "`server.bind` must be an IP address",
             ),
-            ("[log]\nlevel = \"verbose\"\n", "`log.level` must be one of"),
+            (
+                "[capture]\ncompression = \"gzip\"\n",
+                "`capture.compression` must be one of",
+            ),
             (
                 "[paths]\ndata = \"\"\n",
                 "`paths.data` must be a non-empty path",
@@ -1303,7 +1298,7 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
 
     #[test]
     fn every_problem_is_reported_at_once() {
-        let file = file("[server]\nprot = 1\nport = 0\n[log]\nlevel = \"loud\"\n");
+        let file = file("[server]\nprot = 1\nport = 0\n[capture]\ncompression = \"gzip\"\n");
         let env = env(&[("KAPTO_VIEWER_STREAM_PORT", "-1")]);
         let errors = resolve(Some(&file), &env, &[]).unwrap_err();
         assert_eq!(

@@ -241,9 +241,9 @@ mod tests {
             contents: "[server]\nport = 7701\n".to_owned(),
         };
         let cli = [CliOverride {
-            key: "log.level",
-            value: "debug".to_owned(),
-            flag: "--log-level".to_owned(),
+            key: "paths.packages",
+            value: "/srv/packages".to_owned(),
+            flag: "--packages-dir".to_owned(),
         }];
         let config = DeploymentConfig::resolve(&Inputs {
             file: Some(&file),
@@ -252,9 +252,9 @@ mod tests {
         })
         .unwrap();
         assert_eq!(
-            config.log_level.source,
+            config.packages_dir.source,
             Source::Cli {
-                flag: "--log-level".into()
+                flag: "--packages-dir".into()
             }
         );
         assert_eq!(
@@ -307,8 +307,7 @@ upload.backoff_max                300                                      defau
 upload.timeout_connect            10                                       default
 upload.timeout_request            60                                       default
 paths.data                        /home/u/.local/share/kapto               default
-paths.packages                    /home/u/.local/share/kapto/packages      default
-log.level                         debug                                    flag --log-level
+paths.packages                    /srv/packages                            flag --packages-dir
 "
         );
     }

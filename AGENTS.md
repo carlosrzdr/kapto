@@ -203,7 +203,8 @@ green means actions, selection and good state. Fonts are bundled.
   `anyhow` only in tools. Never a generic message.
 - `unsafe` only where a module allows it, each block with `// SAFETY:`,
   Miri where possible, reviewed by a second person.
-- `tracing` with structured fields; no per-message logs.
+- `tracing` with structured fields *(planned: every process prints for
+  now)*; no per-message logs.
 - Public items documented; Linux-only code behind `cfg` with a fallback.
 - Match the surrounding code. Comments give the reason in place; never
   requirement IDs, plan references or milestone numbers outside

@@ -16,7 +16,6 @@
 | `--control-socket <PATH>` | Unix socket the capture process takes its orders on (`capture.control_socket`) |
 | `--data-dir <DIR>` | Where recordings and runtime state are stored (paths.data) |
 | `--packages-dir <DIR>` | Where robot packages are stored (paths.packages) |
-| `--log-level <LEVEL>` | How much to log: error, warn, info, debug or trace (log.level) |
 | `--viewer-display-rate <HZ>` | How many times a second the live view moves the robot (`viewer.display_rate`) |
 | `--viewer-history <MIB>` | MiB of recent live data the viewer bridge keeps for later viewers (viewer.history) |
 | `--viewer-history-age <SECONDS>` | Seconds the live view can look back over (`viewer.history_age`) |

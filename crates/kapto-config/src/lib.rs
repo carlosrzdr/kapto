@@ -71,7 +71,7 @@ pub use streams::{
 };
 pub use suggest::closest;
 pub use upload::{DeleteLocal, UploadSettings, UploadWhen, Verification};
-pub use value::{Compression, LogLevel, PreflightFailures, Value, ValueType};
+pub use value::{Compression, PreflightFailures, Value, ValueType};
 pub use vocabulary::{
     DEFAULT_KINDS, EVENT_KIND_KEYS, EVENTS_EXAMPLE, EVENTS_FILE, EventKind, KindSource,
     SUBTASK_KINDS, Vocabulary, load_vocabulary, parse_vocabulary,

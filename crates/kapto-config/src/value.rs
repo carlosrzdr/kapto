@@ -21,8 +21,6 @@ pub enum ValueType {
     IpAddress,
     /// A filesystem path.
     Path,
-    /// One of `error`, `warn`, `info`, `debug`, `trace`.
-    LogLevel,
     /// One of `refuse`, `warn`.
     PreflightFailures,
     /// One of `lz4`, `zstd`, `none`.
@@ -58,7 +56,6 @@ impl ValueType {
             Self::Port => "an integer from 1 to 65535",
             Self::IpAddress => "an IP address such as \"127.0.0.1\" or \"::1\"",
             Self::Path => "a non-empty path",
-            Self::LogLevel => "one of \"error\", \"warn\", \"info\", \"debug\", \"trace\"",
             Self::PreflightFailures => "one of \"refuse\", \"warn\"",
             Self::Compression => "one of \"lz4\", \"zstd\", \"none\"",
             Self::Seconds => "a number of seconds above 0 and at most 3600, such as 1.5",
@@ -89,7 +86,6 @@ impl ValueType {
             Self::Port
             | Self::IpAddress
             | Self::Path
-            | Self::LogLevel
             | Self::PreflightFailures
             | Self::Compression
             | Self::Count
@@ -106,7 +102,6 @@ impl ValueType {
             Self::Port => text.parse().ok().and_then(port),
             Self::IpAddress => text.parse().ok().map(Value::IpAddress),
             Self::Path => path(text),
-            Self::LogLevel => text.parse().ok().map(Value::LogLevel),
             Self::PreflightFailures => text.parse().ok().map(Value::PreflightFailures),
             Self::Compression => text.parse().ok().map(Value::Compression),
             Self::Seconds => text.parse().ok().and_then(seconds),
@@ -152,7 +147,6 @@ impl ValueType {
                 .and_then(|number| u32::try_from(number).ok().and_then(bandwidth)),
             Self::IpAddress
             | Self::Path
-            | Self::LogLevel
             | Self::PreflightFailures
             | Self::Compression
             | Self::UploadWhen
@@ -208,8 +202,6 @@ pub enum Value {
     IpAddress(IpAddr),
     /// A filesystem path.
     Path(PathBuf),
-    /// A log level.
-    LogLevel(LogLevel),
     /// What a failed pre-flight check does to starting an episode.
     PreflightFailures(PreflightFailures),
     /// How a recording's chunks are compressed.
@@ -242,7 +234,6 @@ impl fmt::Display for Value {
             Self::Port(port) => write!(f, "{port}"),
             Self::IpAddress(address) => write!(f, "{address}"),
             Self::Path(path) => write!(f, "{}", path.display()),
-            Self::LogLevel(level) => write!(f, "{level}"),
             Self::PreflightFailures(failures) => write!(f, "{failures}"),
             Self::Compression(compression) => write!(f, "{compression}"),
             Self::Seconds(time) => write!(f, "{}", time.as_secs_f64()),
@@ -255,48 +246,6 @@ impl fmt::Display for Value {
             Self::DeleteLocal(delete) => write!(f, "{delete}"),
             Self::Verification(verify) => write!(f, "{verify}"),
         }
-    }
-}
-
-/// How much Kapto logs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LogLevel {
-    /// Only failures.
-    Error,
-    /// Failures and things that may need attention.
-    Warn,
-    /// Normal operation: sessions, episodes, connections.
-    Info,
-    /// Details useful when investigating a problem.
-    Debug,
-    /// Everything, including per-batch detail.
-    Trace,
-}
-
-impl FromStr for LogLevel {
-    type Err = ();
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        match text {
-            "error" => Ok(Self::Error),
-            "warn" => Ok(Self::Warn),
-            "info" => Ok(Self::Info),
-            "debug" => Ok(Self::Debug),
-            "trace" => Ok(Self::Trace),
-            _ => Err(()),
-        }
-    }
-}
-
-impl fmt::Display for LogLevel {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Error => "error",
-            Self::Warn => "warn",
-            Self::Info => "info",
-            Self::Debug => "debug",
-            Self::Trace => "trace",
-        })
     }
 }
 
@@ -470,14 +419,5 @@ mod tests {
         for bad in ["0", "3651", "1.5", "7d", ""] {
             assert_eq!(ValueType::Days.parse_text(bad), None, "{bad:?}");
         }
-    }
-
-    #[test]
-    fn log_levels_round_trip_through_text() {
-        for name in ["error", "warn", "info", "debug", "trace"] {
-            let level: LogLevel = name.parse().unwrap();
-            assert_eq!(level.to_string(), name);
-        }
-        assert!("INFO".parse::<LogLevel>().is_err());
     }
 }
