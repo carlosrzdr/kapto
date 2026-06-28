@@ -878,6 +878,7 @@ fit), which is robust to delay spikes. Written in the repo (§2.7).
 | M18-01 `feat(capture): importer trait and folder watch` | `Importer` trait (§2.6), `notify` watcher, completeness detection (stable size + valid MCAP footer / closed bag), files never modified (TRN-11) | Partial file not picked up; source checksum unchanged after import | — |
 | M18-02 `feat(capture): mcap and ros 2 bag importers` | MCAP and ROS 2 bags (`.mcap`; `.db3` via `rusqlite`) | Fixtures from real `ros2 bag record` | — |
 | M18-03 `feat(transport): ros 2 record-all` | Discovery-driven subscriptions with include/exclude (TRN-13) | ROS image test with several talkers | Exit criterion |
+| M18-04 `feat(ui): ros 2 topics in the robot tab` | What `kapto topics --streams` finds, in the web UI: each topic of the ROS 2 network with its type, measured rate and whether a stream already declares it, and the `streams.toml` declarations of those not declared, to copy; an endpoint over the same discovery, answered only in the ROS 2 image, saying why elsewhere | Handler and error-code tests (outside the ROS 2 image); ROS image test with several talkers, one declared; Playwright happy path and the not-in-this-image path | Declarations pasted into a package lint clean |
 
 ### WP M19: Operator and security extras *(low priority, not needed for v1)*
 
