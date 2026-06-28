@@ -394,6 +394,7 @@ mod tests {
             dropped_by_us: dropped,
             lost_upstream: 3,
             disconnects: None,
+            rejected: None,
             carried: None,
             pre_roll: None,
             post_roll: None,

@@ -368,6 +368,12 @@ pub struct StreamSummary {
     /// never arrived. Absent for streams without a connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disconnects: Option<u64>,
+    /// For a UDP stream only some sources may send to
+    /// (`allowed_sources`): datagrams from any other, discarded. They
+    /// aren't the robot's, so they are neither received nor lost. Absent
+    /// for other streams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejected: Option<u64>,
     /// For a stream whose messages are kept for late subscribers: how many
     /// kept from before the episode it starts with, written at its start
     /// and not counted in `received` or `written`. Absent for other streams.
@@ -606,6 +612,7 @@ mod tests {
                     dropped_by_us: 10,
                     lost_upstream: 3,
                     disconnects: None,
+                    rejected: None,
                     carried: None,
                     pre_roll: None,
                     post_roll: None,
@@ -619,6 +626,7 @@ mod tests {
                     dropped_by_us: 0,
                     lost_upstream: 40,
                     disconnects: Some(1),
+                    rejected: None,
                     carried: None,
                     pre_roll: None,
                     post_roll: None,
@@ -632,6 +640,7 @@ mod tests {
                     dropped_by_us: 0,
                     lost_upstream: 0,
                     disconnects: None,
+                    rejected: None,
                     carried: Some(2),
                     pre_roll: None,
                     post_roll: None,

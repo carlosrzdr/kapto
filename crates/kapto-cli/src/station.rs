@@ -393,9 +393,9 @@ impl Station {
         let mut recording = end
             .writer?
             .ok_or_else(|| vec![thread_failed("cap-writer", "it returned no recording")])?;
-        let disconnects = |stream| tcp_disconnects(&self.plan, &end.transports, stream);
+        let arrivals = |stream| arrivals(&self.plan, &end.transports, stream);
         let buffers = buffer_summary(&self.plan, &end.rings);
-        let streams = stream_summaries(&self.plan, &counters, &disconnects, &carried);
+        let streams = stream_summaries(&self.plan, &counters, &arrivals, &carried);
         // How it went, before the file is closed: a recording without this
         // record wasn't finished.
         let commands = self.commands(&clock, asked);
@@ -434,7 +434,7 @@ impl Station {
             &finalised.dir().display().to_string(),
             &self.plan,
             &counters,
-            &disconnects,
+            &arrivals,
         );
         Ok(Finished {
             episode,
@@ -924,7 +924,7 @@ impl Live<'_> {
     /// they are only added to the counters when the phase ends.
     pub(crate) fn line(&self, seconds: u64) -> String {
         let (mut received, mut written, mut dropped, mut lost) = (0, 0, 0, 0);
-        let mut disconnects = 0;
+        let (mut disconnects, mut rejected) = (0, 0);
         for spec in self.specs {
             let stream = spec.stream;
             let totals = self.counters.totals(stream);
@@ -934,6 +934,11 @@ impl Live<'_> {
                 .transports
                 .iter()
                 .map(|t| t.disconnects(stream))
+                .sum::<u64>();
+            rejected += self
+                .transports
+                .iter()
+                .map(|t| t.rejected(stream))
                 .sum::<u64>();
             received += totals.received + truncated;
             written += totals.written;
@@ -947,6 +952,10 @@ impl Live<'_> {
         );
         if self.tcp {
             let _ = write!(line, "  disconnects {disconnects}");
+        }
+        // Datagrams from elsewhere aren't the robot's: said once any came.
+        if rejected > 0 {
+            let _ = write!(line, "  rejected {rejected}");
         }
         // Shown once a viewer has taken a sample, so a recording without one
         // keeps a short line.
@@ -1017,7 +1026,7 @@ fn open_transport(source: &Source) -> Result<Box<dyn Transport>, KaptoError> {
 fn stream_summaries(
     plan: &Plan,
     counters: &LossCounters,
-    disconnects: &dyn Fn(StreamIndex) -> Option<u64>,
+    arrivals: &dyn Fn(StreamIndex) -> Arrivals,
     carried: &BTreeMap<StreamIndex, u64>,
 ) -> Vec<kapto_store::StreamSummary> {
     plan.streams
@@ -1025,7 +1034,9 @@ fn stream_summaries(
         .zip(&plan.detections)
         .map(|(spec, (_, detection))| {
             let mut summary = counters.totals(spec.stream).summary(&spec.id, detection);
-            summary.disconnects = disconnects(spec.stream);
+            let arrivals = arrivals(spec.stream);
+            summary.disconnects = arrivals.disconnects;
+            summary.rejected = arrivals.rejected;
             summary.carried = carried.get(&spec.stream).copied();
             let totals = counters.totals(spec.stream);
             let pre_rolled = plan
@@ -1060,26 +1071,43 @@ fn buffer_summary(plan: &Plan, rings: &[Arc<RingStats>]) -> BufferSummary {
     total
 }
 
-/// How often `stream`'s connection was lost, if it arrives over TCP.
-fn tcp_disconnects(
-    plan: &Plan,
-    transports: &[Arc<TransportStats>],
-    stream: StreamIndex,
-) -> Option<u64> {
+/// What a stream's transport saw besides its messages, where it can.
+#[derive(Clone, Copy, Debug, Default)]
+struct Arrivals {
+    /// How often its connection was lost, if it arrives over TCP.
+    disconnects: Option<u64>,
+    /// Datagrams from sources not allowed to send to it, if it arrives
+    /// over UDP from allowed sources only.
+    rejected: Option<u64>,
+}
+
+/// What `stream`'s transport saw besides its messages.
+fn arrivals(plan: &Plan, transports: &[Arc<TransportStats>], stream: StreamIndex) -> Arrivals {
     plan.inputs
         .iter()
         .zip(transports)
         .find_map(|(input, transport)| match &input.source {
-            Source::Tcp(tcp) if tcp.stream == stream => Some(transport.disconnects(stream)),
+            Source::Tcp(tcp) if tcp.stream == stream => Some(Arrivals {
+                disconnects: Some(transport.disconnects(stream)),
+                rejected: None,
+            }),
+            Source::Udp(sockets) => sockets
+                .iter()
+                .find(|socket| socket.stream == stream && !socket.allowed_sources.is_empty())
+                .map(|_| Arrivals {
+                    disconnects: None,
+                    rejected: Some(transport.rejected(stream)),
+                }),
             _ => None,
         })
+        .unwrap_or_default()
 }
 
 fn print_summary(
     folder: &str,
     plan: &Plan,
     counters: &LossCounters,
-    disconnects: &dyn Fn(StreamIndex) -> Option<u64>,
+    arrivals: &dyn Fn(StreamIndex) -> Arrivals,
 ) {
     println!("Finalised {folder}");
     println!(
@@ -1094,13 +1122,18 @@ fn print_summary(
             LossDetection::RateGap(_) => "rate gap (estimate)",
             LossDetection::Undetectable => "none",
         };
-        let disconnects = match disconnects(index) {
+        let arrivals = arrivals(index);
+        let disconnects = match arrivals.disconnects {
             Some(1) => ", 1 disconnect".to_owned(),
             Some(count) => format!(", {count} disconnects"),
             None => String::new(),
         };
+        let rejected = match arrivals.rejected {
+            Some(0) | None => String::new(),
+            Some(count) => format!(", {count} from sources not allowed"),
+        };
         println!(
-            "{:<24} {:>10} {:>10} {:>8} {:>8}  {detection}{disconnects}",
+            "{:<24} {:>10} {:>10} {:>8} {:>8}  {detection}{disconnects}{rejected}",
             id.as_str(),
             totals.received,
             totals.written,

@@ -82,6 +82,7 @@ impl StreamTotals {
             dropped_by_us: self.dropped_by_us,
             lost_upstream: self.lost_upstream,
             disconnects: None,
+            rejected: None,
             carried: None,
             pre_roll: None,
             post_roll: None,

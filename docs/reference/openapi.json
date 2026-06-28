@@ -2628,6 +2628,15 @@
             "description": "Messages that reached Kapto.",
             "minimum": 0
           },
+          "rejected": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "For a UDP stream only some sources may send to: datagrams from any\nother, discarded, and neither received nor lost.",
+            "minimum": 0
+          },
           "stream": {
             "type": "string",
             "description": "The stream's name."

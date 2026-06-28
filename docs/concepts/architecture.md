@@ -42,8 +42,11 @@ and its first implementation, **UDP**: one receiver thread listens on any
 number of ports (IPv4 or IPv6, unicast or multicast), waits on all of them at
 once, and reads every waiting datagram straight into the free slots of a
 batch, many per system call on Linux. Each port feeds one stream. A datagram
-from a source outside the port's allow-list, or too long for a slot, is
-discarded and counted against its stream, never stored cut short.
+too long for a slot is discarded and counted against its stream as dropped,
+never stored cut short. One from a source outside the port's allow-list
+(`allowed_sources`) isn't the robot's: it is discarded and counted apart, as
+the stream's `rejected` in `episode.json` and in the capture process's line
+each second.
 
 For TCP, which delivers a byte stream rather than messages, a **deframer**
 cuts messages out of the bytes: by a length field in each message's header,

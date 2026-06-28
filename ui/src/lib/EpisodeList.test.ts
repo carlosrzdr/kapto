@@ -39,6 +39,7 @@ const detail: EpisodeDetail = {
       written: 150_000,
       dropped_by_us: 0,
       lost_upstream: 0,
+      rejected: 4,
     },
     {
       stream: "base",
@@ -92,6 +93,9 @@ describe("EpisodeList", () => {
     expect(details.textContent).toContain("99 % within 520 ms");
     expect(details.textContent).toContain("peak 55 of 1022 batches");
     expect(details.textContent).toContain("steady");
+    // Datagrams from elsewhere, said beside the loss: they aren't the robot's.
+    const arm = screen.getByRole("row", { name: /^arm_joints/ });
+    expect(arm.textContent).toContain("0 · 4 from sources not allowed");
     const base = screen.getByRole("row", { name: /^base/ });
     expect(base.textContent).toContain("12 · 2 disconnects");
     expect(base.textContent).toContain("silences (estimate)");

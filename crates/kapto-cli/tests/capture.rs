@@ -450,6 +450,44 @@ fn after_stop_only_a_stream_with_a_post_roll_goes_on_being_recorded_for_it() {
 }
 
 #[test]
+fn datagrams_from_a_source_not_allowed_are_counted_apart_from_the_streams_messages() {
+    let folder = scratch("rejected");
+    let port = free_udp_port();
+    let streams = format!(
+        "[streams.joints]\nrate_hz = 1000\n\
+         udp = {{ bind = \"127.0.0.1:{port}\", allowed_sources = [\"127.0.0.1\"] }}\n\
+         sequence = {{ offset = 0, type = \"u32\" }}\n"
+    );
+    let mut capture = Capture::declaring(&folder, &streams, &port, &["--preflight", "warn"]);
+    let mut client = capture.client();
+    start(&mut client);
+    capture.send(100);
+    // Another machine on the loopback network sends to the same port.
+    let elsewhere = UdpSocket::bind("127.0.0.2:0").unwrap();
+    for number in 0..30_u32 {
+        elsewhere
+            .send_to(&number.to_le_bytes(), format!("127.0.0.1:{port}"))
+            .unwrap();
+    }
+    capture.wait_for("the robot's messages", |s| s.streams[0].written == 100);
+    // The foreign datagrams arrived too before the episode is stopped.
+    std::thread::sleep(Duration::from_millis(200));
+    let folder = stop(&mut client);
+
+    let stream = &finalised(&folder).streams[0];
+    assert_eq!(
+        (
+            stream.received,
+            stream.written,
+            stream.lost_upstream,
+            stream.rejected
+        ),
+        (100, 100, 0, Some(30))
+    );
+    assert!(capture.stop().status.success());
+}
+
+#[test]
 fn the_status_carries_each_streams_newest_decoded_values() {
     let folder = scratch("values");
     let mut capture = Capture::start(&folder);

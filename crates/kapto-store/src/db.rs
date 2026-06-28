@@ -1578,6 +1578,7 @@ mod tests {
                     dropped_by_us: stream.dropped_by_us,
                     lost_upstream: stream.lost_upstream,
                     disconnects: None,
+                    rejected: None,
                     carried: None,
                     pre_roll: None,
                     post_roll: None,

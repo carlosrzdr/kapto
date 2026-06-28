@@ -372,6 +372,11 @@ export interface EpisodeStream {
   lost_upstream: number;
   /** Messages that reached Kapto. */
   received: number;
+  /**
+   * For a UDP stream only some sources may send to: datagrams from any
+   * other, discarded, and neither received nor lost.
+   */
+  rejected?: number | null;
   /** The stream's name. */
   stream: string;
   /** Received messages stored in the recording. */

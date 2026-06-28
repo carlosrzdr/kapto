@@ -664,6 +664,15 @@ than it knows treats the file as unreadable rather than guess.
           "format": "uint64",
           "minimum": 0
         },
+        "rejected": {
+          "description": "For a UDP stream only some sources may send to\n(`allowed_sources`): datagrams from any other, discarded. They\naren't the robot's, so they are neither received nor lost. Absent\nfor other streams.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
         "written": {
           "description": "Received messages stored in the recording.",
           "type": "integer",

@@ -175,6 +175,9 @@ pub struct EpisodeStream {
     pub lost_upstream: u64,
     /// For a stream over a connection: how often the connection was lost.
     pub disconnects: Option<u64>,
+    /// For a UDP stream only some sources may send to: datagrams from any
+    /// other, discarded, and neither received nor lost.
+    pub rejected: Option<u64>,
     /// For a stream kept for late subscribers: how many messages kept from
     /// before the episode it starts with, not counted in `received`.
     pub carried: Option<u64>,
@@ -364,6 +367,7 @@ fn detail(
                 dropped_by_us: stream.dropped_by_us,
                 lost_upstream: stream.lost_upstream,
                 disconnects: stream.disconnects,
+                rejected: stream.rejected,
                 carried: stream.carried,
             })
             .collect(),

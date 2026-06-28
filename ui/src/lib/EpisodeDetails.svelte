@@ -348,7 +348,9 @@
           <td class:problem={stream.decoded < stream.received}>{count(stream.decoded)}</td>
           <td class:problem={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
           <td class:problem={stream.lost_upstream > 0}>
-            {count(stream.lost_upstream)}{stream.disconnects ? ` · ${stream.disconnects} disconnects` : ""}
+            {count(stream.lost_upstream)}{stream.disconnects ? ` · ${stream.disconnects} disconnects` : ""}{stream.rejected
+              ? ` · ${count(stream.rejected)} from sources not allowed`
+              : ""}
           </td>
           <td class="detection">{detection[stream.loss_detection] ?? stream.loss_detection}</td>
         </tr>
