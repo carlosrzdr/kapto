@@ -90,7 +90,8 @@ pub fn slash_path(path: &Path) -> String {
 }
 
 /// The first of `errors`, saying how many more there are.
-fn first(errors: Vec<KaptoError>) -> KaptoError {
+#[must_use]
+pub fn first(errors: Vec<KaptoError>) -> KaptoError {
     let more = errors.len().saturating_sub(1);
     let first = errors
         .into_iter()

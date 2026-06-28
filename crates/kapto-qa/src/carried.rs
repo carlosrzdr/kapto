@@ -8,7 +8,8 @@ use std::path::Path;
 
 use kapto_capture::reader::read_start;
 use kapto_config::ConfigFile;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_config::carried::{carried_file, first};
+use kapto_core::KaptoError;
 
 /// The settings file `name` the recording at `recording` carries, read
 /// with `parse`; `None` if it carries none.
@@ -26,21 +27,7 @@ pub fn carried<T>(
     let Some(data) = start.attachments.get(name) else {
         return Ok(None);
     };
-    let file = ConfigFile {
-        // Named after where it is, so its problems say so.
-        path: recording.join(name),
-        contents: String::from_utf8_lossy(data).into_owned(),
-    };
-    parse(&file).map(Some).map_err(|errors| {
-        let more = errors.len().saturating_sub(1);
-        let first = errors
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| KaptoError::new(ErrorCode::ConfigInvalidValue));
-        if more == 0 {
-            first
-        } else {
-            first.context("more problems", more.to_string())
-        }
-    })
+    parse(&carried_file(recording, name, data))
+        .map(Some)
+        .map_err(first)
 }
