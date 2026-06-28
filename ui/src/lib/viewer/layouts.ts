@@ -1,5 +1,5 @@
-// The operator's own layout: edited in the page, kept in this browser per
-// robot package, and what each of its panels names that the package lacks.
+// The operator's own layout: edited in the page and kept in this browser per
+// robot package; the server says what each of its panels lacks.
 // A layout kept here comes before the package's default and its own.
 
 import type { LayoutInput, PanelInput, ViewLayout, ViewPanel } from "../api-types";
@@ -36,8 +36,11 @@ export function editable(view: ViewLayout): LayoutInput {
   };
 }
 
-/** `layout` as the view draws it, each panel with what `offered` lacks of it. */
-export function shown(layout: LayoutInput, offered: Offered): ViewLayout {
+/**
+ * `layout` as the view draws it, before the server says what each panel
+ * lacks (`/api/layout/check`): by the same rules as every other layout.
+ */
+export function laidOut(layout: LayoutInput): ViewLayout {
   return {
     source: "own",
     columns: layout.columns.map((column) => ({
@@ -47,28 +50,10 @@ export function shown(layout: LayoutInput, offered: Offered): ViewLayout {
         height: panel.height,
         stream: panel.stream ?? null,
         fields: panel.fields ?? [],
-        missing: lacking(panel, offered),
+        missing: [],
       })),
     })),
   };
-}
-
-/** What `panel` names that `offered` doesn't have, each as a phrase. */
-export function lacking(panel: PanelInput, offered: Offered): string[] {
-  if (panel.kind === "camera") {
-    return panel.stream && offered.cameras.includes(panel.stream) ? [] : [`no camera \`${panel.stream ?? ""}\``];
-  }
-  if (panel.kind !== "plot") {
-    return [];
-  }
-  return (panel.fields ?? []).flatMap((field) => {
-    if (field.startsWith("role:")) {
-      const role = field.slice("role:".length);
-      return offered.roles.includes(role) ? [] : [`no field plays \`${role}\``];
-    }
-    const whole = field.replace(/\[\d+\]$/, "");
-    return offered.fields.includes(whole) ? [] : [`no plotted field \`${whole}\``];
-  });
 }
 
 /** How many panels `layout` has. */

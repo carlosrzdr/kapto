@@ -303,6 +303,9 @@ export const saveDefaultLayout = (layout: LayoutInput): Promise<ViewLayout> =>
     body: JSON.stringify(layout),
   });
 
+/** `layout` as the view draws it, each panel with what the robot's streams lack of it; nothing is saved. */
+export const checkLayout = (layout: LayoutInput): Promise<ViewLayout> => post<ViewLayout>("/api/layout/check", layout);
+
 /** Removes the robot package's default layout: its own is back. */
 export const removeDefaultLayout = (): Promise<ViewLayout> => request<ViewLayout>("/api/layout", { method: "DELETE" });
 

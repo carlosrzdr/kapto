@@ -98,8 +98,8 @@ use replay::{
     replay_window,
 };
 use robot::{
-    __path_mesh, __path_remove_layout, __path_robot, __path_save_layout, __path_scene, mesh,
-    remove_layout, robot, save_layout, scene,
+    __path_check_layout, __path_mesh, __path_remove_layout, __path_robot, __path_save_layout,
+    __path_scene, check_layout, mesh, remove_layout, robot, save_layout, scene,
 };
 use status::{
     __path_processes, __path_settings, __path_status, __path_storage, __path_version, processes,
@@ -164,6 +164,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/storage", get(storage))
         .route("/api/robot", get(robot))
         .route("/api/layout", put(save_layout).delete(remove_layout))
+        .route("/api/layout/check", post(check_layout))
         .route("/api/robot/scene", get(scene))
         .route("/api/robot/meshes/{n}", get(mesh))
         .route("/api/settings", get(settings))
@@ -249,6 +250,7 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         storage,
         robot,
         save_layout,
+        check_layout,
         remove_layout,
         scene,
         mesh,

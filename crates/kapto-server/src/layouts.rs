@@ -93,6 +93,22 @@ impl Layouts {
         Ok(saved)
     }
 
+    /// `input` as the view draws it, each panel with what the robot's
+    /// streams lack of it: for a layout the operator keeps in their
+    /// browser, so the page says what it lacks by the rules every other
+    /// layout is held to.
+    ///
+    /// # Errors
+    ///
+    /// The layout's problems, as reading `layout.toml` gives them;
+    /// `layout.without_package` before the layouts are loaded.
+    pub fn check(&self, input: &LayoutInput) -> Result<ViewLayout, Vec<KaptoError>> {
+        let guard = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let arranged = guard.as_ref().ok_or_else(|| vec![without_package()])?;
+        let layout = input.to_layout(Path::new("the page's layout"))?;
+        Ok(view_of(&layout, &arranged.declared, "own"))
+    }
+
     /// Removes the package's default layout, and arranges by the package's.
     ///
     /// # Errors

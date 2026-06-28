@@ -282,6 +282,45 @@ async fn a_layout_saved_as_default_is_written_for_the_package_and_given_from_the
 }
 
 #[tokio::test]
+async fn a_layout_checked_says_what_each_panel_lacks_and_nothing_is_saved() {
+    let folder = scratch("layout-checked");
+    let api = arranged(&folder, Some("arm7"));
+    let (status, body) = call(
+        api.clone(),
+        "POST",
+        "/api/layout/check",
+        Some(("application/json", SAVED)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // The operator's own, by the rules every other layout is held to.
+    assert_eq!(body["source"], "own");
+    assert_eq!(body["columns"][0]["panels"][0]["missing"], json!([]));
+    assert_eq!(
+        body["columns"][1]["panels"][0]["missing"],
+        json!(["no stream `wrist_camera`"])
+    );
+    assert!(!folder.join("config/layouts").exists());
+    let (_, robot) = call(api.clone(), "GET", "/api/robot", None).await;
+    assert_eq!(robot["layout"]["source"], "made");
+
+    let (status, error) = call(
+        api,
+        "POST",
+        "/api/layout/check",
+        Some((
+            "application/json",
+            r#"{"columns": [{"width": 1, "panels": [{"kind": "map", "height": 1}]}]}"#,
+        )),
+    )
+    .await;
+    assert_eq!(
+        (status, &error["code"]),
+        (StatusCode::CONFLICT, &json!("config.invalid_value"))
+    );
+}
+
+#[tokio::test]
 async fn a_layout_breaking_a_rule_of_layout_toml_is_refused_and_nothing_is_written() {
     let folder = scratch("layout-refused");
     let api = arranged(&folder, Some("arm7"));

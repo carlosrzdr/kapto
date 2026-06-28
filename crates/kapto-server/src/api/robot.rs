@@ -54,6 +54,31 @@ pub(super) async fn save_layout(
     on_disk(move || layouts.save(&input)).await
 }
 
+/// What a layout lacks: the layout as the live view draws it, each panel
+/// with what the robot's streams lack of it, by the rules every layout is
+/// held to. For one the operator keeps in their browser; nothing is saved.
+#[utoipa::path(
+    post,
+    path = "/api/layout/check",
+    request_body = LayoutInput,
+    responses(
+        (status = 200, body = ViewLayout),
+        (status = 400, description = "The body isn't a layout", body = ApiError),
+        (status = 409, description = "The layout breaks a rule of layout.toml", body = ApiError)
+    )
+)]
+pub(super) async fn check_layout(
+    State(state): State<Arc<ApiState>>,
+    request: Result<Json<LayoutInput>, JsonRejection>,
+) -> Result<Json<ViewLayout>, Failure> {
+    let Json(input) = request.map_err(|rejection| invalid(&rejection))?;
+    state.layouts.check(&input).map(Json).map_err(|problems| {
+        Failure::from(problems.into_iter().next().unwrap_or_else(|| {
+            KaptoError::new(ErrorCode::LayoutWithoutPackage).detail("no reason given".to_owned())
+        }))
+    })
+}
+
 /// Remove the default layout saved for the robot package Kapto runs: the
 /// live view is arranged by the package's own layout again, or the one
 /// made from it. Answers with it.

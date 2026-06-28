@@ -802,7 +802,7 @@ test("a package's own layout arranges the view, a panel naming what the package 
   await page.goto("/");
   const panels = page.getByRole("group", { name: "The view's panels" });
   await expect(panels.getByRole("note")).toHaveText(
-    "The camera head_camera can't be shown: the robot package has no stream `head_camera`. Change the package's layout.toml, or what it declares.",
+    "The camera head_camera can't be shown: no stream `head_camera`. Change the package's layout.toml, or what it declares.",
   );
   await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
   // The robot, moved to the second column, still moves.
@@ -905,7 +905,7 @@ test("a layout kept in the browser naming a field the package lacks says so in i
   await page.reload();
   const panels = page.getByRole("group", { name: "The view's panels" });
   await expect(panels.getByRole("note")).toHaveText(
-    "The plot of arm_joints.torques can't be shown: the robot package has no plotted field `arm_joints.torques`. Remove it, or change it, with Arrange.",
+    "The plot of arm_joints.torques can't be shown: `arm_joints` decodes no field `torques`. Remove it, or change it, with Arrange.",
     { timeout: 20_000 },
   );
   await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));

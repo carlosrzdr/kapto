@@ -1385,6 +1385,55 @@
         }
       }
     },
+    "/api/layout/check": {
+      "post": {
+        "tags": [],
+        "summary": "What a layout lacks: the layout as the live view draws it, each panel\nwith what the robot's streams lack of it, by the rules every layout is\nheld to. For one the operator keeps in their browser; nothing is saved.",
+        "operationId": "check_layout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewLayout"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't a layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The layout breaks a rule of layout.toml",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/preflight": {
       "post": {
         "tags": [],

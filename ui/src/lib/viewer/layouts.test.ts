@@ -6,21 +6,13 @@ import {
   browserLayouts,
   editable,
   heightened,
-  lacking,
+  laidOut,
   MAX_PANELS,
   moved,
-  type Offered,
   panelCount,
   removed,
-  shown,
   widened,
 } from "./layouts";
-
-const offered: Offered = {
-  cameras: ["wrist_camera"],
-  fields: ["arm_joints.joint_positions", "arm_joints.gripper"],
-  roles: ["gripper.opening", "joints.joint_1.position"],
-};
 
 /** The robot on the left; the camera and a plot on the right. */
 const layout: LayoutInput = {
@@ -79,20 +71,19 @@ describe("editing a layout", () => {
   });
 });
 
-describe("what a layout lacks", () => {
-  it("says what each panel names that the package doesn't have", () => {
-    expect(lacking({ kind: "camera", height: 1, stream: "head_camera", fields: [] }, offered)).toEqual(["no camera `head_camera`"]);
-    expect(
-      lacking({ kind: "plot", height: 1, fields: ["role:gripper.force", "arm_joints.joint_positions[2]", "base.speed"] }, offered),
-    ).toEqual(["no field plays `gripper.force`", "no plotted field `base.speed`"]);
-    expect(lacking({ kind: "robot", height: 1, fields: [] }, offered)).toEqual([]);
-  });
-
-  it("is shown as the view draws it, and edited without what the API works out", () => {
-    const view = shown(layout, { ...offered, cameras: [] });
+describe("the operator's own layout", () => {
+  it("is laid out as the view draws it until the server says what it lacks, and edited without that", () => {
+    const view = laidOut(layout);
     expect(view.source).toBe("own");
-    expect(view.columns[1]!.panels[0]!.missing).toEqual(["no camera `wrist_camera`"]);
-    expect(editable(view)).toEqual(layout);
+    expect(view.columns.flatMap((column) => column.panels.map((panel) => panel.missing))).toEqual([[], [], []]);
+    const checked = {
+      ...view,
+      columns: view.columns.map((column) => ({
+        ...column,
+        panels: column.panels.map((panel) => ({ ...panel, missing: ["no stream `wrist_camera`"] })),
+      })),
+    };
+    expect(editable(checked)).toEqual(layout);
   });
 });
 
@@ -133,7 +124,7 @@ describe("keeping a layout in the browser", () => {
 describe("a layout from the page's state", () => {
   it("is edited although the page holds it in proxies", () => {
     // As Svelte's state holds it: every object and array a proxy.
-    const held = shown(layout, offered);
+    const held = laidOut(layout);
     const view = {
       ...held,
       columns: held.columns.map((column) => ({

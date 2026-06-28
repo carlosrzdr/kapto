@@ -13,6 +13,7 @@
     getReplayScene,
     getReplayWindow,
     getRobotScene,
+    checkLayout,
     removeDefaultLayout,
     saveDefaultLayout,
   } from "./api";
@@ -35,7 +36,7 @@
     type Placed,
     recolor,
   } from "./viewer/environment";
-  import { browserLayouts, editable, type LayoutStore, type Offered, shown } from "./viewer/layouts";
+  import { browserLayouts, editable, laidOut, type LayoutStore, type Offered } from "./viewer/layouts";
   import { decodeMesh } from "./viewer/mesh";
   import { type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
@@ -270,8 +271,24 @@
   let arranging = $state(false);
   let arrangeSaid = $state("");
   let arrangeFailed = $state(false);
+  /** The own layout as the server checked it, each panel with what it lacks. */
+  let ownChecked = $state.raw<ViewLayout | null>(null);
   $effect(() => {
     own = packageId ? layouts.load(packageId) : null;
+  });
+  $effect(() => {
+    const asked = own;
+    ownChecked = null;
+    if (asked) {
+      checkLayout(asked)
+        .then((checked) => {
+          if (own === asked) {
+            ownChecked = checked;
+          }
+        })
+        // Unchecked, it is shown as it is, saying it lacks nothing.
+        .catch(() => {});
+    }
   });
   /** What the package has that a panel may show, as the page receives it. */
   const offered: Offered = $derived({
@@ -279,7 +296,7 @@
     fields: plots.flatMap((stream) => stream.fields.map((field) => `${stream.name}.${field.name}`)),
     roles: roles.map((each) => each.role),
   });
-  const liveLayout = $derived(own ? shown(own, offered) : (latest ?? layout ?? ROBOT_ONLY));
+  const liveLayout = $derived(own ? (ownChecked ?? laidOut(own)) : (latest ?? layout ?? ROBOT_ONLY));
   // A replay is arranged as its recording says, if its replay says; else
   // as the live view is.
   const arrangedBy = $derived(replay?.opening.layout ?? liveLayout);
@@ -979,7 +996,7 @@
         <div class={`panel grow-${panel.height}`}>
           {#if panel.missing.length > 0}
             <div class="placeholder" role="note">
-              <p>{named(panel)} can't be shown: the robot package has {panel.missing.join("; ")}.</p>
+              <p>{named(panel)} can't be shown: {panel.missing.join("; ")}.</p>
               <p class="remedy">
                 {arrangedBy.source === "own"
                   ? "Remove it, or change it, with Arrange."
