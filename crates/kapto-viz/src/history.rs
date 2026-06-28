@@ -56,6 +56,24 @@ pub struct SampleRecord {
     pub extremes: Vec<(f64, f64)>,
 }
 
+impl SampleRecord {
+    /// Takes in `other`, of the same stream: its messages counted, the span
+    /// and each value's extremes widened to cover both.
+    pub fn absorb(&mut self, other: &Self) {
+        self.messages = self.messages.saturating_add(other.messages);
+        self.first_utc_ns = self.first_utc_ns.min(other.first_utc_ns);
+        self.newest_utc_ns = self.newest_utc_ns.max(other.newest_utc_ns);
+        widen(&mut self.extremes, &other.extremes);
+    }
+}
+
+/// Widens each of `kept`'s minimum and maximum to cover `other`'s.
+fn widen(kept: &mut [(f64, f64)], other: &[(f64, f64)]) {
+    for (kept, (minimum, maximum)) in kept.iter_mut().zip(other) {
+        *kept = (kept.0.min(*minimum), kept.1.max(*maximum));
+    }
+}
+
 /// What one frame showed.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Record {
@@ -270,10 +288,8 @@ impl Merged {
     fn add(&mut self, sample: &SampleRecord) {
         self.first_utc_ns = self.first_utc_ns.min(sample.first_utc_ns);
         self.newest_utc_ns = self.newest_utc_ns.max(sample.newest_utc_ns);
-        self.messages += u64::from(sample.messages);
-        for (kept, (minimum, maximum)) in self.extremes.iter_mut().zip(&sample.extremes) {
-            *kept = (kept.0.min(*minimum), kept.1.max(*maximum));
-        }
+        self.messages = self.messages.saturating_add(u64::from(sample.messages));
+        widen(&mut self.extremes, &sample.extremes);
     }
 }
 
@@ -346,6 +362,27 @@ impl Stretch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sample_absorbs_another_widening_its_span_and_extremes_and_never_overflowing() {
+        let mut kept = SampleRecord {
+            stream: 0,
+            messages: u32::MAX - 1,
+            first_utc_ns: 20,
+            newest_utc_ns: 30,
+            extremes: vec![(1.0, 2.0), (-1.0, 1.0)],
+        };
+        kept.absorb(&SampleRecord {
+            stream: 0,
+            messages: 5,
+            first_utc_ns: 10,
+            newest_utc_ns: 25,
+            extremes: vec![(0.5, 1.5), (-3.0, 0.0)],
+        });
+        assert_eq!(kept.messages, u32::MAX);
+        assert_eq!((kept.first_utc_ns, kept.newest_utc_ns), (10, 30));
+        assert_eq!(kept.extremes, [(0.5, 2.0), (-3.0, 1.0)]);
+    }
 
     fn record(second: i64, value: f64) -> Record {
         Record {

@@ -346,15 +346,7 @@ fn absorb(kept: &mut Record, record: Record) {
             .iter_mut()
             .find(|kept| kept.stream == sample.stream)
         {
-            Some(kept) => {
-                kept.messages = kept.messages.saturating_add(sample.messages);
-                kept.first_utc_ns = kept.first_utc_ns.min(sample.first_utc_ns);
-                kept.newest_utc_ns = kept.newest_utc_ns.max(sample.newest_utc_ns);
-                for (extremes, (minimum, maximum)) in kept.extremes.iter_mut().zip(sample.extremes)
-                {
-                    *extremes = (extremes.0.min(minimum), extremes.1.max(maximum));
-                }
-            }
+            Some(kept) => kept.absorb(&sample),
             None => kept.samples.push(sample),
         }
     }
