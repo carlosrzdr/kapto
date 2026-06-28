@@ -32,6 +32,17 @@ pub mod roles;
 pub mod statistics;
 pub mod timing;
 
+/// `nanos` nanoseconds as seconds. Spans in an episode stay far below
+/// 2^53 ns, so the result is exact to the nanosecond.
+#[must_use]
+#[allow(
+    clippy::cast_precision_loss,
+    reason = "spans of an episode, in seconds"
+)]
+pub fn seconds(nanos: i64) -> f64 {
+    nanos as f64 / 1e9
+}
+
 /// A recorded episode as checks see it: what `episode.json` says about it,
 /// its folder, and its values by role once read ([`roles::read_roles`]).
 /// Checks never read files themselves, nor see a stream's name.

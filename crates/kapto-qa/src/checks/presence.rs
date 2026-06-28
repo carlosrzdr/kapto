@@ -6,7 +6,7 @@
 use kapto_core::KaptoError;
 use kapto_store::StreamSummary;
 
-use crate::{Check, CheckKind, EpisodeView, Finding};
+use crate::{Check, CheckKind, EpisodeView, Finding, seconds};
 
 /// The episode was recorded for at least `min_seconds`, from Start to
 /// Stop: a gate, as one shorter can hardly hold a task (a start pressed by
@@ -30,7 +30,7 @@ pub struct EpisodeLong {
 /// to Stop, what the operator chose, without the seconds a pre-roll or a
 /// post-roll add on either side; its own start and end where those
 /// weren't kept.
-fn seconds(episode: &EpisodeView) -> f64 {
+fn recorded_for(episode: &EpisodeView) -> f64 {
     let summary = episode.summary();
     let start = summary
         .commanded_start_utc_ns
@@ -38,11 +38,7 @@ fn seconds(episode: &EpisodeView) -> f64 {
     let stop = summary
         .commanded_stop_utc_ns
         .unwrap_or(summary.ended_utc_ns);
-    // Nanosecond spans stay far below 2^53 s, so the loss is below a
-    // nanosecond.
-    #[allow(clippy::cast_precision_loss, reason = "a span in seconds")]
-    let seconds = stop.saturating_sub(start) as f64 / 1e9;
-    seconds.max(0.0)
+    seconds(stop.saturating_sub(start)).max(0.0)
 }
 
 impl Check for EpisodeShort {
@@ -59,7 +55,7 @@ impl Check for EpisodeShort {
     }
 
     fn run(&self, episode: &EpisodeView) -> Result<Finding, KaptoError> {
-        let seconds = seconds(episode);
+        let seconds = recorded_for(episode);
         let finding = if seconds < self.min_seconds {
             Finding::failed(format!(
                 "the episode was recorded for {seconds:.1} s, shorter than the {} s accepted",
@@ -86,7 +82,7 @@ impl Check for EpisodeLong {
     }
 
     fn run(&self, episode: &EpisodeView) -> Result<Finding, KaptoError> {
-        let seconds = seconds(episode);
+        let seconds = recorded_for(episode);
         let finding = if seconds > self.max_seconds {
             Finding::failed(format!(
                 "the episode was recorded for {seconds:.0} s, longer than {} s: was it left recording?",

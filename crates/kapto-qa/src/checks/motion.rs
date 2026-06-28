@@ -7,7 +7,7 @@
 use kapto_core::KaptoError;
 
 use crate::episode_statistics::closings;
-use crate::{Check, CheckKind, EpisodeView, Finding, RoleColumn, TimeRange};
+use crate::{Check, CheckKind, EpisodeView, Finding, RoleColumn, TimeRange, seconds};
 
 /// How many joints a message names; the rest are counted.
 const NAMED: usize = 5;
@@ -129,9 +129,7 @@ impl Check for FrozenJoints {
                 .collect();
             let ranges: Vec<TimeRange> = still(column, self.moving_speed)
                 .filter(|(start, end)| {
-                    #[allow(clippy::cast_precision_loss, reason = "durations are small")]
-                    let seconds = (end - start) as f64 / 1e9;
-                    seconds >= self.max_seconds
+                    seconds(end - start) >= self.max_seconds
                         && others.iter().any(|other| moved(other, *start, *end))
                 })
                 .map(|(start_utc_ns, end_utc_ns)| TimeRange {
@@ -149,11 +147,10 @@ impl Check for FrozenJoints {
                 self.max_seconds
             )));
         }
-        #[allow(clippy::cast_precision_loss, reason = "durations are small")]
         let longest = |ranges: &[TimeRange]| {
             ranges
                 .iter()
-                .map(|range| (range.end_utc_ns - range.start_utc_ns) as f64 / 1e9)
+                .map(|range| seconds(range.end_utc_ns - range.start_utc_ns))
                 .fold(0.0, f64::max)
         };
         let named: Vec<String> = found
@@ -390,9 +387,8 @@ fn positions(episode: &EpisodeView) -> Vec<(String, &RoleColumn)> {
 /// How fast a value changed between two rows, per second; `None` for rows
 /// received at the same moment.
 fn speed(times: &[i64], values: &[f64]) -> Option<f64> {
-    #[allow(clippy::cast_precision_loss, reason = "time steps are small")]
-    let seconds = (times[1] - times[0]) as f64 / 1e9;
-    (seconds > 0.0).then(|| ((values[1] - values[0]) / seconds).abs())
+    let step = seconds(times[1] - times[0]);
+    (step > 0.0).then(|| ((values[1] - values[0]) / step).abs())
 }
 
 /// Each span over which `column`'s value stayed exactly the same, from the

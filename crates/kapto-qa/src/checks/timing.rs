@@ -10,9 +10,7 @@ use kapto_core::KaptoError;
 use kapto_store::TimeRange;
 
 use crate::timing::{BINS, LONGEST, StreamTiming};
-use crate::{Check, CheckKind, EpisodeView, Finding};
-
-const SECOND: f64 = 1e9;
+use crate::{Check, CheckKind, EpisodeView, Finding, seconds};
 
 /// Each stream sent its first message within `max_start_delay_s` of Start
 /// being asked and its last within `max_end_gap_s` of Stop: advisory, as a
@@ -74,14 +72,6 @@ fn timed(episode: &EpisodeView) -> Vec<(&str, &StreamTiming)> {
 }
 
 /// Nanoseconds as seconds.
-#[allow(
-    clippy::cast_precision_loss,
-    reason = "spans of an episode, in seconds"
-)]
-fn seconds(nanos: i64) -> f64 {
-    nanos as f64 / SECOND
-}
-
 impl Check for StreamsTiming {
     fn id(&self) -> &'static str {
         "streams.timing"

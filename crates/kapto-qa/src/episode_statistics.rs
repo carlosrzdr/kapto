@@ -23,8 +23,8 @@ use std::collections::BTreeMap;
 use kapto_core::Role;
 use serde::{Deserialize, Serialize};
 
-use crate::EpisodeView;
 use crate::statistics::Distribution;
+use crate::{EpisodeView, seconds};
 
 /// One statistic: a single value, or a distribution of values.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -70,17 +70,14 @@ const CLOSED: f64 = 0.3;
 pub fn of_episode(episode: &EpisodeView) -> Statistics {
     let summary = episode.summary();
     let mut statistics = BTreeMap::new();
-    #[allow(
-        clippy::cast_precision_loss,
-        reason = "durations and counts stay far below 2^53"
-    )]
     // Never negative, even for an episode.json whose end is before its
     // start: no rate is worked out from it then.
-    let duration_s = summary
-        .ended_utc_ns
-        .saturating_sub(summary.started_utc_ns)
-        .max(0) as f64
-        / 1e9;
+    let duration_s = seconds(
+        summary
+            .ended_utc_ns
+            .saturating_sub(summary.started_utc_ns)
+            .max(0),
+    );
     statistics.insert(
         "episode.duration_s".to_owned(),
         Statistic::Value(duration_s),
@@ -166,9 +163,8 @@ fn rates(times: &[i64], values: &[f64]) -> (Vec<i64>, Vec<f64>) {
         .windows(2)
         .zip(values.windows(2))
         .filter_map(|(times, values)| {
-            #[allow(clippy::cast_precision_loss, reason = "time steps are small")]
-            let seconds = (times[1] - times[0]) as f64 / 1e9;
-            (seconds > 0.0).then(|| (times[1], (values[1] - values[0]) / seconds))
+            let step = seconds(times[1] - times[0]);
+            (step > 0.0).then(|| (times[1], (values[1] - values[0]) / step))
         })
         .unzip()
 }

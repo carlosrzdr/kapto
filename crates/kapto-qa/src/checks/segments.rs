@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use kapto_core::KaptoError;
 use kapto_store::{Phase, TimeRange};
 
-use crate::{Check, CheckKind, EpisodeView, Finding};
+use crate::{Check, CheckKind, EpisodeView, Finding, seconds};
 
 /// The beginning of the kinds that mark a subtask.
 const SUBTASK: &str = "subtask.";
@@ -92,14 +92,6 @@ fn subtasks(episode: &EpisodeView, end: i64) -> Vec<(String, TimeRange)> {
     }
     found.sort_by_key(|(_, range)| (range.start_utc_ns, range.end_utc_ns));
     found
-}
-
-#[allow(
-    clippy::cast_precision_loss,
-    reason = "spans of an episode, in seconds"
-)]
-fn seconds(nanos: i64) -> f64 {
-    nanos as f64 / 1e9
 }
 
 impl Check for SegmentsPresent {
