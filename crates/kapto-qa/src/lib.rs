@@ -40,7 +40,7 @@ pub struct EpisodeView {
     folder: PathBuf,
     episode: Episode,
     roles: BTreeMap<Role, RoleColumn>,
-    cameras: BTreeMap<String, cameras::CameraFrames>,
+    cameras: BTreeMap<String, cameras::CameraTimeline>,
     timing: BTreeMap<String, timing::StreamTiming>,
     events: Vec<kapto_store::Event>,
 }
@@ -98,7 +98,7 @@ impl EpisodeView {
 
     /// The same, with its cameras' frames, by stream name.
     #[must_use]
-    pub fn with_cameras(mut self, cameras: BTreeMap<String, cameras::CameraFrames>) -> Self {
+    pub fn with_cameras(mut self, cameras: BTreeMap<String, cameras::CameraTimeline>) -> Self {
         self.cameras = cameras;
         self
     }
@@ -106,7 +106,7 @@ impl EpisodeView {
     /// Each camera's frames, by stream name, once read
     /// ([`roles::read_episode`]).
     #[must_use]
-    pub fn cameras(&self) -> &BTreeMap<String, cameras::CameraFrames> {
+    pub fn cameras(&self) -> &BTreeMap<String, cameras::CameraTimeline> {
         &self.cameras
     }
 

@@ -16,7 +16,7 @@ use kapto_decode::camera::{CameraKind, Frame, PixelEncoding, frame};
 
 /// One camera's frames through an episode.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct CameraFrames {
+pub struct CameraTimeline {
     /// When each frame holding a picture was received, in UTC nanoseconds,
     /// in the order received.
     pub times_utc_ns: Vec<i64>,
@@ -32,7 +32,7 @@ pub struct CameraFrames {
     pub unreadable_why: Option<String>,
 }
 
-impl CameraFrames {
+impl CameraTimeline {
     /// Every frame, with a picture or not.
     #[must_use]
     pub fn frames(&self) -> usize {
@@ -47,7 +47,7 @@ impl CameraFrames {
 #[derive(Debug, Default)]
 pub(crate) struct CameraReader {
     kinds: BTreeMap<String, CameraKind>,
-    frames: BTreeMap<String, CameraFrames>,
+    frames: BTreeMap<String, CameraTimeline>,
 }
 
 impl CameraReader {
@@ -90,7 +90,7 @@ impl CameraReader {
     }
 
     /// Every camera's frames; one that sent none has none.
-    pub(crate) fn finish(mut self) -> BTreeMap<String, CameraFrames> {
+    pub(crate) fn finish(mut self) -> BTreeMap<String, CameraTimeline> {
         for name in self.kinds.keys() {
             self.frames.entry(name.clone()).or_default();
         }

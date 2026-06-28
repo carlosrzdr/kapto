@@ -15,7 +15,7 @@ use kapto_config::{
     JointJumpsSettings, QaSettings, SegmentSettings, StreamTimingSettings, StreamsCompleteSettings,
     StreamsPresentSettings,
 };
-use kapto_qa::cameras::CameraFrames;
+use kapto_qa::cameras::CameraTimeline;
 use kapto_qa::checks::{
     CameraFormat, CameraFrameSizes, EpisodeLong, EpisodeShort, SegmentsLayout, SegmentsPresent,
     StreamsComplete, StreamsEmpty, StreamsGap, StreamsPresent, StreamsRate, StreamsTiming,
@@ -210,11 +210,11 @@ fn the_segment_checks_meet_the_check_contract() {
 #[test]
 fn the_camera_checks_meet_the_check_contract() {
     let camera = |sizes: &[u64], first_unreadable: Option<&str>| {
-        let frames = CameraFrames {
+        let frames = CameraTimeline {
             times_utc_ns: (0..).take(sizes.len()).collect(),
             sizes: sizes.to_vec(),
             first_unreadable: first_unreadable.map(str::to_owned),
-            ..CameraFrames::default()
+            ..CameraTimeline::default()
         };
         episode(vec![stream("wrist", 0)])
             .with_cameras([("wrist".to_owned(), frames)].into_iter().collect())

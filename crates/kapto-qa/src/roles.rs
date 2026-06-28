@@ -15,7 +15,7 @@ use kapto_core::{KaptoError, Role};
 use kapto_decode::{Decoder, DecoderDeclaration, Value};
 use kapto_store::{EVENTS_CHANNEL, Event};
 
-use crate::cameras::{CameraFrames, CameraReader, declared_streams};
+use crate::cameras::{CameraReader, CameraTimeline, declared_streams};
 use crate::carried::carried;
 use crate::timing::{StreamTiming, TimingReader};
 
@@ -31,7 +31,7 @@ pub struct Recorded {
     /// Every role's values.
     pub roles: BTreeMap<Role, RoleColumn>,
     /// Every camera's frames.
-    pub cameras: BTreeMap<String, CameraFrames>,
+    pub cameras: BTreeMap<String, CameraTimeline>,
     /// When every stream's messages arrived.
     pub timing: BTreeMap<String, StreamTiming>,
     /// Every event the episode holds, in the order written; one that

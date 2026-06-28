@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use kapto_capture::{Batch, ChannelSpec, LossCounters, Recording, WriterConfig};
 use kapto_core::{ClockMap, ClockSample, RecvTime};
-use kapto_qa::cameras::CameraFrames;
+use kapto_qa::cameras::CameraTimeline;
 use kapto_qa::roles::read_episode;
 use kapto_store::{Event, Phase};
 
@@ -132,7 +132,7 @@ fn each_cameras_frames_are_read_with_their_pictures_sizes_and_those_without_one(
         cameras.into_iter().collect::<Vec<_>>(),
         [(
             "wrist".to_owned(),
-            CameraFrames {
+            CameraTimeline {
                 times_utc_ns: vec![at(0), at(1), at(3)],
                 sizes: vec![900, 1000, 10],
                 first_unreadable: None,
@@ -163,7 +163,7 @@ fn a_camera_whose_first_frame_is_not_its_kind_says_why_and_one_unrecorded_has_no
     let cameras = read_episode(&silent.0, SPAN, &mut || Ok(()))
         .unwrap()
         .cameras;
-    assert_eq!(cameras["wrist"], CameraFrames::default());
+    assert_eq!(cameras["wrist"], CameraTimeline::default());
     // Without its streams.toml, a recording's cameras aren't known.
     let bare = TempFile::new("bare");
     record(&bare, None, &[jpeg(900)]);

@@ -5,7 +5,7 @@
 use kapto_core::KaptoError;
 use kapto_store::TimeRange;
 
-use crate::cameras::CameraFrames;
+use crate::cameras::CameraTimeline;
 use crate::{Check, CheckKind, EpisodeView, Finding};
 
 /// Each camera's first frame holds a picture of the camera's kind: a gate,
@@ -146,7 +146,7 @@ fn median(sizes: &[u64]) -> Option<u64> {
 }
 
 /// When each of `frames`' pictures under `ratio` of `median` was received.
-fn small_frames(frames: &CameraFrames, median: Option<u64>, ratio: f64) -> Vec<i64> {
+fn small_frames(frames: &CameraTimeline, median: Option<u64>, ratio: f64) -> Vec<i64> {
     let Some(median) = median else {
         return Vec::new();
     };
@@ -169,7 +169,7 @@ fn small_frames(frames: &CameraFrames, median: Option<u64>, ratio: f64) -> Vec<i
 /// The runs of consecutive frames among `flagged`, each as the span from
 /// its first to its last: a frame of the camera received between two
 /// flagged ones ends a run.
-fn runs(frames: &CameraFrames, flagged: &[i64]) -> Vec<TimeRange> {
+fn runs(frames: &CameraTimeline, flagged: &[i64]) -> Vec<TimeRange> {
     let mut all: Vec<i64> = frames
         .times_utc_ns
         .iter()
@@ -204,7 +204,7 @@ mod tests {
 
     const START: i64 = 1_772_700_400_000_000_000;
 
-    fn episode(cameras: Vec<(&str, CameraFrames)>) -> EpisodeView {
+    fn episode(cameras: Vec<(&str, CameraTimeline)>) -> EpisodeView {
         let summary = kapto_testkit::episode(
             "20260305T192345.123Z-1a2b3c4d",
             (START, START + 10_000_000_000),
@@ -219,14 +219,14 @@ mod tests {
     }
 
     /// A camera's frames a tenth of a second apart, of `sizes`.
-    fn frames(sizes: &[u64]) -> CameraFrames {
-        CameraFrames {
+    fn frames(sizes: &[u64]) -> CameraTimeline {
+        CameraTimeline {
             times_utc_ns: (0..)
                 .map(|n| START + n * 100_000_000)
                 .take(sizes.len())
                 .collect(),
             sizes: sizes.to_vec(),
-            ..CameraFrames::default()
+            ..CameraTimeline::default()
         }
     }
 
@@ -234,7 +234,7 @@ mod tests {
     fn a_camera_whose_first_frame_holds_no_picture_of_its_kind_fails_the_episode() {
         let good = episode(vec![("wrist", frames(&[900; 3]))]);
         assert_eq!(CameraFormat.run(&good).unwrap().verdict, Verdict::Passed);
-        let declared_wrongly = CameraFrames {
+        let declared_wrongly = CameraTimeline {
             first_unreadable: Some("pictures in `jpeg`, neither JPEG nor PNG".to_owned()),
             ..frames(&[900; 3])
         };
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn a_later_frame_without_a_picture_is_flagged_but_does_not_reject_the_episode() {
-        let broken = CameraFrames {
+        let broken = CameraTimeline {
             unreadable_utc_ns: vec![START + 50],
             unreadable_why: Some("a frame that can't be read: cut short".to_owned()),
             ..frames(&[1000; 12])
