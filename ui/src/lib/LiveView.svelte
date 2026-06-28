@@ -1097,6 +1097,7 @@
     gap: 0.5rem;
     min-height: 0;
   }
+  /* More panels than fit scroll rather than each being squeezed past use. */
   .column {
     display: flex;
     flex-direction: column;
@@ -1104,13 +1105,15 @@
     gap: 0.5rem;
     min-width: 0;
     min-height: 0;
+    overflow-y: auto;
   }
   .panel {
     display: flex;
     flex-direction: column;
     flex-basis: 0;
     min-width: 0;
-    min-height: 0;
+    /* Room for a plot's key and a chart that can be read. */
+    min-height: 12rem;
     overflow: hidden;
   }
   .panel > :global(*) {

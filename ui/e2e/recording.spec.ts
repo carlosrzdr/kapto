@@ -911,6 +911,29 @@ test("a layout kept in the browser naming a field the package lacks says so in i
   await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
 });
 
+test("a column of more plots than fit scrolls, each plot keeping room for its chart", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  await page.evaluate(() => {
+    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+    // As a robot of many streams is shown by the layout made for it.
+    const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
+    localStorage.setItem(
+      "kapto.layout.arm7",
+      JSON.stringify({ columns: [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }] }),
+    );
+  });
+  await page.reload();
+  const charts = page.getByRole("group", { name: "The view's panels" }).locator(".uplot canvas");
+  await expect(charts).toHaveCount(13, { timeout: 20_000 });
+  for (const chart of await charts.all()) {
+    await chart.scrollIntoViewIfNeeded();
+    await expect(chart).toBeInViewport({ ratio: 1 });
+    expect((await chart.boundingBox())?.height).toBeGreaterThanOrEqual(80);
+  }
+  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+});
+
 test("the demo's wrist camera is shown live beside the arm", async ({ page }) => {
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");

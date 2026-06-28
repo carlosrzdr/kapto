@@ -200,6 +200,10 @@
     list-style: none;
     color: var(--muted);
     font-size: var(--text-xs);
+    /* Two lines at most, the rest scrolled to, so the chart keeps the panel. */
+    max-height: 3.4em;
+    overflow-y: auto;
+    flex: none;
   }
   .labels .heading {
     color: var(--text);
