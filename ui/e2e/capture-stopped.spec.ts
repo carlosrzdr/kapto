@@ -53,10 +53,15 @@ test("with the capture process stopped, the page says why and can't record", asy
   await page.getByRole("listitem").filter({ hasText: "messages" }).first().getByTitle("Show this episode in full").click();
   await expect(page.getByRole("region", { name: /^Episode / })).toContainText(/ in \d+ files/);
 
-  // None of the demo's episodes was rejected.
+  // The filter lists the rejected episodes only: the flows record some
+  // shorter than the 2 s an episode is accepted from.
   const quality = page.getByRole("combobox", { name: "Quality" });
   await quality.selectOption("rejected");
-  await expect(page.getByText("No rejected episodes.")).toBeVisible();
+  const listed = page.getByRole("listitem").filter({ hasText: "messages" });
+  await expect(listed.first().or(page.getByText("No rejected episodes."))).toBeVisible();
+  for (const episode of await listed.all()) {
+    await expect(episode).toContainText("rejected");
+  }
   await quality.selectOption("all");
 
   // One a gate rejected says so, with what the gate found. The demo's
