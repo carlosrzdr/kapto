@@ -281,9 +281,10 @@ found as written, a description in xacro expanded to URDF first
 (`xacro-rs`); Kapto only ever runs from URDF.
 Mesh files in STL, OBJ, COLLADA (`.dae`) and glTF (`.gltf`, `.glb`) load
 into one triangle-mesh type with colours and normals. A COLLADA file in
-millimetres is scaled to metres; a file that says it was made with Y up
-(robot descriptions use Z up) is reported, not silently rotated. glTF
-buffers are read from the file itself or next to it, never downloaded.
+millimetres is scaled to metres. Meshes stand as rviz shows them: COLLADA's
+`<up_axis>` is left alone, and glTF, Y up by its specification, is turned
+into the Z up of robot descriptions. glTF buffers are read from the file
+itself or next to it, never downloaded.
 Forward kinematics turns joint values into every link's pose. The tree is
 walked once when the robot is loaded, with mimic joints resolved to the
 joint they copy, so computing poses is a single pass that never allocates;

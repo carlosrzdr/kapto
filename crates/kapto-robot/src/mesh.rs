@@ -22,10 +22,6 @@ pub struct MeshFile {
     /// Metres per unit, if the file says; COLLADA and glTF do, STL and OBJ
     /// never do. Positions are already scaled by it.
     pub unit_metres: Option<f32>,
-    /// Which axis points up, if the file says. Robot descriptions use Z up;
-    /// a file made with Y up appears lying on its side, which is reported
-    /// rather than silently rotated.
-    pub up_axis: Option<UpAxis>,
 }
 
 /// One triangle mesh with one material.
@@ -43,17 +39,6 @@ pub struct Mesh {
     pub triangles: Vec<[u32; 3]>,
     /// The material's colour, if it has one.
     pub color: Option<[f32; 4]>,
-}
-
-/// The axis a mesh file says points up.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UpAxis {
-    /// X up.
-    X,
-    /// Y up, as in glTF and many modelling tools.
-    Y,
-    /// Z up, as in robot descriptions.
-    Z,
 }
 
 impl MeshFile {
@@ -162,21 +147,21 @@ fn from_scene(scene: mesh_loader::Scene, format: Format, bytes: &[u8]) -> MeshFi
             }
         })
         .collect();
-    let (unit_metres, up_axis) = if format == Format::Collada {
-        collada_asset(bytes)
+    let unit_metres = if format == Format::Collada {
+        collada_unit(bytes)
     } else {
-        (None, None)
+        None
     };
     MeshFile {
         meshes,
         unit_metres,
-        up_axis,
     }
 }
 
-/// The unit and up axis a COLLADA file declares in its `<asset>`, which
-/// comes first: only the start of the file is searched.
-fn collada_asset(bytes: &[u8]) -> (Option<f32>, Option<UpAxis>) {
+/// The unit a COLLADA file declares in its `<asset>`, which comes first:
+/// only the start of the file is searched. Its `<up_axis>` is left alone, as
+/// rviz leaves it: robot descriptions are made to look right without it.
+fn collada_unit(bytes: &[u8]) -> Option<f32> {
     let start = String::from_utf8_lossy(&bytes[..bytes.len().min(64 * 1024)]);
     let asset = start
         .split_once("</asset>")
@@ -185,16 +170,7 @@ fn collada_asset(bytes: &[u8]) -> (Option<f32>, Option<UpAxis>) {
         let (_, value) = rest.split_once("meter=\"")?;
         value.split_once('"')?.0.trim().parse().ok()
     });
-    let up = asset.split_once("<up_axis>").and_then(|(_, rest)| {
-        match rest.split_once("</up_axis>")?.0.trim() {
-            "X_UP" => Some(UpAxis::X),
-            "Y_UP" => Some(UpAxis::Y),
-            "Z_UP" => Some(UpAxis::Z),
-            _ => None,
-        }
-    });
-    // COLLADA's default is Y up; a file that doesn't say is Y up.
-    (unit.or(Some(1.0)), up.or(Some(UpAxis::Y)))
+    unit.or(Some(1.0))
 }
 
 /// What's wrong with the meshes, if anything: a triangle pointing past the

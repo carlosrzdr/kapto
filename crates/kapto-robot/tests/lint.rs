@@ -105,7 +105,7 @@ fn only(report: &LintReport, code: ErrorCode, file: Option<&str>, line: Option<u
 }
 
 /// The codes the tests below break the arm for, one test each.
-const TESTED: [ErrorCode; 23] = [
+const TESTED: [ErrorCode; 22] = [
     ErrorCode::PackageNotFound,
     ErrorCode::PackageUnknownKey,
     ErrorCode::ConfigInvalidSyntax,
@@ -119,7 +119,6 @@ const TESTED: [ErrorCode; 23] = [
     ErrorCode::RobotMeshUnreadable,
     ErrorCode::RobotMeshUnsupportedFormat,
     ErrorCode::RobotMeshInvalid,
-    ErrorCode::RobotMeshYUp,
     ErrorCode::StreamUnknownKey,
     ErrorCode::DecoderInvalidLayout,
     ErrorCode::MappingUnknownKey,
@@ -296,14 +295,15 @@ fn a_mesh_that_isnt_valid() {
 }
 
 #[test]
-fn a_mesh_made_with_y_up() {
+fn a_collada_mesh_saying_y_up_is_shown_as_rviz_shows_it_with_nothing_to_report() {
     let fixture = Fixture::new("mesh-y-up");
     let dae = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../testdata/meshes/handmade/millimetre_triangle.dae");
     fixture
         .mesh("../meshes/base.dae")
         .write("meshes/base.dae", &std::fs::read(dae).unwrap());
-    only(&fixture.lint(), ErrorCode::RobotMeshYUp, None, None);
+    let report = fixture.lint();
+    assert!(report.findings.is_empty(), "{}", report.to_text());
 }
 
 #[test]

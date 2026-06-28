@@ -319,12 +319,6 @@ error_codes! {
         remedy: "Set the joint's <limit velocity=\"…\" effort=\"…\"> in the URDF to the robot's real limits, from its data sheet. With 0, nothing can check recordings against them.",
     }
 
-    /// A mesh file says it was made with Y up; robot descriptions use Z up.
-    RobotMeshYUp = "robot.mesh_y_up" {
-        summary: "A mesh was made with Y pointing up",
-        remedy: "Robot descriptions use Z up, so the part appears lying on its side. Export the mesh again with Z up, or rotate it in the URDF with the visual's <origin rpy=\"1.5708 0 0\">.",
-    }
-
     /// Joint values given for a robot don't match its joints.
     RobotJointValuesMismatch = "robot.joint_values_mismatch" {
         summary: "The joint values don't match the robot's joints",

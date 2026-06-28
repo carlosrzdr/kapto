@@ -24,7 +24,7 @@ pub use kinematics::Kinematics;
 pub use layout::{Declared, DeclaredStream, Missing, made_layout, missing};
 pub use lint::{Finding, LintReport, RULES, Rule, Severity, lint};
 pub use mapping::{JointMap, MappedJoint, ValueSource};
-pub use mesh::{Mesh, MeshFile, UpAxis, load_mesh};
+pub use mesh::{Mesh, MeshFile, load_mesh};
 pub use model::{
     Geometry, Joint, JointKind, Limits, Link, Material, Mimic, Pose, Resource, RobotModel, Shape,
 };

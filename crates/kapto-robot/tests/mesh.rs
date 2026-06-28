@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use kapto_core::ErrorCode;
-use kapto_robot::{UpAxis, load_mesh};
+use kapto_robot::load_mesh;
 use kapto_testkit::TempDir;
 
 fn testdata(path: &str) -> PathBuf {
@@ -38,10 +38,7 @@ fn a_real_collada_mesh_loads_with_its_two_materials() {
     assert_eq!(triangles, [262, 362]);
     assert_eq!(finger.triangle_count(), 624);
     assert!(finger.meshes.iter().all(|mesh| mesh.color.is_some()));
-    assert_eq!(
-        (finger.unit_metres, finger.up_axis),
-        (Some(1.0), Some(UpAxis::Z))
-    );
+    assert_eq!(finger.unit_metres, Some(1.0));
 }
 
 #[test]
@@ -57,7 +54,7 @@ fn a_real_binary_stl_loads_with_its_size_in_metres() {
         close(high, [0.031_615_783, 0.100_425_88, 0.065_962_15]),
         "{high:?}"
     );
-    assert_eq!((hand.unit_metres, hand.up_axis), (None, None));
+    assert_eq!(hand.unit_metres, None);
 }
 
 #[test]
@@ -85,10 +82,10 @@ fn an_obj_loads_with_the_colour_of_its_material_file() {
 }
 
 #[test]
-fn a_collada_file_in_millimetres_is_scaled_to_metres_and_its_up_axis_reported() {
+fn a_collada_file_in_millimetres_is_scaled_to_metres_and_left_as_drawn_whatever_its_up_axis() {
+    // It says Y up; rviz leaves it as drawn, and so does Kapto.
     let triangle = load_mesh(&testdata("handmade/millimetre_triangle.dae")).unwrap();
     assert_eq!(triangle.unit_metres, Some(0.001));
-    assert_eq!(triangle.up_axis, Some(UpAxis::Y));
     let (low, high) = triangle.bounds().unwrap();
     assert!(
         close(low, [0.0; 3]) && close(high, [1.0, 1.0, 0.0]),
@@ -106,7 +103,7 @@ fn triangle_buffer(indices: [u16; 3]) -> Vec<u8> {
 }
 
 /// A glTF document drawing the triangle through two nodes: the outer one
-/// moves it 5 m up, the inner one doubles its size. `buffer` is the
+/// moves it 5 m up (glTF's Y), the inner one doubles its size. `buffer` is the
 /// buffer's JSON; `mode` the primitive's drawing mode (4 = triangles).
 fn gltf_json(buffer: &str, mode: u32) -> String {
     format!(
@@ -115,7 +112,7 @@ fn gltf_json(buffer: &str, mode: u32) -> String {
   "scene": 0,
   "scenes": [{{ "nodes": [0] }}],
   "nodes": [
-    {{ "translation": [0, 0, 5], "children": [1] }},
+    {{ "translation": [0, 5, 0], "children": [1] }},
     {{ "scale": [2, 2, 2], "mesh": 0 }}
   ],
   "meshes": [{{ "name": "triangle", "primitives": [{{ "attributes": {{ "POSITION": 0 }}, "indices": 1, "material": 0, "mode": {mode} }}] }}],
@@ -150,20 +147,19 @@ fn data_uri(bytes: &[u8]) -> String {
     )
 }
 
-/// The triangle as glTF puts it: moved up 5 m and twice as large.
+/// The triangle as glTF puts it, moved up 5 m and twice as large, then
+/// turned from glTF's Y up to Z up as rviz turns it: standing, its glTF up
+/// edge pointing up.
 fn assert_placed_triangle(file: &kapto_robot::MeshFile) {
     let mesh = &file.meshes[0];
     assert_eq!(mesh.name, "triangle");
     assert_eq!(
         mesh.positions,
-        [[0.0, 0.0, 5.0], [2.0, 0.0, 5.0], [0.0, 2.0, 5.0]]
+        [[0.0, 0.0, 5.0], [2.0, 0.0, 5.0], [0.0, 0.0, 7.0]]
     );
     assert_eq!(mesh.triangles, [[0, 1, 2]]);
     assert_eq!(mesh.color, Some([0.0, 0.5, 1.0, 1.0]));
-    assert_eq!(
-        (file.unit_metres, file.up_axis),
-        (Some(1.0), Some(UpAxis::Y))
-    );
+    assert_eq!(file.unit_metres, Some(1.0));
 }
 
 #[test]
@@ -214,10 +210,11 @@ fn normals_stay_perpendicular_to_a_surface_stretched_more_along_one_axis() {
         [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
         [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
     ];
+    // (-3, 0, 1) in glTF's frame, turned to Z up with the rest.
     let length = 10.0_f32.sqrt();
     for normal in &mesh.normals {
         assert!(
-            close(*normal, [-3.0 / length, 0.0, 1.0 / length]),
+            close(*normal, [-3.0 / length, -1.0 / length, 0.0]),
             "{normal:?}"
         );
         for edge in edges {

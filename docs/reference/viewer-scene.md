@@ -96,9 +96,9 @@ Then, for each part:
 | 4 `v` | Vertex colours, red, green, blue and alpha as bytes, if bit 1 is set |
 | 12 `t` | Triangles: three vertex indices each, as unsigned 32-bit integers |
 
-A file made with Y up is sent as it is, lying on its side; the robot
-description can turn it with its visual's `origin`, and `kapto package lint`
-reports it.
+Meshes are sent as rviz shows them: a COLLADA file as it is drawn, whatever
+its `<up_axis>` says, and a glTF file, Y up by its specification, turned
++90° about X into the Z up of robot descriptions.
 
 A mesh the scene doesn't have is refused with `viewer.mesh_not_found`
 (404); a mesh file that can't be read any more, with the mesh loader's code

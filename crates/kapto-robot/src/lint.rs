@@ -20,7 +20,7 @@ use serde::Serialize;
 
 use crate::kinematics::Kinematics;
 use crate::mapping::JointMap;
-use crate::mesh::{UpAxis, load_mesh};
+use crate::mesh::load_mesh;
 use crate::model::{Geometry, JointKind, RobotModel};
 use crate::package::{Package, load_package};
 use crate::urdf::load_urdf;
@@ -114,11 +114,6 @@ pub const RULES: &[Rule] = &[
         code: ErrorCode::RobotMeshInvalid,
         severity: Severity::Warning,
         checks: "Every mesh file is valid in its format.",
-    },
-    Rule {
-        code: ErrorCode::RobotMeshYUp,
-        severity: Severity::Warning,
-        checks: "No mesh says it was made with Y up.",
     },
     Rule {
         code: ErrorCode::StreamUnknownKey,
@@ -335,8 +330,8 @@ fn joint_limits(robot: &RobotModel) -> Vec<KaptoError> {
     problems
 }
 
-/// Every mesh file referred to, missing, unreadable or made with Y up;
-/// each file once.
+/// Every mesh file referred to that is missing or unreadable; each file
+/// once.
 fn meshes(robot: &RobotModel) -> Vec<KaptoError> {
     let mut problems = Vec::new();
     for (link, resource) in robot.missing_files() {
@@ -359,11 +354,6 @@ fn meshes(robot: &RobotModel) -> Vec<KaptoError> {
                 continue;
             }
             match load_mesh(path) {
-                Ok(mesh) if mesh.up_axis == Some(UpAxis::Y) => problems.push(
-                    KaptoError::new(ErrorCode::RobotMeshYUp)
-                        .detail(file.uri.clone())
-                        .context("link", link.name.clone()),
-                ),
                 Ok(_) => {}
                 Err(error) => problems.push(error.context("link", link.name.clone())),
             }

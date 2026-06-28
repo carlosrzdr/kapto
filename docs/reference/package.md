@@ -212,7 +212,6 @@ it can, with something missing. The command fails on errors only;
 | `robot.mesh_unreadable` | warning | Every mesh and texture the URDF refers to is there and readable; without it, its part isn't shown. |
 | `robot.mesh_unsupported_format` | warning | Every mesh is STL, OBJ, COLLADA or glTF. |
 | `robot.mesh_invalid` | warning | Every mesh file is valid in its format. |
-| `robot.mesh_y_up` | warning | No mesh says it was made with Y up. |
 | `stream.unknown_key` | error | `streams.toml` has only keys Kapto knows. |
 | `decoder.invalid_layout` | error | Every stream's decoder fields are valid. |
 | `mapping.unknown_key` | error | `mapping.toml` has only keys Kapto knows. |

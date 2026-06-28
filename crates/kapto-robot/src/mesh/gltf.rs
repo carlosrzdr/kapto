@@ -5,7 +5,7 @@
 //! The document is parsed by `gltf`; its buffers are read here: the binary
 //! chunk of a `.glb`, a `data:` URI, or a file next to the `.gltf`. Meshes
 //! are placed by the transforms of the scene's nodes, as a viewer would show
-//! them.
+//! them, and turned from glTF's Y up to the Z up of robot descriptions.
 
 use std::path::Path;
 
@@ -14,10 +14,23 @@ use gltf::mesh::Mode;
 use kapto_core::KaptoError;
 use nalgebra::{Matrix3, Matrix4, Point3, Vector3};
 
-use super::{Mesh, MeshFile, UpAxis, base64, invalid, unreadable};
+use super::{Mesh, MeshFile, base64, invalid, unreadable};
 
 /// A node's placement in the scene.
 type Matrix = Matrix4<f32>;
+
+/// glTF is Y up by its specification, robot descriptions Z up: the scene is
+/// turned +90° about X, (x, y, z) to (x, -z, y), as rviz turns it, so a part
+/// stands as it does there. Written out, so it is exact.
+#[rustfmt::skip]
+fn z_up() -> Matrix {
+    Matrix::new(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, -1.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    )
+}
 
 pub(super) fn load(bytes: &[u8], path: &Path) -> Result<MeshFile, KaptoError> {
     let in_file = |error: KaptoError| error.context("file", path.display().to_string());
@@ -51,19 +64,18 @@ pub(super) fn load(bytes: &[u8], path: &Path) -> Result<MeshFile, KaptoError> {
         .or_else(|| gltf.document.scenes().next());
     if let Some(scene) = scene {
         for node in scene.nodes() {
-            add_node(&node, Matrix::identity(), &buffers, &mut meshes).map_err(in_file)?;
+            add_node(&node, z_up(), &buffers, &mut meshes).map_err(in_file)?;
         }
     } else {
         // No scene: every mesh as it is stored.
         for mesh in gltf.document.meshes() {
-            add_mesh(&mesh, Matrix::identity(), &buffers, &mut meshes).map_err(in_file)?;
+            add_mesh(&mesh, z_up(), &buffers, &mut meshes).map_err(in_file)?;
         }
     }
     Ok(MeshFile {
         meshes,
-        // The glTF specification fixes both.
+        // The glTF specification fixes it.
         unit_metres: Some(1.0),
-        up_axis: Some(UpAxis::Y),
     })
 }
 
