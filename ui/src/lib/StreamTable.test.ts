@@ -15,8 +15,8 @@ describe("StreamTable", () => {
   it("shows each stream's rate and counts, and marks drops as a problem", () => {
     render(StreamTable, { streams: [arm], rates: { arm_joints: 2000 }, recording: true });
     const row = screen.getByRole("row", { name: /arm_joints/ });
-    expect(row.textContent).toContain("2 000/s");
-    expect(row.textContent).toContain("13 990");
+    expect(row.textContent).toContain("2 000/s");
+    expect(row.textContent).toContain("13 990");
     const cells = row.querySelectorAll("td");
     expect(cells[3]?.classList.contains("problem")).toBe(true);
     expect(cells[4]?.classList.contains("problem")).toBe(false);

@@ -10,9 +10,9 @@ describe("format", () => {
     expect(duration(-3)).toBe("0:00");
   });
 
-  it("separates thousands with thin spaces", () => {
+  it("separates thousands with narrow spaces no line breaks at", () => {
     expect(count(999)).toBe("999");
-    expect(count(1234567)).toBe("1 234 567");
+    expect(count(1234567)).toBe("1 234 567");
   });
 
   it("gives no rate when no time passed or a counter went back to zero", () => {

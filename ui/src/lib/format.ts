@@ -9,11 +9,14 @@ export function duration(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${rest}` : `${m}:${rest}`;
 }
 
-/** Thousands separated by thin spaces, so long counts stay readable. */
+/**
+ * Thousands separated by narrow spaces, so long counts stay readable; ones
+ * no line breaks at, so a count is never split over two.
+ */
 export function count(value: number): string {
   return Math.round(value)
     .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    .replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 }
 
 /**
