@@ -201,7 +201,7 @@ fn stream(seen: &StreamSeen, window: Duration) -> PreflightCheck {
     );
     let mut check = match seen.declared_hz {
         _ if seen.received == 0 && seen.kept => check(
-            ErrorCode::PreflightStreamSilent,
+            ErrorCode::PreflightKeptMissing,
             seen.holds_kept,
             if seen.holds_kept {
                 format!("{measured}; one kept for every episode")
@@ -421,7 +421,7 @@ mod tests {
         let checks = evaluate(&measured, needs());
         assert_eq!(
             failed(&checks),
-            [("preflight.stream_silent", Some("tf_static"))]
+            [("preflight.kept_missing", Some("tf_static"))]
         );
         let kept = checks
             .iter()

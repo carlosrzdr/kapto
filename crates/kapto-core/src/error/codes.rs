@@ -299,6 +299,13 @@ error_codes! {
         remedy: "Check that the robot is on and sending to the address in `streams.toml`, and that no firewall is in the way, then run pre-flight again. To record without it, waive this check when starting the episode.",
     }
 
+    /// A stream kept for late subscribers has none kept, nor sent any while
+    /// pre-flight watched it.
+    PreflightKeptMissing = "preflight.kept_missing" {
+        summary: "A stream kept for late subscribers has nothing kept",
+        remedy: "A kept message reaches Kapto when it subscribes only if the robot publishes it reliably and `streams.toml` subscribes with `qos = { reliability = \"reliable\", durability = \"transient_local\" }`; one published best effort arrives only when the robot sends it again. Have the robot publish it reliably, or send it again now and then, then run pre-flight again. To record without it, waive this check when starting the episode.",
+    }
+
     /// A declared stream arrived well below its declared rate while
     /// pre-flight watched it.
     PreflightStreamSlow = "preflight.stream_slow" {
