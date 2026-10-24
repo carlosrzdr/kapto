@@ -10,6 +10,7 @@ use clap::Subcommand;
 use kapto_capture::control::{ANSWER_TIMEOUT, ControlClient, NewEvent, Request, Response, Status};
 use kapto_core::clock::utc_now_ns;
 use kapto_core::{ErrorCode, KaptoError};
+use kapto_server::jobs::{JOB_SOCKET, JobClient};
 use kapto_store::{Event, Phase, Preflight};
 
 use crate::SettingFlags;
@@ -69,6 +70,19 @@ pub(crate) enum EpisodeCommand {
         #[arg(long)]
         text: Option<String>,
     },
+    /// Delete a finalised episode: it goes into the bin, as it is, until
+    /// the bin is emptied (after `bin.keep_days`), and can be put back
+    /// until then. Needs `kapto serve` running.
+    Delete {
+        /// The episode's ID, as `kapto` lists it.
+        episode: String,
+    },
+    /// Put an episode deleted by hand back from the bin, as it was. Needs
+    /// `kapto serve` running.
+    Restore {
+        /// The episode's ID.
+        episode: String,
+    },
 }
 
 pub(crate) fn episode(flags: &SettingFlags, command: &EpisodeCommand) -> ExitCode {
@@ -80,7 +94,13 @@ pub(crate) fn episode(flags: &SettingFlags, command: &EpisodeCommand) -> ExitCod
             return ExitCode::FAILURE;
         }
     };
-    match order(flags, &deployment, command) {
+    let done = match command {
+        EpisodeCommand::Delete { episode } | EpisodeCommand::Restore { episode } => {
+            bin(&deployment.data_dir.value, command, episode).map(|()| true)
+        }
+        _ => order(flags, &deployment, command),
+    };
+    match done {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
@@ -88,6 +108,27 @@ pub(crate) fn episode(flags: &SettingFlags, command: &EpisodeCommand) -> ExitCod
             ExitCode::FAILURE
         }
     }
+}
+
+/// Deletes `episode` into the bin, or puts it back, as `command` says,
+/// asking serve over the job socket in `data_dir`.
+fn bin(
+    data_dir: &std::path::Path,
+    command: &EpisodeCommand,
+    episode: &str,
+) -> Result<(), KaptoError> {
+    let mut serve = JobClient::connect(&data_dir.join(JOB_SOCKET))
+        .map_err(|error| error.context("needs", "`kapto serve` running".to_owned()))?;
+    if matches!(command, EpisodeCommand::Restore { .. }) {
+        serve.put_back(episode)?;
+        println!("{episode}: put back from the bin");
+    } else {
+        serve.put_in_bin(episode)?;
+        println!(
+            "{episode}: in the bin, deleted for good when it is emptied; `kapto episode restore {episode}` puts it back until then"
+        );
+    }
+    Ok(())
 }
 
 /// Carries out `command`. Returns whether what it found is good: false
@@ -116,6 +157,9 @@ fn order(
                 task: task.map(Box::new),
                 waive: waive.clone(),
             }
+        }
+        EpisodeCommand::Delete { .. } | EpisodeCommand::Restore { .. } => {
+            unreachable!("asked of serve, not capture")
         }
         EpisodeCommand::Stop => Request::Stop,
         EpisodeCommand::Abort => Request::Abort,

@@ -151,6 +151,16 @@ pub enum JobRequest {
         /// The episode.
         episode: String,
     },
+    /// Delete an episode by hand from the command line: into the bin.
+    PutInBin {
+        /// The episode.
+        episode: String,
+    },
+    /// Put an episode back from the bin, as asked from the command line.
+    PutBack {
+        /// The episode.
+        episode: String,
+    },
     /// An upload stopped with a failure; its progress is kept.
     UploadFailed {
         /// The episode.
@@ -235,6 +245,11 @@ pub enum JobResponse {
         key: String,
         /// How far it got, as the upload engine wrote it.
         progress: String,
+    },
+    /// An episode put in the bin, and when.
+    Binned {
+        /// When it went in, in UTC nanoseconds.
+        binned_utc_ns: i64,
     },
     /// What was reported is written.
     Saved,
@@ -549,6 +564,8 @@ fn answer(queue: &Queue, request: JobRequest) -> JobResponse {
         JobRequest::RetryUploads { episode } => {
             retry_uploads(store, &episode).map(|destinations| JobResponse::Retried { destinations })
         }
+        JobRequest::PutInBin { episode } => put_in_bin(queue, &episode, true),
+        JobRequest::PutBack { episode } => put_in_bin(queue, &episode, false),
         JobRequest::Deleting { episode, summary } => {
             match (&queue.retention, in_bin(store, &episode)) {
                 (_, Ok(true)) => episode_bin::record_emptied(store, &episode, summary),
@@ -727,6 +744,35 @@ fn next(queue: &Queue, kinds: &Kinds) -> Result<Option<JobOrder>, KaptoError> {
             destinations,
         }));
     }
+}
+
+/// Deletes `episode` into the bin from the command line, or, if not `into`,
+/// puts it back.
+fn put_in_bin(queue: &Queue, episode: &str, into: bool) -> Result<JobResponse, KaptoError> {
+    let data_dir = bin_dir(queue)?;
+    if into {
+        let now = ("command line", utc_now_ns());
+        episode_bin::put_in_bin(&data_dir, &queue.store, episode, now).map(|binned| {
+            JobResponse::Binned {
+                binned_utc_ns: binned.binned_utc_ns,
+            }
+        })
+    } else {
+        episode_bin::put_back(&data_dir, &queue.store, episode).map(|()| JobResponse::Saved)
+    }
+}
+
+/// The data directory whose bin serve keeps, once it is set.
+fn bin_dir(queue: &Queue) -> Result<PathBuf, KaptoError> {
+    queue
+        .bin
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+        .map(|bin| bin.data_dir.clone())
+        .ok_or_else(|| {
+            KaptoError::new(ErrorCode::StoreBinFailed).detail("serve keeps no bin".to_owned())
+        })
 }
 
 /// Whether `episode` is in the bin, deleted by hand.
@@ -1051,6 +1097,38 @@ impl JobClient {
         };
         match self.ask(&request)? {
             JobResponse::Retried { destinations } => Ok(destinations),
+            other => Err(unexpected(&other)),
+        }
+    }
+
+    /// Deletes `episode` by hand, into the bin; when it went in.
+    ///
+    /// # Errors
+    ///
+    /// What putting it in the bin reports, as for
+    /// [`crate::episode_bin::put_in_bin`]; as for [`JobClient::next_job`].
+    pub fn put_in_bin(&mut self, episode: &str) -> Result<i64, KaptoError> {
+        let request = JobRequest::PutInBin {
+            episode: episode.to_owned(),
+        };
+        match self.ask(&request)? {
+            JobResponse::Binned { binned_utc_ns } => Ok(binned_utc_ns),
+            other => Err(unexpected(&other)),
+        }
+    }
+
+    /// Puts `episode` back from the bin.
+    ///
+    /// # Errors
+    ///
+    /// What putting it back reports, as for
+    /// [`crate::episode_bin::put_back`]; as for [`JobClient::next_job`].
+    pub fn put_back(&mut self, episode: &str) -> Result<(), KaptoError> {
+        let request = JobRequest::PutBack {
+            episode: episode.to_owned(),
+        };
+        match self.ask(&request)? {
+            JobResponse::Saved => Ok(()),
             other => Err(unexpected(&other)),
         }
     }

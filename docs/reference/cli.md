@@ -137,6 +137,22 @@ Send an event: something that happened now, or the beginning, end or whole of a 
 | `--last <SECONDS>` | It is a whole stretch: the last this many seconds, ending now |
 | `--text <TEXT>` | What to say about it |
 
+## `kapto episode delete`
+
+Delete a finalised episode: it goes into the bin, as it is, until the bin is emptied (after `bin.keep_days`), and can be put back until then. Needs `kapto serve` running.
+
+| Option | Description |
+|---|---|
+| ` <EPISODE>` | The episode's ID, as `kapto` lists it |
+
+## `kapto episode restore`
+
+Put an episode deleted by hand back from the bin, as it was. Needs `kapto serve` running.
+
+| Option | Description |
+|---|---|
+| ` <EPISODE>` | The episode's ID |
+
 ## `kapto package`
 
 List the robot packages Kapto finds, or show one: what identifies it and its files.
