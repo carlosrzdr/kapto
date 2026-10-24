@@ -101,6 +101,24 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         default: DefaultValue::Fixed("600"),
     },
     Key {
+        path: "viewer.camera_history",
+        value_type: ValueType::Mebibytes,
+        help: "How much, in MiB, the viewer bridge keeps of every camera's pictures together, for the live view to look back over: made smaller (`viewer.camera_history_width`) and fewer (`viewer.camera_history_fps`), for `viewer.history_age` unless this fills first; the oldest goes first.",
+        default: DefaultValue::Fixed("128"),
+    },
+    Key {
+        path: "viewer.camera_history_fps",
+        value_type: ValueType::Hertz,
+        help: "How many pictures a second of each camera the viewer bridge keeps for the live view to look back over.",
+        default: DefaultValue::Fixed("5"),
+    },
+    Key {
+        path: "viewer.camera_history_width",
+        value_type: ValueType::Pixels,
+        help: "How wide, at most, in pixels, the pictures the viewer bridge keeps for the live view to look back over are: each is decoded at a half, a quarter or an eighth of its size, whichever first fits.",
+        default: DefaultValue::Fixed("640"),
+    },
+    Key {
         path: "viewer.stop_grace",
         value_type: ValueType::Seconds,
         help: "How long, in seconds, the viewer bridge may take to stop when `kapto serve` stops, before it is killed.",

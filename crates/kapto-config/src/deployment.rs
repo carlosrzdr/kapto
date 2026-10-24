@@ -59,6 +59,12 @@ pub struct DeploymentConfig {
     pub viewer_camera_max_fps: Effective<u32>,
     /// How much recent live data the viewer bridge keeps, in MiB.
     pub viewer_history_mib: Effective<u64>,
+    /// How much of cameras' pictures the viewer bridge keeps, in MiB.
+    pub viewer_camera_history_mib: Effective<u64>,
+    /// How many pictures a second of each camera the bridge keeps.
+    pub viewer_camera_history_fps: Effective<u32>,
+    /// How wide, at most, the pictures the bridge keeps are, in pixels.
+    pub viewer_camera_history_width: Effective<u32>,
     /// How long the viewer bridge may take to stop.
     pub viewer_stop_grace: Effective<Duration>,
     /// How much room replays may take in the cache, in MiB.
@@ -176,6 +182,16 @@ impl DeploymentConfig {
             viewer_camera_max_fps: take(&mut values, "viewer.camera_max_fps", hertz),
             viewer_history_mib: take(&mut values, "viewer.history", mebibytes),
             viewer_history_age: take(&mut values, "viewer.history_age", seconds),
+            viewer_camera_history_mib: take(&mut values, "viewer.camera_history", mebibytes),
+            viewer_camera_history_fps: take(&mut values, "viewer.camera_history_fps", hertz),
+            viewer_camera_history_width: take(
+                &mut values,
+                "viewer.camera_history_width",
+                |value| match value {
+                    Value::Pixels(width) => Some(width),
+                    _ => None,
+                },
+            ),
             viewer_stop_grace: take(&mut values, "viewer.stop_grace", seconds),
             replay_cache_size_mib: take(&mut values, "viewer.replay_cache_size", mebibytes),
             replay_cache_age_days: take(&mut values, "viewer.replay_cache_age", days),
@@ -228,6 +244,9 @@ impl DeploymentConfig {
                     "viewer.camera_max_fps" => text(&self.viewer_camera_max_fps),
                     "viewer.history" => text(&self.viewer_history_mib),
                     "viewer.history_age" => seconds_text(&self.viewer_history_age),
+                    "viewer.camera_history" => text(&self.viewer_camera_history_mib),
+                    "viewer.camera_history_fps" => text(&self.viewer_camera_history_fps),
+                    "viewer.camera_history_width" => text(&self.viewer_camera_history_width),
                     "viewer.stop_grace" => seconds_text(&self.viewer_stop_grace),
                     "viewer.replay_cache_size" => text(&self.replay_cache_size_mib),
                     "viewer.replay_cache_age" => text(&self.replay_cache_age_days),
@@ -1424,6 +1443,9 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.viewer_display_rate.value, 60);
         assert_eq!(config.viewer_camera_max_fps.value, 30);
         assert_eq!(config.viewer_history_mib.value, 64);
+        assert_eq!(config.viewer_camera_history_mib.value, 128);
+        assert_eq!(config.viewer_camera_history_fps.value, 5);
+        assert_eq!(config.viewer_camera_history_width.value, 640);
         assert_eq!(config.replay_cache_size_mib.value, 2048);
         assert_eq!(config.replay_cache_age_days.value, 7);
         assert_eq!(config.worker_max_attempts.value, 3);
@@ -1433,12 +1455,14 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         let file = file(
             "[supervisor]\nrestart_delay = 0.5\nstable_after = 10\n\
              [viewer]\ndisplay_rate = 30\ncamera_max_fps = 15\nhistory = 256\nreplay_cache_age = 30\n\
+             camera_history = 64\ncamera_history_fps = 2\ncamera_history_width = 320\n\
              [capture]\ncontrol_timeout = 20\nattach_meshes = true\n[worker]\nmax_attempts = 5\npause_while_recording = false\n",
         );
         let vars = env(&[
             ("KAPTO_CAPTURE_CONTROL_TIMEOUT", "2.5"),
             ("KAPTO_VIEWER_REPLAY_CACHE_AGE", "14"),
             ("KAPTO_VIEWER_CAMERA_MAX_FPS", "10"),
+            ("KAPTO_VIEWER_CAMERA_HISTORY_FPS", "3"),
         ]);
         let flags = [
             cli("supervisor.stable_after", "15", "--supervisor-stable-after"),
@@ -1446,6 +1470,11 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
                 "viewer.replay_cache_size",
                 "512",
                 "--viewer-replay-cache-size",
+            ),
+            cli(
+                "viewer.camera_history_width",
+                "480",
+                "--viewer-camera-history-width",
             ),
         ];
         let config = resolve(Some(&file), &vars, &flags).unwrap();
@@ -1457,6 +1486,10 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.viewer_history_mib.value, 256);
         assert_eq!(config.replay_cache_age_days.value, 14);
         assert_eq!(config.replay_cache_size_mib.value, 512);
+        // A camera's history: the file, the environment over it, a flag over both.
+        assert_eq!(config.viewer_camera_history_mib.value, 64);
+        assert_eq!(config.viewer_camera_history_fps.value, 3);
+        assert_eq!(config.viewer_camera_history_width.value, 480);
         assert_eq!(config.worker_max_attempts.value, 5);
         assert!(!config.worker_pause_while_recording.value);
         assert!(config.attach_meshes.value);

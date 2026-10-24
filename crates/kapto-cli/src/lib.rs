@@ -245,6 +245,19 @@ struct SettingFlags {
     /// Frames a second, at most, of each camera sent to the live view (`viewer.camera_max_fps`).
     #[arg(long = "viewer-camera-max-fps", global = true, value_name = "HZ")]
     camera_max_fps: Option<String>,
+    /// MiB of every camera's pictures the viewer bridge keeps to look back over (`viewer.camera_history`).
+    #[arg(long = "viewer-camera-history", global = true, value_name = "MIB")]
+    camera_history: Option<String>,
+    /// Pictures a second of each camera the viewer bridge keeps to look back over (`viewer.camera_history_fps`).
+    #[arg(long = "viewer-camera-history-fps", global = true, value_name = "HZ")]
+    camera_history_fps: Option<String>,
+    /// Pixels wide, at most, the pictures the viewer bridge keeps to look back over are (`viewer.camera_history_width`).
+    #[arg(
+        long = "viewer-camera-history-width",
+        global = true,
+        value_name = "PIXELS"
+    )]
+    camera_history_width: Option<String>,
     /// Unix socket cameras' frames are sent to, for the viewer (`viewer.frame_socket`).
     #[arg(long = "viewer-frame-socket", global = true, value_name = "PATH")]
     frame_socket: Option<String>,
@@ -313,6 +326,12 @@ pub const SETTING_FLAGS: &[(&str, &str)] = &[
     ("upload.timeout_connect", "--upload-timeout-connect"),
     ("upload.timeout_request", "--upload-timeout-request"),
     ("viewer.camera_max_fps", "--viewer-camera-max-fps"),
+    ("viewer.camera_history", "--viewer-camera-history"),
+    ("viewer.camera_history_fps", "--viewer-camera-history-fps"),
+    (
+        "viewer.camera_history_width",
+        "--viewer-camera-history-width",
+    ),
     ("viewer.frame_socket", "--viewer-frame-socket"),
 ];
 
@@ -382,6 +401,9 @@ impl SettingFlags {
             &self.upload_timeout_connect,
             &self.upload_timeout_request,
             &self.camera_max_fps,
+            &self.camera_history,
+            &self.camera_history_fps,
+            &self.camera_history_width,
             &self.frame_socket,
         ];
         SETTING_FLAGS
@@ -612,6 +634,9 @@ mod tests {
             upload_timeout_connect: Some("upload-timeout-connect".into()),
             upload_timeout_request: Some("upload-timeout-request".into()),
             camera_max_fps: Some("viewer-camera-max-fps".into()),
+            camera_history: Some("viewer-camera-history".into()),
+            camera_history_fps: Some("viewer-camera-history-fps".into()),
+            camera_history_width: Some("viewer-camera-history-width".into()),
             frame_socket: Some("viewer-frame-socket".into()),
         };
         for flag in all.overrides() {
@@ -697,6 +722,9 @@ mod tests {
             upload_timeout_connect: Some(String::new()),
             upload_timeout_request: Some(String::new()),
             camera_max_fps: Some(String::new()),
+            camera_history: Some(String::new()),
+            camera_history_fps: Some(String::new()),
+            camera_history_width: Some(String::new()),
             frame_socket: Some(String::new()),
         };
         let mut covered: Vec<&str> = all.overrides().iter().map(|flag| flag.key).collect();

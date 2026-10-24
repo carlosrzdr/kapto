@@ -34,6 +34,8 @@ pub enum ValueType {
     Mebibytes,
     /// How many times, 1–100.
     Count,
+    /// A width or height in pixels, 16–7680.
+    Pixels,
     /// A number of days, 1–3650 (about ten years).
     Days,
     /// `true` or `false`.
@@ -62,6 +64,7 @@ impl ValueType {
             Self::Hertz => "a whole number of times per second from 1 to 1000",
             Self::Mebibytes => "a whole number of MiB from 1 to 1048576",
             Self::Count => "a whole number from 1 to 100",
+            Self::Pixels => "a whole number of pixels from 16 to 7680",
             Self::Days => "a whole number of days from 1 to 3650",
             Self::Switch => "true or false",
             Self::UploadWhen => {
@@ -83,6 +86,7 @@ impl ValueType {
             Self::Mebibytes => Some("MiB"),
             Self::Days => Some("days"),
             Self::Bandwidth => Some("MiB/s"),
+            Self::Pixels => Some("px"),
             Self::Port
             | Self::IpAddress
             | Self::Path
@@ -108,6 +112,7 @@ impl ValueType {
             Self::Hertz => text.parse().ok().and_then(hertz),
             Self::Mebibytes => text.parse().ok().and_then(mebibytes),
             Self::Count => text.parse().ok().and_then(count),
+            Self::Pixels => text.parse().ok().and_then(pixels),
             Self::Days => text.parse().ok().and_then(days),
             Self::Switch => text.parse().ok().map(Value::Switch),
             Self::UploadWhen => text.parse().ok().map(Value::UploadWhen),
@@ -138,6 +143,9 @@ impl ValueType {
             Self::Count => value
                 .as_integer()
                 .and_then(|number| u32::try_from(number).ok().and_then(count)),
+            Self::Pixels => value
+                .as_integer()
+                .and_then(|number| u32::try_from(number).ok().and_then(pixels)),
             Self::Days => value
                 .as_integer()
                 .and_then(|number| u32::try_from(number).ok().and_then(days)),
@@ -172,6 +180,12 @@ fn mebibytes(number: u64) -> Option<Value> {
 
 fn count(number: u32) -> Option<Value> {
     (1..=100).contains(&number).then_some(Value::Count(number))
+}
+
+fn pixels(number: u32) -> Option<Value> {
+    (16..=7680)
+        .contains(&number)
+        .then_some(Value::Pixels(number))
 }
 
 fn bandwidth(number: u32) -> Option<Value> {
@@ -214,6 +228,8 @@ pub enum Value {
     Mebibytes(u64),
     /// How many times.
     Count(u32),
+    /// A width or height in pixels.
+    Pixels(u32),
     /// A number of days.
     Days(u32),
     /// On or off.
@@ -239,7 +255,7 @@ impl fmt::Display for Value {
             Self::Seconds(time) => write!(f, "{}", time.as_secs_f64()),
             Self::Hertz(rate) | Self::Bandwidth(rate) => write!(f, "{rate}"),
             Self::Mebibytes(size) => write!(f, "{size}"),
-            Self::Count(count) => write!(f, "{count}"),
+            Self::Count(count) | Self::Pixels(count) => write!(f, "{count}"),
             Self::Days(days) => write!(f, "{days}"),
             Self::Switch(on) => write!(f, "{on}"),
             Self::UploadWhen(when) => write!(f, "{when}"),
@@ -326,6 +342,7 @@ mod tests {
         assert_eq!(ValueType::Mebibytes.unit(), Some("MiB"));
         assert_eq!(ValueType::Days.unit(), Some("days"));
         assert_eq!(ValueType::Bandwidth.unit(), Some("MiB/s"));
+        assert_eq!(ValueType::Pixels.unit(), Some("px"));
         for none in [
             ValueType::Port,
             ValueType::Count,
@@ -419,5 +436,21 @@ mod tests {
         for bad in ["0", "3651", "1.5", "7d", ""] {
             assert_eq!(ValueType::Days.parse_text(bad), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn pixels_are_whole_from_16_to_7680() {
+        assert_eq!(
+            ValueType::Pixels.parse_text("640"),
+            Some(Value::Pixels(640))
+        );
+        for bad in ["15", "7681", "640.5", "-640", ""] {
+            assert_eq!(ValueType::Pixels.parse_text(bad), None, "{bad:?}");
+        }
+        let toml: toml_edit::Value = 7680.into();
+        assert_eq!(
+            ValueType::Pixels.parse_toml(&toml),
+            Some(Value::Pixels(7680))
+        );
     }
 }

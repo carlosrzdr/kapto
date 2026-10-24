@@ -11,6 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use kapto_core::{ClockSample, ErrorCode, KaptoError};
+use kapto_viz::camera_history::CameraHistorySettings;
 use kapto_viz::picture::CameraKind;
 use kapto_viz::{Bridge, BridgeSettings, LiveRobot, Plots, StreamFields};
 
@@ -76,6 +77,14 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
         Duration::from_secs(1) / deployment.viewer_display_rate.value.max(1);
     settings.history_bytes = deployment.viewer_history_mib.value * 1024 * 1024;
     settings.history_age = deployment.viewer_history_age.value;
+    settings.camera_history = CameraHistorySettings {
+        every: Duration::from_secs(1) / deployment.viewer_camera_history_fps.value.max(1),
+        width: deployment.viewer_camera_history_width.value,
+        bytes: usize::try_from(deployment.viewer_camera_history_mib.value * 1024 * 1024)
+            .unwrap_or(usize::MAX),
+        // The bridge keeps them as long as the rest of its history.
+        age_ns: i64::MAX,
+    };
     let mut bridge = Bridge::start(&settings, &robot, live, &plots).map_err(|error| vec![error])?;
     println!(
         "Streaming {} to the live view on port {}",

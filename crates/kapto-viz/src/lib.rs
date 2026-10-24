@@ -10,6 +10,7 @@
 mod bridge;
 #[cfg(unix)]
 pub mod camera_frames;
+pub mod camera_history;
 #[cfg(unix)]
 pub mod history;
 #[cfg(unix)]

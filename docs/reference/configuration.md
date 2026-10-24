@@ -91,6 +91,42 @@ How far back, in seconds, the live view can look: the viewer bridge keeps what i
 | Environment variable | `KAPTO_VIEWER_HISTORY_AGE` |
 | Flag | `--viewer-history-age` |
 
+## `viewer.camera_history`
+
+How much, in MiB, the viewer bridge keeps of every camera's pictures together, for the live view to look back over: made smaller (`viewer.camera_history_width`) and fewer (`viewer.camera_history_fps`), for `viewer.history_age` unless this fills first; the oldest goes first.
+
+| | |
+|---|---|
+| Section and name | `[viewer]` `camera_history` |
+| Accepts | a whole number of MiB from 1 to 1048576 |
+| Default | `128` |
+| Environment variable | `KAPTO_VIEWER_CAMERA_HISTORY` |
+| Flag | `--viewer-camera-history` |
+
+## `viewer.camera_history_fps`
+
+How many pictures a second of each camera the viewer bridge keeps for the live view to look back over.
+
+| | |
+|---|---|
+| Section and name | `[viewer]` `camera_history_fps` |
+| Accepts | a whole number of times per second from 1 to 1000 |
+| Default | `5` |
+| Environment variable | `KAPTO_VIEWER_CAMERA_HISTORY_FPS` |
+| Flag | `--viewer-camera-history-fps` |
+
+## `viewer.camera_history_width`
+
+How wide, at most, in pixels, the pictures the viewer bridge keeps for the live view to look back over are: each is decoded at a half, a quarter or an eighth of its size, whichever first fits.
+
+| | |
+|---|---|
+| Section and name | `[viewer]` `camera_history_width` |
+| Accepts | a whole number of pixels from 16 to 7680 |
+| Default | `640` |
+| Environment variable | `KAPTO_VIEWER_CAMERA_HISTORY_WIDTH` |
+| Flag | `--viewer-camera-history-width` |
+
 ## `viewer.stop_grace`
 
 How long, in seconds, the viewer bridge may take to stop when `kapto serve` stops, before it is killed.

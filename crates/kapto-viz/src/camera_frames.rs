@@ -23,7 +23,7 @@ use kapto_config::MAX_MESSAGE_BYTES;
 use kapto_core::ClockSample;
 use kapto_core::clock::monotonic_now;
 
-use crate::picture::{CameraKind, Pictures};
+use crate::picture::{CameraKind, PictureFormat, Pictures};
 use crate::stream::{Photographer, picture_message};
 use crate::tap_reader::prepare_socket_path;
 
@@ -221,6 +221,12 @@ impl Reader {
                 let sent = utc(monotonic_now().as_nanos());
                 let message = picture_message(stream, &picture, utc(recv_time_ns), sent);
                 self.photographer.picture(stream, &message);
+                // A PNG isn't kept: cameras send JPEG, or raw pictures
+                // the bridge made JPEG of.
+                if picture.format == PictureFormat::Jpeg {
+                    self.photographer
+                        .remember(stream, utc(recv_time_ns), picture.bytes);
+                }
                 self.photographer.unshown(stream, None);
                 self.stats.shown.fetch_add(1, Ordering::Relaxed);
             }

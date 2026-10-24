@@ -17,6 +17,7 @@ use kapto_core::{ClockSample, ErrorCode, KaptoError};
 use kapto_robot::RobotModel;
 
 use crate::camera_frames::{self, CameraStats, CameraTotals};
+use crate::camera_history::CameraHistorySettings;
 use crate::history::History;
 use crate::live::LiveRobot;
 use crate::marks::{Marks, watch_capture};
@@ -57,6 +58,9 @@ pub struct BridgeSettings {
     /// How far back the bridge keeps what it streamed, for pages looking
     /// back.
     pub history_age: Duration,
+    /// What it keeps of cameras' pictures for pages looking back; kept as
+    /// long as `history_age`.
+    pub camera_history: CameraHistorySettings,
 }
 
 impl BridgeSettings {
@@ -74,6 +78,7 @@ impl BridgeSettings {
             display_interval: Duration::from_millis(16),
             history_bytes: 64 * 1024 * 1024,
             history_age: Duration::from_secs(600),
+            camera_history: CameraHistorySettings::default(),
         }
     }
 }
@@ -139,6 +144,10 @@ impl Bridge {
                 &error.to_string(),
             )
         })?;
+        stream.keep_pictures_by(CameraHistorySettings {
+            age_ns,
+            ..settings.camera_history
+        });
         let stop_watching = watch_marks(settings.control_socket.as_ref(), &stream)?;
         let reader = TapReader::bind(&settings.tap_socket).map_err(|error| {
             KaptoError::new(ErrorCode::ViewerTapSocketFailed)

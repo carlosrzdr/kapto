@@ -34,6 +34,7 @@ use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::http::{StatusCode, header};
 use tungstenite::{Bytes, Message, WebSocket};
 
+use crate::camera_history::{CameraHistory, CameraHistorySettings, Kept, smaller};
 use crate::history::{History, MAX_POINTS, Record, SampleRecord, pose};
 use crate::marks::{Mark, Marks, message};
 use crate::picture::{Picture, PictureFormat};
@@ -45,6 +46,10 @@ pub const FRAME_MAGIC: &[u8; 4] = b"KVFR";
 pub const PICTURE_MAGIC: &[u8; 4] = b"KVPC";
 /// The bytes of a picture message before the picture.
 pub const PICTURE_HEADER: usize = 40;
+/// The first bytes of the answer with a camera's picture looked back at.
+pub const LOOKED_BACK_MAGIC: &[u8; 4] = b"KVPB";
+/// The bytes before a looked-back picture.
+pub const LOOKED_BACK_HEADER: usize = 32;
 /// The version of the stream: its opening message and its frames.
 pub const STREAM_VERSION: u16 = 1;
 /// Frames a page may have waiting before the next is dropped.
@@ -254,6 +259,8 @@ struct Shared {
     cameras: Arc<Mutex<Cameras>>,
     pictures_sent: Arc<AtomicU64>,
     pictures_dropped: Arc<AtomicU64>,
+    /// The pictures kept of each camera, for pages looking back.
+    camera_history: Arc<Mutex<CameraHistory>>,
 }
 
 /// What a page connecting is told of the cameras straight away.
@@ -303,6 +310,9 @@ impl FrameStream {
             cameras: Arc::default(),
             pictures_sent: Arc::default(),
             pictures_dropped: Arc::default(),
+            camera_history: Arc::new(Mutex::new(CameraHistory::new(
+                CameraHistorySettings::default(),
+            ))),
         };
         let stop = Arc::new(AtomicBool::new(false));
         thread::Builder::new().name("viz-stream".into()).spawn({
@@ -322,6 +332,12 @@ impl FrameStream {
     #[must_use]
     pub fn address(&self) -> SocketAddr {
         self.address
+    }
+
+    /// Keeps cameras' pictures for pages looking back by `settings`,
+    /// forgetting any kept before.
+    pub fn keep_pictures_by(&self, settings: CameraHistorySettings) {
+        *lock(&self.shared.camera_history) = CameraHistory::new(settings);
     }
 
     /// Hands `frame` to every page with room for it, and counts each that
@@ -430,6 +446,29 @@ impl Photographer {
         });
     }
 
+    /// Keeps camera `stream`'s picture `jpeg`, whose frame Kapto received
+    /// at `received_utc_ns`, for pages looking back, if one is due: made
+    /// smaller first, without holding up a page asking meanwhile.
+    pub fn remember(&self, stream: u16, received_utc_ns: i64, jpeg: &[u8]) {
+        let settings = {
+            let history = lock(&self.shared.camera_history);
+            if !history.due(stream, received_utc_ns) {
+                return;
+            }
+            history.settings()
+        };
+        let Some((width, height, smaller)) = smaller(jpeg, settings.width) else {
+            return;
+        };
+        lock(&self.shared.camera_history).keep(Kept {
+            stream,
+            received_utc_ns,
+            width,
+            height,
+            jpeg: Bytes::from(smaller),
+        });
+    }
+
     /// Tells every page why camera `stream` isn't shown, or, with `None`,
     /// that it is again. Only a change is told.
     pub fn unshown(&self, stream: u16, why: Option<&str>) {
@@ -452,6 +491,32 @@ impl Photographer {
             Err(TrySendError::Disconnected(_)) => false,
         });
     }
+}
+
+/// The answer to question `id` for camera `stream`'s picture at a moment:
+/// the picture kept nearest it, when Kapto received its frame, and its
+/// size, or, with none kept, all of those zero.
+#[must_use]
+pub fn looked_back_message(id: u32, stream: u16, kept: Option<&Kept>) -> Bytes {
+    let (width, height, received, jpeg) = kept.map_or((0, 0, 0, &[][..]), |kept| {
+        (
+            kept.width,
+            kept.height,
+            kept.received_utc_ns,
+            &kept.jpeg[..],
+        )
+    });
+    let mut bytes = Vec::with_capacity(LOOKED_BACK_HEADER + jpeg.len());
+    bytes.extend(LOOKED_BACK_MAGIC);
+    bytes.extend(STREAM_VERSION.to_le_bytes());
+    bytes.extend(stream.to_le_bytes());
+    bytes.extend(id.to_le_bytes());
+    bytes.extend(width.to_le_bytes());
+    bytes.extend(height.to_le_bytes());
+    bytes.extend(received.to_le_bytes());
+    bytes.extend(u32::try_from(jpeg.len()).unwrap_or(u32::MAX).to_le_bytes());
+    bytes.extend(jpeg);
+    Bytes::from(bytes)
 }
 
 /// What a page is told of a camera that isn't shown, or is again, as text.
@@ -597,7 +662,11 @@ fn serve_page(
             return Ok(());
         }
     }
-    converse(&mut socket, (&frames, &marks, &pictures), &shared.history);
+    converse(
+        &mut socket,
+        (&frames, &marks, &pictures),
+        (&shared.history, &shared.camera_history),
+    );
     let _ = socket.close(None);
     Ok(())
 }
@@ -614,6 +683,9 @@ enum Question {
         to: i64,
         points: u32,
     },
+    /// The picture kept of camera `stream` nearest `at`, in UTC
+    /// nanoseconds.
+    Picture { id: u32, stream: u16, at: i64 },
 }
 
 /// Writes the page every frame and mark it is handed and answers what it
@@ -624,7 +696,7 @@ enum Question {
 fn converse(
     socket: &mut WebSocket<TcpStream>,
     (frames, marks, pictures): (&Receiver<Bytes>, &Receiver<String>, &Receiver<Bytes>),
-    history: &Mutex<History>,
+    histories: (&Mutex<History>, &Mutex<CameraHistory>),
 ) {
     loop {
         match frames.recv_timeout(QUESTION_POLL) {
@@ -652,7 +724,7 @@ fn converse(
             None => return,
         }
         let answer = match socket.read() {
-            Ok(Message::Text(text)) => answer(&text, history),
+            Ok(Message::Text(text)) => answer(&text, histories),
             Ok(Message::Close(_)) | Err(_) => return,
             Ok(_) => continue,
         };
@@ -676,9 +748,10 @@ fn asked(connection: &TcpStream) -> Option<bool> {
     }
 }
 
-/// The answer to the question in `text`: a stretch of the history as
-/// binary, or what is wrong with the question as text.
-fn answer(text: &str, history: &Mutex<History>) -> Message {
+/// The answer to the question in `text`: a stretch of the history, or a
+/// camera's picture kept, as binary, or what is wrong with the question as
+/// text.
+fn answer(text: &str, (history, cameras): (&Mutex<History>, &Mutex<CameraHistory>)) -> Message {
     match serde_json::from_str::<Question>(text) {
         Ok(Question::History {
             id,
@@ -696,6 +769,10 @@ fn answer(text: &str, history: &Mutex<History>) -> Message {
             // stretch is merged.
             let snapshot = lock(history).snapshot();
             Message::Binary(snapshot.stretch(from, to, points).reply(id))
+        }
+        Ok(Question::Picture { id, stream, at }) => {
+            let cameras = lock(cameras);
+            Message::Binary(looked_back_message(id, stream, cameras.nearest(stream, at)))
         }
         Err(error) => refusal(None, &error.to_string()),
     }

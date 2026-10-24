@@ -23,9 +23,12 @@ use kapto_core::{ClockSample, ErrorCode};
 use kapto_robot::{JointMap, Kinematics, RobotModel, load_urdf};
 use kapto_store::{Event, Phase};
 use kapto_testkit::scratch;
+use kapto_viz::camera_history::CameraHistorySettings;
 use kapto_viz::history::{HISTORY_MAGIC, History, Record};
 use kapto_viz::marks::Marks;
-use kapto_viz::stream::{FRAME_MAGIC, Frame, FrameStream, Opening, STREAM_VERSION};
+use kapto_viz::stream::{
+    FRAME_MAGIC, Frame, FrameStream, LOOKED_BACK_HEADER, LOOKED_BACK_MAGIC, Opening, STREAM_VERSION,
+};
 use kapto_viz::{
     Bridge, BridgeSettings, LiveRobot, Plots, StreamFields, TapReader, TapReaderStats,
 };
@@ -814,4 +817,88 @@ fn a_page_streamed_to_without_pause_still_has_its_questions_answered() {
     assert_eq!(answered.0, 3);
     streaming.store(false, std::sync::atomic::Ordering::Relaxed);
     sender.join().unwrap();
+}
+
+/// A JPEG of `width` by `height` in one grey.
+fn grey_jpeg(width: u16, height: u16) -> Vec<u8> {
+    let pixels = vec![128_u8; usize::from(width) * usize::from(height)];
+    let mut out = Vec::new();
+    jpeg_encoder::Encoder::new(&mut out, 90)
+        .encode(&pixels, width, height, jpeg_encoder::ColorType::Luma)
+        .unwrap();
+    out
+}
+
+#[test]
+fn a_page_looking_back_is_answered_with_the_cameras_picture_kept_nearest_its_moment() {
+    let opening = Opening {
+        version: STREAM_VERSION,
+        links: Vec::new(),
+        streams: Vec::new(),
+        history_s: 600,
+        cameras: vec![1],
+    };
+    let stream = FrameStream::start(
+        (LOCALHOST, 0, 7700),
+        &opening,
+        History::new(i64::MAX, usize::MAX),
+        Marks::new(i64::MAX),
+    )
+    .unwrap();
+    stream.keep_pictures_by(CameraHistorySettings {
+        every: std::time::Duration::from_millis(200),
+        width: 640,
+        bytes: usize::MAX,
+        age_ns: i64::MAX,
+    });
+    // A 1080p camera at 50 a second for a second: one in ten kept.
+    let photographer = stream.photographer();
+    let picture = grey_jpeg(1920, 1080);
+    let second = 1_000_000_000_i64;
+    for frame in 0..50 {
+        photographer.remember(1, 100 * second + frame * second / 50, &picture);
+    }
+    let mut page = watch(stream.address().port(), None).unwrap();
+    let Message::Text(_) = page.read().unwrap() else {
+        panic!("the opening message comes first")
+    };
+    let mut ask = |question: &str| {
+        page.send(Message::text(question)).unwrap();
+        loop {
+            if let Message::Binary(answer) = page.read().unwrap()
+                && answer.starts_with(LOOKED_BACK_MAGIC)
+            {
+                return answer;
+            }
+        }
+    };
+    let field = |answer: &[u8], at: usize, len: usize| {
+        let mut bytes = [0_u8; 8];
+        bytes[..len].copy_from_slice(&answer[at..at + len]);
+        u64::from_le_bytes(bytes)
+    };
+    // 100.35 s: nearest the one kept at 100.4.
+    let answer = ask(&format!(
+        r#"{{"picture":{{"id":3,"stream":1,"at":{}}}}}"#,
+        100 * second + 350_000_000
+    ));
+    assert_eq!(
+        answer.len() - LOOKED_BACK_HEADER,
+        usize::try_from(field(&answer, 28, 4)).unwrap()
+    );
+    assert_eq!(
+        (field(&answer, 6, 2), field(&answer, 8, 4)),
+        (1, 3),
+        "the camera and the question"
+    );
+    assert_eq!((field(&answer, 12, 4), field(&answer, 16, 4)), (480, 270));
+    assert_eq!(field(&answer, 20, 8), 100_400_000_000);
+    let mut decoder = jpeg_decoder::Decoder::new(&answer[LOOKED_BACK_HEADER..]);
+    decoder.read_info().unwrap();
+    let info = decoder.info().unwrap();
+    assert_eq!((info.width, info.height), (480, 270));
+    // A camera with nothing kept: told so.
+    let answer = ask(r#"{"picture":{"id":4,"stream":2,"at":0}}"#);
+    assert_eq!(answer.len(), LOOKED_BACK_HEADER);
+    assert_eq!((field(&answer, 8, 4), field(&answer, 28, 4)), (4, 0));
 }

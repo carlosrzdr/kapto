@@ -268,6 +268,9 @@ viewer.display_rate               60                                       defau
 viewer.camera_max_fps             30                                       default
 viewer.history                    64                                       default
 viewer.history_age                600                                      default
+viewer.camera_history             128                                      default
+viewer.camera_history_fps         5                                        default
+viewer.camera_history_width       640                                      default
 viewer.stop_grace                 5                                        default
 viewer.replay_cache_size          2048                                     default
 viewer.replay_cache_age           7                                        default

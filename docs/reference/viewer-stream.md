@@ -188,6 +188,35 @@ maximum of the part that covers it. A question that can't be answered is
 answered with text, `{"error": {"id": 7, "message": "…"}}`, `id` being
 `null` if the question couldn't be read.
 
+## Looking back at a camera
+
+The bridge also keeps, per camera, a picture every
+`1 / viewer.camera_history_fps` seconds of those it sends, made no wider
+than `viewer.camera_history_width` pixels and encoded as JPEG again, for as
+long as the rest of what it keeps, within `viewer.camera_history` MiB for
+every camera together, the oldest going first. A page paused or looking
+back asks for one camera's picture nearest a moment, as text:
+
+```json
+{"picture": {"id": 9, "stream": 1, "at": 1772700430000000000}}
+```
+
+`stream` is the camera's position in the opening message's `streams`, `at`
+a time in UTC nanoseconds, and `id` the page's own, given back with the
+answer. The answer is binary, little-endian:
+
+| Bytes | Holds |
+|---|---|
+| 4 | `KVPB` |
+| 2 | The stream's version: 1 |
+| 2 | The camera's position in the opening message's `streams` |
+| 4 | The question's `id` |
+| 4 | The picture's width in pixels, as kept |
+| 4 | Its height |
+| 8 | When Kapto received its frame (signed) |
+| 4 | The picture's length, `N`: 0 if none of that camera is kept |
+| `N` | The picture, as JPEG |
+
 ## What happened
 
 The bridge watches the capture process for every event it takes, recorded
