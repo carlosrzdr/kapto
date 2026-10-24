@@ -26,13 +26,17 @@
   );
   const filtering = $derived(words.length > 0 || changedOnly);
 
-  /** The settings shown, by their section (the part of the name before its first dot), in order. */
+  /**
+   * The settings shown, by their section (the part of the name before its
+   * first dot), each section where its first setting is, wherever the rest
+   * of its settings come.
+   */
   const sections = $derived(
     shown.reduce<{ name: string; settings: typeof shown }[]>((grouped, setting) => {
       const name = setting.key.split(".")[0] ?? setting.key;
-      const last = grouped.at(-1);
-      if (last?.name === name) {
-        last.settings.push(setting);
+      const section = grouped.find((each) => each.name === name);
+      if (section) {
+        section.settings.push(setting);
       } else {
         grouped.push({ name, settings: [setting] });
       }

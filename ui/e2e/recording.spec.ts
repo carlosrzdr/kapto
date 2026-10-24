@@ -936,6 +936,51 @@ test("pointing at a plot says the time there and each value, and stops when the 
   await expect(tip).toBeHidden();
 });
 
+test("an episode deleted goes to the bin, is restored from it, and a refused deletion says why", async ({ page }) => {
+  const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
+  await page.goto("/");
+  await expect(page.getByText("Live, not recording")).toBeVisible({ timeout: 20_000 });
+  expect((await page.request.post("/api/episodes/start", json)).status()).toBe(201);
+  await page.waitForTimeout(1_500);
+  expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
+  await open(page, /^Episodes/);
+  const listed = page.getByRole("listitem").filter({ hasText: "messages" });
+  await listed.first().getByTitle("Show this episode in full").click();
+  const details = page.getByRole("region", { name: /^Episode / });
+  const id = ((await details.getAttribute("aria-label")) ?? "").replace("Episode ", "");
+  const row = page.getByRole("listitem").filter({ has: page.getByRole("region", { name: `Episode ${id}` }) });
+
+  // Refused: the page says why, and the episode stays.
+  await page.route(`**/api/episodes/${id}`, async (route) => {
+    if (route.request().method() !== "DELETE") {
+      return route.continue();
+    }
+    return route.fulfill({
+      status: 409,
+      json: { code: "api.episode_in_bin", message: "The episode is in the bin already", remedy: "Put it back with POST /api/episodes/{id}/restore." },
+    });
+  });
+  await details.getByRole("button", { name: "Delete…" }).click();
+  await details.getByRole("group", { name: "Delete this episode" }).getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Put it back with" })).toBeVisible();
+  await page.unroute(`**/api/episodes/${id}`);
+
+  // Deleted, the episode still open: gone from the list, in the bin, restored.
+  await details.getByRole("button", { name: "Delete…" }).click();
+  await details.getByRole("group", { name: "Delete this episode" }).getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("button", { name: new RegExp(id.slice(0, 8)) })).toHaveCount(0);
+  await expect(row).toHaveCount(0);
+  await page.getByRole("button", { name: "In the bin" }).click();
+  await expect(page.getByRole("button", { name: "In the bin" })).toHaveAttribute("aria-pressed", "true");
+  await listed.first().getByTitle("Show this episode in full").click();
+  const binned = page.getByRole("region", { name: `Episode ${id}` });
+  await expect(binned.getByRole("group", { name: "In the bin" })).toContainText("deleted for good about");
+  await binned.getByRole("button", { name: "Restore" }).click();
+  await expect(page.getByText("The bin is empty.")).toBeVisible();
+  await page.getByRole("button", { name: "In the bin" }).click();
+  await expect(listed.first()).toBeVisible();
+});
+
 test("a column of more plots than fit scrolls, each plot keeping room for its chart", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });

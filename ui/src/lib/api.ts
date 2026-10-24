@@ -4,7 +4,9 @@
 import {
   API_VERSION,
   type ApiError,
+  type BinnedEpisode,
   type CameraFrames,
+  type EmptiedBin,
   type EpisodeDetail,
   type EpisodeEvents,
   type EpisodeQuality,
@@ -166,17 +168,36 @@ export const getStorage = (): Promise<Storage> => request<Storage>("/api/storage
 /** Which episodes to list by what the quality checks decided. */
 export type QualityFilter = "all" | "accepted" | "rejected";
 
-/** The `limit` newest episodes, only those `filter` keeps and, if given, with an event of kind `event`. */
+/**
+ * The `limit` newest episodes, only those `filter` keeps and, if given,
+ * with an event of kind `event`; those in the bin if `inBin`, and none of
+ * them otherwise.
+ */
 export const getEpisodes = (
   limit = 20,
   filter: QualityFilter = "all",
   event: string | null = null,
+  inBin = false,
 ): Promise<EpisodeSummary[]> =>
   request<EpisodeSummary[]>(
     `/api/episodes?limit=${limit}${filter === "all" ? "" : `&accepted=${filter === "accepted"}`}${
       event === null ? "" : `&event=${encodeURIComponent(event)}`
-    }`,
+    }${inBin ? "&bin=true" : ""}`,
   );
+
+/** Deletes an episode from the web UI: into the bin, until it is emptied or put back. */
+export const deleteEpisode = (id: string): Promise<BinnedEpisode> =>
+  request<BinnedEpisode>(`/api/episodes/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { "Kapto-Client": "web UI" },
+  });
+
+/** Puts an episode back from the bin. */
+export const restoreEpisode = (id: string): Promise<unknown> =>
+  post<unknown>(`/api/episodes/${encodeURIComponent(id)}/restore`, {});
+
+/** Empties the bin: every episode in it is deleted for good as the worker gets to it. */
+export const emptyBin = (): Promise<EmptiedBin> => post<EmptiedBin>("/api/bin/empty", {});
 
 export const getEpisode = (id: string): Promise<EpisodeDetail> =>
   request<EpisodeDetail>(`/api/episodes/${encodeURIComponent(id)}`);

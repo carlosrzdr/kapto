@@ -35,6 +35,12 @@
     uploads?: EpisodeUploads | null;
     /** The destinations configured, for where each is. */
     destinations?: UploadDestination[];
+    /** How many days an episode deleted stays in the bin (`bin.keep_days`). */
+    keepDays?: number;
+    /** Asked to delete it, into the bin, once confirmed. */
+    ondelete?: () => void;
+    /** Asked to put it back from the bin. */
+    onrestore?: () => void;
   }
 
   let {
@@ -47,7 +53,14 @@
     onreplay = () => {},
     uploads = null,
     destinations = [],
+    keepDays = 7,
+    ondelete = () => {},
+    onrestore = () => {},
   }: Props = $props();
+
+  /** Whether Delete was pressed once, and waits to be confirmed. */
+  let confirming = $state(false);
+  const DAY_NS = 86_400 * 1e9;
 
   /** How many of a check's moments are listed; the rest are counted. */
   const MOMENTS_SHOWN = 5;
@@ -111,6 +124,35 @@
   >
     {#if replay === "ready"}Replaying{:else if asked}Preparing…{:else}Replay{/if}
   </button>
+  {#if episode.stored_here && episode.binned_utc_ns != null}
+    <div class="bin" role="group" aria-label="In the bin">
+      <p>
+        In the bin since {time(episode.binned_utc_ns)}; deleted for good about {time(episode.binned_utc_ns + keepDays * DAY_NS)}
+        unless put back.
+      </p>
+      <button type="button" class="restore" onclick={() => onrestore()}>Restore</button>
+    </div>
+  {:else if episode.stored_here && confirming}
+    <div class="bin" role="group" aria-label="Delete this episode">
+      <p>
+        Delete it? It goes into the bin, where it can be restored for {keepDays} days, then it is deleted for good. Copies
+        already uploaded stay where they are.
+      </p>
+      <button
+        type="button"
+        class="delete"
+        onclick={() => {
+          confirming = false;
+          ondelete();
+        }}>Delete</button
+      >
+      <button type="button" class="cancel" onclick={() => (confirming = false)}>Cancel</button>
+    </div>
+  {:else if episode.stored_here}
+    <button type="button" class="delete ask" title="Put this episode in the bin" onclick={() => (confirming = true)}
+      >Delete…</button
+    >
+  {/if}
   <dl>
     <dt>Recorded</dt>
     <dd>
@@ -380,6 +422,45 @@
     color: var(--text);
     font: inherit;
     cursor: pointer;
+  }
+  .ask {
+    float: right;
+    margin: 0.4rem 0 0.4rem 0.5rem;
+  }
+  .bin {
+    clear: both;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-2) 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .bin p {
+    flex: 1 1 16rem;
+    margin: 0;
+    color: var(--muted);
+  }
+  /* Deleting isn't an action to invite: never green, never filled. */
+  .delete,
+  .cancel,
+  .restore {
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .delete {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .restore {
+    border-color: var(--accent);
   }
   .moments {
     list-style: none;

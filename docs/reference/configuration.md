@@ -307,18 +307,6 @@ How each recording's chunks are compressed: `lz4`, fast; `zstd`, smaller for mor
 | Environment variable | `KAPTO_CAPTURE_COMPRESSION` |
 | Flag | `--capture-compression` |
 
-## `bin.keep_days`
-
-How many days an episode deleted by hand stays in the bin, where it can be put back, before it is deleted for good. The oldest goes sooner while the disk's free space is below `capture.disk_warn_below`, and every one when the bin is emptied by hand.
-
-| | |
-|---|---|
-| Section and name | `[bin]` `keep_days` |
-| Accepts | a whole number of days from 1 to 3650 |
-| Default | `7` |
-| Environment variable | `KAPTO_BIN_KEEP_DAYS` |
-| Flag | `--bin-keep-days` |
-
 ## `capture.attach_meshes`
 
 Whether each recording also carries the robot package's meshes, and the textures and buffers they load. Every other file of the package is always attached; meshes are left out by default because a real robot's can take tens of megabytes per episode, and each one left out is named in the recording with its SHA-256. With `true`, the recording alone can draw the robot.
@@ -330,6 +318,18 @@ Whether each recording also carries the robot package's meshes, and the textures
 | Default | `false` |
 | Environment variable | `KAPTO_CAPTURE_ATTACH_MESHES` |
 | Flag | `--capture-attach-meshes` |
+
+## `bin.keep_days`
+
+How many days an episode deleted by hand stays in the bin, where it can be put back, before it is deleted for good. The oldest goes sooner while the disk's free space is below `capture.disk_warn_below`, and every one when the bin is emptied by hand.
+
+| | |
+|---|---|
+| Section and name | `[bin]` `keep_days` |
+| Accepts | a whole number of days from 1 to 3650 |
+| Default | `7` |
+| Environment variable | `KAPTO_BIN_KEEP_DAYS` |
+| Flag | `--bin-keep-days` |
 
 ## `supervisor.restart_delay`
 

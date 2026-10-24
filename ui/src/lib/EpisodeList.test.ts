@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
@@ -147,7 +147,7 @@ describe("EpisodeList", () => {
       task: { id: "pick_and_place", hash: "cd34", name: "Pick and place", prompt: "Pick up the red cube", objects: [], subtasks: ["reach", "grasp"] },
     };
     const { rerender } = render(EpisodeList, { episodes: [summary, recorded], open: null, onselect: vi.fn() });
-    const [without, withSession] = screen.getAllByRole("button");
+    const [without, withSession] = screen.getAllByTitle("Show this episode in full");
     expect(without?.textContent).not.toContain("·");
     expect(withSession?.textContent).toContain("Pick and place · lab_ana");
 
@@ -165,7 +165,7 @@ describe("EpisodeList", () => {
     const pending = { ...summary, id: "20260310T121500.000Z-00000004", accepted: null };
     const onfilter = vi.fn();
     render(EpisodeList, { episodes: [rejected, accepted, pending], open: null, onselect: vi.fn(), onfilter });
-    const [first, second, third] = screen.getAllByRole("button");
+    const [first, second, third] = screen.getAllByTitle("Show this episode in full");
     expect(first?.textContent).toContain("rejected");
     expect(first?.querySelector(".rejected")).toBeTruthy();
     expect(second?.textContent).toContain("accepted");
@@ -386,5 +386,45 @@ describe("EpisodeList's events", () => {
     render(EpisodeList, { props: { episodes: [summary], open: detail, events: unread, onselect: vi.fn() } });
     expect(screen.getByText(/Events: not read yet/)).toBeTruthy();
     expect(screen.queryByRole("table", { name: "Events" })).toBeNull();
+  });
+});
+
+describe("EpisodeList's bin", () => {
+  it("deletes an episode only once confirmed, and lists the bin to restore or empty it", async () => {
+    const ondelete = vi.fn();
+    const onbin = vi.fn();
+    render(EpisodeList, { episodes: [summary], open: detail, onselect: vi.fn(), ondelete, onbin, keepDays: 7 });
+    await fireEvent.click(screen.getByRole("button", { name: "Delete…" }));
+    const confirm = screen.getByRole("group", { name: "Delete this episode" });
+    expect(confirm.textContent).toContain("restored for 7 days");
+    expect(ondelete).not.toHaveBeenCalled();
+    await fireEvent.click(within(confirm).getByRole("button", { name: "Delete" }));
+    expect(ondelete).toHaveBeenCalledWith(summary.id);
+    await fireEvent.click(screen.getByRole("button", { name: "In the bin" }));
+    expect(onbin).toHaveBeenCalledWith(true);
+  });
+
+  it("in the bin, says when each goes for good, restores one and empties it once confirmed", async () => {
+    const binnedAt = 1_772_700_400_000_000_000;
+    const onrestore = vi.fn();
+    const onempty = vi.fn();
+    render(EpisodeList, {
+      episodes: [{ ...summary, binned_utc_ns: binnedAt }],
+      open: { ...detail, binned_utc_ns: binnedAt },
+      onselect: vi.fn(),
+      inBin: true,
+      onrestore,
+      onempty,
+      keepDays: 7,
+    });
+    expect(screen.getByRole("button", { name: "In the bin" }).getAttribute("aria-pressed")).toBe("true");
+    const kept = screen.getByRole("group", { name: "In the bin" });
+    expect(kept.textContent).toContain("deleted for good about");
+    await fireEvent.click(within(kept).getByRole("button", { name: "Restore" }));
+    expect(onrestore).toHaveBeenCalledWith(summary.id);
+    await fireEvent.click(screen.getByRole("button", { name: "Empty the bin…" }));
+    expect(onempty).not.toHaveBeenCalled();
+    await fireEvent.click(within(screen.getByRole("group", { name: "Empty the bin" })).getByRole("button", { name: "Empty the bin" }));
+    expect(onempty).toHaveBeenCalledOnce();
   });
 });

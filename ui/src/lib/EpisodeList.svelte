@@ -45,6 +45,18 @@
     replay?: ReplayStatus | null;
     /** Asked to watch an episode again in the viewer, at a moment if given. */
     onreplay?: (id: string, moment?: CheckRange | null) => void;
+    /** Whether the episodes listed are those in the bin. */
+    inBin?: boolean;
+    /** Asked to list those in the bin, or the others. */
+    onbin?: (inBin: boolean) => void;
+    /** How many days an episode deleted stays in the bin (`bin.keep_days`). */
+    keepDays?: number;
+    /** Asked to delete an episode, into the bin. */
+    ondelete?: (id: string) => void;
+    /** Asked to put an episode back from the bin. */
+    onrestore?: (id: string) => void;
+    /** Asked to empty the bin, once confirmed. */
+    onempty?: () => void;
   }
 
   let {
@@ -63,7 +75,16 @@
     onfilter = () => {},
     replay = null,
     onreplay = () => {},
+    inBin = false,
+    onbin = () => {},
+    keepDays = 7,
+    ondelete = () => {},
+    onrestore = () => {},
+    onempty = () => {},
   }: Props = $props();
+
+  /** Whether Empty the bin was pressed once, and waits to be confirmed. */
+  let emptying = $state(false);
 
   const total = (episode: EpisodeSummary, field: "written" | "dropped_by_us" | "lost_upstream") =>
     episode.streams.reduce((sum, stream) => sum + stream[field], 0);
@@ -119,6 +140,34 @@
       {/each}
     </select>
   </label>
+  <button
+    type="button"
+    class="bin-toggle"
+    aria-pressed={inBin}
+    title="Episodes deleted, until the bin is emptied or they are restored"
+    onclick={() => {
+      emptying = false;
+      onbin(!inBin);
+    }}>In the bin</button
+  >
+  {#if inBin && episodes.length > 0}
+    {#if emptying}
+      <span class="confirm" role="group" aria-label="Empty the bin">
+        Delete all {episodes.length} for good?
+        <button
+          type="button"
+          class="delete"
+          onclick={() => {
+            emptying = false;
+            onempty();
+          }}>Empty the bin</button
+        >
+        <button type="button" onclick={() => (emptying = false)}>Cancel</button>
+      </span>
+    {:else}
+      <button type="button" class="delete" onclick={() => (emptying = true)}>Empty the bin…</button>
+    {/if}
+  {/if}
 </div>
 
 <ul>
@@ -172,12 +221,17 @@
           {names}
           replay={replay?.episode === episode.id ? replay.state : null}
           onreplay={(moment) => onreplay(episode.id, moment)}
+          {keepDays}
+          ondelete={() => ondelete(episode.id)}
+          onrestore={() => onrestore(episode.id)}
         />
       {/if}
     </li>
   {:else}
     <li class="empty">
-      {filter === "all" && eventFilter === null
+      {inBin
+        ? "The bin is empty."
+        : filter === "all" && eventFilter === null
         ? "No episodes recorded yet."
         : `No ${filter === "all" ? "" : `${filter} `}episodes${eventFilter === null ? "" : ` with ${names[eventFilter] ?? eventFilter}`}.`}
     </li>
@@ -226,6 +280,33 @@
     flex-wrap: wrap;
     gap: 1rem;
     margin-bottom: 0.4rem;
+  }
+  .bin-toggle,
+  .filters .delete,
+  .confirm button {
+    /* Not the rows' full-width grid. */
+    display: inline-block;
+    width: auto;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .confirm {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .bin-toggle[aria-pressed="true"] {
+    border-color: var(--accent);
+  }
+  .filters .delete {
+    border-color: var(--danger);
+    color: var(--danger);
   }
   .filter {
     display: flex;

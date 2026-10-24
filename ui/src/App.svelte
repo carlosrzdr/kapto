@@ -6,6 +6,8 @@
     ApiFailure,
     askReplay,
     checkVersion,
+    deleteEpisode,
+    emptyBin,
     getEpisode,
     getEpisodeQuality,
     getEpisodeEvents,
@@ -24,6 +26,7 @@
     getTasks,
     getUploads,
     type QualityFilter,
+    restoreEpisode,
     retryUploads,
     runPreflight,
     type SessionChoice,
@@ -166,6 +169,8 @@
   /** Only episodes with an event of this kind are listed, if set. */
   let eventFilter = $state<string | null>(null);
   let episodeFilter = $state<QualityFilter>("all");
+  /** Whether the episodes listed are those in the bin. */
+  let inBin = $state(false);
   let processes = $state<ProcessStatus[]>([]);
   let storage = $state<Storage | null>(null);
   /** What serve was started with; it doesn't change while the page is open. */
@@ -416,7 +421,7 @@
 
   async function refreshEpisodes() {
     try {
-      episodes = await getEpisodes(20, episodeFilter, eventFilter);
+      episodes = await getEpisodes(20, episodeFilter, eventFilter, inBin);
     } catch (error) {
       problem = failure(error);
     }
@@ -430,6 +435,23 @@
   function filterByEvent(kind: string | null) {
     eventFilter = kind;
     void refreshEpisodes();
+  }
+
+  function showBin(shown: boolean) {
+    inBin = shown;
+    void showEpisode(null);
+    void refreshEpisodes();
+  }
+
+  /** Runs `change`, an episode put in or out of the bin, then lists the episodes again. */
+  async function binned(change: () => Promise<unknown>) {
+    try {
+      await change();
+      await showEpisode(null);
+    } catch (error) {
+      problem = failure(error);
+    }
+    await refreshEpisodes();
   }
 
   /** How long after an episode ends the page waits for it to be checked. */
@@ -748,6 +770,12 @@
             onfilter={filterEpisodes}
             {replay}
             onreplay={(id, moment) => void replayEpisode(id, moment)}
+            {inBin}
+            onbin={showBin}
+            keepDays={Number(settings?.settings.find((setting) => setting.key === "bin.keep_days")?.value ?? 7)}
+            ondelete={(id) => void binned(() => deleteEpisode(id))}
+            onrestore={(id) => void binned(() => restoreEpisode(id))}
+            onempty={() => void binned(() => emptyBin())}
           />
         {:else if tab === "uploads"}
           <h2>Uploads</h2>

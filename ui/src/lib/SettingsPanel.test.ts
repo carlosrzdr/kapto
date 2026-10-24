@@ -79,6 +79,22 @@ describe("SettingsPanel", () => {
     expect(screen.queryByText("log", { selector: "th" })).toBeNull();
   });
 
+  it("keeps a section's settings together, one coming after another section's among them", async () => {
+    const scattered: SettingsOverview = {
+      ...settings,
+      settings: [
+        { key: "capture.compression", value: "lz4", source: "default", default: true, help: "How recordings are compressed." },
+        { key: "bin.keep_days", value: "7", source: "default", default: true, help: "Days in the bin." },
+        { key: "capture.attach_meshes", value: "false", source: "default", default: true, help: "Meshes carried." },
+      ],
+    };
+    render(SettingsPanel, { settings: scattered });
+    await fireEvent.click(screen.getByText(/3 settings/));
+    const sections = screen.getAllByRole("rowheader").filter((th) => th.getAttribute("scope") === "rowgroup");
+    expect(sections.map((th) => th.textContent)).toEqual(["capture", "bin"]);
+    expect(screen.getByRole("row", { name: /^capture\.attach_meshes/ })).toBeTruthy();
+  });
+
   it("writes a quantity's unit after its value, and nothing after one without", async () => {
     const quantities: SettingsOverview = {
       ...settings,
