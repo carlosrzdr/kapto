@@ -7,6 +7,7 @@ pub mod episode;
 pub mod error;
 pub mod hex;
 pub mod name;
+pub mod profiling;
 pub mod role;
 pub mod stream;
 pub mod time;

@@ -168,6 +168,7 @@ impl Staged {
     ///
     /// The first step's failure; see each step.
     pub fn finalise(self) -> Result<Finalised, KaptoError> {
+        let _span = kapto_core::span!("finalise");
         self.rename()?.write_manifest()?.mark_finalised()
     }
 
@@ -200,6 +201,7 @@ impl Renamed {
     ///
     /// `manifest.write_failed`.
     pub fn write_manifest(self) -> Result<Manifested, KaptoError> {
+        let _span = kapto_core::span!("write the manifest");
         Manifest::of_directory(&self.dir, &self.episode)?.write(&self.dir)?;
         Ok(Manifested {
             dir: self.dir,

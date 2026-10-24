@@ -137,6 +137,7 @@ impl<T: Transport> Receiver<T> {
 
     fn send(&mut self) {
         if !self.filler.batch().is_empty() {
+            let _span = kapto_core::span!("hand-off", messages = self.filler.batch().len());
             self.accounting.count(self.filler.batch());
             self.filler.send();
         }

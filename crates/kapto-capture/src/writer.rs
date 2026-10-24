@@ -672,6 +672,7 @@ impl Recording {
         if !self.sync.due(now) {
             return Ok(false);
         }
+        let _span = kapto_core::span!("sync");
         let flushed = match self.mcap.as_mut() {
             Some(mcap) => mcap.flush(),
             None => return Err(self.earlier_failure()),
@@ -754,13 +755,27 @@ impl Recording {
                         for (stream, _) in batch.messages() {
                             counters.add_dropped_by_us(stream, 1);
                         }
-                    } else if let Err(error) = self.write(&batch, counters) {
+                    } else if let Err(error) = {
+                        // How long the batch waited for the writer since its
+                        // first message arrived.
+                        let _span = kapto_core::span!(
+                            "write",
+                            messages = batch.len(),
+                            waited_us = monotonic_now()
+                                .as_nanos()
+                                .saturating_sub(batch.recv_time().as_nanos())
+                                / 1_000
+                        );
+                        self.write(&batch, counters)
+                    } {
                         failure = Some(error);
                     } else {
+                        let _span = kapto_core::span!("keep");
                         kept.keep(&batch);
                         pre_roll.hold(&batch);
                         #[cfg(unix)]
                         if let Some(tap) = &mut self.tap {
+                            let _span = kapto_core::span!("offer to the live view");
                             tap.offer(&batch);
                         }
                     }

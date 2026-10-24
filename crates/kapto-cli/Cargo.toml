@@ -21,6 +21,10 @@ run = ["dep:kapto-viz"]
 # ROS 2 topics; needs ROS 2 to build, so only the ROS 2 image has it.
 # The synthetic robot publishing on ROS 2 too, for the tests that run it.
 ros2 = ["kapto-transport/ros2", "kapto-loadgen/ros2"]
+# Spans of capture's stages and the worker's jobs written as a Chrome
+# trace, for `cargo xtask profile trace`. Development only: release builds
+# and images never have it.
+profiling = ["kapto-core/profiling", "dep:tracing", "dep:tracing-subscriber"]
 
 [dependencies]
 clap.workspace = true
@@ -39,8 +43,9 @@ kapto-viz = { workspace = true, optional = true }
 # The worker's idle I/O priority: `ioprio_set`, which rustix doesn't offer.
 libc.workspace = true
 pcap-parser.workspace = true
-# `process`: the worker's lower CPU priority.
-rustix = { workspace = true, features = ["process"] }
+# `process`: the worker's lower CPU priority; `thread`: the thread IDs in
+# a profiling trace.
+rustix = { workspace = true, features = ["process", "thread"] }
 serde_json.workspace = true
 signal-hook.workspace = true
 # Writing exported bags; the recordings' own format, already in the tree.
@@ -51,6 +56,9 @@ sha2.workspace = true
 # The upload lane's runtime: uploads are idle connections (docs/design/process-and-thread-model.md,
 # uploads.md).
 tokio = { workspace = true, features = ["rt", "time"] }
+# Spans written as a Chrome trace: only with `profiling`.
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 [dev-dependencies]
 kapto-testkit.workspace = true

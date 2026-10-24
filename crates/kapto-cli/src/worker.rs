@@ -613,6 +613,7 @@ fn run_job(
         KaptoError::new(ErrorCode::EpisodeUnreadable)
             .detail(format!("`{}` isn't an episode ID", order.episode))
     })?;
+    let _span = kapto_core::span!("job", kind = %order.kind, episode = %order.episode);
     job.run(&folder, between)
 }
 

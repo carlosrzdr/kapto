@@ -139,31 +139,38 @@ impl ViewerTap {
         loop {
             let deadline = Instant::now() + SEND_INTERVAL;
             let finished = self.drain.is_finished();
-            let (decoders, decimator) = (&self.decoders, &mut self.decimator);
-            self.drain.each(|stream, recv_time, bytes| {
-                let Some(Some(decoder)) = decoders.get(usize::from(stream)) else {
-                    return;
-                };
-                values.resize(decoder.value_count(), Value::default());
-                // A message that doesn't decode isn't shown; recording it
-                // is the writer's job and already done.
-                if decoder.decode(bytes, &mut values).is_err() {
-                    return;
-                }
-                numbers.clear();
-                // A value the message doesn't have is NaN: the decimator
-                // keeps the stream's last one instead.
-                numbers.extend(values.iter().map(|value| value.as_f64()));
-                decimator.add(stream, recv_time.as_nanos(), &numbers);
-            });
-            let (socket, latest) = (&mut self.socket, &self.latest);
-            self.decimator.take(|summary| {
-                socket.send(summary);
-                latest.set(usize::from(summary.stream), summary.values);
-            });
+            {
+                let _span = kapto_core::span!("decode for the live view");
+                let (decoders, decimator) = (&self.decoders, &mut self.decimator);
+                self.drain.each(|stream, recv_time, bytes| {
+                    let Some(Some(decoder)) = decoders.get(usize::from(stream)) else {
+                        return;
+                    };
+                    values.resize(decoder.value_count(), Value::default());
+                    // A message that doesn't decode isn't shown; recording it
+                    // is the writer's job and already done.
+                    if decoder.decode(bytes, &mut values).is_err() {
+                        return;
+                    }
+                    numbers.clear();
+                    // A value the message doesn't have is NaN: the decimator
+                    // keeps the stream's last one instead.
+                    numbers.extend(values.iter().map(|value| value.as_f64()));
+                    decimator.add(stream, recv_time.as_nanos(), &numbers);
+                });
+            }
+            {
+                let _span = kapto_core::span!("send to the live view");
+                let (socket, latest) = (&mut self.socket, &self.latest);
+                self.decimator.take(|summary| {
+                    socket.send(summary);
+                    latest.set(usize::from(summary.stream), summary.values);
+                });
+            }
             // Frames get what is left of the interval; one the viewer hasn't
             // taken whole by then is finished next time.
             if let Some(frames) = &mut self.frames {
+                let _span = kapto_core::span!("send frames to the live view");
                 frames.send_until(deadline);
             }
             if finished {

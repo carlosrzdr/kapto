@@ -30,6 +30,8 @@ mod session;
 mod showcase;
 mod station;
 mod topics;
+#[cfg(feature = "profiling")]
+mod trace;
 mod upload;
 mod viewer_tap;
 mod viz_bridge;
@@ -532,6 +534,14 @@ pub fn command() -> clap::Command {
 #[must_use]
 pub fn run() -> ExitCode {
     let cli = Cli::parse();
+    // Each process's spans, named for its command, in a profiling build.
+    #[cfg(feature = "profiling")]
+    let _trace = {
+        use clap::CommandFactory as _;
+        let matches = Cli::command().try_get_matches().ok();
+        let command = matches.as_ref().and_then(clap::ArgMatches::subcommand_name);
+        trace::start(command.unwrap_or("kapto"))
+    };
     match cli.command {
         Command::Config(ConfigCommand::Validate) => config::validate(&cli.settings),
         Command::Config(ConfigCommand::Show) => config::show(&cli.settings),

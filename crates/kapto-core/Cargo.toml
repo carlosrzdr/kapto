@@ -10,6 +10,13 @@ publish.workspace = true
 
 [dependencies]
 rustix.workspace = true
+# Spans for `cargo xtask profile trace`: only with `profiling`.
+tracing = { workspace = true, optional = true }
+
+[features]
+# Spans marking capture's stages and the worker's jobs, for profiling in
+# development. Release builds and images never have it.
+profiling = ["dep:tracing"]
 
 [dev-dependencies]
 proptest.workspace = true

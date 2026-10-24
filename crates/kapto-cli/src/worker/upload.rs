@@ -87,9 +87,12 @@ pub(super) fn lane(
                 continue;
             }
         };
-        let failure = runtime
-            .block_on(upload(data_dir, destinations, &order, client, &mut between))
-            .err();
+        let failure = {
+            let _span = kapto_core::span!("job", kind = UPLOAD, episode = %order.episode);
+            runtime
+                .block_on(upload(data_dir, destinations, &order, client, &mut between))
+                .err()
+        };
         if let Some(error) = &failure
             && error.code() == ErrorCode::WorkerJobStopped
         {
