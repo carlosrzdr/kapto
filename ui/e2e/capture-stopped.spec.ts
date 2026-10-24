@@ -59,9 +59,8 @@ test("with the capture process stopped, the page says why and can't record", asy
   await quality.selectOption("rejected");
   const listed = page.getByRole("listitem").filter({ hasText: "messages" });
   await expect(listed.first().or(page.getByText("No rejected episodes."))).toBeVisible();
-  for (const episode of await listed.all()) {
-    await expect(episode).toContainText("rejected");
-  }
+  // Retried: the list shown before stays until the server answers the filter.
+  await expect(listed.filter({ hasNotText: "rejected" })).toHaveCount(0);
   await quality.selectOption("all");
 
   // One a gate rejected says so, with what the gate found. The demo's
