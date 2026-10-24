@@ -693,6 +693,26 @@ item is ticked with the test, benchmark or demo step that shows it.
 
 ---
 
+### WP M20: Isaac Sim *(high priority)*
+
+**How:** Isaac Sim publishes a simulated robot on ROS 2 through its bridge
+(`isaacsim.ros2.bridge`): joint states, `/tf`, cameras and the simulation's
+`/clock`, over DDS. Kapto records that as it records any ROS 2 robot, from
+a package made from the URDF the robot was imported into Isaac Sim from, so
+the live view and replays show it as the simulation moves it. What
+simulation adds is time that isn't the wall clock's, uncompressed camera
+images, and episodes that a script runs, many after another, each with the
+settings it was run with. **Open question:** whether the bridge's DDS and
+Kapto's image meet as they are (Isaac Sim ships its own ROS 2 libraries),
+or Kapto runs beside Isaac Sim on the same middleware.
+
+| PR | Delivers | Tests | You check |
+|---|---|---|---|
+| M20-01 `docs(guides): record a robot in isaac sim` | A guide: a robot in Isaac Sim recorded over its ROS 2 bridge, from its package to a replay; what doesn't work yet listed as the rows below, or as new ones | The guide's steps, run against Isaac Sim's headless container on a machine with its GPU | The robot moves in Kapto as in Isaac Sim |
+| M20-02 `feat(capture): simulated time` | The simulation's `/clock` as each message's source time and the episode's, so a paused, slowed or sped-up simulation records and replays at its own pace | Loadgen with a `/clock` running at half and twice real time: replay at simulated time | — |
+| M20-03 `feat(decode): raw ros 2 images` | `sensor_msgs/Image` cameras (rgb8, bgr8, mono8, depth as 16-bit or float) stored as received and shown live and in replay, as the bridge publishes them | Fixtures of each encoding; a 1080p raw camera's rate held | — |
+| M20-04 `feat(server): episodes a simulation runs` | Episodes started and stopped by the simulation's script through the API, each with what it was run with (scene, seed, randomised parameters) kept in the recording, and marked as simulated | A script running fifty short episodes: each has its parameters and none is mixed with a real robot's in the list's filter | — |
+
 ## Part 5. Phase B work packages: v1 (P1)
 
 Critical path: MVP → M9 → M10 → M16 → M12 → M13. M14, M15, M17, M18 run in
@@ -951,6 +971,8 @@ reference.
 1. The cameras: M6b-04b (capture's CPU with ROS 2 cameras, not reproduced
    in later runs; measured on the reference PC).
 2. Zenoh made solid with cameras: its cost brought to DDS's (M6-05d).
+3. Recording a robot simulated in Isaac Sim (WP M20), starting with
+   M20-01.
 
 The other work packages wait until then.
 
