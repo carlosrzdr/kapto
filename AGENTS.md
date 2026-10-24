@@ -305,4 +305,6 @@ read from the recording by its indexes, frame by frame; layouts as
 columns of panels in TOML, the operator's own over the config folder's
 default per package over the package's own over one made from its roles; uploads through one engine in the worker on `object_store`, state
 in `kapto.db`, `_SUCCESS` last, credentials by reference, RustFS for tests;
+an episode closed on a thread of its own while capture receives again
+*(planned)*;
 Docker as the only build prerequisite, automation in `cargo xtask`.
