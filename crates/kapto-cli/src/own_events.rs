@@ -8,11 +8,21 @@
 
 use std::time::Duration;
 
+use kapto_config::StreamDeclaration;
+
 use kapto_store::events::{KAPTO_KINDS, KAPTO_SOURCE};
 use kapto_store::{Event, Phase};
 
 /// How long a stream may send nothing before it counts as silent.
 pub(crate) const SILENT_AFTER: Duration = Duration::from_secs(2);
+
+/// How long a stream may send nothing before it counts as silent: `None`
+/// for one kept for late subscribers without a rate (`rate_hz`), which may
+/// send once and never again, so its quiet is no silence; [`SILENT_AFTER`]
+/// for any other, which sends at least once a second.
+pub(crate) fn silent_after(rate_hz: Option<u32>, kept: bool) -> Option<Duration> {
+    (rate_hz.is_some() || !kept).then_some(SILENT_AFTER)
+}
 
 /// One stream's counts as the episode goes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -29,6 +39,20 @@ struct Seen {
     /// When it last received anything, in the episode's time.
     last_received: Duration,
     silent: bool,
+    /// How long it may send nothing before it is silent; never if `None`.
+    silent_after: Option<Duration>,
+}
+
+/// Each of `declarations`, in order, with how long it may send nothing
+/// before an episode says it fell silent ([`silent_after`]).
+pub(crate) fn silences(declarations: &[StreamDeclaration]) -> Vec<(String, Option<Duration>)> {
+    declarations
+        .iter()
+        .map(|declaration| {
+            let after = silent_after(declaration.rate_hz, declaration.kept_for_late_subscribers());
+            (declaration.id.to_string(), after)
+        })
+        .collect()
 }
 
 /// Works out Kapto's own events for one episode.
@@ -40,12 +64,22 @@ pub(crate) struct OwnEvents {
 }
 
 impl OwnEvents {
-    /// For an episode recording `streams`, none of them received from yet.
-    pub(crate) fn new(streams: impl IntoIterator<Item = String>) -> Self {
+    /// For an episode recording `streams`, each with how long it may send
+    /// nothing before it is silent ([`silent_after`]), none of them received
+    /// from yet.
+    pub(crate) fn new(streams: impl IntoIterator<Item = (String, Option<Duration>)>) -> Self {
         Self {
             streams: streams
                 .into_iter()
-                .map(|stream| (stream, Seen::default()))
+                .map(|(stream, silent_after)| {
+                    (
+                        stream,
+                        Seen {
+                            silent_after,
+                            ..Seen::default()
+                        },
+                    )
+                })
                 .collect(),
             next_check: Duration::from_secs(1),
         }
@@ -53,8 +87,8 @@ impl OwnEvents {
 
     /// The events each stream's `counts` at `elapsed` into the episode call
     /// for, at `now_utc_ns`: compared once a second, so at most one of each
-    /// kind per stream per second. A stream silent for [`SILENT_AFTER`] is
-    /// said to be once, and back once it sends again.
+    /// kind per stream per second. A stream that sent nothing for as long as
+    /// it may is said to be silent once, and back once it sends again.
     pub(crate) fn tick(
         &mut self,
         counts: &[Counts],
@@ -82,7 +116,9 @@ impl OwnEvents {
                     .insert("dropped_by_us".to_owned(), dropped.to_string());
                 events.push(event);
             }
-            let quiet = elapsed.saturating_sub(seen.last_received) >= SILENT_AFTER;
+            let quiet = seen
+                .silent_after
+                .is_some_and(|after| elapsed.saturating_sub(seen.last_received) >= after);
             if quiet != seen.silent {
                 seen.silent = quiet;
                 let kind = if quiet {
@@ -144,7 +180,7 @@ mod tests {
 
     #[test]
     fn losses_are_told_at_most_once_a_second_with_how_many() {
-        let mut own = OwnEvents::new(["joints".to_owned()]);
+        let mut own = OwnEvents::new([("joints".to_owned(), Some(SILENT_AFTER))]);
         let at = |ms: u64| Duration::from_millis(ms);
         // Three losses within the first second: told once, with all three.
         assert_eq!(own.tick(&counts(10, 1), at(300), 0), []);
@@ -163,7 +199,7 @@ mod tests {
 
     #[test]
     fn a_stream_sending_nothing_is_silent_once_and_back_once_it_sends() {
-        let mut own = OwnEvents::new(["joints".to_owned()]);
+        let mut own = OwnEvents::new([("joints".to_owned(), Some(SILENT_AFTER))]);
         let mut told = Vec::new();
         let mut received = 0;
         for second in 1..=8_u64 {
@@ -178,5 +214,31 @@ mod tests {
             )));
         }
         assert_eq!(told, ["kapto.stream_silent", "kapto.stream_back"]);
+    }
+
+    #[test]
+    fn a_kept_stream_without_a_rate_is_never_silent_and_one_with_a_rate_is() {
+        assert_eq!(silent_after(None, true), None);
+        assert_eq!(silent_after(Some(50), false), Some(SILENT_AFTER));
+        // Kept, and declared to send steadily too.
+        assert_eq!(silent_after(Some(20), true), Some(SILENT_AFTER));
+
+        let mut own = OwnEvents::new([
+            ("owner".to_owned(), silent_after(None, true)),
+            ("joints".to_owned(), silent_after(Some(50), false)),
+        ]);
+        let mut told = Vec::new();
+        for second in 1..=8_u64 {
+            // Both quiet after their first message.
+            let counts = [Counts {
+                received: 1,
+                dropped_by_us: 0,
+                lost_upstream: 0,
+            }; 2];
+            for event in own.tick(&counts, Duration::from_secs(second), 0) {
+                told.push(format!("{} {}", event.kind, event.attributes["stream"]));
+            }
+        }
+        assert_eq!(told, ["kapto.stream_silent joints"]);
     }
 }

@@ -47,7 +47,7 @@ use kapto_core::{EpisodeId, ErrorCode, KaptoError, RecvTime};
 use kapto_store::{Event, PackageIdentity, Preflight as PreflightReport};
 
 use crate::SettingFlags;
-use crate::own_events::{Counts, OwnEvents};
+use crate::own_events::{Counts, OwnEvents, silences};
 use crate::preflight::Preflight;
 use crate::record::{RecordSettings, describe, load_plan, package_of, recover};
 use crate::station::{Live, Next, Outcome, Station};
@@ -109,6 +109,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
     say_receiving(&station, &deployment);
 
     let mut preflight = Preflight::new(&deployment, &declarations);
+    let silences = silences(&declarations);
     // What profiles are checked against; it doesn't change while capture runs.
     let package = station.package.clone();
     let mut first = true;
@@ -181,7 +182,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
                 (&control, &mut disk),
                 &shutdown,
                 (pending, duration, asked),
-                timeout,
+                (timeout, &silences),
             );
         }
         if shutdown.load(Ordering::Relaxed) {
@@ -323,7 +324,7 @@ fn episode(
     (control, disk): (&ControlServer, &mut DiskWatch),
     shutdown: &AtomicBool,
     (start, duration, asked): (Pending, Option<Duration>, RecvTime),
-    control_timeout: Duration,
+    (control_timeout, silences): (Duration, &[(String, Option<Duration>)]),
 ) {
     let start = RefCell::new(Some(start));
     let current: RefCell<Option<EpisodeId>> = RefCell::new(None);
@@ -336,7 +337,7 @@ fn episode(
     let streams = station.plan.streams.len();
     // The run this episode keeps, as status reports it while it is recorded.
     let preflight = station.preflight.clone();
-    let mut own = OwnEvents::new(station.plan.streams.iter().map(|spec| spec.id.to_string()));
+    let mut own = OwnEvents::new(silences.iter().cloned());
     let finished = station.record(
         asked,
         &mut |episode, buffers| {
