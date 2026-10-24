@@ -141,7 +141,7 @@ enum ProfileCommand {
     /// Record a scenario's load while `perf` samples every thread of `kapto
     /// record` (in Docker, with `CAP_PERFMON`): each thread's time on a core,
     /// waiting for one and blocked, the functions its samples land in, and
-    /// the stacks folded for a flamegraph.
+    /// a flamegraph.
     Record(bench::profile::RecordArgs),
 }
 

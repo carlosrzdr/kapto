@@ -73,6 +73,9 @@ impl Profile {
             if line.trim().is_empty() {
                 if let Some((thread, mut frames)) = sample.take() {
                     frames.reverse();
+                    // Frames without symbols, as the kernel's, would stack
+                    // one box per address.
+                    frames.dedup_by(|inner, outer| inner == outer && inner.starts_with('['));
                     *profile.stacks.entry((thread, frames)).or_insert(0) += 1;
                 }
             } else if line.starts_with(char::is_whitespace) {
@@ -107,7 +110,21 @@ impl Profile {
         profile
     }
 
-    /// Each stack as `thread;outer;…;inner samples`, a flamegraph's input.
+    /// The flamegraph of every stack, under `title`.
+    pub(super) fn flamegraph(&self, title: &str) -> String {
+        super::flamegraph::svg(
+            title,
+            self.stacks.iter().map(|((thread, frames), samples)| {
+                let path = std::iter::once(thread.as_str())
+                    .chain(frames.iter().map(String::as_str))
+                    .collect();
+                (path, *samples)
+            }),
+        )
+    }
+
+    /// Each stack as `thread;outer;…;inner samples`, the input of other
+    /// flamegraph tools.
     pub(super) fn folded(&self) -> String {
         let mut text = String::new();
         for ((thread, frames), samples) in &self.stacks {
@@ -258,6 +275,7 @@ cap-writer 4242
 
 cap-rx udp 4243
 \t    ffffffffa060012b [unknown] ([unknown])
+\t    ffffffffa1c81b29 [unknown] ([unknown])
 \t    5c262fd850ad _RNvNtNtCs1qY1sNuKwjA_15kapto_transport3udp3sys7receive (/repo/target/profiling/release/kapto)
 \t    7a17b27aaf5e [unknown] (/usr/lib/x86_64-linux-gnu/libc.so.6)
 ";

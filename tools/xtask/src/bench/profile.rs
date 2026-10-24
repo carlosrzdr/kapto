@@ -7,6 +7,7 @@
 //! is read from `/proc` meanwhile, so a thread that waits shows even when it
 //! uses no CPU.
 
+mod flamegraph;
 mod stacks;
 
 use std::path::{Path, PathBuf};
@@ -94,7 +95,7 @@ pub(crate) fn record(root: &Path, args: RecordArgs) -> ExitCode {
         Ok((work, report)) => {
             println!("{report}");
             eprintln!(
-                "The profile is in {}: profile.md, and stacks.folded for a flamegraph",
+                "The profile is in {}: profile.md, flamegraph.svg, and stacks.folded for other tools",
                 work.display()
             );
             ExitCode::SUCCESS
@@ -142,6 +143,12 @@ fn profiled(root: &Path, args: RecordArgs) -> Result<(PathBuf, String), String> 
         std::fs::write(work.join(name), text)
             .map_err(|error| format!("can't write {name}: {error}"))
     };
+    let title = format!(
+        "kapto record, the {} load, {} s",
+        args.scenario.name(),
+        args.seconds
+    );
+    write("flamegraph.svg", &profile.flamegraph(&title))?;
     write("stacks.folded", &profile.folded())?;
     write("profile.md", &report)?;
     tidy(&run.work, args.keep_recordings);
