@@ -100,7 +100,12 @@ pub(super) fn lane(
                 ),
                 Err(error) => eprintln!("[worker] {error}"),
             }
-            return;
+            // Stopped as the episode went into the bin, the lane carries
+            // on with the next; stopped as the worker stops, it ends.
+            if shutdown.load(Ordering::Relaxed) {
+                return;
+            }
+            continue;
         }
         if let Some(error) = &failure {
             eprintln!("[worker] {} not uploaded: {error}", order.episode);
@@ -199,6 +204,16 @@ async fn to(
     let mut backoff =
         Backoff::from_clock(settings.backoff_initial.value, settings.backoff_max.value);
     let mut reported = Ok(());
+    // Set once serve says the episode went into the bin: the upload stops
+    // at its next step, as far as it got.
+    let binned = AtomicBool::new(false);
+    let mut between = || {
+        if binned.load(Ordering::Relaxed) {
+            return Err(KaptoError::new(ErrorCode::WorkerJobStopped)
+                .detail("its episode was deleted by hand into the bin"));
+        }
+        between()
+    };
     let outcome = upload_episode(
         opened.store(),
         folder,
@@ -221,11 +236,20 @@ async fn to(
             };
             if reported.is_ok() {
                 reported = client.upload_report(&report);
+                if let Err(error) = &reported
+                    && error.code() == ErrorCode::ApiEpisodeInBin
+                {
+                    binned.store(true, Ordering::Relaxed);
+                }
             }
         },
-        between,
+        &mut between,
     )
     .await;
+    if binned.load(Ordering::Relaxed) {
+        return Err(KaptoError::new(ErrorCode::WorkerJobStopped)
+            .detail("its episode was deleted by hand into the bin"));
+    }
     reported?;
     let marker = match outcome? {
         Uploaded::Now(marker) | Uploaded::AlreadyThere(marker) => marker,

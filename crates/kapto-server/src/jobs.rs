@@ -577,9 +577,17 @@ fn answer(queue: &Queue, request: JobRequest) -> JobResponse {
             destination,
             progress,
             counts,
-        } => store
-            .upload_progress(&episode, &destination, &progress, counts)
-            .map(|()| JobResponse::Saved),
+        } => {
+            // Deleted by hand meanwhile: stopped at its next step, given
+            // back as far as it got, to carry on if it is put back.
+            if matches!(in_bin(store, &episode), Ok(true)) {
+                Err(KaptoError::new(ErrorCode::ApiEpisodeInBin).context("episode", episode))
+            } else {
+                store
+                    .upload_progress(&episode, &destination, &progress, counts)
+                    .map(|()| JobResponse::Saved)
+            }
+        }
         JobRequest::Uploaded {
             episode,
             destination,
@@ -591,12 +599,26 @@ fn answer(queue: &Queue, request: JobRequest) -> JobResponse {
             episode,
             destination,
             failure,
-        } => store
-            .upload_failed(&episode, &destination, failure)
-            .map(|()| JobResponse::Saved),
+        } => match in_bin(store, &episode) {
+            // Its folder moved into the bin under it: not a failure.
+            Ok(true) => Ok(JobResponse::Saved),
+            Ok(false) => store
+                .upload_failed(&episode, &destination, failure)
+                .map(|()| JobResponse::Saved),
+            Err(error) => Err(error),
+        },
         JobRequest::Released { job } => store
             .release(job)
             .map(|was_running| JobResponse::Released { was_running }),
+        // An upload of an episode deleted by hand meanwhile, failed as its
+        // folder moved: given back, to carry on if it is put back.
+        JobRequest::Finished {
+            job,
+            failure: Some(_),
+            ..
+        } if upload_of_binned(store, job) => store
+            .release(job)
+            .map(|was_running| JobResponse::Finished { was_running }),
         JobRequest::Finished {
             job,
             failure,
@@ -710,6 +732,16 @@ fn next(queue: &Queue, kinds: &Kinds) -> Result<Option<JobOrder>, KaptoError> {
 /// Whether `episode` is in the bin, deleted by hand.
 fn in_bin(store: &Writer, episode: &str) -> Result<bool, KaptoError> {
     Ok(store.reader()?.binned(episode)?.is_some())
+}
+
+/// Whether job `id` is an upload of an episode in the bin.
+fn upload_of_binned(store: &Writer, id: JobId) -> bool {
+    store
+        .reader()
+        .and_then(|reader| reader.job_with_id(id))
+        .ok()
+        .flatten()
+        .is_some_and(|job| job.kind == UPLOAD && matches!(in_bin(store, &job.episode), Ok(true)))
 }
 
 /// Looks for episodes to delete at once when job `id` was an upload, which

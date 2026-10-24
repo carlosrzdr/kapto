@@ -776,3 +776,36 @@ fn while_the_disk_is_low_the_episode_longest_in_the_bin_goes_first() {
     // One at a time: no more go than the room needs.
     assert_eq!(worker.ask(NEXT_DELETE)["job"], Value::Null);
 }
+
+#[test]
+fn an_upload_of_an_episode_put_in_the_bin_is_stopped_and_given_back_to_carry_on_if_put_back() {
+    let (store, _server, mut worker) = binning("bin-upload", 0);
+    let upload = store.enqueue(UPLOAD, FIRST).unwrap();
+    let job = worker.ask(r#"{"request":"next","kinds":["upload"]}"#)["job"].clone();
+    assert_eq!(job["episode"], FIRST);
+    let start = json!({"request": "upload_start", "episode": FIRST, "destination": "nas", "key": "fleet-a/x"});
+    worker.ask(&start.to_string());
+    binned(&store, FIRST, 0);
+    // Its next report is told to stop.
+    let progress = json!({"request": "upload_progress", "episode": FIRST, "destination": "nas", "progress": "{}"});
+    let answer = worker.ask(&progress.to_string());
+    assert_eq!(answer["code"], "api.episode_in_bin", "{answer}");
+    // Ended as failed when its folder moved: given back instead, not failed.
+    let failed = json!({"request": "finished", "job": job["id"], "failure": {"code": "upload.episode_unreadable", "message": "gone"}});
+    worker.ask(&failed.to_string());
+    let reader = store.reader().unwrap();
+    assert_eq!(
+        reader.job_with_id(upload).unwrap().unwrap().state,
+        JobState::Queued
+    );
+    // Waits while in the bin; carries on once put back.
+    assert_eq!(
+        worker.ask(r#"{"request":"next","kinds":["upload"]}"#)["job"],
+        Value::Null
+    );
+    store.forget_binned(FIRST).unwrap();
+    assert_eq!(
+        worker.ask(r#"{"request":"next","kinds":["upload"]}"#)["job"]["episode"],
+        FIRST
+    );
+}
