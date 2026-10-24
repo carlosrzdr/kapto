@@ -43,7 +43,7 @@ futures = "0.3"
 gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
 # The synthetic camera's frames, encoded once when it starts; a baseline
 # JPEG encoder in Rust with no dependencies.
-jpeg-encoder = { version = "0.6", default-features = false, features = ["std"] }
+jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
 # Checking those frames in the tests with a decoder that isn't the encoder.
 jpeg-decoder = { version = "0.3", default-features = false }
 # Compiling the C++ around rcl's teardown, in the ROS 2 image only.
@@ -67,7 +67,7 @@ prost-reflect = { version = "0.16", default-features = false }
 # The HTTP client in the API guide's Rust example; plain HTTP to this
 # machine, so no TLS.
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
-roxmltree = "0.20"
+roxmltree = "0.21"
 # Robot descriptions in xacro, expanded to URDF when a package is imported:
 # macros, Python expressions, includes, `$(find)`, `load_yaml`. Matched ROS's
 # own xacro on UR's and Unitree's descriptions. Pinned: it is young.
@@ -98,11 +98,11 @@ signal-hook = { version = "0.4", default-features = false }
 socket2 = "0.6"
 # The live view's WebSocket, served from the bridge's own threads; already
 # in the tree through axum.
-tungstenite = "0.29"
+tungstenite = "0.30"
 tokio = { version = "1.53", features = ["rt-multi-thread", "net", "time"] }
 toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 tower = { version = "0.5", features = ["util"] }
-utoipa = "5.5"
+utoipa = "6.0"
 
 # Kapto crates, so dependents write `kapto-core.workspace = true`.
 kapto-core = { path = "crates/kapto-core", version = "0.0.0" }

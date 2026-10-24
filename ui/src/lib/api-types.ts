@@ -43,7 +43,7 @@ export interface CaptureStatus {
    * capture starts, has ended. While an episode is recorded, the run it
    * keeps, with the checks its start waived.
    */
-  preflight?: null | PreflightRun;
+  preflight?: PreflightRun | null;
   /**
    * Seconds since the episode started, or since receiving started while
    * none is recorded.
@@ -191,19 +191,19 @@ export interface EpisodeDetail {
    * The robot package it was recorded with; `null` if it is
    * `unchecked`.
    */
-  package?: null | EpisodePackage;
+  package?: EpisodePackage | null;
   /**
    * The session profile it was recorded with, as it was then; `null` if
    * none was chosen.
    */
-  profile?: null | EpisodeProfile;
+  profile?: EpisodeProfile | null;
   /**
    * How it was recovered, if recording stopped without finishing it;
    * `null` if recording finished it. A recovered episode's losses, buffers,
    * time to disk and clock aren't known: only finishing would have
    * counted them.
    */
-  recovered?: null | EpisodeRecovered;
+  recovered?: EpisodeRecovered | null;
   /** When recording started, in UTC nanoseconds since the Unix epoch. */
   started_utc_ns: number;
   /**
@@ -218,7 +218,7 @@ export interface EpisodeDetail {
    * The task it was recorded for, as it was then; `null` if none was
    * chosen.
    */
-  task?: null | EpisodeTask;
+  task?: EpisodeTask | null;
 }
 
 /** How quickly an episode's messages reached the disk. */
@@ -410,14 +410,14 @@ export interface EpisodeSummary {
    * The robot package it was recorded with; `null` if it is
    * `unchecked`.
    */
-  package?: null | EpisodePackage;
+  package?: EpisodePackage | null;
   /** The ID of the session profile it was recorded with; `null` if none. */
   profile?: string | null;
   /**
    * How it was recovered, if recording stopped without finishing it;
    * `null` if recording finished it. Its streams' losses aren't known.
    */
-  recovered?: null | EpisodeRecovered;
+  recovered?: EpisodeRecovered | null;
   /** When recording started, in nanoseconds since the Unix epoch. */
   started_utc_ns: number;
   /**
@@ -463,7 +463,7 @@ export interface EpisodeUpload extends UploadStatus {
 /** One episode's uploads, and whether it is still stored here. */
 export interface EpisodeUploads {
   /** How it was deleted here, if it was. */
-  deletion?: null | EpisodeDeletion;
+  deletion?: EpisodeDeletion | null;
   /**
    * Whether its folder is here; `false` once deleted here, verified
    * elsewhere.
@@ -481,7 +481,7 @@ export interface Event {
    */
   episode?: string | null;
   /** For `capture_unreachable`: why, and what to do. */
-  error?: null | ApiError;
+  error?: ApiError | null;
   /** What happened. */
   event: EventKind;
   /**
@@ -490,7 +490,7 @@ export interface Event {
    */
   finalised?: boolean | null;
   /** For `status`: what Kapto is doing. */
-  status?: null | Status;
+  status?: Status | null;
 }
 
 /** The kinds of event. More may be added: ignore an event of a kind you don't know. */
@@ -715,7 +715,7 @@ export interface ReplayOpening {
    * made from what it declares, each panel with what the recording
    * lacks; absent for a replay made before replays had one.
    */
-  layout?: null | ViewLayout;
+  layout?: ViewLayout | null;
   /** Each link's name, in the order a stretch gives its pose. */
   links: string[];
   /** Each role the recording's mapping gives a value. */
@@ -740,7 +740,7 @@ export interface ReplayStatus {
   /** The episode's ID. */
   episode: string;
   /** Why making it failed. */
-  failure?: null | ApiError;
+  failure?: ApiError | null;
   /** What it lacks, and why, once ready: the robot, or some of its meshes. */
   lacks: ApiError[];
   /** Where it is. */
@@ -876,7 +876,7 @@ export interface RobotScene {
    * moved within their limits, to frame the robot once and keep it in
    * view as it moves; absent for a robot with no shapes.
    */
-  reach?: null | SceneReach;
+  reach?: SceneReach | null;
   /** The link every other link hangs from, by its name. */
   root: string;
 }
@@ -1142,7 +1142,7 @@ export interface StreamCounts {
    * For a camera, what became of its frames on their way to the live
    * view since capture started; absent for other streams.
    */
-  live_view?: null | LiveViewCounts;
+  live_view?: LiveViewCounts | null;
   /** Messages the source sent that never arrived. */
   lost_upstream: number;
   /** Messages received. */

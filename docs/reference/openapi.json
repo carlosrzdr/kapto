@@ -47,7 +47,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -89,7 +88,6 @@
         },
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -148,7 +146,6 @@
         },
         "responses": {
           "201": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -207,7 +204,6 @@
         },
         "responses": {
           "201": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -276,7 +272,6 @@
         },
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -336,7 +331,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -395,7 +389,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -549,7 +542,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -609,7 +601,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -669,7 +660,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -892,7 +882,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -952,7 +941,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1099,7 +1087,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1159,7 +1146,6 @@
         ],
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1248,7 +1234,6 @@
         "operationId": "event_kinds",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1306,7 +1291,6 @@
         },
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1353,7 +1337,6 @@
         "operationId": "remove_layout",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1402,7 +1385,6 @@
         },
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1451,7 +1433,6 @@
         },
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1500,7 +1481,6 @@
         "operationId": "processes",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1522,7 +1502,6 @@
         "operationId": "profiles",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1541,7 +1520,6 @@
         "operationId": "robot",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1626,7 +1604,6 @@
         "operationId": "scene",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1645,7 +1622,6 @@
         "operationId": "settings",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1664,7 +1640,6 @@
         "operationId": "status",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1693,7 +1668,6 @@
         "operationId": "storage",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1722,7 +1696,6 @@
         "operationId": "tasks",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1741,7 +1714,6 @@
         "operationId": "upload_overview",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1830,7 +1802,6 @@
         "operationId": "version",
         "responses": {
           "200": {
-            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -1926,11 +1897,11 @@
           "preflight": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/PreflightRun",
                 "description": "Pre-flight's latest run, `null` until the first one, run when\ncapture starts, has ended. While an episode is recorded, the run it\nkeeps, with the checks its start waived."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -2299,33 +2270,33 @@
           "package": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/EpisodePackage",
                 "description": "The robot package it was recorded with; `null` if it is\n`unchecked`."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "profile": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/EpisodeProfile",
                 "description": "The session profile it was recorded with, as it was then; `null` if\nnone was chosen."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "recovered": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/EpisodeRecovered",
                 "description": "How it was recovered, if recording stopped without finishing it;\n`null` if recording finished it. A recovered episode's losses, buffers,\ntime to disk and clock aren't known: only finishing would have\ncounted them."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -2348,11 +2319,11 @@
           "task": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/EpisodeTask",
                 "description": "The task it was recorded for, as it was then; `null` if none was\nchosen."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -2755,11 +2726,11 @@
           "package": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/EpisodePackage",
                 "description": "The robot package it was recorded with; `null` if it is\n`unchecked`."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -2773,11 +2744,11 @@
           "recovered": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/EpisodeRecovered",
                 "description": "How it was recovered, if recording stopped without finishing it;\n`null` if recording finished it. Its streams' losses aren't known."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -2905,11 +2876,11 @@
           "deletion": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/EpisodeDeletion",
                 "description": "How it was deleted here, if it was."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -2943,11 +2914,11 @@
           "error": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/ApiError",
                 "description": "For `capture_unreachable`: why, and what to do."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -2965,11 +2936,11 @@
           "status": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/Status",
                 "description": "For `status`: what Kapto is doing."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -3457,11 +3428,11 @@
           "layout": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/ViewLayout",
                 "description": "How the page arranges it: the layout the recording carries, or one\nmade from what it declares, each panel with what the recording\nlacks; absent for a replay made before replays had one."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -3534,11 +3505,11 @@
           "failure": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/ApiError",
                 "description": "Why making it failed."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -3841,11 +3812,11 @@
           "reach": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/SceneReach",
                 "description": "A sphere around everywhere the robot's shapes can be with its joints\nmoved within their limits, to frame the robot once and keep it in\nview as it moves; absent for a robot with no shapes."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -4551,11 +4522,11 @@
           "live_view": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/LiveViewCounts",
                 "description": "For a camera, what became of its frames on their way to the live\nview since capture started; absent for other streams."
+              },
+              {
+                "type": "null"
               }
             ]
           },

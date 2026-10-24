@@ -41,7 +41,7 @@ jpeg-decoder.workspace = true
 kapto-testkit.workspace = true
 # A WebSocket client for the event stream's tests; both already come with axum.
 futures-util = { version = "0.3", default-features = false }
-tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
 tower.workspace = true
 
 [lints]
