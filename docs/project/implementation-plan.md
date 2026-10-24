@@ -353,7 +353,7 @@ arrow).
 
 ### 2.8 Profiling: where the time goes, and whether it should
 
-Requirements PROF-1..7 (REQUIREMENTS §6.1). Profiling is **development
+Requirements PROF-1..8 (REQUIREMENTS §6.1). Profiling is **development
 tooling**, run from `cargo xtask` against load-generator scenarios. Release
 binaries carry no profiling instrumentation: anything that exists only for
 profiling sits behind the `profiling` cargo feature (PROF-1).
@@ -416,6 +416,16 @@ combines the latest cost model, profile and trace results into the verdict
 table: within, over, or **unexpectedly cheap** (a check costing nothing per
 episode-minute is probably not running). Over-budget is a warning now and a
 perf-smoke failure once the reference PC exists.
+
+**Page profile (PROF-8).** `xtask profile page --scenario <name>` opens the
+web UI against the scenario in Chromium (in Docker, on the machine's GPU
+when it has one), leaves it running for a set time, and reports what the
+operator sees and what it costs the page: frames drawn a second, how far
+behind the live view is, its JavaScript memory over time, and where the
+page's main thread spends its time (a sampled JavaScript profile, summed
+per function, beside the browser's own work). The live view is the
+heaviest thing the page does, and its cost grows with the robot: more
+plots, more cameras, more streams.
 
 **Async (PROF-6).** The `profiling` feature also enables `tokio-console`
 support in the server and the upload runtime.
@@ -878,7 +888,10 @@ Rust side through an adapter. Stubs generated and verified with
 | M15-04 `feat(capture): rt priority and pinning` | Optional, with `CAP_SYS_NICE` detection (CAP-12, DCK-8) | Works and degrades gracefully without the capability | — |
 | M15-05 `feat(config): low-power profile` | Viewer rates, deferred QA (EFF-7) | Bench on lower-bound machine | — |
 | M15-06 `build(docker): production profile and python` | DCK-9, DCK-10, DCK-11 docs | Container tests | — |
+| M15-06a `feat(xtask): profile record` | The system profile of §2.8 (PROF-3): `cargo xtask profile record --scenario <name>` runs Kapto and the load generator, samples every Kapto thread with `perf` on the release binary (frame pointers kept), and writes a flamegraph and each thread's top functions, with off-CPU time | The flamegraph of the reference load names `cap-rx-*`, `cap-writer` and `cap-tap`; a deliberately slowed stage shows up at the top of its thread | Where capture's time goes at the reference load and with two cameras |
 | M15-06b `feat(xtask): profile report and budgets` | Full `perf-budget.toml` (hot path + every job kind), `xtask profile report` with within/over/unexpectedly-cheap verdicts; `tokio-console` under the `profiling` feature (PROF-5, PROF-6) | Report snapshot on the `unattended-1h-events` scenario; a deliberately slowed check is flagged over budget, a disabled one as unexpectedly cheap | Which background jobs dominate CPU per episode-minute, and whether that matches the budget |
+| M15-06c `feat(xtask): profile trace` | The timeline trace of §2.8 (PROF-4): spans per batch and stage in `capture` and per job in the worker under the `profiling` feature, written as a Chrome trace for Perfetto; job costs per episode-minute from it | The trace of a scenario shows each batch from receiving to writing; release builds carry none of it (PROF-1) | Where batches wait between threads |
+| M15-06d `feat(xtask): profile page` | The page profile of §2.8 (PROF-8): the web UI against a scenario in Chromium in Docker, on the GPU when there is one, for a set time; frames a second, the live view's delay, memory over time and the main thread's time per function, as a report beside the others | A scenario with two 1080p cameras at 60 fps and 50 streams: the report's numbers within what the page is allowed (stated in `perf-budget.toml`) | The live view on a robot the size of the largest one recorded |
 | M15-07 `test(docs): quick-start in ci` | DCK-13 steps executed as written | E2E | Exit criterion |
 
 ### WP M17: Time correlation *(parallel)*
@@ -975,7 +988,10 @@ reference.
 1. The cameras: M6b-04b (capture's CPU with ROS 2 cameras, not reproduced
    in later runs; measured on the reference PC).
 2. Zenoh made solid with cameras: its cost brought to DDS's (M6-05d).
-3. Recording a robot simulated in Isaac Sim (WP M20), starting with
+3. Profiling, so every change after it is measured where the time goes:
+   M15-06a (`profile record`), M15-06c (`profile trace`), M15-06d
+   (`profile page`), then M15-06b (the budget report over them).
+4. Recording a robot simulated in Isaac Sim (WP M20), starting with
    M20-01.
 
 The other work packages wait until then.

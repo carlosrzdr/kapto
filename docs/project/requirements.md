@@ -746,6 +746,7 @@ remain a product feature: they diagnose a slow PC in the field.)
 | PROF-5 | P1 | **Performance budget**: a versioned `perf-budget.toml` in the repo states the expected per-message and per-batch cost of each hot-path stage and the expected cost of each job kind. `cargo xtask profile report` compares the results of PROF-2..4 with it and marks each stage or job **within**, **over** or **unexpectedly cheap** (often a sign that work is skipped). Over-budget hot-path stages fail the perf-smoke check once the reference PC exists |
 | PROF-6 | P1 | **Async parts are observable** in development: with the `profiling` feature, the server and the worker's upload runtime support `tokio-console` to inspect task poll times and wake-ups |
 | PROF-7 | P1 | Profiling results (cost model, flamegraphs, budget verdicts), with the machine fingerprint, are committed in the Gate 1 report and attached to the MVP and v1 release checklists, so changes in where the time goes can be compared across releases |
+| PROF-8 | P1 | **Page profile of a scenario**: `cargo xtask profile page --scenario <name>` runs the web UI against a scenario in a browser for a set time and reports what the operator sees and what it costs the page: frames drawn a second, how far behind the live view is, memory over time, and the main thread's time per function. The live view's cost grows with the robot (plots, cameras, streams), so it is measured like the engine's |
 
 ---
 
