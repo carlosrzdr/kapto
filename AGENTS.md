@@ -307,5 +307,6 @@ columns of panels in TOML, the operator's own over the config folder's
 default per package over the package's own over one made from its roles; uploads through one engine in the worker on `object_store`, state
 in `kapto.db`, `_SUCCESS` last, credentials by reference, RustFS for tests;
 an episode closed on a thread of its own while capture receives again
-*(planned)*;
+*(planned)*; episodes deleted by hand put in a bin, emptied by the
+retention executor *(planned)*;
 Docker as the only build prerequisite, automation in `cargo xtask`.
