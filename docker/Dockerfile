@@ -94,6 +94,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     && cargo build --release --locked --package kapto-cli --features ros2 \
     && install -D target/release/kapto /out/kapto
 
+# --- profiler ----------------------------------------------------------------
+# `perf`, for `cargo xtask profile record`: it samples Kapto running on the
+# host, so only this container is given `CAP_PERFMON`, and only while it
+# records.
+FROM ${RUNTIME_IMAGE} AS profiler
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends linux-perf \
+    && rm -rf /var/lib/apt/lists/*
+
 # --- runtimes ----------------------------------------------------------------
 # Both runtimes are set up the same way: an unprivileged user with fixed IDs
 # (10001), and data, robot packages and configuration on explicit mounts. The

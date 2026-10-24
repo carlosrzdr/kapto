@@ -45,6 +45,9 @@ enum Command {
     /// Measure Kapto against its performance targets.
     #[command(subcommand)]
     Bench(BenchCommand),
+    /// Find where Kapto's time goes under a load.
+    #[command(subcommand)]
+    Profile(ProfileCommand),
     /// Regenerate reference values with independent tools.
     #[command(subcommand)]
     Golden(GoldenCommand),
@@ -133,6 +136,15 @@ enum BenchCommand {
     Upload(bench::UploadArgs),
 }
 
+#[derive(Subcommand)]
+enum ProfileCommand {
+    /// Record a scenario's load while `perf` samples every thread of `kapto
+    /// record` (in Docker, with `CAP_PERFMON`): each thread's share of the
+    /// samples, the functions they land in, and the stacks folded for a
+    /// flamegraph.
+    Record(bench::profile::RecordArgs),
+}
+
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Ci { group } => ci::run(group),
@@ -145,6 +157,9 @@ fn main() -> ExitCode {
         Command::Bench(BenchCommand::Browser(args)) => bench::browser(&repo_root(), &args),
         Command::Bench(BenchCommand::Ros2(args)) => bench::ros2(&repo_root(), &args),
         Command::Bench(BenchCommand::Upload(args)) => bench::upload(&repo_root(), &args),
+        Command::Profile(ProfileCommand::Record(args)) => {
+            bench::profile::record(&repo_root(), args)
+        }
         Command::Ui { task } => ui::run(&repo_root(), task),
         Command::Clean { workspace, all } => clean::run(
             &repo_root(),

@@ -21,6 +21,8 @@ kapto-decode.workspace = true
 kapto-robot.workspace = true
 kapto-server.workspace = true
 kapto-store.workspace = true
+# Rust's symbols in a profile, which `perf` leaves mangled.
+rustc-demangle.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

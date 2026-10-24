@@ -34,6 +34,7 @@ mod measure;
 mod model;
 mod page;
 mod place;
+pub(crate) mod profile;
 mod report;
 mod ros2;
 mod upload;
@@ -439,14 +440,26 @@ fn work_dir(root: &Path, kind: &str) -> PathBuf {
 
 /// Records one load into `work` and measures it.
 fn record_load(root: &Path, work: &Path, spec: &Spec) -> Result<Run, String> {
+    record_load_watched(&root.join("target/release"), work, spec, |_| {})
+}
+
+/// Records one load into `work` with the binaries in `binaries` and
+/// measures it; `watch` is given the recording process's ID once it
+/// records, before the load starts.
+fn record_load_watched(
+    binaries: &Path,
+    work: &Path,
+    spec: &Spec,
+    watch: impl FnOnce(u32),
+) -> Result<Run, String> {
     std::fs::create_dir_all(work)
         .map_err(|error| format!("can't create {}: {error}", work.display()))?;
     let cameras = spec.cameras.map_or(0, |cameras| cameras.count);
     let port = free_ports(spec.streams + cameras)?;
     let streams = write_streams(work, port, spec)?;
-    let binaries = root.join("target/release");
 
-    let (mut record, pid, lines, mut output) = start_recording(&binaries, &streams, work, spec)?;
+    let (mut record, pid, lines, mut output) = start_recording(binaries, &streams, work, spec)?;
+    watch(pid);
     let start = Instant::now();
     // UDP streams from `port`, then TCP streams, each from its own generator.
     let udp_streams = spec.streams - spec.tcp_streams;
