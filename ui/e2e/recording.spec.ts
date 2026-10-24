@@ -600,9 +600,10 @@ test("events marked from the page and sent through the API show on the timeline,
   await expect(newest).toContainText(/1 Note/);
   await newest.click();
   const happened = episodes.getByRole("table", { name: "Events" });
-  await expect(happened.getByRole("rowheader", { name: "Intervention began" })).toBeVisible({ timeout: 30_000 });
+  // The stretch begun and ended is one row, saying how long it lasted.
+  await expect(happened.getByRole("rowheader", { name: /^Intervention · \d+(\.\d)? m?s$/ })).toBeVisible({ timeout: 30_000 });
   await expect(happened.getByRole("rowheader", { name: "Note · from the api" })).toBeVisible();
-  await expect(happened.getByRole("rowheader", { name: "Intervention ended" })).toBeVisible();
+  await expect(happened.getByRole("rowheader", { name: /^Intervention (began|ended)/ })).toHaveCount(0);
   expect(elsewhere).toEqual([]);
 });
 

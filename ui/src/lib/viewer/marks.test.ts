@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { type Mark, MarkLog, markTip } from "./marks";
 
+const kapto = (kind: string, at: number, stream: string): Mark => ({
+  noted: { event: { kind, at_utc_ns: at * 1e6, phase: "moment", source: "kapto", attributes: { stream } }, episode: null },
+});
+
 const noted = (event: Record<string, unknown>): Mark => ({
   noted: { event: { source: "api", ...event } as never, episode: "e1" },
 });
@@ -56,5 +60,16 @@ describe("markTip", () => {
     expect(tip(at + 2_400)).toBe("for 2.4 s");
     expect(tip(at + 75_000)).toBe("for 1:15");
     expect(tip(null)).toBe("still going");
+  });
+});
+
+describe("MarkLog's windows of Kapto's own", () => {
+  it("draws a stream silent until it came back as one mark, each stream its own", () => {
+    const log = new MarkLog();
+    log.add([kapto("kapto.stream_silent", 2000, "left"), kapto("kapto.stream_silent", 2000, "right"), kapto("kapto.stream_back", 8000, "left")]);
+    expect(log.items).toEqual([
+      { kind: "kapto.stream_silent", startMs: 2000, endMs: 8000, label: "kapto.stream_silent (kapto) · left" },
+      { kind: "kapto.stream_silent", startMs: 2000, endMs: null, label: "kapto.stream_silent (kapto) · right" },
+    ]);
   });
 });

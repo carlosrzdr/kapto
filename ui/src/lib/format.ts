@@ -116,6 +116,20 @@ export function figure(value: number): string {
   return Math.abs(value) >= 1000 ? count(value) : String(Number(value.toPrecision(3)));
 }
 
+/** Seconds into something, to the millisecond: `2.13` → `0:02.130`. */
+export function offset(seconds: number): string {
+  const whole = Math.floor(Math.max(0, seconds));
+  return `${duration(whole)}.${String(Math.round((Math.max(0, seconds) - whole) * 1000) % 1000).padStart(3, "0")}`;
+}
+
+/** How long something lasted: `0.45` → `450 ms`, `2.4` → `2.4 s`, `75` → `1:15`. */
+export function lasting(seconds: number): string {
+  if (seconds < 1) {
+    return `${Math.round(seconds * 1000)} ms`;
+  }
+  return seconds < 60 ? `${seconds.toFixed(1)} s` : duration(seconds);
+}
+
 /** A moment, UTC milliseconds, on the local clock to the millisecond: `14:46:05.250`. */
 export function clock(ms: number): string {
   if (!Number.isFinite(ms)) {

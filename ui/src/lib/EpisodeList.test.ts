@@ -11,6 +11,7 @@ import type {
   ReplayStatus,
 } from "./api-types";
 import EpisodeList from "./EpisodeList.svelte";
+import { offset } from "./format";
 
 const summary: EpisodeSummary = {
   id: "20260310T120000.000Z-00000001",
@@ -350,7 +351,7 @@ describe("EpisodeList's events", () => {
     expect(screen.getByText("No episodes with Intervention.")).toBeTruthy();
   });
 
-  it("lists the open episode's events in order, marks a stretch never ended, and opens its replay at one", async () => {
+  it("lists the open episode's events in order, a stretch as one row to the millisecond, marks one never ended, and opens its replay at one", async () => {
     const onreplay = vi.fn();
     const events: EpisodeEvents = {
       read: true,
@@ -370,13 +371,14 @@ describe("EpisodeList's events", () => {
       [...row.children].map((cell) => cell.textContent?.replace(/\s+/g, " ").trim()).join(" | "),
     );
     expect(rows).toEqual([
-      "0:05 | Intervention began | page Watch",
-      "0:08 | note · slipped | api Watch",
-      "0:12 | Intervention ended | page Watch",
-      "0:40 | Intervention began · never ended | page Watch",
+      "0:05.000–0:12.000 | Intervention · 7.0 s | page Watch",
+      "0:08.000 | note · slipped | api Watch",
+      `0:40.000–${offset((summary.ended_utc_ns - summary.started_utc_ns) / 1e9)} | Intervention · never ended | page Watch`,
     ]);
     await fireEvent.click(screen.getAllByRole("button", { name: "Watch" })[1]!);
     expect(onreplay).toHaveBeenCalledWith(summary.id, { start_utc_ns: at(8), end_utc_ns: at(8) });
+    await fireEvent.click(screen.getAllByRole("button", { name: "Watch" })[0]!);
+    expect(onreplay).toHaveBeenCalledWith(summary.id, { start_utc_ns: at(5), end_utc_ns: at(12) });
   });
 
   it("says the open episode's events aren't read yet until the worker has read them", () => {

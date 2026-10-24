@@ -9,10 +9,10 @@
     EpisodeStatistics,
     EpisodeUploads,
     ReplayState,
-    SentEvent,
     UploadDestination,
   } from "./api-types";
-  import { breakable, bytes, count, duration, figure, milliseconds, time } from "./format";
+  import { breakable, bytes, count, duration, figure, lasting, milliseconds, offset, time } from "./format";
+  import { eventRows } from "./viewer/episode-events";
 
   interface Props {
     episode: EpisodeDetail;
@@ -58,19 +58,10 @@
       (range.end_utc_ns - episode.started_utc_ns) / 1e9,
     )}`;
 
-  /** Where an event is in the episode: a moment, or a whole stretch, from its start. */
-  const at = (event: SentEvent) =>
-    event.until_utc_ns == null
-      ? duration((event.at_utc_ns - episode.started_utc_ns) / 1e9)
-      : within({ start_utc_ns: event.at_utc_ns, end_utc_ns: event.until_utc_ns });
-
-  /** An event in words: its kind's name, and which end of a stretch. */
-  const phases: Record<string, string> = { moment: "", begin: "began", end: "ended", stretch: "stretch" };
-
-  /** Whether `event` is a beginning nothing ended. */
-  const isUnended = (event: SentEvent) =>
-    events?.unended.some((open) => open.kind === event.kind && open.id === event.id && open.at_utc_ns === event.at_utc_ns) ??
-    false;
+  /** The episode's events, each window one row from its start to its end. */
+  const rows = $derived(events ? eventRows(events.events, episode.ended_utc_ns) : []);
+  /** Seconds into the episode of `ns`, to the millisecond. */
+  const into = (ns: number) => offset((ns - episode.started_utc_ns) / 1e9);
 
   /** Being prepared or shown, it isn't asked for again; failed, it can be. */
   const asked = $derived(replay !== null && replay !== "failed");
@@ -220,24 +211,26 @@
         </tr>
       </thead>
       <tbody>
-        {#each events.events as event, index (index)}
-          {@const open = isUnended(event)}
+        {#each rows as row, index (index)}
           <tr>
-            <td>{at(event)}</td>
+            <td class="at">{into(row.fromNs)}{#if row.untilNs !== null && row.untilNs > row.fromNs}–{into(row.untilNs)}{/if}</td>
             <th scope="row">
-              {names[event.kind] ?? event.kind}{#if phases[event.phase]}{` ${phases[event.phase]}`}{/if}{#if open}<span
-                  class="problem"
-                  title="Nothing ended this stretch before the recording ended">{" · never ended"}</span
-                >{/if}{#if event.text}<span class="text">{` · ${event.text}`}</span>{/if}
+              {names[row.kind] ?? row.kind}{#if row.endOnly}{" ended"}{/if}{#if row.stream}<span class="stream"
+                  >{` · ${row.stream}`}</span
+                >{/if}{#if row.open}<span class="problem" title="Nothing ended it before the recording ended"
+                  >{" · never ended"}</span
+                >{:else if row.untilNs !== null && row.untilNs > row.fromNs}<span class="lasted"
+                  >{` · ${lasting((row.untilNs - row.fromNs) / 1e9)}`}</span
+                >{/if}{#if row.text}<span class="text">{` · ${row.text}`}</span>{/if}
             </th>
             <td class="source">
-              {event.source}
+              {row.source}
               <button
                 type="button"
                 class="watch"
                 title={episode.stored_here ? "Replay the episode from a few seconds before this moment" : notHere}
                 disabled={!episode.stored_here}
-                onclick={() => onreplay({ start_utc_ns: event.at_utc_ns, end_utc_ns: event.until_utc_ns ?? event.at_utc_ns })}
+                onclick={() => onreplay({ start_utc_ns: row.fromNs, end_utc_ns: row.untilNs ?? row.fromNs })}
                 ><Icon name="play" /> Watch</button
               >
             </td>
@@ -396,9 +389,15 @@
   .events .source {
     color: var(--muted);
   }
-  .events .text {
+  .events .text,
+  .events .stream,
+  .events .lasted {
     color: var(--muted);
     font-weight: normal;
+  }
+  .events .at {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
   .watch {
     padding: 0;

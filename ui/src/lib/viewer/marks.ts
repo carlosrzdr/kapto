@@ -2,7 +2,7 @@
 // What happened): events and each episode's start and end, made into what
 // the timeline draws.
 
-import { clock, duration } from "../format";
+import { clock, lasting as lasted } from "../format";
 
 /** An event as capture kept it. */
 export interface StreamEvent {
@@ -13,6 +13,40 @@ export interface StreamEvent {
   id?: string;
   source: string;
   text?: string;
+  attributes?: Record<string, string>;
+}
+
+/**
+ * Which end of a window `event` is, if it is one: the beginning or end of
+ * a stretch, by kind and ID, or a stream of Kapto's falling silent and
+ * coming back, by stream. Its `key` is the same at both ends; `kind` is
+ * what the whole window is called.
+ */
+export function windowEnd(event: {
+  kind: string;
+  phase?: string;
+  id?: string | null;
+  attributes?: unknown;
+}): { end: "begin" | "end"; key: string; kind: string } | null {
+  const stream = (event.attributes as Record<string, unknown> | undefined)?.["stream"];
+  if (typeof stream === "string") {
+    if (event.kind === "kapto.stream_silent") {
+      return { end: "begin", key: `kapto.stream_silent/${stream}`, kind: event.kind };
+    }
+    if (event.kind === "kapto.stream_back") {
+      return { end: "end", key: `kapto.stream_silent/${stream}`, kind: "kapto.stream_silent" };
+    }
+  }
+  if (event.phase === "begin" || event.phase === "end") {
+    return { end: event.phase, key: `${event.kind}/${event.id ?? ""}`, kind: event.kind };
+  }
+  return null;
+}
+
+/** The stream an event of Kapto's is about, ` · stream`, or nothing. */
+function about(event: StreamEvent): string {
+  const stream = event.attributes?.["stream"];
+  return stream ? ` · ${stream}` : "";
 }
 
 /** One thing the bridge says happened. */
@@ -47,13 +81,7 @@ export function markTip(item: Item): MarkTip {
       return "still going";
     }
     const seconds = (item.endMs - item.startMs) / 1000;
-    if (seconds <= 0) {
-      return null;
-    }
-    if (seconds < 1) {
-      return `for ${Math.round(seconds * 1000)} ms`;
-    }
-    return seconds < 60 ? `for ${seconds.toFixed(1)} s` : `for ${duration(seconds)}`;
+    return seconds <= 0 ? null : `for ${lasted(seconds)}`;
   };
   return { what: item.label, when: clock(item.startMs), lasting: lasting() };
 }
@@ -96,26 +124,26 @@ export class MarkLog {
 
   private note(event: StreamEvent): void {
     const at = ms(event.at_utc_ns);
-    const said = event.text ? ` · ${event.text}` : "";
-    const key = `${event.kind}/${event.id ?? ""}`;
+    const said = `${about(event)}${event.text ? ` · ${event.text}` : ""}`;
+    const window = windowEnd(event);
+    if (window?.end === "begin") {
+      const item = { kind: window.kind, startMs: at, endMs: null, label: `${window.kind} (${event.source})${said}` };
+      this.open.set(window.key, item);
+      this.push(item);
+      return;
+    }
+    if (window?.end === "end") {
+      const begun = this.open.get(window.key);
+      if (begun) {
+        begun.endMs = Math.max(at, begun.startMs);
+        this.open.delete(window.key);
+      } else {
+        // Its beginning came before what the bridge keeps.
+        this.push({ kind: event.kind, startMs: at, endMs: at, label: `end of ${window.kind}${said}` });
+      }
+      return;
+    }
     switch (event.phase ?? "moment") {
-      case "begin": {
-        const item = { kind: event.kind, startMs: at, endMs: null, label: `${event.kind} (${event.source})${said}` };
-        this.open.set(key, item);
-        this.push(item);
-        break;
-      }
-      case "end": {
-        const begun = this.open.get(key);
-        if (begun) {
-          begun.endMs = Math.max(at, begun.startMs);
-          this.open.delete(key);
-        } else {
-          // Its beginning came before what the bridge keeps.
-          this.push({ kind: event.kind, startMs: at, endMs: at, label: `end of ${event.kind}${said}` });
-        }
-        break;
-      }
       case "stretch":
         this.push({
           kind: event.kind,
