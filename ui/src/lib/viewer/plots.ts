@@ -3,7 +3,7 @@
 // page stays open, a stream's plots hold at most `capacity` samples: the
 // oldest is written over by the newest.
 
-import { figure } from "../format";
+import { clock, figure } from "../format";
 import type { Opening } from "./stream";
 
 /** One plotted field of a stream: its name and which of the stream's values it holds. */
@@ -135,14 +135,8 @@ export function valuesAt(
   labels: string[],
   spread: Spread = () => Number.POSITIVE_INFINITY,
 ): ValuesAt {
-  const seconds = data[0]?.[index] ?? Number.NaN;
-  const date = new Date(seconds * 1000);
-  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
-  const time = Number.isFinite(seconds)
-    ? `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
-    : "–";
   return {
-    time,
+    time: clock((data[0]?.[index] ?? Number.NaN) * 1000),
     values: labels.map((label, place) => {
       const low = data[1 + place * 2]?.[index] ?? Number.NaN;
       const high = data[2 + place * 2]?.[index] ?? Number.NaN;

@@ -116,6 +116,16 @@ export function figure(value: number): string {
   return Math.abs(value) >= 1000 ? count(value) : String(Number(value.toPrecision(3)));
 }
 
+/** A moment, UTC milliseconds, on the local clock to the millisecond: `14:46:05.250`. */
+export function clock(ms: number): string {
+  if (!Number.isFinite(ms)) {
+    return "–";
+  }
+  const date = new Date(ms);
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
+}
+
 /** Nanoseconds as milliseconds, or seconds from 10 s: `520_000_000` → `520 ms`. */
 export function milliseconds(ns: number): string {
   const ms = ns / 1e6;

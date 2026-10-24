@@ -2,6 +2,8 @@
 // What happened): events and each episode's start and end, made into what
 // the timeline draws.
 
+import { clock, duration } from "../format";
+
 /** An event as capture kept it. */
 export interface StreamEvent {
   kind: string;
@@ -28,6 +30,32 @@ export interface Item {
   endMs: number | null;
   /** In words, for its tooltip. */
   label: string;
+}
+
+/** What a mark's tip says: what it is, when, and how long it lasted. */
+export interface MarkTip {
+  what: string;
+  when: string;
+  /** How long a stretch lasted, or that it goes on; none for a moment. */
+  lasting: string | null;
+}
+
+/** What `item`'s tip says. */
+export function markTip(item: Item): MarkTip {
+  const lasting = (): string | null => {
+    if (item.endMs === null) {
+      return "still going";
+    }
+    const seconds = (item.endMs - item.startMs) / 1000;
+    if (seconds <= 0) {
+      return null;
+    }
+    if (seconds < 1) {
+      return `for ${Math.round(seconds * 1000)} ms`;
+    }
+    return seconds < 60 ? `for ${seconds.toFixed(1)} s` : `for ${duration(seconds)}`;
+  };
+  return { what: item.label, when: clock(item.startMs), lasting: lasting() };
 }
 
 /** The most items kept: the bridge keeps no more. */

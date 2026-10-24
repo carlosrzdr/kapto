@@ -92,6 +92,25 @@ describe("Timeline's marks", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Episode started" }));
     expect(shown.onseek).toHaveBeenCalledWith(1_100_000);
   });
+
+  it("says what a mark is, when and for how long, while it is pointed at or focused", async () => {
+    const items = [{ kind: "grasp", startMs: 1_200_000, endMs: 1_202_400, label: "grasp (page)" }];
+    render(Timeline, props({ items }));
+    const mark = screen.getByRole("button", { name: "grasp (page)" });
+    const tip = screen.getByRole("tooltip", { hidden: true });
+    expect(tip.hidden).toBe(true);
+    await fireEvent.pointerEnter(mark);
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toContain("grasp (page)");
+    expect(tip.textContent).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3} · for 2\.4 s/);
+    expect(mark.getAttribute("aria-describedby")).toBe(tip.id);
+    await fireEvent.pointerLeave(mark);
+    expect(tip.hidden).toBe(true);
+    await fireEvent.focus(mark);
+    expect(tip.hidden).toBe(false);
+    await fireEvent.blur(mark);
+    expect(tip.hidden).toBe(true);
+  });
 });
 
 describe("Timeline's playback", () => {

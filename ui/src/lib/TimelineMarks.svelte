@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Item } from "./viewer/marks";
+  import { type Item, markTip } from "./viewer/marks";
   import { SERIES, token } from "./theme";
 
   interface Props {
@@ -27,6 +27,10 @@
   const NARROWEST = 4;
   /** The strip's height, and the least a mark takes to be hit: 24px. */
   const HEIGHT = 24;
+
+  /** The mark pointed at or focused, whose tip shows; none otherwise. */
+  let pointed = $state<number | null>(null);
+  let tip = $state<HTMLElement | null>(null);
 
   /** The strip's width on the page, to keep every mark 24px wide to the pointer. */
   let shownWidth = $state(WIDTH);
@@ -67,9 +71,29 @@
         return { item, left: shown, width, hitLeft, hit, color: color(item.kind) };
       }),
   );
+  const told = $derived(pointed === null ? null : (placed[pointed] ?? null));
+
+  // Over the mark it is about, kept inside the strip. Placed from here, as
+  // the page allows no style written into it.
+  $effect(() => {
+    if (!tip || !told) {
+      return;
+    }
+    const centre = ((told.left + told.width / 2) / WIDTH) * shownWidth;
+    const left = Math.min(Math.max(centre - tip.offsetWidth / 2, 0), Math.max(shownWidth - tip.offsetWidth, 0));
+    tip.style.translate = `${left}px 0`;
+  });
 </script>
 
 <div class="strip" bind:clientWidth={shownWidth}>
+  <div class="tip" role="tooltip" id="mark-tip" hidden={told === null} bind:this={tip}>
+    {#if told}
+      {@const said = markTip(told.item)}
+      <p class="what">{said.what}</p>
+      <p class="when">{said.when}{said.lasting ? ` · ${said.lasting}` : ""}</p>
+      <p class="hint">Click to go there</p>
+    {/if}
+  </div>
   <svg
     class="marks"
     viewBox="0 0 {WIDTH} {HEIGHT}"
@@ -83,9 +107,14 @@
         role="button"
         tabindex="0"
         aria-label={item.label}
+        aria-describedby={pointed === index ? "mark-tip" : undefined}
         class="mark"
         class:open={item.endMs === null}
         onclick={() => onseek(item.startMs)}
+        onpointerenter={() => (pointed = index)}
+        onpointerleave={() => (pointed = pointed === index ? null : pointed)}
+        onfocus={() => (pointed = index)}
+        onblur={() => (pointed = pointed === index ? null : pointed)}
         onkeydown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -93,7 +122,6 @@
           }
         }}
       >
-        <title>{item.label}</title>
         <rect class="shown" x={left} y={item.kind === "episode" ? 2 : 7} {width} height={item.kind === "episode" ? 20 : 10} {fill} />
         <rect class="hit" x={hitLeft} y="0" width={hit} height={HEIGHT} />
       </g>
@@ -103,7 +131,34 @@
 
 <style>
   .strip {
+    position: relative;
     width: 100%;
+  }
+  /* Above the strip, over the mark it is about. */
+  .tip {
+    position: absolute;
+    bottom: calc(100% + var(--space-1));
+    left: 0;
+    z-index: 2;
+    max-width: 20rem;
+    padding: var(--space-1) var(--space-2);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .tip[hidden] {
+    display: none;
+  }
+  .tip p {
+    margin: 0;
+  }
+  .tip .when,
+  .tip .hint {
+    color: var(--muted);
   }
   .marks {
     display: block;

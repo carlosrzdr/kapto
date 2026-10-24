@@ -914,6 +914,8 @@ test("a layout kept in the browser naming a field the package lacks says so in i
 test("pointing at a plot says the time there and each value, and stops when the pointer leaves", async ({ page }) => {
   await page.goto("/");
   const plot = page.getByRole("region", { name: "Plot of role:gripper.opening" });
+  // Its first samples come a moment after the page opens.
+  await expect.poll(async () => Number(await plot.getAttribute("data-points")), { timeout: 20_000 }).toBeGreaterThan(0);
   await keepsDrawing(plot);
   const tip = plot.getByRole("tooltip");
   await expect(tip).toBeHidden();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type Mark, MarkLog } from "./marks";
+import { type Mark, MarkLog, markTip } from "./marks";
 
 const noted = (event: Record<string, unknown>): Mark => ({
   noted: { event: { source: "api", ...event } as never, episode: "e1" },
@@ -36,5 +36,25 @@ describe("MarkLog", () => {
     expect(log.items.map((item) => [item.label, item.endMs])).toEqual([["end of grasp", 6000]]);
     log.clear();
     expect(log.items).toEqual([]);
+  });
+});
+
+describe("markTip", () => {
+  const at = new Date(2026, 2, 10, 14, 46, 5, 250).getTime();
+
+  it("says what a moment was and when, to the millisecond", () => {
+    expect(markTip({ kind: "note", startMs: at, endMs: at, label: "note (page)" })).toEqual({
+      what: "note (page)",
+      when: "14:46:05.250",
+      lasting: null,
+    });
+  });
+
+  it("says how long a stretch lasted, or that it goes on", () => {
+    const tip = (endMs: number | null) => markTip({ kind: "grasp", startMs: at, endMs, label: "grasp (api)" }).lasting;
+    expect(tip(at + 450)).toBe("for 450 ms");
+    expect(tip(at + 2_400)).toBe("for 2.4 s");
+    expect(tip(at + 75_000)).toBe("for 1:15");
+    expect(tip(null)).toBe("still going");
   });
 });
