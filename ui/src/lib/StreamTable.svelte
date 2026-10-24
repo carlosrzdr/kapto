@@ -140,9 +140,10 @@
     border-collapse: collapse;
     font-variant-numeric: tabular-nums;
   }
+  /* Narrow sides: six columns share a side panel, and counts grow long. */
   th,
   td {
-    padding: 0.35rem 0.4rem;
+    padding: 0.35rem 0.25rem;
     text-align: right;
     border-bottom: 1px solid var(--line);
   }
@@ -167,11 +168,11 @@
     gap: 0.5rem;
     max-width: 100%;
   }
-  /* Its pieces break apart first; a name without any breaks anywhere, so
-     the table never grows past the panel. */
+  /* It breaks between its pieces, words kept whole: as narrow as its longest
+     piece, so the table fits the panel without splitting a word. */
   .name {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   .dot {
     flex: none;

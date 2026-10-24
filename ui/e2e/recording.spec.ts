@@ -940,6 +940,8 @@ test("streams with long names still fit the side panel with every count", async 
     const status = await (await route.fetch()).json();
     for (const stream of status.capture?.streams ?? []) {
       stream.stream = long[stream.stream as keyof typeof long] ?? stream.stream;
+      // As after days of recording at 2 kHz.
+      stream.received = 999_999_999;
     }
     await route.fulfill({ json: status });
   });
@@ -951,6 +953,20 @@ test("streams with long names still fit the side panel with every count", async 
     await page.goto("/");
     await expect(page.locator("aside").getByRole("rowheader", { name: /^front_left_actuator/ })).toBeVisible({ timeout: 20_000 });
     await fitsPanel(page, `with long stream names at ${size.width}×${size.height}`);
+    // A name breaks only after an underscore: no word of it is split.
+    const split = await page.locator("aside .name").evaluateAll((names) =>
+      names.flatMap((name) =>
+        [...name.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .filter((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            return range.getClientRects().length > 1;
+          })
+          .map((node) => node.textContent),
+      ),
+    );
+    expect(split, `words split at ${size.width}×${size.height}`).toEqual([]);
   }
 });
 
@@ -1076,12 +1092,20 @@ test("nothing in the side panel is cut off, at a laptop's width or a tablet's", 
     // The page fills the window and no more: the footer is in it.
     await expect(page.locator("footer")).toBeInViewport({ ratio: 1 });
     expect(await page.evaluate(() => document.documentElement.scrollHeight), `the page's height ${at}`).toBeLessThanOrEqual(size.height);
-    // Each stream's dot stays on its name's line.
+    // Each stream's dot stays beside its name, measured together: the
+    // counts beside them change every second and may wrap the name again.
     for (const name of ["arm_joints", "wrist_camera"]) {
       const row = page.locator("aside").getByRole("rowheader", { name: new RegExp(`^${name}`) });
-      const said = await row.getByText(name, { exact: true }).boundingBox();
-      const dot = await row.getByRole("img").boundingBox();
-      expect(Math.abs((dot?.y ?? 0) + (dot?.height ?? 0) / 2 - ((said?.y ?? 0) + (said?.height ?? 0) / 2)), `${name}'s dot ${at}`).toBeLessThan(4);
+      // It shows once the stream's rate is known.
+      await expect(row.getByRole("img")).toBeVisible();
+      const apart = await row.evaluate((header) => {
+        const middle = (element: Element | null) => {
+          const box = element?.getBoundingClientRect();
+          return box ? box.top + box.height / 2 : Number.NaN;
+        };
+        return Math.abs(middle(header.querySelector(".name")) - middle(header.querySelector(".dot")));
+      });
+      expect(apart, `${name}'s dot ${at}`).toBeLessThan(4);
     }
     await open(page, /^Episodes/);
     const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
