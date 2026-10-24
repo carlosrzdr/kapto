@@ -17,7 +17,7 @@ use kapto_capture::{Batch, ChannelSchema, ChannelSpec, LossCounters, Recording, 
 use kapto_core::{ClockMap, ClockSample, ErrorCode, KaptoError, RecvTime};
 use kapto_decode::{FieldSpec, STRUCT_ENCODING, ScalarType, StructLayout};
 use kapto_robot::{is_mesh_or_texture, load_package};
-use kapto_store::records::EPISODE_RECORD;
+use kapto_store::records::{CAPTURE_RECORD, EPISODE_RECORD};
 use kapto_testkit::TempDir;
 use kapto_viz::page_scene::MESH_MAGIC;
 use kapto_viz::view::View;
@@ -92,6 +92,14 @@ fn record(folder: &TempDir, package: Option<&Path>, messages: u32) -> PathBuf {
                 ("package.hash".to_owned(), package.hash.clone()),
             ]);
             recording.write_record(EPISODE_RECORD, record).unwrap();
+            // As capture names each file it leaves out, with its SHA-256.
+            let left_out = package
+                .files
+                .iter()
+                .filter(|file| is_mesh_or_texture(&file.path))
+                .map(|file| (format!("left_out.{}", file.path), file.sha256.clone()))
+                .collect();
+            recording.write_record(CAPTURE_RECORD, left_out).unwrap();
             let carried = package.contents(|file| !is_mesh_or_texture(&file.path));
             for (file, data) in carried.unwrap() {
                 recording
@@ -194,8 +202,12 @@ fn without_its_meshes_the_replay_says_why_and_still_shows_the_rest() {
     let folder = TempDir::new("replay-no-mesh");
     let package = package(&folder, true);
     let recording = record(&folder, Some(&package), 10);
-    // The package changed since: its content no longer matches.
-    std::fs::write(package.join("README.md"), "changed").unwrap();
+    // The package's mesh changed since: no package has the one recorded.
+    std::fs::write(
+        package.join("urdf/meshes/tetrahedron.stl"),
+        "solid changed\nendsolid\n",
+    )
+    .unwrap();
     let (view, replayed, problems) = replayed(&recording, &folder.0);
     assert_eq!(problems, [ErrorCode::RobotMeshUnreadable]);
     assert_eq!(view.about().scene.as_ref().unwrap().meshes, 0);
@@ -376,7 +388,8 @@ fn a_replays_view_carries_the_robot_it_was_recorded_with_whatever_its_package_is
     assert!(view.mesh(0).unwrap().starts_with(MESH_MAGIC));
 
     // The package since renamed its robot: the replay keeps the recorded
-    // description, without the mesh the recording didn't carry.
+    // description, and takes the mesh the recording didn't carry from the
+    // package, which still has it unchanged.
     let urdf = std::fs::read_to_string(package.join("urdf/arm7.urdf")).unwrap();
     std::fs::write(
         package.join("urdf/arm7.urdf"),
@@ -386,11 +399,8 @@ fn a_replays_view_carries_the_robot_it_was_recorded_with_whatever_its_package_is
     let mut view = viewed("changed");
     let scene = view.about().scene.clone().unwrap();
     assert_eq!(scene.name, "arm7");
-    assert_eq!(scene.meshes, 0);
-    assert_eq!(
-        view.mesh(0).unwrap_err().code(),
-        ErrorCode::ViewerMeshNotFound
-    );
+    assert_eq!(scene.meshes, 1);
+    assert!(view.mesh(0).unwrap().starts_with(MESH_MAGIC));
 }
 
 #[test]
@@ -408,9 +418,13 @@ fn a_robot_drawn_whole_is_kept_for_the_next_replay_of_the_same_package() {
     assert_eq!((problems, meshes), (vec![], 1));
     let first = mesh.unwrap();
 
-    // The package changed since, so the recording's own files are used,
-    // which leave its mesh out: drawn afresh, the mesh is missing...
-    std::fs::write(package.join("README.md"), "changed").unwrap();
+    // The package's mesh changed since, so the recording's own files are
+    // used, and the mesh it left out isn't the package's any more: drawn
+    // afresh, the mesh is missing...
+    let mesh_file = package.join("urdf/meshes/tetrahedron.stl");
+    let mut changed = std::fs::read(&mesh_file).unwrap();
+    changed.extend_from_slice(b"\n");
+    std::fs::write(&mesh_file, changed).unwrap();
     let (problems, meshes, _) = replay_with(&DrawnRobots::default(), "afresh");
     assert_eq!(
         (problems, meshes),

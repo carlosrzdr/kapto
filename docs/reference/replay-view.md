@@ -146,8 +146,10 @@ Then each sample:
   robot.
 - `meshes`: where each of the scene's meshes begins in the file and its
   length in bytes, in the scene's numbering. A mesh the recording doesn't
-  carry, and no package with the same ID and content has, isn't in the
-  scene; one that couldn't be read has length 0. Absent with `scene`.
+  carry is taken from a local package with the same ID that has it
+  unchanged, by the SHA-256 the recording names it with, whatever else in
+  that package changed since; one no such package has isn't in the scene,
+  and one that couldn't be read has length 0. Absent with `scene`.
 - `layout`: how the page arranges the replay, as `/api/robot` gives the
   live view's: the [`layout.toml`](package.md#layouttoml) the recording
   carries (`source` `package`), or one made from what it declares (`made`)

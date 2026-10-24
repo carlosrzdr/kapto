@@ -23,8 +23,8 @@ use kapto_config::{
 };
 use kapto_core::{ClockSample, ErrorCode, KaptoError, RecvTime};
 use kapto_decode::{Decoder, Value};
-use kapto_robot::{Declared, JointMap, Kinematics, RobotModel, discover, load_urdf};
-use kapto_store::records::EPISODE_RECORD;
+use kapto_robot::{Declared, JointMap, Kinematics, Package, RobotModel, discover, load_urdf};
+use kapto_store::records::{CAPTURE_RECORD, EPISODE_RECORD};
 
 use crate::live::LiveRobot;
 use crate::page_layout::{RobotRole, ViewLayout, arranged, roles_of};
@@ -450,11 +450,13 @@ fn carried_robot(
     )?;
     let search = std::slice::from_ref(&settings.packages);
     // A local package with the same ID and content hash has the same
-    // files, meshes included; otherwise the recording's own are used.
+    // files, meshes included; otherwise the recording's own are used, with
+    // the files it left out taken from a package that still has them.
     let (model, unpacked) = if let Some(urdf) = local_package(start, manifest, &settings.packages) {
         (load_urdf(&urdf, search)?, None)
     } else {
         let unpacked = Unpacked::of(start)?;
+        unpacked.fill_left_out(start, manifest, &settings.packages);
         (
             load_urdf(&unpacked.0.join(&manifest.urdf), search)?,
             Some(unpacked),
@@ -585,6 +587,47 @@ impl Unpacked {
             }
         }
         Ok(unpacked)
+    }
+}
+
+impl Unpacked {
+    /// Copies in each file the recording left out (its meshes, by default)
+    /// from a local package with the same ID that has it unchanged, by the
+    /// SHA-256 the recording names it with: a package changed since in its
+    /// other files still draws the robot as it was recorded. A file no
+    /// package has unchanged stays missing, and is said to be.
+    fn fill_left_out(&self, start: &RecordingStart, manifest: &PackageManifest, packages: &Path) {
+        let Some(capture) = start.records.get(CAPTURE_RECORD) else {
+            return;
+        };
+        let (found, _) = discover(packages);
+        let same: Vec<&Package> = found
+            .iter()
+            .filter(|package| package.manifest.id == manifest.id)
+            .collect();
+        for (key, sha256) in capture {
+            let Some(path) = key.strip_prefix("left_out.") else {
+                continue;
+            };
+            let inside = Path::new(path)
+                .components()
+                .all(|part| matches!(part, Component::Normal(_)));
+            let kept = same.iter().find(|package| {
+                package
+                    .files
+                    .iter()
+                    .any(|file| file.path == path && &file.sha256 == sha256)
+            });
+            let (true, Some(package)) = (inside, kept) else {
+                continue;
+            };
+            let to = self.0.join(path);
+            // One that can't be copied is missing, as if no package had it.
+            let _ = to
+                .parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| std::fs::copy(package.folder.join(path), &to).map(|_| ()));
+        }
     }
 }
 
