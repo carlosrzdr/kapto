@@ -82,7 +82,8 @@
         return;
       }
       pointedAt = plot;
-      hovered = { stream: part.stream.name, ...valuesAt(plot.data, index, shortLabels(part.labels).labels) };
+      const spread = (low: number, high: number) => Math.abs(plot.valToPos(high, "y") - plot.valToPos(low, "y"));
+      hovered = { stream: part.stream.name, ...valuesAt(plot.data, index, shortLabels(part.labels).labels, spread) };
       if (!tip || !panel) {
         return;
       }

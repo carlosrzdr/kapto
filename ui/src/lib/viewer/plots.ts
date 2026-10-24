@@ -112,12 +112,29 @@ export interface ValuesAt {
   values: { label: string; value: string }[];
 }
 
+/** How far apart, in pixels, a value's minimum and maximum are drawn. */
+export type Spread = (low: number, high: number) => number;
+
+/**
+ * The pixels a sample's range must span for the tip to give the range
+ * rather than one value: anything less is the line's own width, as a value
+ * moving smoothly changes within the few milliseconds a sample covers.
+ */
+export const RANGE_PIXELS = 3;
+
 /**
  * The values of the sample at `index` of a chart's `data` (uPlot's: times
- * in seconds, then each value's minima and maxima), named by `labels`. A
- * value that changed within the sample is its range, `0.12 to 0.15`.
+ * in seconds, then each value's minima and maxima), named by `labels`.
+ * Each is one value, the middle of its range, unless `spread` draws that
+ * range over at least [`RANGE_PIXELS`]: a jump within the sample, given as
+ * `0.12 to 0.95`.
  */
-export function valuesAt(data: ArrayLike<number | null | undefined>[], index: number, labels: string[]): ValuesAt {
+export function valuesAt(
+  data: ArrayLike<number | null | undefined>[],
+  index: number,
+  labels: string[],
+  spread: Spread = () => Number.POSITIVE_INFINITY,
+): ValuesAt {
   const seconds = data[0]?.[index] ?? Number.NaN;
   const date = new Date(seconds * 1000);
   const pad = (n: number, width = 2) => String(n).padStart(width, "0");
@@ -129,7 +146,8 @@ export function valuesAt(data: ArrayLike<number | null | undefined>[], index: nu
     values: labels.map((label, place) => {
       const low = data[1 + place * 2]?.[index] ?? Number.NaN;
       const high = data[2 + place * 2]?.[index] ?? Number.NaN;
-      const value = figure(low) === figure(high) ? figure(low) : `${figure(low)} to ${figure(high)}`;
+      const one = figure(low) === figure(high) || !(spread(low, high) >= RANGE_PIXELS);
+      const value = one ? figure((low + high) / 2) : `${figure(low)} to ${figure(high)}`;
       return { label, value };
     }),
   };

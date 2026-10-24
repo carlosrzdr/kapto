@@ -150,27 +150,36 @@ describe("valuesAt", () => {
   const at = new Date(2026, 2, 10, 14, 46, 5, 250).getTime() / 1000;
   const data = [
     [at - 1, at],
-    [0.5, 0.123456],
-    [0.5, 0.123456],
+    [0.5, 0.815],
+    [0.5, 0.818],
     [-2, 1200.4],
     [-1, 1500.6],
   ];
+  // As a chart drawing one unit over 10 pixels.
+  const tenPerUnit = (low: number, high: number) => (high - low) * 10;
 
   it("says the sample's time to the millisecond and each value by its label", () => {
-    expect(valuesAt(data, 1, ["joint_1", "load"])).toEqual({
+    expect(valuesAt(data, 1, ["joint_1", "load"], tenPerUnit)).toEqual({
       time: "14:46:05.250",
       values: [
-        { label: "joint_1", value: "0.123" },
+        { label: "joint_1", value: "0.817" },
         { label: "load", value: "1\u202f200 to 1\u202f501" },
       ],
     });
   });
 
-  it("gives a range for a value that changed within its sample", () => {
-    expect(valuesAt(data, 0, ["joint_1", "load"]).values[1]).toEqual({ label: "load", value: "-2 to -1" });
+  it("gives one value, the middle, while the range is too narrow to be more than the line", () => {
+    // 0.003 apart is 0.03 pixels: a joint moving smoothly.
+    expect(valuesAt(data, 1, ["joint_1"], tenPerUnit).values[0]?.value).toBe("0.817");
+    // The same range drawn 1000 pixels a unit spans 3: a jump worth saying.
+    expect(valuesAt(data, 1, ["joint_1"], (low, high) => (high - low) * 1000).values[0]?.value).toBe("0.815 to 0.818");
+  });
+
+  it("gives the range of a jump within the sample", () => {
+    expect(valuesAt(data, 0, ["joint_1", "load"], tenPerUnit).values[1]).toEqual({ label: "load", value: "-2 to -1" });
   });
 
   it("says nothing it doesn't have", () => {
-    expect(valuesAt(data, 5, ["joint_1"])).toEqual({ time: "–", values: [{ label: "joint_1", value: "–" }] });
+    expect(valuesAt(data, 5, ["joint_1"], tenPerUnit)).toEqual({ time: "–", values: [{ label: "joint_1", value: "–" }] });
   });
 });
