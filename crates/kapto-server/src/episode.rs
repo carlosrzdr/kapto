@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_store::manifest::{FINALISED_FILE, Manifest};
-use kapto_store::{Episode, LossDetectionKind, Reader, episode_folder};
+use kapto_store::{BIN_DIR, Episode, LossDetectionKind, Reader, episode_folder};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -25,6 +25,10 @@ pub struct EpisodeDetail {
     /// elsewhere: what it says then is from the summary kept of it, and its
     /// files are those uploaded (`/api/episodes/{id}/uploads`).
     pub stored_here: bool,
+    /// When it was deleted by hand into the bin, in UTC nanoseconds since
+    /// the Unix epoch; `null` unless it is in the bin.
+    #[serde(default)]
+    pub binned_utc_ns: Option<i64>,
     /// When recording started, in UTC nanoseconds since the Unix epoch.
     pub started_utc_ns: i64,
     /// When it ended, in UTC nanoseconds since the Unix epoch.
@@ -228,7 +232,8 @@ pub struct EpisodeClock {
     pub steps: u64,
 }
 
-/// The folder of the finalised episode `id` in `data_dir`.
+/// The folder of the finalised episode `id` in `data_dir`, or in its bin
+/// if it was deleted by hand and the bin not emptied yet.
 ///
 /// # Errors
 ///
@@ -239,8 +244,11 @@ pub(crate) fn finalised_folder(data_dir: &Path, id: &str) -> Result<PathBuf, Kap
     let folder = episode_folder(data_dir, id).ok_or_else(|| {
         KaptoError::new(ErrorCode::ApiInvalidRequest).detail(format!("`{id}` isn't an episode ID"))
     })?;
+    let binned = data_dir.join(BIN_DIR).join(id);
     if folder.join(FINALISED_FILE).exists() {
         Ok(folder)
+    } else if binned.join(FINALISED_FILE).exists() {
+        Ok(binned)
     } else {
         Err(
             KaptoError::new(ErrorCode::ApiEpisodeNotFound).detail(format!(
@@ -325,6 +333,7 @@ fn detail(
         id: episode.id,
         folder: folder.display().to_string(),
         stored_here,
+        binned_utc_ns: None,
         started_utc_ns: episode.started_utc_ns,
         ended_utc_ns: episode.ended_utc_ns,
         commanded_start_utc_ns: episode.commanded_start_utc_ns,

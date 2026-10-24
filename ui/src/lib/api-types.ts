@@ -23,6 +23,14 @@ export interface ApiError {
   remedy: string;
 }
 
+/** An episode put in the bin. */
+export interface BinnedEpisode {
+  /** When it went into the bin, in UTC nanoseconds since the Unix epoch. */
+  binned_utc_ns: number;
+  /** Its ID. */
+  episode: string;
+}
+
 /** A camera's frames in an episode. */
 export interface CameraFrames {
   /** The camera's stream. */
@@ -159,6 +167,11 @@ export interface EpisodeDeletion {
 
 /** A finalised episode in full. */
 export interface EpisodeDetail {
+  /**
+   * When it was deleted by hand into the bin, in UTC nanoseconds since
+   * the Unix epoch; `null` unless it is in the bin.
+   */
+  binned_utc_ns?: number | null;
   /** The ring buffers between receiving and writing. */
   buffers: EpisodeBuffers;
   /** The wall clock while it was recorded. */
@@ -390,6 +403,11 @@ export interface EpisodeSummary {
    * the worker has checked it (`/api/episodes/{id}/qa` has the results).
    */
   accepted?: boolean | null;
+  /**
+   * When it was deleted by hand into the bin, in UTC nanoseconds since
+   * the Unix epoch; `null` unless it is in the bin.
+   */
+  binned_utc_ns?: number | null;
   /** When recording ended, on the same clock. */
   ended_utc_ns: number;
   /**

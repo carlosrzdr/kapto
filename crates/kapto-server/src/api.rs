@@ -24,7 +24,7 @@ mod status;
 mod uploads;
 
 pub use capture::{AbortRequest, Aborted, StartRequest, Started, StopRequest, Stopped};
-pub use episodes::{EpisodeSummary, EpisodesQuery};
+pub use episodes::{BinnedEpisode, CLIENT_HEADER, EpisodeSummary, EpisodesQuery};
 pub use events::{CaptureAnnouncements, Event, EventKind};
 pub use replay::{ReplayRequest, WindowQuery};
 pub use status::{
@@ -86,8 +86,9 @@ use capture::{
     send_event, start, stop,
 };
 use episodes::{
-    __path_episode, __path_episode_events, __path_episodes, __path_quality, __path_statistics,
-    episode, episode_events, episodes, quality, statistics,
+    __path_delete_episode, __path_episode, __path_episode_events, __path_episodes, __path_quality,
+    __path_restore_episode, __path_statistics, delete_episode, episode, episode_events, episodes,
+    quality, restore_episode, statistics,
 };
 use events::{__path_events, events};
 use profiles::{__path_event_kinds, __path_profiles, __path_tasks, event_kinds, profiles, tasks};
@@ -170,7 +171,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/preflight", post(preflight))
         .route("/api/events", get(events))
         .route("/api/episodes", get(episodes))
-        .route("/api/episodes/{id}", get(episode))
+        .route("/api/episodes/{id}", get(episode).delete(delete_episode))
+        .route("/api/episodes/{id}/restore", post(restore_episode))
         .route("/api/uploads", get(upload_overview))
         .route(
             "/api/uploads/destinations/{name}/test",
@@ -258,6 +260,8 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         events,
         episodes,
         episode,
+        delete_episode,
+        restore_episode,
         upload_overview,
         test_destination,
         episode_uploads,
@@ -338,6 +342,7 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         ReplayRequest,
         Viewer,
         EpisodeSummary,
+        BinnedEpisode,
         EpisodePackage,
         EpisodeRecovered,
         EpisodeDetail,
@@ -429,7 +434,9 @@ impl From<KaptoError> for Failure {
             | ErrorCode::ViewerPictureUnshown
             | ErrorCode::UploadNothingToRetry
             | ErrorCode::UploadDestinationUnusable
-            | ErrorCode::UploadCredentialsMissing => StatusCode::CONFLICT,
+            | ErrorCode::UploadCredentialsMissing
+            | ErrorCode::ApiEpisodeInBin
+            | ErrorCode::ApiEpisodeNotInBin => StatusCode::CONFLICT,
             // The destination answered, or didn't: its trouble, not the
             // request's.
             // Another party answered, but not as expected: capture, or

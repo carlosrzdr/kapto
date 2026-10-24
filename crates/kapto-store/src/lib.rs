@@ -2,6 +2,7 @@
 
 //! Runtime state in SQLite, episode sidecar files, manifests and their schemas.
 
+mod binned;
 pub mod db;
 mod deletions;
 pub mod episode;
@@ -17,6 +18,7 @@ mod sidecar;
 pub mod upload_marker;
 mod uploads;
 
+pub use binned::{BIN_DIR, Binned};
 pub use db::{IndexedEpisode, IndexedStream, ListedEpisode, Reader, Writer};
 pub use deletions::{Deletion, DeletionReason, RemoteCopy};
 pub use episode::{

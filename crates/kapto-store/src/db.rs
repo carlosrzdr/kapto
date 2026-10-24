@@ -20,6 +20,7 @@ use kapto_core::clock::utc_now_ns;
 use kapto_core::{EpisodeId, ErrorCode, KaptoError};
 use rusqlite::{Connection, OpenFlags, Transaction, params};
 
+use crate::binned::{self, BIN_DIR, Binned};
 use crate::deletions::{self, Deletion};
 use crate::episode::{Episode, OperationMode, PackageIdentity, Recovered};
 use crate::events::Event;
@@ -84,6 +85,8 @@ const SCHEMA: &[&str] = &[
     uploads::SCHEMA,
     // Episodes deleted here once verified elsewhere, with their summaries.
     deletions::SCHEMA,
+    // Episodes deleted by hand, in the bin until it is emptied.
+    binned::SCHEMA,
 ];
 
 /// The schema's version, kept in the database's `user_version`. It stays 1
@@ -215,6 +218,10 @@ enum Command {
     UploadFailed(String, String, JobFailure, Reply<()>),
     /// Record an episode deleted here.
     RecordDeletion(Box<Deletion>, Reply<()>),
+    /// Record an episode put in the bin.
+    Bin(Box<Binned>, Reply<()>),
+    /// Forget an episode was in the bin, answering whether it was.
+    Unbin(String, Reply<bool>),
     /// Make an episode's failed uploads due now.
     RetryUploads(String, Reply<Vec<String>>),
 }
@@ -312,6 +319,26 @@ impl Writer {
     /// `store.query_failed` if writing failed.
     pub fn record_deletion(&self, deletion: Deletion) -> Result<(), KaptoError> {
         self.ask(|reply| Command::RecordDeletion(Box::new(deletion), reply))
+    }
+
+    /// Records an episode put in the bin, its folder already moved there.
+    ///
+    /// # Errors
+    ///
+    /// `store.query_failed` if writing failed.
+    pub fn record_binned(&self, binned: Binned) -> Result<(), KaptoError> {
+        self.ask(|reply| Command::Bin(Box::new(binned), reply))
+    }
+
+    /// Forgets that `episode` is in the bin, as it is put back or deleted;
+    /// whether it was.
+    ///
+    /// # Errors
+    ///
+    /// `store.query_failed` if writing failed.
+    pub fn forget_binned(&self, episode: &str) -> Result<bool, KaptoError> {
+        let episode = episode.to_owned();
+        self.ask(|reply| Command::Unbin(episode, reply))
     }
 
     /// Queues a job of `kind` for `episode`, unless one already is, in any
@@ -584,6 +611,12 @@ fn serve(mut connection: Connection, commands: &mpsc::Receiver<Command>) {
                     deletions::record(tx, &deletion, now)
                 }));
             }
+            Command::Bin(binned, reply) => {
+                let _ = reply.send(write(connection, |tx| binned::record(tx, &binned)));
+            }
+            Command::Unbin(episode, reply) => {
+                let _ = reply.send(write(connection, |tx| binned::remove(tx, &episode)));
+            }
             Command::UploadFailed(episode, destination, failure, reply) => {
                 let _ = reply.send(write(connection, |tx| {
                     uploads::failed(tx, &episode, &destination, &failure, now)
@@ -676,7 +709,7 @@ impl Reader {
     ///
     /// `store.query_failed` if reading failed.
     pub fn episodes(&self, limit: usize) -> Result<Vec<IndexedEpisode>, KaptoError> {
-        self.list(limit, None, None)
+        self.list(limit, None, None, false)
             .map(|listed| listed.into_iter().map(|listed| listed.episode).collect())
     }
 
@@ -684,7 +717,8 @@ impl Reader {
     /// its quality checks accepted it and how many events of each kind it
     /// holds; only those `accepted` or not, if asked, which leaves out the
     /// episodes not checked yet, and only those with an `event` of that
-    /// kind, if asked.
+    /// kind, if asked. Only those in the bin if `in_bin`, and none of them
+    /// otherwise.
     ///
     /// # Errors
     ///
@@ -694,6 +728,7 @@ impl Reader {
         limit: usize,
         accepted: Option<bool>,
         event: Option<&str>,
+        in_bin: bool,
     ) -> Result<Vec<ListedEpisode>, KaptoError> {
         // Accepted unless a gate failed; unknown until checked.
         let mut episodes = self
@@ -710,6 +745,7 @@ impl Reader {
                  WHERE (?2 IS NULL OR accepted = ?2)
                    AND (?3 IS NULL OR EXISTS (SELECT 1 FROM episode_events
                                               WHERE episode = id AND kind = ?3))
+                   AND ?4 = EXISTS (SELECT 1 FROM binned WHERE binned.episode = id)
                  ORDER BY id DESC LIMIT ?1",
             )
             .map_err(query_failed)?;
@@ -721,7 +757,7 @@ impl Reader {
             )
             .map_err(query_failed)?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-        let rows = episodes.query_map(params![limit, accepted, event], |row| {
+        let rows = episodes.query_map(params![limit, accepted, event, in_bin], |row| {
             let package = match (row.get(4)?, row.get(5)?, row.get(6)?) {
                 (Some(id), Some(version), Some(hash)) => {
                     Some(PackageIdentity { id, version, hash })
@@ -889,6 +925,24 @@ impl Reader {
         deletions::find(&self.0, episode).map_err(query_failed)
     }
 
+    /// When and from where `episode` went into the bin, if it is in it.
+    ///
+    /// # Errors
+    ///
+    /// `store.query_failed` if reading failed.
+    pub fn binned(&self, episode: &str) -> Result<Option<Binned>, KaptoError> {
+        binned::find(&self.0, episode).map_err(query_failed)
+    }
+
+    /// Every episode in the bin, the longest there first.
+    ///
+    /// # Errors
+    ///
+    /// `store.query_failed` if reading failed.
+    pub fn bin(&self) -> Result<Vec<Binned>, KaptoError> {
+        binned::all(&self.0).map_err(query_failed)
+    }
+
     /// Every episode deleted here, oldest deletion first: the audit.
     ///
     /// # Errors
@@ -966,14 +1020,15 @@ impl Reader {
     }
 }
 
-/// The finalised episodes' folders in `data_dir`, newest first: episode
-/// folders sort by start time, because their IDs begin with it.
+/// The finalised episodes' folders in `data_dir` and in its bin, newest
+/// first: episode folders sort by start time, because their IDs begin with
+/// it.
 #[must_use]
 pub fn finalised_folders(data_dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(data_dir) else {
-        return Vec::new();
-    };
-    let mut folders: Vec<PathBuf> = entries
+    let mut folders: Vec<PathBuf> = [data_dir.to_path_buf(), data_dir.join(BIN_DIR)]
+        .iter()
+        .filter_map(|folder| std::fs::read_dir(folder).ok())
+        .flatten()
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| {
@@ -983,7 +1038,7 @@ pub fn finalised_folders(data_dir: &Path) -> Vec<PathBuf> {
                 && path.join(FINALISED_FILE).exists()
         })
         .collect();
-    folders.sort_unstable_by(|a, b| b.cmp(a));
+    folders.sort_unstable_by(|a, b| b.file_name().cmp(&a.file_name()));
     folders
 }
 
@@ -1190,7 +1245,7 @@ mod tests {
         let reader = writer.reader().unwrap();
         let listed = |accepted| {
             reader
-                .list(10, accepted, None)
+                .list(10, accepted, None, false)
                 .unwrap()
                 .into_iter()
                 .map(|listed| (listed.episode.id, listed.accepted))
@@ -1262,6 +1317,61 @@ mod tests {
     }
 
     #[test]
+    fn an_episode_in_the_bin_is_listed_only_with_it_and_its_jobs_wait_but_its_deletion() {
+        let dir = TempDir::new("bin");
+        let writer = Writer::open(&dir.database()).unwrap();
+        for id in [OLDER, NEWER] {
+            writer.index(episode(id, false)).unwrap();
+        }
+        writer.enqueue("verify", NEWER).unwrap();
+        writer.enqueue("verify", OLDER).unwrap();
+        writer
+            .record_binned(Binned {
+                episode: NEWER.to_owned(),
+                binned_utc_ns: 7,
+                from: "web UI".to_owned(),
+            })
+            .unwrap();
+        let reader = writer.reader().unwrap();
+        let listed = |in_bin| {
+            reader
+                .list(10, None, None, in_bin)
+                .unwrap()
+                .into_iter()
+                .map(|listed| listed.episode.id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(listed(false), [OLDER]);
+        assert_eq!(listed(true), [NEWER]);
+        assert_eq!(
+            reader.binned(NEWER).unwrap().map(|binned| binned.from),
+            Some("web UI".to_owned())
+        );
+        assert_eq!(reader.bin().unwrap().len(), 1);
+        // Its verification waits; the other episode's goes ahead, and its
+        // deletion, which empties the bin, would too.
+        assert_eq!(
+            writer.claim().unwrap().map(|job| job.episode),
+            Some(OLDER.to_owned())
+        );
+        assert_eq!(writer.claim().unwrap(), None);
+        writer.enqueue(jobs::DELETE, NEWER).unwrap();
+        let deleting = writer.claim().unwrap().unwrap();
+        assert_eq!(
+            (deleting.kind.as_str(), deleting.episode.as_str()),
+            (jobs::DELETE, NEWER)
+        );
+        // Put back: listed again, its jobs handed out.
+        assert!(writer.forget_binned(NEWER).unwrap());
+        assert!(!writer.forget_binned(NEWER).unwrap());
+        assert_eq!(listed(false), [NEWER, OLDER]);
+        assert_eq!(
+            writer.claim().unwrap().map(|job| job.episode),
+            Some(NEWER.to_owned())
+        );
+    }
+
+    #[test]
     fn episodes_are_listed_with_their_events_by_kind_and_found_by_one() {
         use crate::events::{Event, Phase};
 
@@ -1288,7 +1398,7 @@ mod tests {
         let reader = writer.reader().unwrap();
         let listed = |event| {
             reader
-                .list(10, None, event)
+                .list(10, None, event, false)
                 .unwrap()
                 .into_iter()
                 .map(|listed| (listed.episode.id, listed.events))

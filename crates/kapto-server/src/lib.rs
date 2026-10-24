@@ -7,6 +7,8 @@ pub mod api;
 pub mod cameras;
 #[cfg(unix)]
 pub mod episode;
+#[cfg(unix)]
+pub mod episode_bin;
 pub mod episode_events;
 #[cfg(unix)]
 pub mod index;

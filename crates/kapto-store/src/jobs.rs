@@ -126,6 +126,10 @@ impl Kinds {
 }
 
 /// Its table, part of the database's schema.
+/// The kind of job that deletes an episode's files, the retention
+/// executor's: the only one done for an episode in the bin, to empty it.
+pub const DELETE: &str = "delete";
+
 pub(crate) const SCHEMA: &str = "CREATE TABLE jobs (
         id INTEGER PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -195,8 +199,10 @@ pub(crate) fn claim(
     kinds: &Kinds,
     now: i64,
 ) -> rusqlite::Result<Option<Job>> {
-    // The kinds as a JSON array, matched with SQLite's own JSON reader: one
-    // statement however many there are.
+    // An episode in the bin waits there, its jobs with it, until it is put
+    // back; only the retention executor's deletion, which empties the bin,
+    // goes on. The kinds as a JSON array, matched with SQLite's own JSON
+    // reader: one statement however many there are.
     let json = |kinds: &[String]| {
         serde_json::to_string(kinds)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))
@@ -212,6 +218,8 @@ pub(crate) fn claim(
              WHERE id = (SELECT id FROM jobs WHERE state = 'queued'
                          AND (?2 IS NULL OR kind IN (SELECT value FROM json_each(?2)))
                          AND (?3 IS NULL OR kind NOT IN (SELECT value FROM json_each(?3)))
+                         AND (kind = '{DELETE}'
+                              OR episode NOT IN (SELECT episode FROM binned))
                          ORDER BY id LIMIT 1)
              RETURNING {COLUMNS}"
         ),

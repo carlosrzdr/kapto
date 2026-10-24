@@ -424,6 +424,24 @@ error_codes! {
         remedy: "List the episodes with GET /api/episodes and use one of their IDs. An episode still being recorded, aborted or never finalised isn't listed.",
     }
 
+    /// An episode asked to be deleted is in the bin already.
+    ApiEpisodeInBin = "api.episode_in_bin" {
+        summary: "The episode is in the bin already",
+        remedy: "Put it back with POST /api/episodes/{id}/restore, or list the bin with GET /api/episodes?bin=true; it is deleted for good when the bin is emptied.",
+    }
+
+    /// An episode asked to be put back isn't in the bin.
+    ApiEpisodeNotInBin = "api.episode_not_in_bin" {
+        summary: "The episode isn't in the bin",
+        remedy: "Only an episode deleted by hand, and not yet emptied from the bin, can be put back: list them with GET /api/episodes?bin=true.",
+    }
+
+    /// An episode's folder couldn't be moved into the bin or out of it.
+    StoreBinFailed = "store.bin_failed" {
+        summary: "An episode couldn't be moved into or out of the bin",
+        remedy: "The message says which folder and why: check that Kapto may write the data directory and its `.bin` folder, and that no folder of the same name is in the way, then try again.",
+    }
+
     /// The size of the file system holding the data directory can't be
     /// read.
     ServerStorageUnreadable = "server.storage_unreadable" {

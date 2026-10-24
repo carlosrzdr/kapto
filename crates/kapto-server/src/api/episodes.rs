@@ -16,6 +16,7 @@ use utoipa::ToSchema;
 use crate::episode::{
     self as episode_detail, EpisodeDetail, EpisodeFile, EpisodePackage, EpisodeRecovered,
 };
+use crate::episode_bin;
 use crate::episode_events::{self, EpisodeEvents};
 use crate::quality::{self, EpisodeQuality, EpisodeStatistics};
 
@@ -58,6 +59,10 @@ pub struct EpisodeSummary {
     /// Whether its folder is still here; `false` once deleted here, verified
     /// elsewhere.
     pub stored_here: bool,
+    /// When it was deleted by hand into the bin, in UTC nanoseconds since
+    /// the Unix epoch; `null` unless it is in the bin.
+    #[serde(default)]
+    pub binned_utc_ns: Option<i64>,
 }
 
 /// Which episodes to list.
@@ -70,6 +75,9 @@ pub struct EpisodesQuery {
     pub accepted: Option<bool>,
     /// Only those with an event of this kind, e.g. `intervention`.
     pub event: Option<String>,
+    /// Only those in the bin (`true`), deleted by hand; none of them if
+    /// not given.
+    pub bin: Option<bool>,
 }
 
 /// The finalised episodes in the data directory, newest first. Folders
@@ -80,7 +88,8 @@ pub struct EpisodesQuery {
     params(
         ("limit" = Option<usize>, Query, description = "At most this many, newest first; 100 if not given."),
         ("accepted" = Option<bool>, Query, description = "Only those the quality checks accepted (`true`) or rejected (`false`), which leaves out those not checked yet; every episode if not given."),
-        ("event" = Option<String>, Query, description = "Only those with an event of this kind, e.g. `intervention`, which leaves out those whose events weren't read yet; every episode if not given.")
+        ("event" = Option<String>, Query, description = "Only those with an event of this kind, e.g. `intervention`, which leaves out those whose events weren't read yet; every episode if not given."),
+        ("bin" = Option<bool>, Query, description = "Only those in the bin, deleted by hand and not emptied yet (`true`); none of them if not given.")
     ),
     responses(
         (status = 200, body = Vec<EpisodeSummary>),
@@ -100,14 +109,22 @@ pub(super) async fn episodes(
             .into_iter()
             .map(|deletion| deletion.episode)
             .collect();
-        let listed = reader.list(limit, query.accepted, query.event.as_deref())?;
+        let bin: BTreeMap<String, i64> = reader
+            .bin()?
+            .into_iter()
+            .map(|binned| (binned.episode, binned.binned_utc_ns))
+            .collect();
+        let in_bin = query.bin.unwrap_or(false);
+        let listed = reader.list(limit, query.accepted, query.event.as_deref(), in_bin)?;
         Ok::<_, KaptoError>(
             listed
                 .into_iter()
                 .map(|listed| {
                     let stored_here = !deleted.contains(&listed.episode.id);
+                    let binned_utc_ns = bin.get(&listed.episode.id).copied();
                     EpisodeSummary {
                         stored_here,
+                        binned_utc_ns,
                         ..EpisodeSummary::from(listed)
                     }
                 })
@@ -140,6 +157,13 @@ pub(super) async fn episode(
 ) -> Result<Json<EpisodeDetail>, Failure> {
     let (data_dir, store) = (state.data_dir.clone(), state.store.clone());
     tokio::task::spawn_blocking(move || match episode_detail::read(&data_dir, &id) {
+        Ok(detail) => Ok(EpisodeDetail {
+            binned_utc_ns: store
+                .reader()?
+                .binned(&id)?
+                .map(|binned| binned.binned_utc_ns),
+            ..detail
+        }),
         // Deleted here once verified elsewhere: from the summary kept.
         Err(error) if error.code() == ErrorCode::ApiEpisodeNotFound => {
             let reader = store.reader()?;
@@ -195,6 +219,7 @@ impl From<ListedEpisode> for EpisodeSummary {
             task_name: episode.task_name,
             recovered: episode.recovered.map(EpisodeRecovered::from),
             stored_here: true,
+            binned_utc_ns: None,
             streams: episode
                 .streams
                 .into_iter()
@@ -297,5 +322,92 @@ pub(super) async fn statistics(
             Failure::from(KaptoError::new(ErrorCode::StoreQueryFailed).detail(error.to_string()))
         })?
         .map(Json)
+        .map_err(Failure::from)
+}
+
+/// An episode put in the bin.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct BinnedEpisode {
+    /// Its ID.
+    pub episode: String,
+    /// When it went into the bin, in UTC nanoseconds since the Unix epoch.
+    pub binned_utc_ns: i64,
+}
+
+/// The header a client names itself in, recorded with what it deletes:
+/// `web UI` or `command line`; anything else, or none, is the API.
+pub const CLIENT_HEADER: &str = "kapto-client";
+
+/// Deletes a finalised episode by hand: its folder moved into the bin, as
+/// it is, until the bin is emptied or it is put back. Its replay is dropped
+/// from the cache, and its jobs wait until it is put back.
+#[utoipa::path(
+    delete,
+    path = "/api/episodes/{id}",
+    params(
+        ("id" = String, Path, description = "The episode's ID, as `/api/episodes` lists it."),
+        ("kapto-client" = Option<String>, Header, description = "What deletes it, recorded with it: `web UI` or `command line`; the API if not given.")
+    ),
+    responses(
+        (status = 200, body = BinnedEpisode),
+        (status = 400, description = "The ID isn't an episode ID", body = ApiError),
+        (status = 404, description = "No finalised episode here has this ID", body = ApiError),
+        (status = 409, description = "The episode is in the bin already", body = ApiError),
+        (status = 500, description = "Its folder can't be moved, or the deletion recorded", body = ApiError)
+    )
+)]
+pub(super) async fn delete_episode(
+    State(state): State<Arc<ApiState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<BinnedEpisode>, Failure> {
+    let from = match headers
+        .get(CLIENT_HEADER)
+        .and_then(|value| value.to_str().ok())
+    {
+        Some(client @ ("web UI" | "command line")) => client.to_owned(),
+        _ => "API".to_owned(),
+    };
+    let (data_dir, store) = (state.data_dir.clone(), state.store.clone());
+    tokio::task::spawn_blocking(move || {
+        let now = kapto_core::ClockSample::now().utc_ns;
+        episode_bin::put_in_bin(&data_dir, &store, &id, (&from, now))
+    })
+    .await
+    .map_err(|error| {
+        Failure::from(KaptoError::new(ErrorCode::StoreBinFailed).detail(error.to_string()))
+    })?
+    .map(|binned| {
+        Json(BinnedEpisode {
+            episode: binned.episode,
+            binned_utc_ns: binned.binned_utc_ns,
+        })
+    })
+    .map_err(Failure::from)
+}
+
+/// Puts an episode deleted by hand back from the bin, as it was.
+#[utoipa::path(
+    post,
+    path = "/api/episodes/{id}/restore",
+    params(("id" = String, Path, description = "The episode's ID, as `/api/episodes?bin=true` lists it.")),
+    responses(
+        (status = 200, description = "Put back; an empty object", body = Object),
+        (status = 400, description = "The ID isn't an episode ID", body = ApiError),
+        (status = 409, description = "The episode isn't in the bin", body = ApiError),
+        (status = 500, description = "Its folder can't be moved back, or a folder of its name is in the way", body = ApiError)
+    )
+)]
+pub(super) async fn restore_episode(
+    State(state): State<Arc<ApiState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, Failure> {
+    let (data_dir, store) = (state.data_dir.clone(), state.store.clone());
+    tokio::task::spawn_blocking(move || episode_bin::put_back(&data_dir, &store, &id))
+        .await
+        .map_err(|error| {
+            Failure::from(KaptoError::new(ErrorCode::StoreBinFailed).detail(error.to_string()))
+        })?
+        .map(|()| Json(serde_json::json!({})))
         .map_err(Failure::from)
 }

@@ -71,7 +71,7 @@ pub const UPLOAD: &str = "upload";
 /// The job kind that deletes an episode from this machine, queued as
 /// `upload.delete_local` says once it is verified on enough destinations,
 /// and checked again when handed out ([`crate::retention`]).
-pub const DELETE: &str = "delete";
+pub const DELETE: &str = kapto_store::jobs::DELETE;
 
 /// How often, at most, serve looks for episodes to delete, as a lane asks
 /// for work.

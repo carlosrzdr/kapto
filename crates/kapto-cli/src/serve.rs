@@ -20,11 +20,10 @@ use std::time::{Duration, Instant};
 use clap::Args;
 use kapto_capture::control::{ControlClient, Request};
 use kapto_config::DeploymentConfig;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ClockSample, ErrorCode, KaptoError};
 use kapto_robot::Declared;
 use kapto_server::api::ApiError;
 use kapto_server::api::{self, ApiState, CaptureAnnouncements};
-use kapto_server::index;
 use kapto_server::jobs::{Destination, JOB_SOCKET, JobServer, Uploads};
 use kapto_server::layouts::Layouts;
 use kapto_server::processes::sample_while;
@@ -32,6 +31,7 @@ use kapto_server::retention::Retention;
 use kapto_server::robot::RobotOverview;
 use kapto_server::scene::Scene;
 use kapto_server::{ChildSpec, Event, Listener, Processes, RestartPolicy, Supervisor};
+use kapto_server::{episode_bin, index};
 use kapto_store::Writer;
 
 use crate::SettingFlags;
@@ -226,6 +226,10 @@ fn open_state(deployment: &DeploymentConfig) -> Outcome<(Writer, JobServer)> {
     let data_dir = &deployment.data_dir.value;
     let max_attempts = deployment.worker_max_attempts.value;
     let store = index::open(data_dir).map_err(|error| vec![error])?;
+    // Whatever a crash left in the bin unrecorded is recorded, so nothing
+    // in it is ever forgotten.
+    episode_bin::reconcile(data_dir, &store, ClockSample::now().utc_ns)
+        .map_err(|error| vec![error])?;
     let requeued = store
         .requeue_interrupted(max_attempts)
         .map_err(|error| vec![error])?;

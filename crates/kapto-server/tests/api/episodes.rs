@@ -705,3 +705,136 @@ async fn an_episodes_events_are_shown_with_its_unended_stretches_and_episodes_fo
         (StatusCode::BAD_REQUEST, &json!("api.invalid_request"))
     );
 }
+
+#[tokio::test]
+async fn an_episode_deleted_by_hand_waits_in_the_bin_as_it_was_until_put_back() {
+    let folder = scratch("episode-bin");
+    let data = folder.join("data");
+    let (kept, binned) = (
+        "20260310T120000.000Z-00000001",
+        "20260310T120100.000Z-00000002",
+    );
+    finalised_episode(&data, kept, 0);
+    finalised_episode(&data, binned, 60);
+    let files = |folder: &std::path::Path| {
+        let mut names: Vec<_> = std::fs::read_dir(folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    };
+    let before = files(&data.join(binned));
+
+    let (status, body) = call(
+        state(&folder),
+        "DELETE",
+        &format!("/api/episodes/{binned}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["episode"], binned);
+    // Moved as it is into the bin, recorded as deleted from the API.
+    assert!(!data.join(binned).exists());
+    assert_eq!(files(&data.join(".bin").join(binned)), before);
+    let reader = state(&folder).store.reader().unwrap();
+    assert_eq!(reader.binned(binned).unwrap().unwrap().from, "API");
+
+    // Listed only in the bin, and still shown in full from there.
+    let ids = |list: &Value| -> Vec<String> {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .map(|episode| episode["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let (_, list) = call(state(&folder), "GET", "/api/episodes", None).await;
+    assert_eq!(ids(&list), [kept]);
+    let (_, bin) = call(state(&folder), "GET", "/api/episodes?bin=true", None).await;
+    assert_eq!(ids(&bin), [binned]);
+    assert_eq!(bin[0]["binned_utc_ns"], body["binned_utc_ns"]);
+    let (status, detail) = call(
+        state(&folder),
+        "GET",
+        &format!("/api/episodes/{binned}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{detail}");
+    assert_eq!(detail["binned_utc_ns"], body["binned_utc_ns"]);
+
+    // Deleted again: it is in the bin already.
+    let (status, again) = call(
+        state(&folder),
+        "DELETE",
+        &format!("/api/episodes/{binned}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(again["code"], "api.episode_in_bin");
+    assert_eq!(again["remedy"], ErrorCode::ApiEpisodeInBin.remedy());
+
+    // Put back as it was, listed again.
+    let (status, _) = call(
+        state(&folder),
+        "POST",
+        &format!("/api/episodes/{binned}/restore"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(files(&data.join(binned)), before);
+    let (_, list) = call(state(&folder), "GET", "/api/episodes", None).await;
+    assert_eq!(ids(&list), [binned, kept]);
+    assert_eq!(list[0]["binned_utc_ns"], Value::Null);
+    let (status, refused) = call(
+        state(&folder),
+        "POST",
+        &format!("/api/episodes/{binned}/restore"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(refused["code"], "api.episode_not_in_bin");
+}
+
+#[tokio::test]
+async fn only_a_finalised_episode_can_be_deleted_and_one_found_in_the_bin_at_start_is_recorded() {
+    let folder = scratch("episode-bin-refused");
+    let data = folder.join("data");
+    let (status, missing) = call(
+        state(&folder),
+        "DELETE",
+        "/api/episodes/20260310T120000.000Z-00000009",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(missing["code"], "api.episode_not_found");
+    let (status, invalid) = call(
+        state(&folder),
+        "DELETE",
+        "/api/episodes/..%2Fkapto.db",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{invalid}");
+
+    // Moved into the bin, but a crash before it was recorded: recorded when
+    // serve next starts, and listed in the bin.
+    let lost = "20260310T120200.000Z-00000003";
+    finalised_episode(&data, lost, 120);
+    std::fs::create_dir_all(data.join(".bin")).unwrap();
+    std::fs::rename(data.join(lost), data.join(".bin").join(lost)).unwrap();
+    let state = state(&folder);
+    kapto_server::episode_bin::reconcile(&data, &state.store, 42).unwrap();
+    let recorded = state.store.reader().unwrap().binned(lost).unwrap().unwrap();
+    assert_eq!(
+        (recorded.from.as_str(), recorded.binned_utc_ns),
+        (kapto_server::episode_bin::FOUND_AT_START, 42)
+    );
+    let (_, bin) = call(state, "GET", "/api/episodes?bin=true", None).await;
+    assert_eq!(bin[0]["id"], lost);
+}

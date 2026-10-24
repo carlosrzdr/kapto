@@ -237,6 +237,7 @@ fn the_openapi_document_describes_every_route_and_its_error_body() {
             "/api/episodes/{id}/replay/opening",
             "/api/episodes/{id}/replay/scene",
             "/api/episodes/{id}/replay/window",
+            "/api/episodes/{id}/restore",
             "/api/episodes/{id}/statistics",
             "/api/episodes/{id}/uploads",
             "/api/episodes/{id}/uploads/retry",

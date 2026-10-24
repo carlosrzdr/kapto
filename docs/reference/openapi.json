@@ -43,6 +43,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "bin",
+            "in": "query",
+            "description": "Only those in the bin, deleted by hand and not emptied yet (`true`); none of them if not given.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -351,6 +360,85 @@
           },
           "404": {
             "description": "No episode, here or deleted here, has this ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "summary": "Deletes a finalised episode by hand: its folder moved into the bin, as\nit is, until the bin is emptied or it is put back. Its replay is dropped\nfrom the cache, and its jobs wait until it is put back.",
+        "operationId": "delete_episode",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The episode's ID, as `/api/episodes` lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kapto-client",
+            "in": "header",
+            "description": "What deletes it, recorded with it: `web UI` or `command line`; the API if not given.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BinnedEpisode"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ID isn't an episode ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No finalised episode here has this ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The episode is in the bin already",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Its folder can't be moved, or the deletion recorded",
             "content": {
               "application/json": {
                 "schema": {
@@ -1058,6 +1146,66 @@
           },
           "500": {
             "description": "Its replay view can't be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/episodes/{id}/restore": {
+      "post": {
+        "tags": [],
+        "summary": "Puts an episode deleted by hand back from the bin, as it was.",
+        "operationId": "restore_episode",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The episode's ID, as `/api/episodes?bin=true` lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Put back; an empty object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ID isn't an episode ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The episode isn't in the bin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Its folder can't be moved back, or a folder of its name is in the way",
             "content": {
               "application/json": {
                 "schema": {
@@ -1857,6 +2005,25 @@
           }
         }
       },
+      "BinnedEpisode": {
+        "type": "object",
+        "description": "An episode put in the bin.",
+        "required": [
+          "episode",
+          "binned_utc_ns"
+        ],
+        "properties": {
+          "binned_utc_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it went into the bin, in UTC nanoseconds since the Unix epoch."
+          },
+          "episode": {
+            "type": "string",
+            "description": "Its ID."
+          }
+        }
+      },
       "CameraFrames": {
         "type": "object",
         "description": "A camera's frames in an episode.",
@@ -2215,6 +2382,14 @@
           "clock"
         ],
         "properties": {
+          "binned_utc_ns": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it was deleted by hand into the bin, in UTC nanoseconds since\nthe Unix epoch; `null` unless it is in the bin."
+          },
           "buffers": {
             "$ref": "#/components/schemas/EpisodeBuffers",
             "description": "The ring buffers between receiving and writing."
@@ -2687,6 +2862,14 @@
               "null"
             ],
             "description": "Whether the quality checks accepted it: no gate failed. `null` until\nthe worker has checked it (`/api/episodes/{id}/qa` has the results)."
+          },
+          "binned_utc_ns": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it was deleted by hand into the bin, in UTC nanoseconds since\nthe Unix epoch; `null` unless it is in the bin."
           },
           "ended_utc_ns": {
             "type": "integer",
