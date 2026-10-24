@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
 
   import { axisTimes, axisTimesSpace } from "./format";
-  import { type PlotPart, type PlotStream, resolvePlot, shortLabels, shownStretch, type ValuesAt, valuesAt } from "./viewer/plots";
+  import { type Drawn, drawAgain, type PlotPart, type PlotStream, resolvePlot, shortLabels, shownStretch, type ValuesAt, valuesAt } from "./viewer/plots";
   import { SERIES, token } from "./theme";
 
   interface Props {
@@ -44,7 +44,8 @@
   let tip = $state<HTMLElement | null>(null);
 
   onMount(() => {
-    let charts: { plot: uPlot; part: PlotPart }[] = [];
+    /** Each chart, with what it was last drawn with and how many points that was. */
+    let charts: { plot: uPlot; part: PlotPart; drawn?: Drawn; points: number }[] = [];
     let built: string | null = null;
     const line = token("line", "#2a2e31");
     // The page's own font, so the axes read as the rest of it and their labels can be measured.
@@ -84,15 +85,24 @@
       pointedAt = plot;
       const spread = (low: number, high: number) => Math.abs(plot.valToPos(high, "y") - plot.valToPos(low, "y"));
       hovered = { stream: part.stream.name, ...valuesAt(plot.data, index, shortLabels(part.labels).labels, spread) };
+      const over = plot.over.getBoundingClientRect();
+      const top = plot.cursor.top ?? 0;
+      // Placed once what it says is drawn, so its size is known.
+      void tick().then(() => place(over, left, top));
+    };
+
+    /**
+     * Places the tip beside the pointer at `left` and `top` over the chart
+     * whose area is `over`, on whichever side has room. Placed from here,
+     * as the page allows no style written into it.
+     */
+    const place = (over: DOMRect, left: number, top: number) => {
       if (!tip || !panel) {
         return;
       }
-      // Beside the pointer, on whichever side has room. Placed from here, as
-      // the page allows no style written into it.
-      const over = plot.over.getBoundingClientRect();
       const box = panel.getBoundingClientRect();
       const x = over.left - box.left + left;
-      const y = over.top - box.top + (plot.cursor.top ?? 0);
+      const y = over.top - box.top + top;
       const gap = 12;
       const across = x + gap + tip.offsetWidth > box.width ? x - gap - tip.offsetWidth : x + gap;
       const down = Math.min(y + gap, box.height - tip.offsetHeight);
@@ -143,7 +153,7 @@
           [[], ...part.values.flatMap(() => [[], []])],
           element,
         );
-        charts.push({ plot, part });
+        charts.push({ plot, part, points: 0 });
       }
       const { width, height } = size();
       charts.forEach(({ plot }) => plot.setSize({ width, height }));
@@ -174,14 +184,29 @@
         return;
       }
       drawn = now;
-      let points = 0;
-      for (const { plot, part } of charts) {
+      for (const chart of charts) {
+        const { plot, part } = chart;
         const end = endMs ?? part.stream.samples.newestMs;
         if (end === null) {
           continue;
         }
+        const [from, to] = shownStretch(end, spanMs, plot.bbox.width);
+        const next: Drawn = {
+          toMs: to * 1000,
+          widthPx: plot.bbox.width,
+          spanMs,
+          stream: part.stream,
+          newestMs: part.stream.samples.newestMs,
+          atMs: now,
+        };
+        // Only when it would look different: a chart drawn costs the page
+        // more than anything else it does, many times a second.
+        if (!drawAgain(chart.drawn, next)) {
+          continue;
+        }
+        chart.drawn = next;
         ending = end;
-        const data = part.stream.samples.stretch(shownStretch(end, spanMs, plot.bbox.width)[0] * 1000, part.values);
+        const data = part.stream.samples.stretch(from * 1000, part.values);
         // Only up to the end shown: while looking back, nothing after it.
         const [times] = data;
         let last = times?.length ?? 0;
@@ -189,10 +214,10 @@
           last--;
         }
         plot.setData(data.map((column) => column.subarray(0, last)) as uPlot.AlignedData);
-        points += last;
+        chart.points = last;
       }
       // For tests: whether the charts have something drawn.
-      panel?.setAttribute("data-points", String(points));
+      panel?.setAttribute("data-points", String(charts.reduce((sum, chart) => sum + chart.points, 0)));
     };
     frame = requestAnimationFrame(draw);
 

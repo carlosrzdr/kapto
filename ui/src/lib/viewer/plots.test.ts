@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type PlotStream, plotStreams, resolvePlot, SampleBuffer, shortLabels, shownStretch, valuesAt } from "./plots";
+import { type Drawn, drawAgain, type PlotStream, plotStreams, resolvePlot, SampleBuffer, shortLabels, shownStretch, valuesAt } from "./plots";
 import type { Opening } from "./stream";
 
 /** A sample of two values: the first at `value`, the second at its double. */
@@ -181,5 +181,32 @@ describe("valuesAt", () => {
 
   it("says nothing it doesn't have", () => {
     expect(valuesAt(data, 5, ["joint_1"], tenPerUnit)).toEqual({ time: "–", values: [{ label: "joint_1", value: "–" }] });
+  });
+});
+
+describe("drawAgain", () => {
+  const stream = {};
+  const last: Drawn = { toMs: 1_000_000, widthPx: 600, spanMs: 30_000, stream, newestMs: 1_000_030, atMs: 0 };
+
+  it("draws the first time, and when the stretch moves a pixel or the chart changes", () => {
+    expect(drawAgain(undefined, last)).toBe(true);
+    expect(drawAgain(last, { ...last, toMs: 1_000_050, atMs: 33 })).toBe(true);
+    expect(drawAgain(last, { ...last, widthPx: 601, atMs: 33 })).toBe(true);
+    expect(drawAgain(last, { ...last, spanMs: 10_000, atMs: 33 })).toBe(true);
+    expect(drawAgain(last, { ...last, stream: {}, atMs: 33 })).toBe(true);
+  });
+
+  it("doesn't draw for samples after the stretch's end, which are off the chart", () => {
+    expect(drawAgain(last, { ...last, newestMs: 1_000_045, atMs: 33 })).toBe(false);
+  });
+
+  it("draws for a sample inside the stretch, as while looking back", () => {
+    const behind = { ...last, newestMs: 990_000 };
+    expect(drawAgain(behind, { ...behind, newestMs: 995_000, atMs: 33 })).toBe(true);
+  });
+
+  it("draws at least twice a second whatever changed", () => {
+    expect(drawAgain(last, { ...last, atMs: 499 })).toBe(false);
+    expect(drawAgain(last, { ...last, atMs: 500 })).toBe(true);
   });
 });

@@ -252,9 +252,30 @@
     }
   }
 
-  /** Decodes each camera's pictures as they come, by the browser's own decoder. */
+  /** How wide each camera's picture is shown, in device pixels, by stream. */
+  const shownWidths = new Map<number, number>();
+  /** How wide each camera's pictures are, learnt from one decoded whole. */
+  const cameraWidths = new Map<number, number>();
+  /**
+   * Decodes each camera's pictures as they come, by the browser's own
+   * decoder, scaled down to the width they are shown at: a 1080p picture
+   * shown a few hundred pixels wide costs the page far less decoded that
+   * small. Never scaled up: one shown wider than the camera's is decoded
+   * whole, and tells the camera's width again.
+   */
   const pictures = new Decoder(
-    (picture) => createImageBitmap(new Blob([picture.bytes], { type: picture.type })),
+    (picture) => {
+      const blob = new Blob([picture.bytes], { type: picture.type });
+      const shownWidth = shownWidths.get(picture.stream);
+      const cameraWidth = cameraWidths.get(picture.stream);
+      if (shownWidth !== undefined && cameraWidth !== undefined && shownWidth < cameraWidth) {
+        return createImageBitmap(blob, { resizeWidth: shownWidth, resizeQuality: "medium" });
+      }
+      return createImageBitmap(blob).then((bitmap) => {
+        cameraWidths.set(picture.stream, bitmap.width);
+        return bitmap;
+      });
+    },
     (picture, bitmap, arrivedMs) => {
       const shown = withPicture(cameras, picture, bitmap, arrivedMs);
       cameras = shown.cameras;
@@ -1008,7 +1029,11 @@
           {:else if panel.kind === "camera"}
             {@const shown = (replay === null ? cameras : replayShown).filter((camera) => camera.name === panel.stream)}
             {#if shown.length > 0}
-              <CameraPanel cameras={shown} onstep={replay === null ? undefined : stepCamera} />
+              <CameraPanel
+                cameras={shown}
+                onstep={replay === null ? undefined : stepCamera}
+                onwidth={(stream, pixels) => shownWidths.set(stream, pixels)}
+              />
             {:else}
               <p class="waiting">Waiting for {panel.stream}</p>
             {/if}

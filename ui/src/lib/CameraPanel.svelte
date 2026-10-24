@@ -6,19 +6,39 @@
     cameras: Shown[];
     /** In a replay, moves to camera `stream`'s frame `step` frames on (negative: back). */
     onstep?: (stream: number, step: number) => void;
+    /** Told how wide camera `stream`'s picture is shown, in device pixels, as that changes. */
+    onwidth?: (stream: number, pixels: number) => void;
   }
 
-  let { cameras, onstep }: Props = $props();
+  let { cameras, onstep, onwidth }: Props = $props();
 
-  /** Draws `bitmap` on the canvas, sized to it, and again as it changes. */
+  /**
+   * Draws `bitmap` on the canvas, sized to it, and again as it changes.
+   * Sized again only when the picture's size changes: sizing a canvas
+   * clears it and makes its pixels afresh.
+   */
   function draw(canvas: HTMLCanvasElement, bitmap: ImageBitmap) {
     const paint = (next: ImageBitmap) => {
-      canvas.width = next.width;
-      canvas.height = next.height;
+      if (canvas.width !== next.width || canvas.height !== next.height) {
+        canvas.width = next.width;
+        canvas.height = next.height;
+      }
       canvas.getContext("2d")?.drawImage(next, 0, 0);
     };
     paint(bitmap);
     return { update: paint };
+  }
+
+  /** Tells `onwidth` how wide camera `stream`'s picture is shown, whenever that changes. */
+  function measure(element: HTMLElement, stream: number) {
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width ?? 0;
+      if (width > 0) {
+        onwidth?.(stream, Math.ceil(width * window.devicePixelRatio));
+      }
+    });
+    observer.observe(element);
+    return { destroy: () => observer.disconnect() };
   }
 </script>
 
@@ -29,6 +49,7 @@
         <p class="unshown" role="status">{camera.unshown}</p>
       {:else if camera.bitmap}
         <div
+          use:measure={camera.stream}
           class="picture"
           role="img"
           aria-label={camera.frame ? `${camera.name}, frame ${camera.frame.n + 1}` : `${camera.name}, its newest picture`}

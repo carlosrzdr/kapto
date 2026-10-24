@@ -1001,11 +1001,13 @@ test("the demo's wrist camera is shown live beside the arm", async ({ page }) =>
   const cameras = page.getByRole("region", { name: "Cameras" });
   const picture = cameras.getByRole("img", { name: "wrist_camera, its newest picture" });
   await expect(picture).toBeVisible({ timeout: 20_000 });
-  // Its pictures keep coming, decoded by the browser at the camera's size.
+  // Its pictures keep coming, decoded by the browser at the width they are
+  // shown at, never wider than the camera's 640.
   const figure = cameras.locator("figure").first();
   const seen = Number(await figure.getAttribute("data-pictures"));
   await expect.poll(async () => Number(await figure.getAttribute("data-pictures"))).toBeGreaterThan(seen + 10);
-  await expect.poll(() => picture.locator("canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBe(640);
+  const shownWidth = await picture.evaluate((element) => Math.ceil(element.clientWidth * window.devicePixelRatio));
+  await expect.poll(() => picture.locator("canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBe(Math.min(shownWidth, 640));
   await expect(figure.getByText(/^\d+ ms$/)).toBeVisible();
   // Beside the robot, which still moves.
   await expect(page.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible();

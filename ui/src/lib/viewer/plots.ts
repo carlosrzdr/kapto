@@ -104,6 +104,44 @@ export class SampleBuffer {
   }
 }
 
+/** What a chart was last drawn with. */
+export interface Drawn {
+  /** The end of the stretch shown, snapped to a whole pixel, UTC milliseconds. */
+  toMs: number;
+  widthPx: number;
+  spanMs: number;
+  /** The stream drawn from: another while looking back. */
+  stream: unknown;
+  /** Its newest sample then. */
+  newestMs: number | null;
+  /** When it was drawn, on the page's clock. */
+  atMs: number;
+}
+
+/** However little changes, a chart is drawn again this often. */
+export const DRAWN_AT_LEAST_EVERY_MS = 500;
+
+/**
+ * Whether a chart drawn as `last` has to be drawn again to look as `next`:
+ * when its stretch has moved by a pixel, its size or stream has changed, or
+ * a sample has arrived inside the stretch shown. A sample after its end is
+ * off the chart until the stretch moves, so drawing again for it would draw
+ * the same picture. Drawn again anyway every [`DRAWN_AT_LEAST_EVERY_MS`],
+ * for anything else that changed it.
+ */
+export function drawAgain(last: Drawn | undefined, next: Drawn): boolean {
+  if (!last) {
+    return true;
+  }
+  if (next.toMs !== last.toMs || next.widthPx !== last.widthPx || next.spanMs !== last.spanMs || next.stream !== last.stream) {
+    return true;
+  }
+  if (next.newestMs !== last.newestMs && (last.newestMs ?? Number.NEGATIVE_INFINITY) < next.toMs) {
+    return true;
+  }
+  return next.atMs - last.atMs >= DRAWN_AT_LEAST_EVERY_MS;
+}
+
 /** What a chart says at the time under the pointer. */
 export interface ValuesAt {
   /** The sample's time, `14:46:05.250`. */
