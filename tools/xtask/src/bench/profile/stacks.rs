@@ -1,25 +1,72 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! A profile from `perf script`'s text: which threads are sampled and
-//! which functions their samples land in. Parsing is kept here, free of
-//! I/O, so it is tested on captured text.
+//! A profile from `perf script`'s text and each thread's times: which
+//! threads run, wait for a core or are blocked, and which functions their
+//! samples land in. Parsing is kept here, free of I/O, so it is tested on
+//! captured text.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::time::Duration;
 
 /// How many functions are listed for each thread.
 const TOP_FUNCTIONS: usize = 8;
 
-/// What `perf` sampled.
+/// One reading of a thread's `/proc/<pid>/task/<tid>/schedstat`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Reading {
+    /// When it was read, since watching began.
+    pub(super) at: Duration,
+    /// Nanoseconds spent on a core so far.
+    pub(super) running_ns: u64,
+    /// Nanoseconds spent ready, waiting for a core.
+    pub(super) waiting_ns: u64,
+}
+
+impl Reading {
+    /// Reads `schedstat`'s first two fields, running and waiting.
+    pub(super) fn parse(at: Duration, schedstat: &str) -> Option<Self> {
+        let mut fields = schedstat.split_whitespace().map(str::parse::<u64>);
+        Some(Self {
+            at,
+            running_ns: fields.next()?.ok()?,
+            waiting_ns: fields.next()?.ok()?,
+        })
+    }
+}
+
+/// One thread's first and last readings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ThreadTimes {
+    pub(super) tid: String,
+    pub(super) name: String,
+    pub(super) first: Reading,
+    pub(super) last: Reading,
+}
+
+/// The threads sharing a name, over the run.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Thread {
+    count: usize,
+    /// Seconds the threads were watched, added up.
+    seconds: f64,
+    running: f64,
+    waiting: f64,
+}
+
+/// What `perf` sampled and what each thread did.
 #[derive(Debug, Default)]
 pub(super) struct Profile {
     /// Samples per stack, by thread name then frames from the outermost.
     stacks: BTreeMap<(String, Vec<String>), u64>,
+    threads: BTreeMap<String, Thread>,
+    /// Seconds from the first reading to the last.
+    wall: f64,
 }
 
 impl Profile {
-    /// From `perf script -F comm,tid,ip,sym,dso`.
-    pub(super) fn new(script: &str) -> Self {
+    /// From `perf script -F comm,tid,ip,sym,dso` and each thread's times.
+    pub(super) fn new(script: &str, times: &[ThreadTimes]) -> Self {
         let mut profile = Self::default();
         let mut sample: Option<(String, Vec<String>)> = None;
         for line in script.lines().chain([""]) {
@@ -38,6 +85,25 @@ impl Profile {
                 sample = Some((name.trim().to_owned(), Vec::new()));
             }
         }
+        let start = times
+            .iter()
+            .map(|thread| thread.first.at)
+            .min()
+            .unwrap_or_default();
+        let end = times
+            .iter()
+            .map(|thread| thread.last.at)
+            .max()
+            .unwrap_or_default();
+        profile.wall = end.saturating_sub(start).as_secs_f64();
+        for times in times {
+            let thread = profile.threads.entry(times.name.clone()).or_default();
+            let nanos = |ns: u64| ns as f64 / 1e9;
+            thread.count += 1;
+            thread.seconds += times.last.at.saturating_sub(times.first.at).as_secs_f64();
+            thread.running += nanos(times.last.running_ns.saturating_sub(times.first.running_ns));
+            thread.waiting += nanos(times.last.waiting_ns.saturating_sub(times.first.waiting_ns));
+        }
         profile
     }
 
@@ -50,30 +116,39 @@ impl Profile {
         text
     }
 
-    /// The report: each thread's samples, then the functions they land in.
+    /// The report: each thread's time, then the functions its samples land in.
     pub(super) fn markdown(&self, scenario: &str, seconds: u32) -> String {
         let mut text = format!(
             "# Profile of `kapto record`: the {scenario} load, {seconds} s\n\n\
-             | Thread | Samples | Of all |\n|---|---:|---:|\n"
+             Watched for {:.1} s. On a core, waiting for one and blocked are shares of each \
+             thread's time; cores are its time on a core over the run.\n\n\
+             | Thread | Threads | Cores | On a core | Waiting for a core | Blocked | Samples |\n\
+             |---|---:|---:|---:|---:|---:|---:|\n",
+            self.wall
         );
         let samples = self.samples_by_thread();
-        let all = samples.values().sum::<u64>() as f64;
-        let mut threads: Vec<_> = samples.iter().collect();
-        threads.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+        let mut threads: Vec<_> = self.threads.iter().collect();
+        threads.sort_by(|a, b| b.1.running.total_cmp(&a.1.running).then(a.0.cmp(b.0)));
         let share = |part: f64, of: f64| if of > 0.0 { 100.0 * part / of } else { 0.0 };
-        for (name, count) in &threads {
+        for (name, thread) in &threads {
+            let blocked = (thread.seconds - thread.running - thread.waiting).max(0.0);
             let _ = writeln!(
                 text,
-                "| `{name}` | {count} | {:.1} % |",
-                share(**count as f64, all)
+                "| `{name}` | {} | {:.3} | {:.0} % | {:.0} % | {:.0} % | {} |",
+                thread.count,
+                share(thread.running, self.wall) / 100.0,
+                share(thread.running, thread.seconds),
+                share(thread.waiting, thread.seconds),
+                share(blocked, thread.seconds),
+                samples.get(name.as_str()).copied().unwrap_or(0),
             );
         }
-        for (name, total) in threads {
+        for (name, _) in threads {
             let functions = self.functions(name);
             if functions.is_empty() {
                 continue;
             }
-            let total = *total as f64;
+            let total = samples.get(name.as_str()).copied().unwrap_or(0) as f64;
             let _ = write!(
                 text,
                 "\n## `{name}`\n\n| Function | Self | With what it calls |\n|---|---:|---:|\n"
@@ -187,9 +262,30 @@ cap-rx udp 4243
 \t    7a17b27aaf5e [unknown] (/usr/lib/x86_64-linux-gnu/libc.so.6)
 ";
 
+    fn times(name: &str, tid: &str, running_s: u64, waiting_s: u64) -> ThreadTimes {
+        let at = |seconds, running, waiting| Reading {
+            at: Duration::from_secs(seconds),
+            running_ns: running * 1_000_000_000,
+            waiting_ns: waiting * 1_000_000_000,
+        };
+        ThreadTimes {
+            tid: tid.to_owned(),
+            name: name.to_owned(),
+            first: at(0, 0, 0),
+            last: at(10, running_s, waiting_s),
+        }
+    }
+
+    #[test]
+    fn a_schedstat_line_gives_the_time_running_and_waiting() {
+        let reading = Reading::parse(Duration::from_secs(1), "123 45 6\n").unwrap();
+        assert_eq!((reading.running_ns, reading.waiting_ns), (123, 45));
+        assert_eq!(Reading::parse(Duration::ZERO, "garbage"), None);
+    }
+
     #[test]
     fn stacks_are_folded_from_the_outermost_frame_with_rust_symbols_demangled() {
-        let profile = Profile::new(SCRIPT);
+        let profile = Profile::new(SCRIPT, &[]);
         assert_eq!(
             profile.folded(),
             "cap-rx udp;[libc.so.6];kapto_transport::udp::sys::receive;[kernel] 1\n\
@@ -199,10 +295,26 @@ cap-rx udp 4243
     }
 
     #[test]
-    fn the_report_lists_each_threads_samples_and_the_functions_they_land_in() {
-        let report = Profile::new(SCRIPT).markdown("reference", 10);
-        assert!(report.contains("| `cap-writer` | 2 | 66.7 % |"), "{report}");
-        assert!(report.contains("| `cap-rx udp` | 1 | 33.3 % |"), "{report}");
+    fn the_report_shows_each_threads_time_on_a_core_waiting_and_blocked() {
+        let profile = Profile::new(
+            SCRIPT,
+            &[
+                times("cap-writer", "4242", 5, 1),
+                times("cap-rx udp", "4243", 1, 0),
+                times("cap-idle", "4244", 0, 0),
+            ],
+        );
+        let report = profile.markdown("reference", 10);
+        assert!(
+            report.contains("| `cap-writer` | 1 | 0.500 | 50 % | 10 % | 40 % | 2 |"),
+            "{report}"
+        );
+        // A thread that only waits is listed, with no functions.
+        assert!(
+            report.contains("| `cap-idle` | 1 | 0.000 | 0 % | 0 % | 100 % | 0 |"),
+            "{report}"
+        );
+        assert!(!report.contains("## `cap-idle`"), "{report}");
         // Half the writer's samples are in the kernel under `write_batch`.
         assert!(
             report.contains("| `[kernel]` | 50.0 % | 50.0 % |"),

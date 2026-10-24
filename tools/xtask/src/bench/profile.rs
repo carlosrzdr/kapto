@@ -3,17 +3,21 @@
 //! `cargo xtask profile record`: where `kapto record`'s time goes under a
 //! load. Kapto runs on this machine, built with frame pointers; `perf`
 //! samples every thread from the profiler container, the only place given
-//! `CAP_PERFMON`.
+//! `CAP_PERFMON`; each thread's time running, waiting for a core and blocked
+//! is read from `/proc` meanwhile, so a thread that waits shows even when it
+//! uses no CPU.
 
 mod stacks;
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode};
+use std::time::Duration;
 
 use clap::{Args, ValueEnum};
 
 use super::place::{Place, current_ids};
 use super::{Cameras, Spec, record_load_watched, tidy, work_dir};
+use stacks::{Reading, ThreadTimes};
 
 /// The image `perf` runs in, the Dockerfile's `profiler` stage.
 const IMAGE: &str = "kapto-profiler:dev";
@@ -28,6 +32,9 @@ const TARGET_DIR: &str = "target/profiling";
 /// 20-second run to name functions that take 1 % of a thread, rarely
 /// enough to cost it little.
 const FREQUENCY: &str = "999";
+
+/// How often each thread's times are read.
+const READ_EVERY: Duration = Duration::from_millis(200);
 
 /// Arguments of `profile record`.
 #[derive(Args, Clone, Copy, Debug)]
@@ -104,17 +111,23 @@ fn profiled(root: &Path, args: RecordArgs) -> Result<(PathBuf, String), String> 
     let work = work_dir(root, &format!("profile-{}", args.scenario.name()));
     let spec = args.scenario.spec(args.seconds);
     let mut perf = None;
+    let mut watcher = None;
     let run = record_load_watched(
         &root.join(TARGET_DIR).join("release"),
         &work,
         &spec,
         |pid| {
             perf = Some(sample(&work, pid));
+            watcher = Some(std::thread::spawn(move || watch(pid)));
         },
     );
     let sampled = perf
         .ok_or("kapto record never started")?
         .and_then(|mut child| child.wait().map_err(|error| error.to_string()));
+    let threads = watcher
+        .ok_or("kapto record never started")?
+        .join()
+        .map_err(|_| "reading the threads' times failed")?;
     let run = run?;
     if !sampled.is_ok_and(|status| status.success()) {
         return Err(format!(
@@ -123,7 +136,7 @@ fn profiled(root: &Path, args: RecordArgs) -> Result<(PathBuf, String), String> 
         ));
     }
     let script = perf_script(&work)?;
-    let profile = stacks::Profile::new(&script);
+    let profile = stacks::Profile::new(&script, &threads);
     let report = profile.markdown(args.scenario.name(), args.seconds);
     let write = |name: &str, text: &str| {
         std::fs::write(work.join(name), text)
@@ -238,4 +251,36 @@ fn perf_script(work: &Path) -> Result<String, String> {
             String::from_utf8_lossy(&output.stderr)
         ))
     }
+}
+
+/// Reads every thread of `pid`'s times until it ends: the first and last
+/// reading of each.
+fn watch(pid: u32) -> Vec<ThreadTimes> {
+    let tasks = Path::new("/proc").join(pid.to_string()).join("task");
+    let mut threads: Vec<ThreadTimes> = Vec::new();
+    let start = std::time::Instant::now();
+    while let Ok(entries) = std::fs::read_dir(&tasks) {
+        let at = start.elapsed();
+        for task in entries.flatten() {
+            let read = |file: &str| std::fs::read_to_string(task.path().join(file));
+            let (Ok(name), Ok(schedstat)) = (read("comm"), read("schedstat")) else {
+                continue;
+            };
+            let Some(reading) = Reading::parse(at, &schedstat) else {
+                continue;
+            };
+            let tid = task.file_name().to_string_lossy().into_owned();
+            match threads.iter_mut().find(|thread| thread.tid == tid) {
+                Some(thread) => thread.last = reading,
+                None => threads.push(ThreadTimes {
+                    tid,
+                    name: name.trim().to_owned(),
+                    first: reading,
+                    last: reading,
+                }),
+            }
+        }
+        std::thread::sleep(READ_EVERY);
+    }
+    threads
 }
