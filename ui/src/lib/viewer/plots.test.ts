@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type PlotStream, plotStreams, resolvePlot, SampleBuffer, shortLabels, shownStretch } from "./plots";
+import { type PlotStream, plotStreams, resolvePlot, SampleBuffer, shortLabels, shownStretch, valuesAt } from "./plots";
 import type { Opening } from "./stream";
 
 /** A sample of two values: the first at `value`, the second at its double. */
@@ -142,5 +142,35 @@ describe("shownStretch", () => {
     const [from, to] = shownStretch(1_000_037, 30_000, 0);
     expect(from).toBeCloseTo(970.037);
     expect(to).toBeCloseTo(1000.037);
+  });
+});
+
+describe("valuesAt", () => {
+  // Two samples of two values: each a minimum and a maximum.
+  const at = new Date(2026, 2, 10, 14, 46, 5, 250).getTime() / 1000;
+  const data = [
+    [at - 1, at],
+    [0.5, 0.123456],
+    [0.5, 0.123456],
+    [-2, 1200.4],
+    [-1, 1500.6],
+  ];
+
+  it("says the sample's time to the millisecond and each value by its label", () => {
+    expect(valuesAt(data, 1, ["joint_1", "load"])).toEqual({
+      time: "14:46:05.250",
+      values: [
+        { label: "joint_1", value: "0.123" },
+        { label: "load", value: "1\u202f200 to 1\u202f501" },
+      ],
+    });
+  });
+
+  it("gives a range for a value that changed within its sample", () => {
+    expect(valuesAt(data, 0, ["joint_1", "load"]).values[1]).toEqual({ label: "load", value: "-2 to -1" });
+  });
+
+  it("says nothing it doesn't have", () => {
+    expect(valuesAt(data, 5, ["joint_1"])).toEqual({ time: "–", values: [{ label: "joint_1", value: "–" }] });
   });
 });

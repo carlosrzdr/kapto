@@ -911,6 +911,28 @@ test("a layout kept in the browser naming a field the package lacks says so in i
   await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
 });
 
+test("pointing at a plot says the time there and each value, and stops when the pointer leaves", async ({ page }) => {
+  await page.goto("/");
+  const plot = page.getByRole("region", { name: "Plot of role:gripper.opening" });
+  await keepsDrawing(plot);
+  const tip = plot.getByRole("tooltip");
+  await expect(tip).toBeHidden();
+  const chart = plot.locator(".u-over").first();
+  const box = (await chart.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.75, box.y + box.height / 2);
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText(/^arm_joints · \d{2}:\d{2}:\d{2}\.\d{3}/);
+  await expect(tip.locator("dt")).toHaveText(["gripper.opening"]);
+  await expect(tip.locator("dd")).toHaveText([/^-?\d/]);
+  // Beside the pointer, inside the plot.
+  const shown = (await tip.boundingBox())!;
+  const panel = (await plot.boundingBox())!;
+  expect(shown.x).toBeGreaterThanOrEqual(panel.x);
+  expect(shown.x + shown.width).toBeLessThanOrEqual(panel.x + panel.width + 1);
+  await page.mouse.move(box.x + box.width / 2, box.y - 40);
+  await expect(tip).toBeHidden();
+});
+
 test("a column of more plots than fit scrolls, each plot keeping room for its chart", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });

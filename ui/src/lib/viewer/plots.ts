@@ -3,6 +3,7 @@
 // page stays open, a stream's plots hold at most `capacity` samples: the
 // oldest is written over by the newest.
 
+import { figure } from "../format";
 import type { Opening } from "./stream";
 
 /** One plotted field of a stream: its name and which of the stream's values it holds. */
@@ -101,6 +102,37 @@ export class SampleBuffer {
       ]),
     ];
   }
+}
+
+/** What a chart says at the time under the pointer. */
+export interface ValuesAt {
+  /** The sample's time, `14:46:05.250`. */
+  time: string;
+  /** Each value: its label and what it was, a range while it changed. */
+  values: { label: string; value: string }[];
+}
+
+/**
+ * The values of the sample at `index` of a chart's `data` (uPlot's: times
+ * in seconds, then each value's minima and maxima), named by `labels`. A
+ * value that changed within the sample is its range, `0.12 to 0.15`.
+ */
+export function valuesAt(data: ArrayLike<number | null | undefined>[], index: number, labels: string[]): ValuesAt {
+  const seconds = data[0]?.[index] ?? Number.NaN;
+  const date = new Date(seconds * 1000);
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+  const time = Number.isFinite(seconds)
+    ? `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
+    : "–";
+  return {
+    time,
+    values: labels.map((label, place) => {
+      const low = data[1 + place * 2]?.[index] ?? Number.NaN;
+      const high = data[2 + place * 2]?.[index] ?? Number.NaN;
+      const value = figure(low) === figure(high) ? figure(low) : `${figure(low)} to ${figure(high)}`;
+      return { label, value };
+    }),
+  };
 }
 
 /**

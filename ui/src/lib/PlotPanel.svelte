@@ -4,7 +4,7 @@
   import "uplot/dist/uPlot.min.css";
 
   import { axisTimes, axisTimesSpace } from "./format";
-  import { type PlotPart, type PlotStream, resolvePlot, shortLabels, shownStretch } from "./viewer/plots";
+  import { type PlotPart, type PlotStream, resolvePlot, shortLabels, shownStretch, type ValuesAt, valuesAt } from "./viewer/plots";
   import { SERIES, token } from "./theme";
 
   interface Props {
@@ -39,6 +39,9 @@
   const shape = $derived(parts.map((part) => `${part.stream.name}:${part.values.join(",")}:${part.labels.join(",")}`).join("|"));
   let holder = $state<HTMLDivElement | null>(null);
   let panel = $state<HTMLElement | null>(null);
+  /** What the chart under the pointer says there, with its stream; none while it is elsewhere. */
+  let hovered = $state<(ValuesAt & { stream: string }) | null>(null);
+  let tip = $state<HTMLElement | null>(null);
 
   onMount(() => {
     let charts: { plot: uPlot; part: PlotPart }[] = [];
@@ -61,6 +64,39 @@
 
     /** Where the stretch shown ends, UTC milliseconds, as last drawn. */
     let ending = 0;
+    /** The chart the pointer is over, whose values the tip shows. */
+    let pointedAt: uPlot | null = null;
+
+    /**
+     * Shows what `plot` has under the pointer, beside it, and again as new
+     * samples move the chart under a pointer that stays.
+     */
+    const point = (plot: uPlot, part: PlotPart) => {
+      const index = plot.cursor.idx;
+      const left = plot.cursor.left ?? -1;
+      if (index == null || left < 0) {
+        if (pointedAt === plot) {
+          pointedAt = null;
+          hovered = null;
+        }
+        return;
+      }
+      pointedAt = plot;
+      hovered = { stream: part.stream.name, ...valuesAt(plot.data, index, shortLabels(part.labels).labels) };
+      if (!tip || !panel) {
+        return;
+      }
+      // Beside the pointer, on whichever side has room. Placed from here, as
+      // the page allows no style written into it.
+      const over = plot.over.getBoundingClientRect();
+      const box = panel.getBoundingClientRect();
+      const x = over.left - box.left + left;
+      const y = over.top - box.top + (plot.cursor.top ?? 0);
+      const gap = 12;
+      const across = x + gap + tip.offsetWidth > box.width ? x - gap - tip.offsetWidth : x + gap;
+      const down = Math.min(y + gap, box.height - tip.offsetHeight);
+      tip.style.translate = `${Math.max(0, across)}px ${Math.max(0, down)}px`;
+    };
 
     /** A chart per stream drawn, each of its values a band from its minimum to its maximum. */
     const build = (next: PlotPart[]) => {
@@ -88,7 +124,9 @@
             // Room on the right for half the time axis's last label, centred on its tick.
             padding: [8, Math.ceil(timeSpace / 2), 0, 0],
             legend: { show: false },
-            cursor: { show: false },
+            // A line at the time pointed at, whose values the tip says.
+            cursor: { x: true, y: false, points: { show: false }, drag: { x: false, y: false } },
+            hooks: { setCursor: [(plot) => point(plot, part)] },
             // The span shown, rather than the samples' own, so the time axis
             // doesn't stretch and shrink as they arrive.
             scales: { x: { time: true, range: (chart) => shownStretch(ending, spanMs, chart.bbox.width) } },
@@ -166,6 +204,17 @@
 </script>
 
 <section class="plot" aria-label={`Plot of ${fields.join(", ")}`} bind:this={panel}>
+  <div class="tip" role="tooltip" hidden={hovered === null} bind:this={tip}>
+    {#if hovered}
+      <p class="when">{hovered.stream} · {hovered.time}</p>
+      <dl>
+        {#each hovered.values as value, index (index)}
+          <dt class={`series-${index % SERIES.length}`}>{value.label}</dt>
+          <dd>{value.value}</dd>
+        {/each}
+      </dl>
+    {/if}
+  </div>
   <ul class="labels">
     {#if key.heading}
       <li class="heading">{key.heading}</li>
@@ -182,6 +231,7 @@
 
 <style>
   .plot {
+    position: relative;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -246,6 +296,48 @@
     padding: 0.4rem 0.6rem 0;
     color: var(--muted);
     font-size: var(--text-xs);
+  }
+  /* What the chart under the pointer says there, above the charts. */
+  .tip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    max-width: 18rem;
+    padding: var(--space-1) var(--space-2);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  .tip[hidden] {
+    display: none;
+  }
+  .tip .when {
+    margin: 0 0 var(--space-1);
+    color: var(--muted);
+  }
+  .tip dl {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 0 var(--space-3);
+    margin: 0;
+  }
+  .tip dt::before {
+    content: "";
+    display: inline-block;
+    width: 0.6rem;
+    height: 2px;
+    margin-right: 0.3rem;
+    vertical-align: middle;
+    background: var(--swatch);
+  }
+  .tip dd {
+    margin: 0;
+    text-align: right;
   }
   .holder {
     flex: 1;
