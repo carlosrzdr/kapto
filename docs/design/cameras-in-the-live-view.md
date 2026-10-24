@@ -29,6 +29,11 @@ What has to hold:
   `sensor_msgs/msg/CompressedImage` or `Image` message, not the picture
   alone. Capture never parses it.
 - **Memory is bounded and declared** when capture starts.
+- **Looking back shows the cameras too.** The live view can be paused and
+  looked back over the last `viewer.history_age` (ten minutes by default),
+  as the bridge keeps the robot's poses and the plotted values for that
+  long. The cameras should show the moment looked at, not carry on live.
+  Ten minutes of two 1080p cameras at 60 fps as received is about 25 GB.
 
 ## Approach
 
@@ -78,6 +83,22 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   writer, skipped or not sent by the tap, encoded and sent by the bridge,
   dropped for a page. The live view's health shows them, as it shows
   every stream's.
+- **The bridge keeps a thinned history of each camera.** Of the pictures
+  it sends, it keeps one every `1 / viewer.camera_history_fps` seconds (5
+  a second by default) per camera, made smaller: decoded at a fraction of
+  its size by the JPEG decoder's own scaling (a half, a quarter or an
+  eighth, which costs a fraction of a full decode) to no wider than
+  `viewer.camera_history_width` (640 pixels by default), then encoded as
+  JPEG again. It keeps them for `viewer.history_age`, within
+  `viewer.camera_history` MiB for every camera together (128 by default),
+  the oldest going first, so a budget too small for the whole window keeps
+  a shorter one. A PNG picture isn't kept.
+- **A page asks for the one nearest the moment it looks at.** Paused or
+  looking back, a page asks, per camera, for the picture kept nearest a
+  time, and is answered with that picture, when Kapto received its frame,
+  and its size, or that none is kept. It asks again as the moment changes,
+  one question per camera at a time, the newest moment replacing a
+  question not yet asked. Back to live, it shows the newest picture again.
 
 ## Consequences
 
@@ -98,6 +119,17 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   camera needs nothing beyond its type.
 - The page shows raw cameras through JPEG, so the live view's pixels aren't
   exact; the recording keeps every frame as received.
+- Looking back, the cameras show the moment looked at, at up to
+  `viewer.camera_history_fps` and `viewer.camera_history_width`: enough to
+  see what the robot saw, not every frame, which a replay of the recording
+  shows. Two 1080p cameras at the defaults keep about 30 KB a picture, 10
+  pictures a second: 180 MB for ten minutes, so the default budget keeps
+  about seven of them.
+- The bridge decodes and encodes 5 pictures a second per camera, at a
+  quarter of a 1080p picture's pixels: a few milliseconds each, off the
+  recording path, and depends on a JPEG decoder as well as its encoder.
+- The viewer stream gains a question and its answer; a page that doesn't
+  ask is sent nothing more.
 
 ## Alternatives considered
 
@@ -123,3 +155,14 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   that pauses or stops would never show its last frame.
 - **Encoding in capture.** Turning raw frames into JPEG where they arrive
   would put milliseconds of work per frame on the recording path.
+- **Each page keeps the pictures it was sent.** Nothing new in the bridge,
+  but a page could look back only over what it saw since it opened, and
+  ten minutes of full-size pictures don't fit in a browser's memory; made
+  smaller in the page, every page would do the bridge's work again.
+- **Looking back in the recording.** While an episode is recorded, its
+  frames are on disk, every one exact, and replay already reads them. But
+  between episodes nothing is recorded, and looking back is mostly done
+  then, to see what just happened.
+- **Kept as received, at a lower rate.** No decoding or encoding in the
+  bridge, but a 1080p picture is about twelve times the size of one 640
+  pixels wide, so the same budget would keep less than a minute.
