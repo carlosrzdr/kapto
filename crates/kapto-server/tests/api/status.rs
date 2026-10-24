@@ -222,6 +222,7 @@ fn the_openapi_document_describes_every_route_and_its_error_body() {
     assert_eq!(
         paths,
         [
+            "/api/bin/empty",
             "/api/episodes",
             "/api/episodes/abort",
             "/api/episodes/events",

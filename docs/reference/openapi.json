@@ -10,6 +10,34 @@
     "version": "1"
   },
   "paths": {
+    "/api/bin/empty": {
+      "post": {
+        "tags": [],
+        "summary": "Empties the bin by hand: every episode in it is deleted for good, by the\nworker as it gets to them, and can no longer be put back once it has.",
+        "operationId": "empty_bin",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptiedBin"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The bin can't be read, or the deletions queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/episodes": {
       "get": {
         "tags": [],
@@ -2271,6 +2299,20 @@
             "type": "integer",
             "format": "int64",
             "description": "How long writing, reading back and removing it took, in milliseconds.",
+            "minimum": 0
+          }
+        }
+      },
+      "EmptiedBin": {
+        "type": "object",
+        "description": "What emptying the bin by hand did.",
+        "required": [
+          "queued"
+        ],
+        "properties": {
+          "queued": {
+            "type": "integer",
+            "description": "How many episodes in it were queued to be deleted for good, by the\nworker's retention executor, which records each as it goes.",
             "minimum": 0
           }
         }
@@ -4637,6 +4679,12 @@
           "stop_below_bytes"
         ],
         "properties": {
+          "bin_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What the episodes deleted by hand take in the bin until it is\nemptied, in bytes; counted apart from `episodes_bytes`.",
+            "minimum": 0
+          },
           "data_dir": {
             "type": "string",
             "description": "The data directory."

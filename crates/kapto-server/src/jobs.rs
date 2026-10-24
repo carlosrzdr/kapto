@@ -39,6 +39,7 @@ use kapto_store::{
 
 use serde::{Deserialize, Serialize};
 
+use crate::episode_bin;
 use crate::retention::{self, Retention};
 
 /// The socket's file name in the data directory.
@@ -277,6 +278,18 @@ pub struct Uploads {
     pub retention: Retention,
 }
 
+/// How the bin of episodes deleted by hand is emptied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bin {
+    /// The data directory, whose bin it is.
+    pub data_dir: PathBuf,
+    /// How long an episode stays in it (`bin.keep_days`).
+    pub keep: Duration,
+    /// Below how much free space the disk is low, and the oldest in the bin
+    /// goes sooner (`capture.disk_warn_below`).
+    pub free_below_bytes: u64,
+}
+
 /// One destination, as serve schedules uploads to it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Destination {
@@ -317,6 +330,7 @@ pub struct JobServer {
     path: PathBuf,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    queue: Arc<Queue>,
 }
 
 impl JobServer {
@@ -369,6 +383,7 @@ impl JobServer {
             store,
             retention,
             retained: Mutex::new(None),
+            bin: Mutex::new(None),
             uploads: uploads
                 .map(|mut uploads| {
                     uploads
@@ -381,7 +396,7 @@ impl JobServer {
         let thread = thread::Builder::new()
             .name("srv-jobs".into())
             .spawn({
-                let stop = Arc::clone(&stop);
+                let (stop, queue) = (Arc::clone(&stop), Arc::clone(&queue));
                 move || accept(&listener, &queue, &stop)
             })
             .map_err(|error| failed(error.to_string()))?;
@@ -389,7 +404,19 @@ impl JobServer {
             path: path.to_owned(),
             stop,
             thread: Some(thread),
+            queue,
         })
+    }
+
+    /// Empties the bin of episodes deleted by hand as `bin` says, through
+    /// the retention executor's [`DELETE`] jobs, whether or not anything is
+    /// uploaded.
+    pub fn empty_bin_by(&self, bin: Bin) {
+        *self
+            .queue
+            .bin
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(bin);
     }
 }
 
@@ -404,6 +431,7 @@ impl Drop for JobServer {
 }
 
 /// The job queue, and when episodes are queued for upload.
+#[derive(Debug)]
 struct Queue {
     store: Writer,
     uploads: Option<Uploads>,
@@ -412,6 +440,8 @@ struct Queue {
     retention: Option<(Retention, PathBuf)>,
     /// When serve last looked for episodes to delete.
     retained: Mutex<Option<Instant>>,
+    /// How the bin is emptied, once set.
+    bin: Mutex<Option<Bin>>,
 }
 
 fn accept(listener: &UnixListener, queue: &Arc<Queue>, stop: &Arc<AtomicBool>) {
@@ -519,11 +549,19 @@ fn answer(queue: &Queue, request: JobRequest) -> JobResponse {
         JobRequest::RetryUploads { episode } => {
             retry_uploads(store, &episode).map(|destinations| JobResponse::Retried { destinations })
         }
-        JobRequest::Deleting { episode, summary } => match &queue.retention {
-            Some((retention, _)) => retention::record(store, retention, &episode, summary),
-            None => retention::record(store, &Retention::default(), &episode, summary),
+        JobRequest::Deleting { episode, summary } => {
+            match (&queue.retention, in_bin(store, &episode)) {
+                (_, Ok(true)) => episode_bin::record_emptied(store, &episode, summary),
+                (_, Err(error)) => Err(error),
+                (Some((retention, _)), Ok(false)) => {
+                    retention::record(store, retention, &episode, summary)
+                }
+                (None, Ok(false)) => {
+                    retention::record(store, &Retention::default(), &episode, summary)
+                }
+            }
+            .map(|()| JobResponse::Saved)
         }
-        .map(|()| JobResponse::Saved),
         JobRequest::UploadStart {
             episode,
             destination,
@@ -605,16 +643,30 @@ fn next(queue: &Queue, kinds: &Kinds) -> Result<Option<JobOrder>, KaptoError> {
     if kinds.includes(UPLOAD) {
         retry_failed(queue, now)?;
     }
-    if kinds.includes(DELETE)
-        && let Some((retention, data_dir)) = &queue.retention
-    {
-        let mut retained = queue
-            .retained
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if retained.is_none_or(|at| at.elapsed() >= RETENTION_EVERY) {
-            *retained = Some(Instant::now());
-            retention::queue_deletions(&queue.store, retention, data_dir)?;
+    if kinds.includes(DELETE) {
+        let due = {
+            let mut retained = queue
+                .retained
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let due = retained.is_none_or(|at| at.elapsed() >= RETENTION_EVERY);
+            if due {
+                *retained = Some(Instant::now());
+            }
+            due
+        };
+        if due {
+            if let Some((retention, data_dir)) = &queue.retention {
+                retention::queue_deletions(&queue.store, retention, data_dir)?;
+            }
+            let bin = queue
+                .bin
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            if let Some(bin) = bin {
+                episode_bin::queue_emptying(&queue.store, &bin, now)?;
+            }
         }
     }
     loop {
@@ -623,11 +675,15 @@ fn next(queue: &Queue, kinds: &Kinds) -> Result<Option<JobOrder>, KaptoError> {
         };
         if job.kind == DELETE {
             let retention = queue.retention.as_ref().map(|(retention, _)| retention);
-            let allowed = match retention {
-                Some(retention) => {
-                    retention::may_delete(&queue.store, retention, &job.episode, job.id)?
+            let allowed = if in_bin(&queue.store, &job.episode)? {
+                episode_bin::may_empty(&queue.store, &job.episode, job.id)?
+            } else {
+                match retention {
+                    Some(retention) => {
+                        retention::may_delete(&queue.store, retention, &job.episode, job.id)?
+                    }
+                    None => false,
                 }
-                None => false,
             };
             if !allowed {
                 // Nothing to do now; it is queued again once it may go.
@@ -649,6 +705,11 @@ fn next(queue: &Queue, kinds: &Kinds) -> Result<Option<JobOrder>, KaptoError> {
             destinations,
         }));
     }
+}
+
+/// Whether `episode` is in the bin, deleted by hand.
+fn in_bin(store: &Writer, episode: &str) -> Result<bool, KaptoError> {
+    Ok(store.reader()?.binned(episode)?.is_some())
 }
 
 /// Looks for episodes to delete at once when job `id` was an upload, which

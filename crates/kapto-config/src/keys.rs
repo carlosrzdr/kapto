@@ -209,6 +209,12 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         default: DefaultValue::Fixed("lz4"),
     },
     Key {
+        path: "bin.keep_days",
+        value_type: ValueType::Days,
+        help: "How many days an episode deleted by hand stays in the bin, where it can be put back, before it is deleted for good. The oldest goes sooner while the disk's free space is below `capture.disk_warn_below`, and every one when the bin is emptied by hand.",
+        default: DefaultValue::Fixed("7"),
+    },
+    Key {
         path: "capture.attach_meshes",
         value_type: ValueType::Switch,
         help: "Whether each recording also carries the robot package's meshes, and the textures and buffers they load. Every other file of the package is always attached; meshes are left out by default because a real robot's can take tens of megabytes per episode, and each one left out is named in the recording with its SHA-256. With `true`, the recording alone can draw the robot.",

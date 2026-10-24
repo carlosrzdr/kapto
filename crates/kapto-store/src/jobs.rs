@@ -229,6 +229,15 @@ pub(crate) fn claim(
     .optional()
 }
 
+/// Ends each queued job of `episode` as done, at `now`, as it is deleted:
+/// nothing is left to do them on. Returns how many there were.
+pub(crate) fn end_queued(tx: &Transaction<'_>, episode: &str, now: i64) -> rusqlite::Result<usize> {
+    tx.execute(
+        "UPDATE jobs SET state = 'done', ended_utc_ns = ?2 WHERE episode = ?1 AND state = 'queued'",
+        params![episode, now],
+    )
+}
+
 /// Ends running job `id`, failed with `failure` if given, with what it
 /// couldn't do in full (`warnings`). Returns whether it was running.
 pub(crate) fn finish(

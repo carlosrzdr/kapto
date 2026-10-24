@@ -838,3 +838,33 @@ async fn only_a_finalised_episode_can_be_deleted_and_one_found_in_the_bin_at_sta
     let (_, bin) = call(state, "GET", "/api/episodes?bin=true", None).await;
     assert_eq!(bin[0]["id"], lost);
 }
+
+#[tokio::test]
+async fn emptying_the_bin_queues_every_episode_in_it_to_be_deleted_for_good() {
+    let folder = scratch("episode-bin-empty");
+    let data = folder.join("data");
+    let (one, two) = (
+        "20260310T120000.000Z-00000001",
+        "20260310T120100.000Z-00000002",
+    );
+    finalised_episode(&data, one, 0);
+    finalised_episode(&data, two, 60);
+    call(
+        state(&folder),
+        "DELETE",
+        &format!("/api/episodes/{one}"),
+        None,
+    )
+    .await;
+    // Its room counted apart, until the bin is emptied.
+    let (_, storage) = call(state(&folder), "GET", "/api/storage", None).await;
+    assert_eq!(storage["episodes"], 1);
+    assert!(storage["bin_bytes"].as_u64().unwrap() > 0, "{storage}");
+    let (status, emptied) = call(state(&folder), "POST", "/api/bin/empty", None).await;
+    assert_eq!(status, StatusCode::OK, "{emptied}");
+    assert_eq!(emptied["queued"], 1);
+    let reader = state(&folder).store.reader().unwrap();
+    let deleting = reader.job("delete", one).unwrap().unwrap();
+    assert_eq!(deleting.state, kapto_store::JobState::Queued);
+    assert_eq!(reader.job("delete", two).unwrap(), None);
+}

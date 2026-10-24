@@ -48,6 +48,9 @@ pub enum DeletionReason {
     /// `upload.delete_local = "when_disk_low"`: the disk ran low, and it was
     /// the oldest verified on enough destinations.
     DiskLow,
+    /// Deleted by hand, and emptied from the bin: after `bin.keep_days`,
+    /// as the disk ran low, or by hand.
+    ByHand,
 }
 
 impl DeletionReason {
@@ -57,11 +60,12 @@ impl DeletionReason {
         match self {
             Self::AfterUpload => "after_upload",
             Self::DiskLow => "disk_low",
+            Self::ByHand => "by_hand",
         }
     }
 
     fn parse(text: &str) -> Option<Self> {
-        [Self::AfterUpload, Self::DiskLow]
+        [Self::AfterUpload, Self::DiskLow, Self::ByHand]
             .into_iter()
             .find(|reason| reason.as_str() == text)
     }

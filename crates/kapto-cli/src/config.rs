@@ -286,6 +286,7 @@ capture.preflight_window          5                                        defau
 capture.preflight_disk_time       600                                      default
 capture.preflight                 refuse                                   default
 capture.compression               lz4                                      default
+bin.keep_days                     7                                        default
 capture.attach_meshes             false                                    default
 supervisor.restart_delay          1                                        default
 supervisor.restart_max_delay      30                                       default

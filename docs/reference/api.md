@@ -19,6 +19,7 @@ once a second. A page from another site may not open it
 
 | Method | Path | What it does |
 |---|---|---|
+| POST | `/api/bin/empty` | Empties the bin by hand: every episode in it is deleted for good, by the worker as it gets to them, and can no longer be put back once it has. |
 | GET | `/api/episodes` | The finalised episodes in the data directory, newest first. Folders that aren't finalised, or whose summary can't be read, are left out. |
 | POST | `/api/episodes/abort` | Stop recording and discard the episode: nothing of it is kept. Answers once it is deleted. |
 | POST | `/api/episodes/events` | Send an event. During an episode it is recorded in it; between episodes it is only told to whoever watches. Either way every watcher is told. Its kind must be one of `/api/event-kinds`. |

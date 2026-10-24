@@ -31,6 +31,7 @@
 | `--capture-preflight-disk-time <SECONDS>` | Seconds of recording pre-flight checks the disk has room for (`capture.preflight_disk_time`) |
 | `--capture-preflight <POLICY>` | What a failed pre-flight check does to a start: refuse or warn (`capture.preflight`) |
 | `--capture-attach-meshes <BOOL>` | Whether recordings also carry the robot package's meshes (`capture.attach_meshes`) |
+| `--bin-keep-days <DAYS>` | Days an episode deleted by hand stays in the bin (`bin.keep_days`) |
 | `--capture-compression <COMPRESSION>` | How recordings are compressed: lz4, zstd or none (`capture.compression`) |
 | `--supervisor-restart-delay <SECONDS>` | Seconds before a process that exited is started again (`supervisor.restart_delay`) |
 | `--supervisor-restart-max-delay <SECONDS>` | The longest wait before a process is started again (`supervisor.restart_max_delay`) |

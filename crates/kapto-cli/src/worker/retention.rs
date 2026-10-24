@@ -16,7 +16,7 @@ use std::path::Path;
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_server::jobs::{Found, JobClient, JobOrder};
 use kapto_store::episode::EPISODE_FILE;
-use kapto_store::{JobFailure, episode_folder};
+use kapto_store::{BIN_DIR, JobFailure, episode_folder};
 
 /// What a folder set aside to be removed is named after, before the
 /// episode's ID.
@@ -68,6 +68,13 @@ fn delete(data_dir: &Path, episode: &str, client: &mut JobClient) -> Result<(), 
             .detail(format!("`{episode}` isn't an episode ID"))
     })?;
     let aside = data_dir.join(format!("{ASIDE}{episode}"));
+    // Deleted by hand, it is in the bin: emptied from there.
+    let binned = data_dir.join(BIN_DIR).join(episode);
+    let folder = if folder.exists() || !binned.exists() {
+        folder
+    } else {
+        binned
+    };
     if folder.exists() {
         std::fs::rename(&folder, &aside).map_err(|error| failed(&folder, &error))?;
     } else if !aside.exists() {

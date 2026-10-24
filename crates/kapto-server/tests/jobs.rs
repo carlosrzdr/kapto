@@ -15,10 +15,11 @@ use std::time::Duration;
 
 use kapto_config::{DeleteLocal, UploadWhen};
 use kapto_core::ErrorCode;
-use kapto_server::jobs::{Destination, JOB_SOCKET, JobServer, QA, UPLOAD, Uploads, VERIFY};
+use kapto_core::clock::utc_now_ns;
+use kapto_server::jobs::{Bin, Destination, JOB_SOCKET, JobServer, QA, UPLOAD, Uploads, VERIFY};
 use kapto_server::retention::Retention;
 use kapto_store::db::DATABASE_FILE;
-use kapto_store::{DeletionReason, JobState, UploadState, Writer};
+use kapto_store::{Binned, DeletionReason, JobState, UploadState, Writer};
 use kapto_testkit::scratch;
 use serde_json::{Value, json};
 
@@ -699,4 +700,79 @@ fn a_deletion_is_not_handed_out_while_another_job_of_the_episode_is_waiting() {
         .unwrap();
     assert_eq!((delete.state, delete.failure), (JobState::Done, None));
     assert_eq!(store.reader().unwrap().deletion(FIRST).unwrap(), None);
+}
+
+/// Serve with no upload destination, emptying the bin as `free_below_bytes`
+/// says the disk is low, and FIRST and SECOND indexed, in `data`.
+fn binning(test: &str, free_below_bytes: u64) -> (Writer, JobServer, Worker) {
+    let folder = scratch(test);
+    let data = folder.join("data");
+    // Its free space is read, so it is there.
+    std::fs::create_dir_all(&data).unwrap();
+    let store = Writer::open(&folder.join(DATABASE_FILE)).unwrap();
+    for (id, start) in [(FIRST, 1), (SECOND, 3)] {
+        let episode = kapto_testkit::episode(
+            id,
+            (start, start + 1),
+            vec![kapto_testkit::stream("arm_joints", 100)],
+        );
+        store.index(episode.into()).unwrap();
+    }
+    let server = JobServer::listen(&folder.join(JOB_SOCKET), store.clone()).unwrap();
+    server.empty_bin_by(Bin {
+        data_dir: data,
+        keep: Duration::from_hours(7 * 24),
+        free_below_bytes,
+    });
+    let mut worker = Worker::connect(&folder);
+    worker.ask(r#"{"request":"hello","version":1}"#);
+    (store, server, worker)
+}
+
+fn binned(store: &Writer, episode: &str, days_ago: i64) {
+    store
+        .record_binned(Binned {
+            episode: episode.to_owned(),
+            binned_utc_ns: utc_now_ns() - days_ago * 86_400_000_000_000,
+            from: "web UI".to_owned(),
+        })
+        .unwrap();
+}
+
+#[test]
+fn an_episode_in_the_bin_longer_than_it_keeps_one_is_emptied_without_any_upload_recorded_by_hand() {
+    let (store, _server, mut worker) = binning("bin-kept-days", 0);
+    binned(&store, FIRST, 8);
+    binned(&store, SECOND, 0);
+    let waiting = store.enqueue(VERIFY, FIRST).unwrap();
+    let job = worker.ask(NEXT_DELETE)["job"].clone();
+    assert_eq!(job["episode"], FIRST, "only the one past its days: {job}");
+    let deleting = json!({"request": "deleting", "episode": FIRST, "summary": "{}"});
+    assert_eq!(worker.ask(&deleting.to_string())["response"], "saved");
+    finish(&mut worker, job["id"].as_i64().unwrap(), None);
+    let reader = store.reader().unwrap();
+    let deletion = reader.deletion(FIRST).unwrap().unwrap();
+    assert_eq!(
+        (deletion.reason, deletion.copies.len()),
+        (DeletionReason::ByHand, 0)
+    );
+    assert_eq!(reader.binned(FIRST).unwrap(), None);
+    // What it had waiting ended with it; the other stays in the bin.
+    assert_eq!(
+        reader.job_with_id(waiting).unwrap().unwrap().state,
+        JobState::Done
+    );
+    assert!(reader.binned(SECOND).unwrap().is_some());
+    assert_eq!(worker.ask(NEXT_DELETE)["job"], Value::Null);
+}
+
+#[test]
+fn while_the_disk_is_low_the_episode_longest_in_the_bin_goes_first() {
+    let (store, _server, mut worker) = binning("bin-disk-low", u64::MAX);
+    binned(&store, SECOND, 2);
+    binned(&store, FIRST, 1);
+    let job = worker.ask(NEXT_DELETE)["job"].clone();
+    assert_eq!(job["episode"], SECOND, "{job}");
+    // One at a time: no more go than the room needs.
+    assert_eq!(worker.ask(NEXT_DELETE)["job"], Value::Null);
 }

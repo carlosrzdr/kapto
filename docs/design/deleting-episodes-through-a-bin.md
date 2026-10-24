@@ -36,15 +36,20 @@ back.**
   rename on the same disk, and records in `kapto.db` when it was put in the
   bin and from where (the web UI, the API, the command line). Nothing in
   the folder changes. An episode still being recorded, or one the
-  retention executor is deleting, can't be; an upload of it in progress is
-  stopped and not retried, and its replay is dropped from the cache.
+  retention executor is deleting, can't be; its replay is dropped from the
+  cache, and its jobs wait while it is in the bin.
+- **An upload in progress** is told, at its next progress report, that its
+  episode went into the bin: it stops at its next step and is given back,
+  as far as it got, not counted as an attempt; one that failed as its
+  folder moved under it is given back the same way. It waits with the
+  episode's other jobs.
 - **In the bin.** The episode is listed only under the list's *In the bin*
   filter, with when it goes for good; its details, events, quality and
   replay stay available, read from the bin.
 - **Putting back.** `POST /api/episodes/{id}/restore`, *Restore* in the web
   UI, or `kapto episode restore <id>`: the folder is renamed back, and the
-  episode is listed again as it was. An upload the deletion stopped is
-  queued again if the episode would have been uploaded.
+  episode is listed again as it was, and its jobs carry on: an upload the
+  deletion stopped resumes from the last part it confirmed.
 - **Emptying.** Serve hands the worker a `delete` job for each episode in
   the bin longer than `bin.keep_days` (7 by default); for the oldest in the
   bin first whenever the disk's free space falls below
@@ -53,7 +58,8 @@ back.**
   retention executor deletes each as it deletes an uploaded one: renamed
   aside, reported, removed. Serve then records it as deleted here, by hand,
   keeping its summary, which the list shows as it shows an episode deleted
-  after its upload.
+  after its upload, and ends the jobs it had waiting. The bin is emptied
+  whether or not any upload destination is configured.
 - **A crash** between renaming into the bin and recording it leaves a
   folder in `.bin` that `kapto.db` doesn't know: serve records it as put in
   the bin when it next starts, so nothing in `.bin` is ever forgotten.

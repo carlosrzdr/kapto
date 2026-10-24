@@ -7,11 +7,14 @@
 
 use std::path::Path;
 
+use kapto_capture::disk::free_bytes;
 use kapto_core::{EpisodeId, ErrorCode, KaptoError};
 use kapto_store::manifest::FINALISED_FILE;
-use kapto_store::{BIN_DIR, Binned, Writer};
+use kapto_store::{BIN_DIR, Binned, Deletion, DeletionReason, JobId, JobState, Writer};
 
+use crate::jobs::{Bin, DELETE};
 use crate::replays::REPLAY_CACHE;
+use crate::retention;
 
 /// Where an episode deleted at serve's start was found: in the bin, but
 /// not recorded, after a crash between its move and its record.
@@ -122,6 +125,89 @@ pub fn reconcile(data_dir: &Path, store: &Writer, now_utc_ns: i64) -> Result<(),
             store.forget_binned(&binned.episode)?;
         }
     }
+    Ok(())
+}
+
+/// Queues the retention executor's deletion of each episode in the bin for
+/// longer than `bin` keeps one, at `now_utc_ns`, and, while the disk
+/// holding the data directory is low, of the one longest in it, unless one
+/// is being deleted already, so no more go than the room needs.
+///
+/// # Errors
+///
+/// `store.query_failed` if reading or queueing failed.
+pub fn queue_emptying(store: &Writer, bin: &Bin, now_utc_ns: i64) -> Result<(), KaptoError> {
+    let reader = store.reader()?;
+    let in_bin = reader.bin()?;
+    let keep_ns = i64::try_from(bin.keep.as_nanos()).unwrap_or(i64::MAX);
+    let mut deleting = false;
+    for binned in &in_bin {
+        if reader
+            .job(DELETE, &binned.episode)?
+            .is_some_and(|job| matches!(job.state, JobState::Queued | JobState::Running))
+        {
+            deleting = true;
+        } else if now_utc_ns.saturating_sub(binned.binned_utc_ns) >= keep_ns {
+            store.enqueue_again(DELETE, &binned.episode)?;
+            deleting = true;
+        }
+    }
+    let low = free_bytes(&bin.data_dir).is_ok_and(|free| free < bin.free_below_bytes);
+    if low
+        && !deleting
+        && let Some(oldest) = in_bin.first()
+    {
+        store.enqueue_again(DELETE, &oldest.episode)?;
+    }
+    Ok(())
+}
+
+/// Queues the deletion of every episode in the bin, as the bin is emptied
+/// by hand; how many were queued.
+///
+/// # Errors
+///
+/// `store.query_failed` if reading or queueing failed.
+pub fn empty(store: &Writer) -> Result<usize, KaptoError> {
+    let in_bin = store.reader()?.bin()?;
+    for binned in &in_bin {
+        store.enqueue_again(DELETE, &binned.episode)?;
+    }
+    Ok(in_bin.len())
+}
+
+/// Whether `episode`, in the bin, may be deleted now by job `job`: nothing
+/// else of it is being done, such as an upload stopping.
+///
+/// # Errors
+///
+/// `store.query_failed` if reading failed.
+pub fn may_empty(store: &Writer, episode: &str, job: JobId) -> Result<bool, KaptoError> {
+    Ok(!store
+        .reader()?
+        .jobs_of(episode)?
+        .iter()
+        .any(|other| other.id != job && other.state == JobState::Running))
+}
+
+/// Records `episode`, emptied from the bin, as deleted here by hand, with
+/// `summary`, its `episode.json`, and the copies of it uploaded, if any;
+/// then it is no longer in the bin, and the jobs it had waiting end.
+///
+/// # Errors
+///
+/// `store.query_failed` if reading or writing failed.
+pub fn record_emptied(store: &Writer, episode: &str, summary: String) -> Result<(), KaptoError> {
+    store.record_deletion(Deletion {
+        episode: episode.to_owned(),
+        deleted_utc_ns: 0,
+        reason: DeletionReason::ByHand,
+        deleted_by: "worker".to_owned(),
+        copies: retention::copies(store, episode)?,
+        summary,
+    })?;
+    store.forget_binned(episode)?;
+    store.end_queued_jobs(episode)?;
     Ok(())
 }
 

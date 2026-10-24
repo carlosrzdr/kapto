@@ -95,6 +95,8 @@ pub struct DeploymentConfig {
     pub preflight_failures: Effective<PreflightFailures>,
     /// Whether recordings also carry the package's meshes.
     pub attach_meshes: Effective<bool>,
+    /// How many days an episode deleted by hand stays in the bin.
+    pub bin_keep_days: Effective<u32>,
     /// How each recording's chunks are compressed.
     pub compression: Effective<Compression>,
     /// The wait before a process that exited is started again.
@@ -214,6 +216,7 @@ impl DeploymentConfig {
                 _ => None,
             }),
             attach_meshes: take(&mut values, "capture.attach_meshes", switch),
+            bin_keep_days: take(&mut values, "bin.keep_days", days),
             restart_delay: take(&mut values, "supervisor.restart_delay", seconds),
             restart_max_delay: take(&mut values, "supervisor.restart_max_delay", seconds),
             stable_after: take(&mut values, "supervisor.stable_after", seconds),
@@ -262,6 +265,7 @@ impl DeploymentConfig {
                     "capture.preflight_disk_time" => seconds_text(&self.preflight_disk_time),
                     "capture.preflight" => text(&self.preflight_failures),
                     "capture.attach_meshes" => text(&self.attach_meshes),
+                    "bin.keep_days" => text(&self.bin_keep_days),
                     "capture.compression" => text(&self.compression),
                     "supervisor.restart_delay" => seconds_text(&self.restart_delay),
                     "supervisor.restart_max_delay" => seconds_text(&self.restart_max_delay),
@@ -1451,12 +1455,14 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.worker_max_attempts.value, 3);
         assert!(config.worker_pause_while_recording.value);
         assert!(!config.attach_meshes.value);
+        assert_eq!(config.bin_keep_days.value, 7);
 
         let file = file(
             "[supervisor]\nrestart_delay = 0.5\nstable_after = 10\n\
              [viewer]\ndisplay_rate = 30\ncamera_max_fps = 15\nhistory = 256\nreplay_cache_age = 30\n\
              camera_history = 64\ncamera_history_fps = 2\ncamera_history_width = 320\n\
-             [capture]\ncontrol_timeout = 20\nattach_meshes = true\n[worker]\nmax_attempts = 5\npause_while_recording = false\n",
+             [capture]\ncontrol_timeout = 20\nattach_meshes = true\n[worker]\nmax_attempts = 5\npause_while_recording = false\n\
+             [bin]\nkeep_days = 30\n",
         );
         let vars = env(&[
             ("KAPTO_CAPTURE_CONTROL_TIMEOUT", "2.5"),
@@ -1493,6 +1499,7 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.worker_max_attempts.value, 5);
         assert!(!config.worker_pause_while_recording.value);
         assert!(config.attach_meshes.value);
+        assert_eq!(config.bin_keep_days.value, 30);
         assert_eq!(config.control_timeout.value, Duration::from_millis(2500));
         assert_eq!(
             config.control_timeout.source,

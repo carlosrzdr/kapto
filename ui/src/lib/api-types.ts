@@ -133,6 +133,15 @@ export interface DestinationTested {
   took_ms: number;
 }
 
+/** What emptying the bin by hand did. */
+export interface EmptiedBin {
+  /**
+   * How many episodes in it were queued to be deleted for good, by the
+   * worker's retention executor, which records each as it goes.
+   */
+  queued: number;
+}
+
 /** The ring buffers of an episode. */
 export interface EpisodeBuffers {
   /** Batches the buffers held. */
@@ -1125,6 +1134,11 @@ export interface Stopped {
 
 /** The data directory's room and use. */
 export interface Storage {
+  /**
+   * What the episodes deleted by hand take in the bin until it is
+   * emptied, in bytes; counted apart from `episodes_bytes`.
+   */
+  bin_bytes?: number;
   /** The data directory. */
   data_dir: string;
   /** Finalised episodes in it. */

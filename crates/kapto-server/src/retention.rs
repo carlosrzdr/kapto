@@ -158,7 +158,7 @@ pub fn record(
 }
 
 /// Where `episode` is uploaded and verified.
-fn copies(store: &Writer, episode: &str) -> Result<Vec<RemoteCopy>, KaptoError> {
+pub(crate) fn copies(store: &Writer, episode: &str) -> Result<Vec<RemoteCopy>, KaptoError> {
     Ok(store
         .reader()?
         .uploads(episode)?

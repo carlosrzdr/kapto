@@ -222,6 +222,8 @@ enum Command {
     Bin(Box<Binned>, Reply<()>),
     /// Forget an episode was in the bin, answering whether it was.
     Unbin(String, Reply<bool>),
+    /// End an episode's queued jobs as done, answering how many.
+    EndQueued(String, Reply<usize>),
     /// Make an episode's failed uploads due now.
     RetryUploads(String, Reply<Vec<String>>),
 }
@@ -339,6 +341,17 @@ impl Writer {
     pub fn forget_binned(&self, episode: &str) -> Result<bool, KaptoError> {
         let episode = episode.to_owned();
         self.ask(|reply| Command::Unbin(episode, reply))
+    }
+
+    /// Ends each queued job of `episode` as done, as it is deleted; how
+    /// many there were.
+    ///
+    /// # Errors
+    ///
+    /// `store.query_failed` if writing failed.
+    pub fn end_queued_jobs(&self, episode: &str) -> Result<usize, KaptoError> {
+        let episode = episode.to_owned();
+        self.ask(|reply| Command::EndQueued(episode, reply))
     }
 
     /// Queues a job of `kind` for `episode`, unless one already is, in any
@@ -616,6 +629,9 @@ fn serve(mut connection: Connection, commands: &mpsc::Receiver<Command>) {
             }
             Command::Unbin(episode, reply) => {
                 let _ = reply.send(write(connection, |tx| binned::remove(tx, &episode)));
+            }
+            Command::EndQueued(episode, reply) => {
+                let _ = reply.send(write(connection, |tx| jobs::end_queued(tx, &episode, now)));
             }
             Command::UploadFailed(episode, destination, failure, reply) => {
                 let _ = reply.send(write(connection, |tx| {

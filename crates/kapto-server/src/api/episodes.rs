@@ -411,3 +411,34 @@ pub(super) async fn restore_episode(
         .map(|()| Json(serde_json::json!({})))
         .map_err(Failure::from)
 }
+
+/// What emptying the bin by hand did.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct EmptiedBin {
+    /// How many episodes in it were queued to be deleted for good, by the
+    /// worker's retention executor, which records each as it goes.
+    pub queued: usize,
+}
+
+/// Empties the bin by hand: every episode in it is deleted for good, by the
+/// worker as it gets to them, and can no longer be put back once it has.
+#[utoipa::path(
+    post,
+    path = "/api/bin/empty",
+    responses(
+        (status = 200, body = EmptiedBin),
+        (status = 500, description = "The bin can't be read, or the deletions queued", body = ApiError)
+    )
+)]
+pub(super) async fn empty_bin(
+    State(state): State<Arc<ApiState>>,
+) -> Result<Json<EmptiedBin>, Failure> {
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || episode_bin::empty(&store))
+        .await
+        .map_err(|error| {
+            Failure::from(KaptoError::new(ErrorCode::StoreQueryFailed).detail(error.to_string()))
+        })?
+        .map(|queued| Json(EmptiedBin { queued }))
+        .map_err(Failure::from)
+}

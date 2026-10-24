@@ -24,7 +24,7 @@ use kapto_core::{ClockSample, ErrorCode, KaptoError};
 use kapto_robot::Declared;
 use kapto_server::api::ApiError;
 use kapto_server::api::{self, ApiState, CaptureAnnouncements};
-use kapto_server::jobs::{Destination, JOB_SOCKET, JobServer, Uploads};
+use kapto_server::jobs::{Bin, Destination, JOB_SOCKET, JobServer, Uploads};
 use kapto_server::layouts::Layouts;
 use kapto_server::processes::sample_while;
 use kapto_server::retention::Retention;
@@ -260,6 +260,11 @@ fn open_state(deployment: &DeploymentConfig) -> Outcome<(Writer, JobServer)> {
     });
     let jobs = JobServer::listen_with_uploads(&data_dir.join(JOB_SOCKET), store.clone(), uploads)
         .map_err(|error| vec![error])?;
+    jobs.empty_bin_by(Bin {
+        data_dir: data_dir.clone(),
+        keep: Duration::from_secs(u64::from(deployment.bin_keep_days.value) * 86_400),
+        free_below_bytes: deployment.disk_warn_below_mib.value.saturating_mul(1 << 20),
+    });
     Ok((store, jobs))
 }
 

@@ -161,6 +161,9 @@ struct SettingFlags {
     /// Whether recordings also carry the robot package's meshes (`capture.attach_meshes`).
     #[arg(long = "capture-attach-meshes", global = true, value_name = "BOOL")]
     attach_meshes: Option<String>,
+    /// Days an episode deleted by hand stays in the bin (`bin.keep_days`).
+    #[arg(long = "bin-keep-days", global = true, value_name = "DAYS")]
+    bin_keep_days: Option<String>,
     /// How recordings are compressed: lz4, zstd or none (`capture.compression`).
     #[arg(long, global = true, value_name = "COMPRESSION")]
     capture_compression: Option<String>,
@@ -290,6 +293,7 @@ pub const SETTING_FLAGS: &[(&str, &str)] = &[
     ),
     ("capture.preflight", "--capture-preflight"),
     ("capture.attach_meshes", "--capture-attach-meshes"),
+    ("bin.keep_days", "--bin-keep-days"),
     ("capture.compression", "--capture-compression"),
     ("supervisor.restart_delay", "--supervisor-restart-delay"),
     (
@@ -377,6 +381,7 @@ impl SettingFlags {
             &self.preflight_disk_time,
             &self.preflight,
             &self.attach_meshes,
+            &self.bin_keep_days,
             &self.capture_compression,
             &self.restart_delay,
             &self.restart_max_delay,
@@ -610,6 +615,7 @@ mod tests {
             preflight_disk_time: Some("capture-preflight-disk-time".into()),
             preflight: Some("capture-preflight".into()),
             attach_meshes: Some("capture-attach-meshes".into()),
+            bin_keep_days: Some("bin-keep-days".into()),
             capture_compression: Some("capture-compression".into()),
             restart_delay: Some("supervisor-restart-delay".into()),
             restart_max_delay: Some("supervisor-restart-max-delay".into()),
@@ -698,6 +704,7 @@ mod tests {
             preflight_disk_time: Some(String::new()),
             preflight: Some(String::new()),
             attach_meshes: Some(String::new()),
+            bin_keep_days: Some(String::new()),
             capture_compression: Some(String::new()),
             restart_delay: Some(String::new()),
             restart_max_delay: Some(String::new()),

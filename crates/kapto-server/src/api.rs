@@ -24,7 +24,7 @@ mod status;
 mod uploads;
 
 pub use capture::{AbortRequest, Aborted, StartRequest, Started, StopRequest, Stopped};
-pub use episodes::{BinnedEpisode, CLIENT_HEADER, EpisodeSummary, EpisodesQuery};
+pub use episodes::{BinnedEpisode, CLIENT_HEADER, EmptiedBin, EpisodeSummary, EpisodesQuery};
 pub use events::{CaptureAnnouncements, Event, EventKind};
 pub use replay::{ReplayRequest, WindowQuery};
 pub use status::{
@@ -86,9 +86,9 @@ use capture::{
     send_event, start, stop,
 };
 use episodes::{
-    __path_delete_episode, __path_episode, __path_episode_events, __path_episodes, __path_quality,
-    __path_restore_episode, __path_statistics, delete_episode, episode, episode_events, episodes,
-    quality, restore_episode, statistics,
+    __path_delete_episode, __path_empty_bin, __path_episode, __path_episode_events,
+    __path_episodes, __path_quality, __path_restore_episode, __path_statistics, delete_episode,
+    empty_bin, episode, episode_events, episodes, quality, restore_episode, statistics,
 };
 use events::{__path_events, events};
 use profiles::{__path_event_kinds, __path_profiles, __path_tasks, event_kinds, profiles, tasks};
@@ -173,6 +173,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/episodes", get(episodes))
         .route("/api/episodes/{id}", get(episode).delete(delete_episode))
         .route("/api/episodes/{id}/restore", post(restore_episode))
+        .route("/api/bin/empty", post(empty_bin))
         .route("/api/uploads", get(upload_overview))
         .route(
             "/api/uploads/destinations/{name}/test",
@@ -262,6 +263,7 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         episode,
         delete_episode,
         restore_episode,
+        empty_bin,
         upload_overview,
         test_destination,
         episode_uploads,
@@ -343,6 +345,7 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         Viewer,
         EpisodeSummary,
         BinnedEpisode,
+        EmptiedBin,
         EpisodePackage,
         EpisodeRecovered,
         EpisodeDetail,

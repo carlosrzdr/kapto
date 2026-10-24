@@ -39,7 +39,8 @@ use kapto_server::retention::Retention;
 use kapto_store::db::DATABASE_FILE;
 use kapto_store::manifest::FINALISED_FILE;
 use kapto_store::{
-    Episode, Event, JobState, Manifest, Phase, StreamSummary, UploadState, Verdict, Writer,
+    DeletionReason, Episode, Event, JobState, Manifest, Phase, StreamSummary, UploadState, Verdict,
+    Writer,
 };
 use kapto_testkit::{scratch, wait_until};
 use serde_json::json;
@@ -1542,4 +1543,58 @@ fn a_deletion_cut_off_after_its_folder_was_set_aside_is_finished_or_put_back_whe
     // Verified nowhere: refused, and back whole.
     assert_eq!(reader.deletion(unverified).unwrap(), None);
     assert!(data.join(unverified).join(FINALISED_FILE).exists());
+}
+
+#[test]
+fn an_episode_in_the_bin_past_its_days_is_deleted_from_there_with_no_upload_configured() {
+    let folder = scratch("worker-bin");
+    let data = folder.join("data");
+    let episode = "20260310T120000.000Z-00000008";
+    std::fs::create_dir_all(&data).unwrap();
+    let store = Writer::open(&data.join(DATABASE_FILE)).unwrap();
+    std::fs::create_dir_all(data.join(episode)).unwrap();
+    summarised(&data, episode, 0);
+    finalised(&data, episode);
+    store
+        .index(Episode::read(&data.join(episode)).unwrap().into())
+        .unwrap();
+    // Deleted by hand eight days ago.
+    std::fs::create_dir_all(data.join(".bin")).unwrap();
+    std::fs::rename(data.join(episode), data.join(".bin").join(episode)).unwrap();
+    store
+        .record_binned(kapto_store::Binned {
+            episode: episode.to_owned(),
+            binned_utc_ns: kapto_core::clock::utc_now_ns() - 8 * 86_400_000_000_000,
+            from: "web UI".to_owned(),
+        })
+        .unwrap();
+    let serve = JobServer::listen(&data.join(JOB_SOCKET), store.clone()).unwrap();
+    serve.empty_bin_by(kapto_server::jobs::Bin {
+        data_dir: data.clone(),
+        keep: Duration::from_hours(7 * 24),
+        free_below_bytes: 0,
+    });
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .arg("worker")
+        .args(["--parent", &std::process::id().to_string()])
+        .arg("--data-dir")
+        .arg(&data)
+        .env_clear()
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    wait_until("the bin emptied", || {
+        store.reader().unwrap().deletion(episode).unwrap().is_some()
+            && !data.join(".bin").join(episode).exists()
+    });
+    worker.kill().unwrap();
+    let _ = worker.wait();
+    let reader = store.reader().unwrap();
+    assert_eq!(
+        reader.deletion(episode).unwrap().unwrap().reason,
+        DeletionReason::ByHand
+    );
+    assert_eq!(reader.binned(episode).unwrap(), None);
+    assert!(!data.join(format!(".deleting-{episode}")).exists());
 }
