@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { decodeMesh } from "./mesh";
-import { decodeFrame, decodePicture, decodeStretch } from "./stream";
+import { decodeFrame, decodePicture, decodeStretch, decodeLookedBack } from "./stream";
 
 /** Little-endian bytes, written field after field as the specifications list them. */
 class Bytes {
@@ -184,5 +184,43 @@ describe("decodePicture", () => {
     expect(png.size).toBeNull();
     expect(() => decodePicture(picture(7, 0, 0, []))).toThrow(/format/);
     expect(() => decodePicture(new Bytes().text("KVFR").u16(1).buffer())).toThrow(/not a picture/);
+  });
+});
+
+describe("decodeLookedBack", () => {
+  const answer = (id: number, stream: number, size: [number, number], bytes: number[]) => {
+    const header = new Uint8Array(
+      new Bytes()
+        .text("KVPB")
+        .u16(1)
+        .u16(stream)
+        .u32(id)
+        .u32(size[0])
+        .u32(size[1])
+        .i64(bytes.length > 0 ? 1_772_700_430_250_000_000n : 0n)
+        .u32(bytes.length)
+        .buffer(),
+    );
+    const whole = new Uint8Array(header.length + bytes.length);
+    whole.set(header);
+    whole.set(bytes, header.length);
+    return whole.buffer;
+  };
+
+  it("reads the question it answers, the camera, the picture's size, when its frame came and its bytes", () => {
+    const read = decodeLookedBack(answer(9, 1, [480, 270], [0xff, 0xd8, 0xff, 2]));
+    expect([read.id, read.stream]).toEqual([9, 1]);
+    expect(read.size).toEqual([480, 270]);
+    expect(read.receivedMs).toBe(1_772_700_430_250);
+    expect([...read.bytes]).toEqual([0xff, 0xd8, 0xff, 2]);
+  });
+
+  it("says none is kept with no picture", () => {
+    const read = decodeLookedBack(answer(10, 3, [0, 0], []));
+    expect([read.id, read.size, read.receivedMs, read.bytes.length]).toEqual([10, null, null, 0]);
+  });
+
+  it("refuses what isn't a kept picture", () => {
+    expect(() => decodeLookedBack(new Bytes().text("KVPC").u16(1).buffer())).toThrow(/not a kept picture/);
   });
 });

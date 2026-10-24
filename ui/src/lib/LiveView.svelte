@@ -147,6 +147,74 @@
       camera.bitmap?.close();
     }
   }
+  /**
+   * Paused or looking back at the live view, each camera's picture the
+   * bridge kept nearest the moment shown, in place of its newest.
+   */
+  let keptShown = $state.raw<Shown[]>([]);
+  /** The cameras whose kept picture is being asked for: one at a time each. */
+  const askingKept = new Set<number>();
+  /** The moment each camera's kept picture was last asked for. */
+  const keptAskedAt = new Map<number, number>();
+
+  /**
+   * Asks the bridge for each camera's picture kept nearest the moment
+   * shown, unless asked for that moment already or one is on its way:
+   * then, once it has come, for the moment shown by then. Moving the view
+   * back shows fewer pictures on a slow link, never late ones.
+   */
+  function showKept() {
+    const at = cursorMs;
+    const asking = watched;
+    if (replay || !paused || at === null || !asking) {
+      return;
+    }
+    for (const camera of cameras) {
+      const stream = camera.stream;
+      if (askingKept.has(stream) || keptAskedAt.get(stream) === at) {
+        continue;
+      }
+      askingKept.add(stream);
+      keptAskedAt.set(stream, at);
+      asking
+        .picture(stream, at)
+        .then(async (kept) => {
+          const bitmap = kept.bytes.length > 0 ? await createImageBitmap(new Blob([kept.bytes], { type: "image/jpeg" })) : null;
+          if (replay || !paused) {
+            bitmap?.close();
+            return;
+          }
+          const live = cameras.find((each) => each.stream === stream);
+          if (!live) {
+            bitmap?.close();
+            return;
+          }
+          const before = keptShown.find((each) => each.stream === stream)?.bitmap;
+          const shown: Shown = bitmap
+            ? { ...live, bitmap, delayMs: null, unshown: null, keptAtMs: kept.receivedMs }
+            : { ...live, bitmap: null, delayMs: null, unshown: "No picture of this camera is kept from then", keptAtMs: null };
+          keptShown = [...keptShown.filter((each) => each.stream !== stream), shown];
+          before?.close();
+        })
+        // Not shown; asked for again once the moment shown moves.
+        .catch(() => {})
+        .finally(() => {
+          askingKept.delete(stream);
+          showKept();
+        });
+    }
+  }
+
+  /** Lets go of the kept pictures, back to each camera's newest. */
+  function dropKept() {
+    for (const camera of keptShown) {
+      camera.bitmap?.close();
+    }
+    keptShown = [];
+    keptAskedAt.clear();
+  }
+
+
   /** A replay's cameras: each one's frame times once known, and the frame each shows. */
   let replayCameras: (ReplayCamera | undefined)[] = [];
   let replayShown = $state.raw<Shown[]>([]);
@@ -349,6 +417,8 @@
   /** Whether the view is held at `cursorMs` rather than following now. */
   let paused = $state(false);
   let cursorMs = $state<number | null>(null);
+  /** What the camera panel shows: each camera's kept picture while looking back, its newest otherwise. */
+  const liveShown = $derived(paused && replay === null ? cameras.map((camera) => keptShown.find((kept) => kept.stream === camera.stream) ?? camera) : cameras);
   /** Whether the moment shown moves forward, playing what the bridge kept. */
   let playing = $state(false);
   let speed = $state(1);
@@ -555,6 +625,14 @@
     }
   });
 
+  // Looking back at the live view, so do its cameras.
+  $effect(() => {
+    const at = cursorMs;
+    if (!replay && paused && at !== null) {
+      untrack(showKept);
+    }
+  });
+
   // Where the replay is, for the bar above it.
   $effect(() => {
     if (replay && cursorMs !== null) {
@@ -582,6 +660,7 @@
     cursorMs = null;
     held = null;
     lookedBack = null;
+    dropKept();
   }
 
   function seek(ms: number) {
@@ -1027,7 +1106,7 @@
           {:else if panel.kind === "robot"}
             <div class="slot" {@attach adopt}></div>
           {:else if panel.kind === "camera"}
-            {@const shown = (replay === null ? cameras : replayShown).filter((camera) => camera.name === panel.stream)}
+            {@const shown = (replay === null ? liveShown : replayShown).filter((camera) => camera.name === panel.stream)}
             {#if shown.length > 0}
               <CameraPanel
                 cameras={shown}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { clock } from "./format";
   import type { Shown } from "./viewer/cameras";
 
   interface Props {
@@ -52,7 +53,11 @@
           use:measure={camera.stream}
           class="picture"
           role="img"
-          aria-label={camera.frame ? `${camera.name}, frame ${camera.frame.n + 1}` : `${camera.name}, its newest picture`}
+          aria-label={camera.frame
+            ? `${camera.name}, frame ${camera.frame.n + 1}`
+            : camera.keptAtMs
+              ? `${camera.name}, its picture at ${clock(camera.keptAtMs)}`
+              : `${camera.name}, its newest picture`}
         >
           <canvas use:draw={camera.bitmap}></canvas>
         </div>
@@ -69,6 +74,9 @@
         <span class="name">{camera.name}</span>
         {#if camera.frame}
           <span class="delay">frame {camera.frame.n + 1} of {camera.frame.of}</span>
+        {/if}
+        {#if camera.keptAtMs}
+          <span class="delay" title="A picture the live view kept of this camera, the nearest to the moment shown">at {clock(camera.keptAtMs)}</span>
         {/if}
         {#if camera.delayMs !== null && !camera.unshown}
           <span

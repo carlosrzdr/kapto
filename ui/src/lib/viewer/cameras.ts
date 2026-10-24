@@ -18,6 +18,8 @@ export interface Shown {
   pictures: number;
   /** In a replay, which frame shows, numbered from 0, of how many. */
   frame?: { n: number; of: number } | null;
+  /** Looking back at the live view: when Kapto received the frame of the picture kept that shows, UTC milliseconds. */
+  keptAtMs?: number | null;
 }
 
 /** The cameras the opening names, none shown yet. */

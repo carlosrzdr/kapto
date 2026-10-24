@@ -131,6 +131,42 @@ export function decodePicture(buffer: ArrayBuffer): Picture {
   };
 }
 
+const LOOKED_BACK_MAGIC = "KVPB";
+const LOOKED_BACK_HEADER = 32;
+
+/** A camera's picture the bridge kept nearest a moment, as a page looking back asks for it. */
+export interface LookedBack {
+  /** The question it answers. */
+  id: number;
+  /** The camera's position among the opening's streams. */
+  stream: number;
+  /** Its size in pixels as kept; null if none of that camera is kept. */
+  size: [number, number] | null;
+  /** When Kapto received its frame, UTC milliseconds; null if none is kept. */
+  receivedMs: number | null;
+  /** The JPEG, empty if none is kept, in the message's own buffer. */
+  bytes: Uint8Array<ArrayBuffer>;
+}
+
+/** The kept picture in `buffer`; throws if it isn't one this page reads. */
+export function decodeLookedBack(buffer: ArrayBuffer): LookedBack {
+  const view = new DataView(buffer);
+  const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 4));
+  if (magic !== LOOKED_BACK_MAGIC || view.getUint16(4, true) !== STREAM_VERSION) {
+    throw new Error(`not a kept picture this page reads: ${magic}`);
+  }
+  const length = view.getUint32(28, true);
+  const width = view.getUint32(12, true);
+  const height = view.getUint32(16, true);
+  return {
+    id: view.getUint32(8, true),
+    stream: view.getUint16(6, true),
+    size: length > 0 ? [width, height] : null,
+    receivedMs: length > 0 ? milliseconds(view, 20) : null,
+    bytes: new Uint8Array(buffer, LOOKED_BACK_HEADER, length),
+  };
+}
+
 /** One part of a stretch of a stream: its samples merged. */
 export interface Part {
   firstMs: number;
@@ -211,6 +247,8 @@ export interface Watched {
   stop: () => void;
   /** The stretch from `fromMs` to `toMs`, merged to `points` parts. */
   ask: (fromMs: number, toMs: number, points: number) => Promise<Stretch>;
+  /** Camera `stream`'s picture the bridge kept nearest `atMs`. */
+  picture: (stream: number, atMs: number) => Promise<LookedBack>;
 }
 
 /**
@@ -236,7 +274,8 @@ export function watchStream(
   let retry: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   let asked = 0;
-  const waiting = new Map<number, { resolve: (stretch: Stretch) => void; reject: (error: Error) => void }>();
+  // Every question waits for its answer by its id, whichever kind it is.
+  const waiting = new Map<number, { resolve: (answer: never) => void; reject: (error: Error) => void }>();
   const refuseAll = (why: string) => {
     waiting.forEach(({ reject }) => reject(new Error(why)));
     waiting.clear();
@@ -268,10 +307,10 @@ export function watchStream(
           }
         } else if (message.data instanceof ArrayBuffer) {
           const kind = String.fromCharCode(...new Uint8Array(message.data, 0, 4));
-          if (kind === STRETCH_MAGIC) {
-            const stretch = decodeStretch(message.data);
-            waiting.get(stretch.id)?.resolve(stretch);
-            waiting.delete(stretch.id);
+          if (kind === STRETCH_MAGIC || kind === LOOKED_BACK_MAGIC) {
+            const answer = kind === STRETCH_MAGIC ? decodeStretch(message.data) : decodeLookedBack(message.data);
+            (waiting.get(answer.id)?.resolve as ((answer: Stretch | LookedBack) => void) | undefined)?.(answer);
+            waiting.delete(answer.id);
           } else if (kind === PICTURE_MAGIC) {
             handlers.onpicture?.(decodePicture(message.data));
           } else {
@@ -291,6 +330,26 @@ export function watchStream(
     };
   };
   open();
+  /** Sends the question `text` makes of its id, answered within a while or refused. */
+  const question = <T>(text: (id: number) => string): Promise<T> =>
+    new Promise((resolve, reject) => {
+      if (socket?.readyState !== WebSocket.OPEN) {
+        reject(new Error("the live stream isn't open"));
+        return;
+      }
+      asked = (asked + 1) % 0xffff_ffff;
+      const id = asked;
+      waiting.set(id, { resolve: resolve as (answer: never) => void, reject });
+      setTimeout(() => {
+        if (waiting.delete(id)) {
+          reject(new Error("the bridge didn't answer"));
+        }
+      }, ANSWER_MS);
+      socket.send(text(id));
+    });
+  // Nanoseconds don't fit a JavaScript number exactly, so questions are
+  // written by hand.
+  const nanos = (ms: number) => (BigInt(Math.round(ms)) * 1_000_000n).toString();
   return {
     stop: () => {
       stopped = true;
@@ -299,25 +358,9 @@ export function watchStream(
       socket?.close();
     },
     ask: (fromMs, toMs, points) =>
-      new Promise((resolve, reject) => {
-        if (socket?.readyState !== WebSocket.OPEN) {
-          reject(new Error("the live stream isn't open"));
-          return;
-        }
-        asked = (asked + 1) % 0xffff_ffff;
-        const id = asked;
-        const nanos = (ms: number) => (BigInt(Math.round(ms)) * 1_000_000n).toString();
-        waiting.set(id, { resolve, reject });
-        setTimeout(() => {
-          if (waiting.delete(id)) {
-            reject(new Error("the bridge didn't answer"));
-          }
-        }, ANSWER_MS);
-        // Nanoseconds don't fit a JavaScript number exactly, so the
-        // question is written by hand.
-        socket.send(
-          `{"history":{"id":${id},"from":${nanos(fromMs)},"to":${nanos(toMs)},"points":${Math.max(1, Math.round(points))}}}`,
-        );
-      }),
+      question<Stretch>(
+        (id) => `{"history":{"id":${id},"from":${nanos(fromMs)},"to":${nanos(toMs)},"points":${Math.max(1, Math.round(points))}}}`,
+      ),
+    picture: (stream, atMs) => question<LookedBack>((id) => `{"picture":{"id":${id},"stream":${stream},"at":${nanos(atMs)}}}`),
   };
 }

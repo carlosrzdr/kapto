@@ -1016,6 +1016,23 @@ test("the demo's wrist camera is shown live beside the arm", async ({ page }) =>
   expect(elsewhere).toEqual([]);
 });
 
+test("paused, the demo's camera shows the picture kept nearest the moment, and its newest again back at now", async ({ page }) => {
+  await page.goto("/");
+  const cameras = page.getByRole("region", { name: "Cameras" });
+  await expect(cameras.getByRole("img", { name: "wrist_camera, its newest picture" })).toBeVisible({ timeout: 20_000 });
+  // A few seconds of pictures kept, then the view held a moment back.
+  await page.waitForTimeout(3_000);
+  await page.getByRole("button", { name: "Pause" }).click();
+  const kept = cameras.getByRole("img", { name: /^wrist_camera, its picture at \d{2}:\d{2}:\d{2}\.\d{3}$/ });
+  // Made smaller by a debug build here, many times slower than a release.
+  await expect(kept).toBeVisible({ timeout: 15_000 });
+  await expect(cameras.getByText(/^at \d{2}:\d{2}:\d{2}\.\d{3}$/)).toBeVisible();
+  // Kept smaller, never wider than the camera's 640.
+  expect(await kept.locator("canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBeLessThanOrEqual(640);
+  await page.getByRole("button", { name: "Back to now" }).click();
+  await expect(cameras.getByRole("img", { name: "wrist_camera, its newest picture" })).toBeVisible();
+});
+
 test("a camera whose pictures can't be shown says why instead", async ({ page }) => {
   const why = "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8";
   // The bridge as it is when a camera sends an encoding it can't show: its
