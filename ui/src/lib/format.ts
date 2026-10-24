@@ -97,9 +97,12 @@ export function bytes(value: number): string {
   return `${size.toFixed(digits)} ${units[unit]}`;
 }
 
-/** CPU use in cores as a percentage of one core: `0.26` → `26 %`. */
+/**
+ * CPU use in cores, `0.26` → `0.26 cores`: a percentage would read as a
+ * share of the whole machine, when it is of one core of several.
+ */
 export function cores(value: number): string {
-  return `${Math.round(value * 100)} %`;
+  return `${value.toFixed(2)} cores`;
 }
 
 /**

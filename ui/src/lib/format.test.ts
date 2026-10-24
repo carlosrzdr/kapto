@@ -28,9 +28,9 @@ describe("format", () => {
     expect(bytes(-1)).toBe("0 B");
   });
 
-  it("shows CPU use as a share of one core", () => {
-    expect(cores(0.26)).toBe("26 %");
-    expect(cores(1.5)).toBe("150 %");
+  it("shows CPU use in cores, never as a percentage of the whole machine", () => {
+    expect(cores(0.26)).toBe("0.26 cores");
+    expect(cores(1.5)).toBe("1.50 cores");
   });
 
   it("shows short times in milliseconds and long ones in seconds", () => {

@@ -20,7 +20,7 @@ describe("ProcessTable", () => {
     render(ProcessTable, { processes: [capture] });
     const row = screen.getByRole("row", { name: /capture/ });
     expect(row.textContent).toContain("up 1:15");
-    expect(row.textContent).toContain("26 %");
+    expect(row.textContent).toContain("0.26 cores");
     expect(row.textContent).toContain("83 MiB");
     expect(row.textContent).toContain("9");
   });

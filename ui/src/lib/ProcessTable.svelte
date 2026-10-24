@@ -29,7 +29,7 @@
     <tr>
       <th scope="col">Process</th>
       <th scope="col">State</th>
-      <th scope="col">CPU</th>
+      <th scope="col" title="In cores: 1.00 is one CPU core kept busy, of however many the machine has">CPU</th>
       <th scope="col">Memory</th>
       <th scope="col">Threads</th>
       <th scope="col">Restarts</th>
