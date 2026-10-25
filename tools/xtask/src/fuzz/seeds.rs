@@ -60,6 +60,14 @@ fn from_testdata(root: &Path, put: &Put<'_>) -> io::Result<()> {
             put("camera_frame", name, &[&[1][..], &cdr].concat())?;
         }
     }
+    // A type holding itself, nested far past the most the reader allows,
+    // which must refuse it rather than recurse until the stack runs out.
+    let mut tree = b"a/Tree\na/Tree[] children\n\0\0\x01\0\0".to_vec();
+    for _ in 1..1_000 {
+        tree.extend(1_u32.to_le_bytes());
+    }
+    tree.extend(0_u32.to_le_bytes());
+    put("msg_definition", "deep_tree", &tree)?;
     put(
         "camera_frame",
         "jpeg",

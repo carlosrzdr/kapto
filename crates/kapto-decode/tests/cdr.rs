@@ -491,3 +491,26 @@ fn msg_files_are_found_in_folders_laid_out_as_ros_2_installs_them() {
     assert!(text.ends_with("MSG: pkg/Value\nint32 a\n"), "{text}");
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A tree `levels` deep in CDR: each level one child, the last none.
+fn tree(levels: usize) -> Vec<u8> {
+    let mut cdr = vec![0, 1, 0, 0];
+    for _ in 1..levels {
+        cdr.extend(1_u32.to_le_bytes());
+    }
+    cdr.extend(0_u32.to_le_bytes());
+    cdr
+}
+
+#[test]
+fn a_message_nested_too_deep_is_refused_rather_than_taking_the_stack() {
+    // A type may hold itself through a sequence; a few bytes a level then
+    // nest it as deep as a payload is long.
+    let definitions = MessageDefinitions::parse("a/Tree", "a/Tree[] children\n").unwrap();
+    assert!(
+        read_all(&definitions, &tree(100)).is_ok(),
+        "deep, but not too deep"
+    );
+    let error = read_all(&definitions, &tree(100_000)).unwrap_err();
+    assert!(error.contains("nested more than 128 deep"), "{error}");
+}

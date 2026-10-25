@@ -16,7 +16,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use kapto_decode::{
-    Decoder, FieldSpec, PathField, PathFormat, PathLayout, ScalarType, StructLayout, Value,
+    CdrLayout, Decoder, FieldSpec, PathField, PathFormat, PathLayout, ScalarType, StructLayout,
+    Value,
 };
 
 struct CountingAllocator;
@@ -116,4 +117,40 @@ fn decoding_json_and_msgpack_by_path_allocates_nothing_when_it_succeeds() {
         assert_eq!(out[4], Value::Bool(true));
         assert_eq!(out[5], Value::Float(0.2), "found by name");
     }
+}
+
+#[test]
+fn decoding_cdr_by_path_allocates_nothing_when_it_succeeds() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cdr/reference.json");
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let joint_state = &file["messages"]["joint_state"];
+    let hex = joint_state["cdr"].as_str().unwrap();
+    let cdr: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).unwrap())
+        .collect();
+    let decoder = CdrLayout {
+        type_name: joint_state["type"].as_str().unwrap().to_owned(),
+        definition: joint_state["definition"].as_str().unwrap().to_owned(),
+        fields: vec![
+            PathField::new("seconds", "header.stamp.sec", ScalarType::I64),
+            PathField {
+                count: 3,
+                ..PathField::new("position", "position", ScalarType::F64)
+            },
+            PathField::new("effort", "effort[2]", ScalarType::F32),
+            PathField::new("shoulder", "position[name=joint_2]", ScalarType::F64),
+        ],
+    }
+    .compile(65_507)
+    .unwrap();
+    let mut out = vec![Value::default(); decoder.value_count()];
+    let before = allocations();
+    for _ in 0..1_000 {
+        decoder.decode(&cdr, &mut out).unwrap();
+    }
+    assert_eq!(allocations() - before, 0);
+    assert_eq!(out[1], Value::Float(0.5));
 }

@@ -20,7 +20,7 @@ use std::fmt;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::forward_to_deserialize_any;
 
-use super::msg::{Arity, Element, MessageDefinitions, MsgField, Primitive};
+use super::msg::{Arity, MessageDefinitions, Primitive, ReadElement, ReadField};
 
 /// Why CDR couldn't be read.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,7 +46,14 @@ struct Reader<'de> {
     data: &'de [u8],
     pos: usize,
     little: bool,
+    /// How many messages deep the value being read is.
+    depth: usize,
 }
+
+/// The most messages one can be nested in, as `serde_json` allows: a type
+/// may hold itself through a sequence, and a payload nesting it deeper
+/// would take the stack, not a few bytes a level, before it was refused.
+const MOST_NESTED: usize = 128;
 
 /// Where alignment is counted from: the end of the encapsulation header.
 const ORIGIN: usize = 4;
@@ -141,6 +148,7 @@ pub fn deserializer<'de, 'd>(
             data: payload,
             pos: ORIGIN,
             little,
+            depth: 0,
         },
         definitions,
     })
@@ -157,11 +165,10 @@ impl<'de> Deserializer<'de> for &mut CdrDeserializer<'de, '_> {
     type Error = CdrError;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, CdrError> {
-        let root = self.definitions.root().to_owned();
         Value {
             reader: &mut self.reader,
             definitions: self.definitions,
-            element: &Element::Message(root),
+            element: self.definitions.root_element(),
             arity: Arity::One,
         }
         .deserialize_any(visitor)
@@ -178,7 +185,7 @@ impl<'de> Deserializer<'de> for &mut CdrDeserializer<'de, '_> {
 struct Value<'r, 'de, 'd> {
     reader: &'r mut Reader<'de>,
     definitions: &'d MessageDefinitions,
-    element: &'d Element,
+    element: &'d ReadElement,
     arity: Arity,
 }
 
@@ -207,19 +214,19 @@ impl<'de> Deserializer<'de> for Value<'_, 'de, '_> {
 }
 
 /// The fewest bytes one element can take, for checking counts.
-fn minimum_size(element: &Element) -> usize {
+fn minimum_size(element: &ReadElement) -> usize {
     match element {
-        Element::Primitive(Primitive::Int16 | Primitive::Uint16) => 2,
-        Element::Primitive(
+        ReadElement::Primitive(Primitive::Int16 | Primitive::Uint16) => 2,
+        ReadElement::Primitive(
             Primitive::Int32
             | Primitive::Uint32
             | Primitive::Float32
             | Primitive::String
             | Primitive::WString,
         ) => 4,
-        Element::Primitive(Primitive::Int64 | Primitive::Uint64 | Primitive::Float64) => 8,
+        ReadElement::Primitive(Primitive::Int64 | Primitive::Uint64 | Primitive::Float64) => 8,
         // An empty message still takes a byte.
-        Element::Primitive(_) | Element::Message(_) => 1,
+        ReadElement::Primitive(_) | ReadElement::Message(_) => 1,
     }
 }
 
@@ -227,26 +234,34 @@ fn minimum_size(element: &Element) -> usize {
 fn element<'de, V: Visitor<'de>>(
     reader: &mut Reader<'de>,
     definitions: &MessageDefinitions,
-    element: &Element,
+    element: &ReadElement,
     visitor: V,
 ) -> Result<V::Value, CdrError> {
     let primitive = match element {
-        Element::Message(name) => {
+        ReadElement::Message(place) => {
             let fields = definitions
-                .fields(name)
-                .ok_or_else(|| CdrError(format!("`{name}` isn't defined")))?;
+                .read_fields(*place)
+                .ok_or_else(|| CdrError("a message type that isn't defined".to_owned()))?;
             if fields.is_empty() {
                 // ROS 2 gives an empty message one placeholder byte.
                 reader.take(1)?;
             }
-            return visitor.visit_map(MessageMap {
-                reader,
+            if reader.depth >= MOST_NESTED {
+                return Err(CdrError(format!(
+                    "messages nested more than {MOST_NESTED} deep"
+                )));
+            }
+            reader.depth += 1;
+            let read = visitor.visit_map(MessageMap {
+                reader: &mut *reader,
                 definitions,
                 fields,
                 next: 0,
             });
+            reader.depth -= 1;
+            return read;
         }
-        Element::Primitive(primitive) => *primitive,
+        ReadElement::Primitive(primitive) => *primitive,
     };
     match primitive {
         Primitive::Bool => visitor.visit_bool(reader.take(1)?[0] != 0),
@@ -289,7 +304,7 @@ fn element<'de, V: Visitor<'de>>(
 struct MessageMap<'r, 'de, 'd> {
     reader: &'r mut Reader<'de>,
     definitions: &'d MessageDefinitions,
-    fields: &'d [MsgField],
+    fields: &'d [ReadField],
     next: usize,
 }
 
@@ -330,7 +345,7 @@ impl<'de> MapAccess<'de> for MessageMap<'_, 'de, '_> {
 struct Elements<'r, 'de, 'd> {
     reader: &'r mut Reader<'de>,
     definitions: &'d MessageDefinitions,
-    element: &'d Element,
+    element: &'d ReadElement,
     remaining: usize,
 }
 

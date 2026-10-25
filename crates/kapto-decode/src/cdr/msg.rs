@@ -116,6 +116,27 @@ pub struct MsgField {
 pub struct MessageDefinitions {
     root: String,
     types: BTreeMap<String, Vec<MsgField>>,
+    /// The same types as read: each nested one by its place here, found
+    /// once rather than by name in every message.
+    read: Vec<Vec<ReadField>>,
+    /// The root type, as a value's element is read.
+    root_element: ReadElement,
+}
+
+/// What one value of a field is, as read: a nested message by its place
+/// among the definitions' types.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReadElement {
+    Primitive(Primitive),
+    Message(usize),
+}
+
+/// One field of a message, as read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReadField {
+    pub(crate) name: String,
+    pub(crate) element: ReadElement,
+    pub(crate) arity: Arity,
 }
 
 impl MessageDefinitions {
@@ -149,9 +170,55 @@ impl MessageDefinitions {
         }
         let fields = parse_body(&current, &body)?;
         types.insert(current, fields);
-        let definitions = Self { root, types };
+        let mut definitions = Self {
+            root,
+            types,
+            read: Vec::new(),
+            root_element: ReadElement::Message(0),
+        };
         definitions.check()?;
+        definitions.resolve();
         Ok(definitions)
+    }
+
+    /// Finds each nested type's place once, for reading: every name is
+    /// defined, as [`MessageDefinitions::check`] made sure.
+    fn resolve(&mut self) {
+        let place = |name: &str| {
+            self.types
+                .keys()
+                .position(|known| known == name)
+                .unwrap_or(0)
+        };
+        let element = |element: &Element| match element {
+            Element::Primitive(primitive) => ReadElement::Primitive(*primitive),
+            Element::Message(name) => ReadElement::Message(place(name)),
+        };
+        self.read = self
+            .types
+            .values()
+            .map(|fields| {
+                fields
+                    .iter()
+                    .map(|field| ReadField {
+                        name: field.name.clone(),
+                        element: element(&field.element),
+                        arity: field.arity,
+                    })
+                    .collect()
+            })
+            .collect();
+        self.root_element = ReadElement::Message(place(&self.root));
+    }
+
+    /// The root type, as a value is read.
+    pub(crate) fn root_element(&self) -> &ReadElement {
+        &self.root_element
+    }
+
+    /// The fields of the type at `place`, as read.
+    pub(crate) fn read_fields(&self, place: usize) -> Option<&[ReadField]> {
+        self.read.get(place).map(Vec::as_slice)
     }
 
     /// The root type's name, e.g. `sensor_msgs/JointState`.

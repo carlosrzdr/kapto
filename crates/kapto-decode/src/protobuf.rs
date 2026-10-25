@@ -131,10 +131,11 @@ impl<'de> Deserializer<'de> for Walk<'_> {
         use prost_reflect::Value as Pb;
         let value = match self {
             Self::Message(message) => {
+                let descriptor = message.descriptor();
                 return visitor.visit_map(MessageFields {
                     message,
-                    descriptors: message.descriptor().fields().collect(),
-                    next: 0,
+                    fields: descriptor.fields(),
+                    field: None,
                 });
             }
             Self::Key(key) => {
@@ -164,7 +165,8 @@ impl<'de> Deserializer<'de> for Walk<'_> {
                 items: items.iter(),
             }),
             Pb::Map(entries) => {
-                // In key order, so walking a map is the same every time.
+                // In key order, so walking a map is the same every time, as
+                // decoding must be: kept unordered, it can't be walked as is.
                 let mut entries: Vec<_> = entries.iter().collect();
                 entries.sort_by(|a, b| a.0.cmp(b.0));
                 visitor.visit_map(Entries {
@@ -182,34 +184,36 @@ impl<'de> Deserializer<'de> for Walk<'_> {
     }
 }
 
-/// A message's fields, in declaration order, as a map.
-struct MessageFields<'a> {
+/// A message's fields, in declaration order, as a map: each taken from
+/// its descriptor in turn rather than all listed first, in every message.
+struct MessageFields<'a, F: Iterator<Item = FieldDescriptor>> {
     message: &'a DynamicMessage,
-    descriptors: Vec<FieldDescriptor>,
-    next: usize,
+    fields: F,
+    /// The field whose name was given last, for its value.
+    field: Option<FieldDescriptor>,
 }
 
-impl<'de> MapAccess<'de> for MessageFields<'_> {
+impl<'de, F: Iterator<Item = FieldDescriptor>> MapAccess<'de> for MessageFields<'_, F> {
     type Error = WalkError;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, WalkError> {
-        let Some(field) = self.descriptors.get(self.next) else {
+        let Some(field) = self.fields.next() else {
             return Ok(None);
         };
-        seed.deserialize(de::value::StrDeserializer::<WalkError>::new(field.name()))
-            .map(Some)
+        let key = seed.deserialize(de::value::StrDeserializer::<WalkError>::new(field.name()));
+        self.field = Some(field);
+        key.map(Some)
     }
 
     fn next_value_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<S::Value, WalkError> {
         let field = self
-            .descriptors
-            .get(self.next)
+            .field
+            .take()
             .ok_or_else(|| WalkError("a value without a field".to_owned()))?;
-        self.next += 1;
-        let value = self.message.get_field(field);
+        let value = self.message.get_field(&field);
         seed.deserialize(Walk::Value(&value))
     }
 }
