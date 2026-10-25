@@ -1053,3 +1053,11 @@ The other work packages wait until then.
     robot. Proposed: `--control-height` at 44 px under `@media (pointer:
     coarse)`, desktop unchanged; tried on a real tablet first, as the
     headless browser doesn't report a coarse pointer reliably.
+12. **A carried `.msg` file read back beside a `streams.toml` in a
+    subfolder.** A recording carries each `.msg` file as
+    `msg/<package>/msg/<Type>.msg` from the package's root, but reads it
+    back from the `msg/` folder beside `streams.toml`; for a package whose
+    `streams.toml` isn't at its root the two may differ, and the recording
+    wouldn't decode where no ROS 2 is installed. To check first with such a
+    package, recorded and read back in the slim image; if it is so, a test
+    that fails, and the paths made relative to the same folder both ways.
