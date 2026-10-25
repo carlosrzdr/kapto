@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "./lib/Icon.svelte";
+  import { Popover } from "bits-ui";
   import { onMount, tick } from "svelte";
 
   import {
@@ -697,13 +698,36 @@
       onchange={choose}
       onopen={() => void refreshSessions()}
     />
-    <button
-      type="button"
-      class="keys-toggle"
-      aria-expanded={keysShown}
-      title="The keys for what you do most (?)"
-      onclick={() => (keysShown = !keysShown)}><Icon name="keyboard" /> Keys</button
-    >
+    <Popover.Root bind:open={keysShown}>
+      <Popover.Trigger class="keys-toggle" title="The keys for what you do most (?)"
+        ><Icon name="keyboard" /> Keys</Popover.Trigger
+      >
+      <Popover.Portal>
+        <!-- Its button says it opens a dialog; Bits UI leaves the role to us. -->
+        <!-- Focus on the panel itself: a ring on Close, never pressed, says the wrong thing. -->
+        <Popover.Content
+          class="keys"
+          role="dialog"
+          aria-label="Keyboard shortcuts"
+          tabindex={-1}
+          sideOffset={6}
+          align="end"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)?.focus();
+          }}
+        >
+          <h2>Keys</h2>
+          <dl>
+            {#each SHORTCUTS as each (each.keys)}
+              <dt><kbd>{each.keys}</kbd></dt>
+              <dd>{each.does}</dd>
+            {/each}
+          </dl>
+          <Popover.Close class="keys-close">Close</Popover.Close>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
     <HealthChip health={healthNow} onopen={() => void showProblem(healthNow.target)} />
     <RecordButton
       {recording}
@@ -717,18 +741,6 @@
       onstop={() => act(stopEpisode)}
     />
   </header>
-  {#if keysShown}
-    <section class="keys" aria-label="Keyboard shortcuts">
-      <h2>Keys</h2>
-      <dl>
-        {#each SHORTCUTS as each (each.keys)}
-          <dt><kbd>{each.keys}</kbd></dt>
-          <dd>{each.does}</dd>
-        {/each}
-      </dl>
-      <button type="button" onclick={() => (keysShown = false)}>Close</button>
-    </section>
-  {/if}
 
   {#if refused}
     <p class="problem" role="alert">
@@ -936,7 +948,7 @@
   .unknown {
     color: var(--muted);
   }
-  .keys-toggle {
+  header :global(.keys-toggle) {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
@@ -947,44 +959,69 @@
     color: var(--muted);
     font: inherit;
     font-size: var(--text-sm);
+    height: var(--control-height);
+    cursor: pointer;
   }
-  .keys {
-    position: fixed;
-    top: 4.5rem;
-    right: var(--space-4);
-    z-index: 10;
+  header :global(.keys-toggle[data-state="open"]) {
+    border-color: var(--text);
+    color: var(--text);
+  }
+  header :global(.keys-toggle:focus-visible) {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* The popover is drawn outside the header, so its rules are global. */
+  :global(.keys) {
+    z-index: 40;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    width: 22rem;
+    width: 26rem;
+    max-width: calc(100vw - 2rem);
     padding: var(--space-4);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--raised);
+    color: var(--text);
+    font-family: var(--font-ui);
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.6);
   }
-  .keys dl {
+  :global(.keys h2) {
+    margin: 0;
+    font-size: var(--text-md);
+  }
+  :global(.keys:focus) {
+    outline: none;
+  }
+  :global(.keys dl) {
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: max-content 1fr;
     gap: var(--space-2) var(--space-3);
     margin: 0;
   }
-  .keys dd {
+  :global(.keys dd) {
     margin: 0;
   }
-  .keys kbd {
+  :global(.keys kbd) {
     padding: 0.05rem 0.4rem;
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
+    font-family: var(--font-data);
   }
-  .keys button {
+  :global(.keys-close) {
     align-self: flex-end;
+    height: var(--control-height);
     padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: transparent;
     color: var(--text);
     font: inherit;
+    cursor: pointer;
+  }
+  :global(.keys-close:focus-visible) {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
   .problem {
     margin: 0;

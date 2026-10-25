@@ -29,15 +29,16 @@ describe("HealthChip", () => {
     expect(onopen).toHaveBeenCalledOnce();
   });
 
-  it("names the worst problem with how many more, in its colour, and describes every one", () => {
+  it("names the worst problem with how many more, in its colour, and describes every one", async () => {
     render(HealthChip, { health: wrong, onopen: vi.fn() });
     const chip = screen.getByRole("button", { name: "Health: arm_joints 12 lost +2" });
     expect(chip.classList.contains("danger")).toBe(true);
     expect(chip.textContent).toContain("+2");
     const every = "arm_joints 12 lost; gripper silent; Disk 4 % free. Opens where it is shown in full.";
     expect(screen.getByRole("button", { description: every })).toBe(chip);
-    // Cut short by its fixed width, it is said whole on hover.
-    expect(chip.title).toBe(every);
+    // Cut short by its fixed width, it is shown whole on hover and focus.
+    await fireEvent.focus(chip);
+    expect((await screen.findByRole("tooltip")).textContent).toBe(every);
   });
 
   it("is reached from the keyboard like any button", () => {

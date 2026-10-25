@@ -15,13 +15,19 @@
 
   let { tabs, selected, onselect }: Props = $props();
 
-  /** Arrow keys move between tabs, as in any tab list. */
+  /** Arrow keys move between tabs, Home and End to the first and last, as in any tab list. */
   function keydown(event: KeyboardEvent, index: number) {
-    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (step === 0) {
+    const to = {
+      ArrowRight: (index + 1) % tabs.length,
+      ArrowLeft: (index - 1 + tabs.length) % tabs.length,
+      Home: 0,
+      End: tabs.length - 1,
+    }[event.key];
+    if (to === undefined) {
       return;
     }
-    const next = tabs[(index + step + tabs.length) % tabs.length];
+    event.preventDefault();
+    const next = tabs[to];
     if (next) {
       onselect(next.id);
       document.getElementById(`tab-${next.id}`)?.focus();

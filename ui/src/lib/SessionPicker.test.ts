@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProfilesOverview, TasksOverview } from "./api-types";
+import { choose, offered, openList } from "./controls/testing";
 import SessionPicker from "./SessionPicker.svelte";
 
 const profiles: ProfilesOverview = {
@@ -33,27 +34,26 @@ function picker(overrides: { disabled?: boolean } = {}) {
 }
 
 describe("SessionPicker", () => {
-  it("offers every profile, those for another robot greyed with the package they need", () => {
+  it("offers every profile, those for another robot unavailable with the package they need", async () => {
     picker();
-    const profile = screen.getByRole("combobox", { name: "Profile" });
-    const options = [...profile.querySelectorAll("option")].map((option) => [option.textContent?.trim(), option.disabled]);
-    expect(options).toEqual([
-      ["None", false],
-      ["cobot_day (needs cobot)", true],
-      ["lab_ana · Ana", false],
+    expect(offered(await openList("Profile"))).toEqual([
+      ["None", true],
+      ["cobot_day Needs the package cobot", false],
+      ["lab_ana Ana", true],
     ]);
-    const task = screen.getByRole("combobox", { name: "Task" });
-    expect([...task.querySelectorAll("option")].map((option) => option.textContent?.trim())).toEqual(["None", "Pick and place"]);
+    await fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(offered(await openList("Task"))).toEqual([
+      ["None", true],
+      ["Pick and place pick_and_place", true],
+    ]);
   });
 
   it("says what was chosen, and asks for the lists again when one is opened", async () => {
     const { onchange, onopen } = picker();
-    const profile = screen.getByRole("combobox", { name: "Profile" });
-    await fireEvent.focus(profile);
+    await choose("Profile", "lab_ana");
     expect(onopen).toHaveBeenCalled();
-    await fireEvent.change(profile, { target: { value: "lab_ana" } });
     expect(onchange).toHaveBeenLastCalledWith({ profile: "lab_ana", task: null });
-    await fireEvent.change(screen.getByRole("combobox", { name: "Task" }), { target: { value: "pick_and_place" } });
+    await choose("Task", "Pick and place");
     expect(onchange).toHaveBeenLastCalledWith({ profile: null, task: "pick_and_place" });
   });
 

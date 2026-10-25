@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SessionChoice } from "./api";
   import type { ProfilesOverview, TasksOverview } from "./api-types";
+  import Choice from "./controls/Choice.svelte";
 
   interface Props {
     profiles: ProfilesOverview | null;
@@ -17,60 +18,43 @@
 </script>
 
 <div class="session">
-  <label>
-    Profile
-    <select
-      value={choice.profile ?? ""}
-      {disabled}
-      onfocus={onopen}
-      onchange={(event) => onchange({ ...choice, profile: event.currentTarget.value || null })}
-    >
-      <option value="">None</option>
-      {#each profiles?.profiles ?? [] as profile (profile.id)}
-        <option value={profile.id} disabled={!profile.available}>
-          {profile.id}{profile.operator ? ` · ${profile.operator}` : ""}{profile.available
-            ? ""
-            : ` (needs ${profile.package})`}
-        </option>
-      {/each}
-    </select>
-  </label>
-  <label>
-    Task
-    <select
-      value={choice.task ?? ""}
-      {disabled}
-      onfocus={onopen}
-      onchange={(event) => onchange({ ...choice, task: event.currentTarget.value || null })}
-    >
-      <option value="">None</option>
-      {#each tasks?.tasks ?? [] as task (task.id)}
-        <option value={task.id}>{task.name ?? task.id}</option>
-      {/each}
-    </select>
-  </label>
+  <Choice
+    label="Profile"
+    value={choice.profile ?? ""}
+    {disabled}
+    width="wide"
+    options={[
+      { value: "", label: "None" },
+      ...(profiles?.profiles ?? []).map((profile) => ({
+        value: profile.id,
+        label: profile.id,
+        detail: profile.available
+          ? (profile.operator ?? undefined)
+          : `Needs the package ${profile.package}`,
+        disabled: !profile.available,
+      })),
+    ]}
+    {onopen}
+    onchange={(value) => onchange({ ...choice, profile: value || null })}
+  />
+  <Choice
+    label="Task"
+    value={choice.task ?? ""}
+    {disabled}
+    width="wide"
+    options={[
+      { value: "", label: "None" },
+      ...(tasks?.tasks ?? []).map((task) => ({ value: task.id, label: task.name ?? task.id, detail: task.name ? task.id : undefined })),
+    ]}
+    {onopen}
+    onchange={(value) => onchange({ ...choice, task: value || null })}
+  />
 </div>
 
 <style>
   .session {
     display: flex;
-    gap: 0.75rem;
+    gap: var(--space-3);
     align-items: center;
-  }
-  label {
-    display: flex;
-    gap: 0.4rem;
-    align-items: center;
-    color: var(--muted);
-    font-size: var(--text-sm);
-  }
-  select {
-    max-width: 12rem;
-    padding: 0.35rem 0.5rem;
-    border: 1px solid var(--control-line);
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text);
-    font: inherit;
   }
 </style>

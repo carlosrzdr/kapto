@@ -24,4 +24,16 @@ describe("shortcut", () => {
     // A button just clicked keeps focus: R still stops.
     expect(pressed("r", button)).toBe("r");
   });
+
+  it("is none in one of the page's own selects, whose letters jump to an option", () => {
+    const select = document.createElement("button");
+    select.setAttribute("role", "combobox");
+    const list = document.createElement("div");
+    list.setAttribute("role", "listbox");
+    const option = document.createElement("div");
+    option.setAttribute("role", "option");
+    list.append(option);
+    expect(pressed("r", select)).toBeNull();
+    expect(pressed("r", option)).toBeNull();
+  });
 });

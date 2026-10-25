@@ -1,6 +1,7 @@
 import { expect, test, type Route } from "@playwright/test";
 
 import { open, shot, shotWhole, tab, viewer, VIEWPORT } from "./screens";
+import { choose } from "./controls";
 
 // A route that fetches the real answer before changing it reads that answer
 // after the request is made: the page's polls keep coming until the test
@@ -53,7 +54,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await page.setViewportSize(VIEWPORT);
   // The keys for what operators do most.
   await page.keyboard.press("?");
-  await expect(page.getByRole("region", { name: "Keyboard shortcuts" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
   await shot(page, "keys");
   await page.keyboard.press("Escape");
   // Paused and looking back ten seconds.
@@ -159,8 +160,8 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await page.unroute("**/api/episodes/start");
   await expect(page.getByText(/^Passed at/)).toBeVisible();
 
-  await page.getByRole("combobox", { name: "Profile" }).selectOption("lab_ana");
-  await page.getByRole("combobox", { name: "Task" }).selectOption("pick_and_place");
+  await choose(page, "Profile", /lab_ana/);
+  await choose(page, "Task", /pick_and_place/);
   await page.getByRole("button", { name: "Record" }).click();
   await expect(page.getByText(/^Recording ·/)).toBeVisible();
   await expect(page.getByText(/ left at this rate$/)).toBeVisible();

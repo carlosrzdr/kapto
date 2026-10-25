@@ -19,7 +19,9 @@ test("with the capture process stopped, the page says why and can't record", asy
   // It says why, on hover and to a screen reader, and looks it can't be pressed.
   const why = "Kapto can't reach the capture process, so nothing can be recorded";
   await expect(record).toHaveAccessibleDescription(why);
-  await expect(record).toHaveAttribute("title", `Record an episode (R): ${why}`);
+  // Why not, shown with the pointer over it, though a disabled button takes none.
+  await record.locator("xpath=..").hover();
+  await expect(page.getByRole("tooltip")).toHaveText(`Record an episode (R): ${why}`);
   await expect(record).toHaveCSS("cursor", "not-allowed");
   // The header says it is what most needs attention, in the danger colour,
   // and opens the live tab at it.

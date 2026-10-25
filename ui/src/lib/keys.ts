@@ -11,9 +11,15 @@ export const SHORTCUTS = [
   { keys: "?", does: "Show or hide these keys" },
 ] as const;
 
-/** Whether `target` takes typing: a field or a list. */
+/**
+ * What takes typing: a field, or a list, native or one of the page's own
+ * selects, whose letters and digits jump to an option.
+ */
+export const TYPING = "input, select, textarea, [contenteditable='true'], [role='combobox'], [role='listbox'], [role='option']";
+
+/** Whether `target` takes typing. */
 function typingIn(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest("input, select, textarea, [contenteditable='true']") !== null;
+  return target instanceof Element && target.closest(TYPING) !== null;
 }
 
 /** Whether `target` is a control Space or Enter already presses. */

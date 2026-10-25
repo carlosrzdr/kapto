@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Hint from "./controls/Hint.svelte";
   import type { Health } from "./health";
 
   interface Props {
@@ -18,18 +19,23 @@
   );
 </script>
 
-<button
-  type="button"
-  class="chip {health.level}"
-  aria-label="Health: {said}"
-  aria-describedby="health-detail"
-  title={described}
-  onclick={onopen}
->
-  <span class="dot" aria-hidden="true"></span>
-  <span class="text">{health.text}</span>
-  {#if health.more > 0}<span class="more">+{health.more}</span>{/if}
-</button>
+<!-- Every problem, shown on hover and focus; said to screen readers always. -->
+<Hint text={described}>
+  {#snippet children(props)}
+    <button
+      {...props}
+      type="button"
+      class="chip {health.level}"
+      aria-label="Health: {said}"
+      aria-describedby="health-detail"
+      onclick={onopen}
+    >
+      <span class="dot" aria-hidden="true"></span>
+      <span class="text">{health.text}</span>
+      {#if health.more > 0}<span class="more">+{health.more}</span>{/if}
+    </button>
+  {/snippet}
+</Hint>
 <span id="health-detail" class="visually-hidden">{described}</span>
 
 <style>

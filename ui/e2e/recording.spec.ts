@@ -2,6 +2,7 @@ import { expect, type Locator, test, type Page, type Route } from "@playwright/t
 
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
+import { choose } from "./controls";
 
 const open = (page: Page, tab: RegExp) => page.getByRole("tab", { name: tab }).click();
 
@@ -158,10 +159,10 @@ test("the page shows the robot's stream, records an episode and lists it", async
 
   await open(page, /^Live/);
   // Recorded with a profile and a task; a profile for another robot can't be chosen.
-  const profile = page.getByRole("combobox", { name: "Profile" });
-  await expect(profile.getByRole("option", { name: "cobot_day · Ben (needs cobot)" })).toHaveAttribute("disabled");
-  await profile.selectOption("lab_ana");
-  await page.getByRole("combobox", { name: "Task" }).selectOption("pick_and_place");
+  await page.getByRole("combobox", { name: "Profile" }).click();
+  await expect(page.getByRole("option", { name: /cobot_day.*Needs the package cobot/ })).toHaveAttribute("aria-disabled", "true");
+  await page.getByRole("option", { name: /lab_ana/ }).click();
+  await choose(page, "Task", /pick_and_place/);
   await page.getByRole("button", { name: "Record" }).click();
   await expect(page.getByText(/^Recording ·/)).toBeVisible();
   await expect(page.getByText(/ left at this rate$/)).toBeVisible();
@@ -780,7 +781,7 @@ test("an operator records, looks back and comes back to now from the keyboard, a
 
   // The keys, listed on ? and hidden on Esc.
   await page.keyboard.press("?");
-  const keys = page.getByRole("region", { name: "Keyboard shortcuts" });
+  const keys = page.getByRole("dialog", { name: "Keyboard shortcuts" });
   await expect(keys).toContainText("Record an episode, or stop recording it");
   await page.keyboard.press("Escape");
   await expect(keys).toBeHidden();

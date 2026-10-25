@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Hint from "./controls/Hint.svelte";
   import Icon from "./Icon.svelte";
   interface Props {
     recording: boolean;
@@ -14,27 +15,37 @@
   const does = $derived(recording ? "Stop recording (R)" : "Record an episode (R)");
 </script>
 
-<button
-  type="button"
-  class:recording
-  title={held && !busy ? `${does}: ${held}` : does}
-  disabled={busy || held !== null}
-  aria-busy={busy}
-  aria-describedby={held && !busy ? "record-held" : undefined}
-  onclick={() => (recording ? onstop() : onstart())}
->
-  {#if busy}
-    {recording ? "Finalising…" : "Starting…"}
-  {:else}
-    <Icon name={recording ? "stop" : "record"} />
-    {recording ? "Stop" : "Record"}
-  {/if}
-</button>
+<!-- What it does, and why it can't for now, on hover; a disabled button
+     takes no pointer, so the hint is on what holds it. -->
+<Hint text={held && !busy ? `${does}: ${held}` : does}>
+  {#snippet children(props)}
+    <span {...props} class="holder">
+      <button
+        type="button"
+        class:recording
+        disabled={busy || held !== null}
+        aria-busy={busy}
+        aria-describedby={held && !busy ? "record-held" : undefined}
+        onclick={() => (recording ? onstop() : onstart())}
+      >
+        {#if busy}
+          {recording ? "Finalising…" : "Starting…"}
+        {:else}
+          <Icon name={recording ? "stop" : "record"} />
+          {recording ? "Stop" : "Record"}
+        {/if}
+      </button>
+    </span>
+  {/snippet}
+</Hint>
 {#if held && !busy}
   <span id="record-held" class="visually-hidden">{held}</span>
 {/if}
 
 <style>
+  .holder {
+    display: inline-flex;
+  }
   button {
     min-width: 7rem;
     padding: var(--space-2) var(--space-4);
