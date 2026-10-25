@@ -42,11 +42,85 @@ pub const STACK_BYTES: usize = 2 * 1024 * 1024;
 /// What a thread may allocate as it goes, beside its own buffer.
 pub const SMALL_BYTES: usize = 64 * 1024;
 
-/// A thread named `name`, with a stack of [`STACK_BYTES`].
-pub fn named(name: impl Into<String>) -> thread::Builder {
-    thread::Builder::new()
-        .name(name.into())
-        .stack_size(STACK_BYTES)
+/// Each kind of thread capture starts: what it is named, and what
+/// [`ThreadMemory`] counts it under, from the same place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Thread {
+    /// Accepts control connections.
+    Control,
+    /// Tells watchers what capture is doing.
+    ControlTell,
+    /// Answers one control connection.
+    ControlConn,
+    /// Recovers episodes cut off by a crash.
+    Recover,
+    /// Pre-flight's write test.
+    Preflight,
+    /// Pre-flight's check that the router answers.
+    PreflightRouter,
+    /// Receives streams; each is named for its input ([`receiver`]).
+    Receiver,
+    /// Writes the recording.
+    Writer,
+    /// Hashes a recording as it is written.
+    Hash,
+    /// Closes episodes, one at a time.
+    Finalise,
+    /// Sends the live view its values.
+    Tap,
+}
+
+impl Thread {
+    /// Every kind.
+    pub const ALL: [Self; 11] = [
+        Self::Control,
+        Self::ControlTell,
+        Self::ControlConn,
+        Self::Recover,
+        Self::Preflight,
+        Self::PreflightRouter,
+        Self::Receiver,
+        Self::Writer,
+        Self::Hash,
+        Self::Finalise,
+        Self::Tap,
+    ];
+
+    /// Its name, or for receivers the start of each one's.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Control => "cap-control",
+            Self::ControlTell => "cap-control-tell",
+            Self::ControlConn => "cap-control-conn",
+            Self::Recover => "cap-recover",
+            Self::Preflight => "cap-preflight",
+            Self::PreflightRouter => "cap-preflight-router",
+            Self::Receiver => "cap-rx-*",
+            Self::Writer => "cap-writer",
+            Self::Hash => "cap-hash",
+            Self::Finalise => "cap-finalise",
+            Self::Tap => "cap-tap",
+        }
+    }
+}
+
+/// A thread of kind `thread`, with a stack of [`STACK_BYTES`]. A receiver
+/// is named for its input instead, by [`receiver`].
+pub fn named(thread: Thread) -> thread::Builder {
+    builder(thread.name().to_owned())
+}
+
+/// A receiver thread named `name`, which starts `cap-rx-`, with a stack of
+/// [`STACK_BYTES`].
+pub fn receiver(name: impl Into<String>) -> thread::Builder {
+    let name = name.into();
+    debug_assert!(name.starts_with("cap-rx-"), "{name}");
+    builder(name)
+}
+
+fn builder(name: String) -> thread::Builder {
+    thread::Builder::new().name(name).stack_size(STACK_BYTES)
 }
 
 /// The threads of one name capture runs at most at once, and the buffer
@@ -98,32 +172,36 @@ impl ThreadMemory {
     pub fn capture(receivers: &[usize], live_view: bool, control_connections: usize) -> Self {
         let one = one_of;
         let mut threads = vec![
-            one("cap-control", 0),
-            one("cap-control-tell", 0),
+            one(Thread::Control, 0),
+            one(Thread::ControlTell, 0),
             Threads {
-                name: "cap-control-conn",
+                name: Thread::ControlConn.name(),
                 at_once: control_connections,
                 buffer_bytes: 0,
             },
-            one("cap-recover", 0),
-            one("cap-preflight", crate::preflight::WRITE_BLOCK_BYTES),
-            one("cap-preflight-router", 0),
+            one(Thread::Recover, 0),
+            one(Thread::Preflight, crate::preflight::WRITE_BLOCK_BYTES),
+            one(Thread::PreflightRouter, 0),
         ];
-        threads.extend(receivers.iter().map(|&buffer| one("cap-rx-*", buffer)));
+        threads.extend(
+            receivers
+                .iter()
+                .map(|&buffer| one(Thread::Receiver, buffer)),
+        );
         threads.extend([
-            one("cap-writer", 0),
+            one(Thread::Writer, 0),
             Threads {
-                name: "cap-hash",
+                name: Thread::Hash.name(),
                 at_once: 2,
                 buffer_bytes: crate::hash_behind::CHUNK,
             },
             one(
-                "cap-finalise",
+                Thread::Finalise,
                 crate::hash_behind::CHUNK.max(kapto_store::manifest::HASH_BUFFER_BYTES),
             ),
         ]);
         if live_view {
-            threads.push(one("cap-tap", 0));
+            threads.push(one(Thread::Tap, 0));
         }
         Self { threads }
     }
@@ -141,7 +219,7 @@ impl ThreadMemory {
     pub fn receiver_buffer_bytes(&self) -> usize {
         self.threads
             .iter()
-            .filter(|threads| threads.name == "cap-rx-*")
+            .filter(|threads| threads.name == Thread::Receiver.name())
             .map(|threads| threads.at_once * threads.buffer_bytes)
             .sum()
     }
@@ -160,16 +238,16 @@ impl ThreadMemory {
     pub fn control_connections(&self) -> usize {
         self.threads
             .iter()
-            .filter(|threads| threads.name == "cap-control-conn")
+            .filter(|threads| threads.name == Thread::ControlConn.name())
             .map(|threads| threads.at_once)
             .sum()
     }
 }
 
 /// One thread named `name`, holding `buffer_bytes` for itself.
-fn one_of(name: &'static str, buffer_bytes: usize) -> Threads {
+fn one_of(thread: Thread, buffer_bytes: usize) -> Threads {
     Threads {
-        name,
+        name: thread.name(),
         at_once: 1,
         buffer_bytes,
     }
@@ -178,6 +256,21 @@ fn one_of(name: &'static str, buffer_bytes: usize) -> Threads {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_kind_of_thread_capture_starts_is_counted() {
+        let memory = ThreadMemory::capture(&[0], true, 1);
+        for thread in Thread::ALL {
+            assert!(
+                memory
+                    .threads
+                    .iter()
+                    .any(|threads| threads.name == thread.name()),
+                "{thread:?}"
+            );
+        }
+        assert_eq!(memory.threads.len(), Thread::ALL.len());
+    }
 
     #[test]
     fn the_declared_total_is_each_threads_stack_and_buffers() {
@@ -200,7 +293,7 @@ mod tests {
         let hash = memory
             .threads
             .iter()
-            .find(|threads| threads.name == "cap-hash")
+            .find(|threads| threads.name == Thread::Hash.name())
             .map(|threads| threads.at_once * threads.each_bytes());
         assert_eq!(hash, Some(2 * (STACK_BYTES + 256 * 1024 + SMALL_BYTES)));
     }

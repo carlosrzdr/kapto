@@ -494,13 +494,13 @@ impl ControlServer {
         let watchers = Arc::new(Watchers::default());
         let made = Arc::clone(&watchers.made);
         let (announcements, announced) = mpsc::channel();
-        crate::threads::named("cap-control-tell")
+        crate::threads::named(crate::threads::Thread::ControlTell)
             .spawn({
                 let watchers = Arc::clone(&watchers);
                 move || tell(&announced, &watchers)
             })
             .map_err(|error| failed(error.to_string()))?;
-        crate::threads::named("cap-control")
+        crate::threads::named(crate::threads::Thread::Control)
             .spawn({
                 let supervision = Arc::clone(&supervision);
                 move || {
@@ -627,7 +627,7 @@ fn take(
         let watchers = Arc::clone(watchers);
         // A thread per connection, so a slow client never holds up another.
         // Not started, the place is given back as the closure is dropped.
-        let _ = crate::threads::named("cap-control-conn").spawn(move || {
+        let _ = crate::threads::named(crate::threads::Thread::ControlConn).spawn(move || {
             let _place = place;
             let _ = converse(connection, &requests, &supervision, &watchers);
         });

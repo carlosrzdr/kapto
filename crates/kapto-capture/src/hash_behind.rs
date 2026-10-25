@@ -165,7 +165,7 @@ impl HashBehind {
     ) -> io::Result<(Written, Self)> {
         let file = File::open(path)?;
         let shared = Arc::new(Shared::default());
-        let thread = crate::threads::named("cap-hash").spawn({
+        let thread = crate::threads::named(crate::threads::Thread::Hash).spawn({
             let shared = Arc::clone(&shared);
             move || {
                 first();

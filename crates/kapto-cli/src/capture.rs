@@ -399,7 +399,7 @@ fn note(
 /// them.
 fn recover_meanwhile(control: &ControlServer, data_dir: PathBuf) -> Outcome<()> {
     let announcer = control.announcer();
-    kapto_capture::threads::named("cap-recover")
+    kapto_capture::threads::named(kapto_capture::threads::Thread::Recover)
         .spawn(move || {
             recover(&data_dir, &mut |episode| {
                 announcer.announce(Announcement::EpisodeRecovered {

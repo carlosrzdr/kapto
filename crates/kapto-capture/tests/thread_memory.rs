@@ -28,7 +28,7 @@ use std::sync::{Mutex, PoisonError, mpsc};
 use std::time::{Duration, Instant};
 
 use kapto_capture::finalise::{RECORDING_FILE, Staged};
-use kapto_capture::threads::{SMALL_BYTES, ThreadMemory, Threads, named};
+use kapto_capture::threads::{SMALL_BYTES, Thread, ThreadMemory, Threads, named};
 use kapto_capture::{
     Batch, ChannelSpec, Compression, HashBehind, LossCounters, Recording, WriterConfig,
 };
@@ -302,11 +302,11 @@ fn close(episode: Episode) -> PathBuf {
 }
 
 /// What capture declares for each of the threads named `name`.
-fn declared(name: &str) -> Threads {
+fn declared(thread: Thread) -> Threads {
     ThreadMemory::capture(&[0], true, 16)
         .threads
         .into_iter()
-        .find(|threads| threads.name == name)
+        .find(|threads| threads.name == thread.name())
         .unwrap()
 }
 
@@ -318,7 +318,7 @@ fn what_is_declared_for_cap_hash_and_cap_finalise_covers_an_episode_closing_whil
     let (closings, to_close) = mpsc::channel::<Episode>();
     let (go, held) = mpsc::channel::<()>();
     let (closed, done) = mpsc::channel();
-    let finalise = named("cap-finalise")
+    let finalise = named(Thread::Finalise)
         .spawn(move || {
             count_into(&FINALISE_PEAK, false);
             for episode in to_close {
@@ -345,7 +345,7 @@ fn what_is_declared_for_cap_hash_and_cap_finalise_covers_an_episode_closing_whil
     drop(closings);
     finalise.join().unwrap();
 
-    let hash = declared("cap-hash");
+    let hash = declared(Thread::Hash);
     assert_eq!(MOST_HASHING.load(Ordering::Relaxed), 2);
     assert!(MOST_HASHING.load(Ordering::Relaxed) <= hash.at_once);
     let hashed = HASH_PEAK.load(Ordering::Relaxed);
@@ -353,7 +353,7 @@ fn what_is_declared_for_cap_hash_and_cap_finalise_covers_an_episode_closing_whil
     assert!(hashed >= hash.buffer_bytes, "{hashed} bytes");
     assert!(hashed <= hash.buffer_bytes + SMALL_BYTES, "{hashed} bytes");
 
-    let finalise = declared("cap-finalise");
+    let finalise = declared(Thread::Finalise);
     let finalised = FINALISE_PEAK.load(Ordering::Relaxed);
     assert!(finalised >= finalise.buffer_bytes, "{finalised} bytes");
     assert!(
@@ -369,7 +369,7 @@ fn episodes_waiting_behind_the_one_being_closed_hold_no_cap_hash_or_its_buffer()
     let (closings, to_close) = mpsc::channel::<Episode>();
     let (go, held) = mpsc::channel::<()>();
     let (closed, done) = mpsc::channel();
-    let finalise = named("cap-finalise")
+    let finalise = named(Thread::Finalise)
         .spawn(move || {
             count_into(&FINALISE_PEAK, false);
             for episode in to_close {
@@ -378,7 +378,7 @@ fn episodes_waiting_behind_the_one_being_closed_hold_no_cap_hash_or_its_buffer()
             }
         })
         .unwrap();
-    let hash = declared("cap-hash");
+    let hash = declared(Thread::Hash);
     let one_buffer = isize::try_from(hash.buffer_bytes + SMALL_BYTES).unwrap();
 
     // The first is being closed, held there; the second and third wait
@@ -422,7 +422,7 @@ fn episodes_waiting_behind_the_one_being_closed_hold_no_cap_hash_or_its_buffer()
     assert!(most <= hash.at_once);
     // The rest of each recording was read by `cap-finalise`, within what
     // is declared for it.
-    let finalise = declared("cap-finalise");
+    let finalise = declared(Thread::Finalise);
     let finalised = FINALISE_PEAK.load(Ordering::Relaxed);
     assert!(finalised >= finalise.buffer_bytes, "{finalised} bytes");
     assert!(

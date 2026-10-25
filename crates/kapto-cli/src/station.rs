@@ -324,7 +324,9 @@ impl Station {
         let (tap, tap_stats, frame_stats, tap_thread, latest) = match opened {
             Some(opened) => {
                 let viewer = opened.tap;
-                match kapto_capture::threads::named("cap-tap").spawn(move || viewer.run()) {
+                match kapto_capture::threads::named(kapto_capture::threads::Thread::Tap)
+                    .spawn(move || viewer.run())
+                {
                     Ok(handle) => (
                         Some(opened.feed),
                         Some(opened.stats),
@@ -1047,7 +1049,7 @@ fn run_threads(
     thread::scope(|scope| {
         let mut receiving = Vec::new();
         for (name, receiver) in receivers {
-            let spawned = kapto_capture::threads::named(name.clone())
+            let spawned = kapto_capture::threads::receiver(name.clone())
                 .spawn_scoped(scope, move || receive(receiver, stop, hand_over));
             match spawned {
                 Ok(handle) => receiving.push((name, handle)),
@@ -1058,8 +1060,8 @@ fn run_threads(
             }
         }
         let writer_counters = Arc::clone(counters);
-        let writing =
-            kapto_capture::threads::named("cap-writer").spawn_scoped(scope, move || match job {
+        let writing = kapto_capture::threads::named(kapto_capture::threads::Thread::Writer)
+            .spawn_scoped(scope, move || match job {
                 Job::Write(mut recording) => {
                     if let Some(feed) = tap.take() {
                         recording.set_tap(feed);

@@ -59,7 +59,7 @@ impl Closer {
     pub(crate) fn start() -> Outcome<Self> {
         let (closings, to_close) = mpsc::channel::<Closing>();
         let (done, closed) = mpsc::channel();
-        let thread = kapto_capture::threads::named("cap-finalise")
+        let thread = kapto_capture::threads::named(kapto_capture::threads::Thread::Finalise)
             .spawn(move || {
                 if let Err(error) = crate::worker::lower_priority() {
                     say!("Episodes are closed at capture's priority: {error}");

@@ -118,13 +118,13 @@ impl Preflight {
         let folder = self.folder.clone();
         let write = std::fs::create_dir_all(&folder)
             .and_then(|()| {
-                kapto_capture::threads::named("cap-preflight")
+                kapto_capture::threads::named(kapto_capture::threads::Thread::Preflight)
                     .spawn(move || write_speed(&folder, WRITE_TEST_BYTES))
             })
             .map_err(|error| error.to_string());
         let router = self.router.clone().and_then(|endpoint| {
             let tried = endpoint.clone();
-            kapto_capture::threads::named("cap-preflight-router")
+            kapto_capture::threads::named(kapto_capture::threads::Thread::PreflightRouter)
                 .spawn(move || reach(&tried))
                 .ok()
                 .map(|handle| (endpoint, handle))
