@@ -101,6 +101,42 @@
 
   let tab = $state(rememberedTab());
 
+  /** Where the side panel's being folded is remembered, in this browser only. */
+  const FOLDED_KEY = "kapto.side-folded";
+
+  function rememberedFolded(): boolean {
+    try {
+      return localStorage.getItem(FOLDED_KEY) === "yes";
+    } catch {
+      return false;
+    }
+  }
+
+  let folded = $state(rememberedFolded());
+
+  /**
+   * Under the tablet's width the panel sits under the view, which takes the
+   * page's width already: there it never folds.
+   */
+  const NARROW = "(max-width: 50rem)";
+  let narrow = $state(matchMedia(NARROW).matches);
+  onMount(() => {
+    const query = matchMedia(NARROW);
+    const changed = () => (narrow = query.matches);
+    query.addEventListener("change", changed);
+    return () => query.removeEventListener("change", changed);
+  });
+  const foldedNow = $derived(folded && !narrow);
+
+  function fold(next: boolean) {
+    folded = next;
+    try {
+      localStorage.setItem(FOLDED_KEY, next ? "yes" : "no");
+    } catch {
+      // Not remembered, then; it stays as it is for this page.
+    }
+  }
+
   /** Where the profile and task chosen for the next episode are remembered. */
   const SESSION_KEY = "kapto.session";
 
@@ -143,8 +179,12 @@
     }
   }
 
+  /** Opens `id`, opening the panel too if it is folded: a tab chosen is one to see. */
   function select(id: string) {
     tab = id;
+    if (folded) {
+      fold(false);
+    }
     try {
       localStorage.setItem(TAB_KEY, id);
     } catch {
@@ -204,7 +244,7 @@
   /** Whether the list of keys is shown. */
   let keysShown = $state(false);
 
-  /** R records or stops; ? shows the keys, Esc hides them. */
+  /** R records or stops; P folds the side panel or opens it; ? shows the keys, Esc hides them. */
   function appKey(event: KeyboardEvent) {
     const key = shortcut(event);
     if (key === "?") {
@@ -214,6 +254,8 @@
     } else if (key === "r" && status !== null && !busy && !preflightRunning) {
       event.preventDefault();
       void act(recording ? stopEpisode : () => startEpisode(choice));
+    } else if (key === "p" && !narrow) {
+      fold(!folded);
     }
   }
   /**
@@ -305,12 +347,17 @@
   }
 
   const tabs = $derived([
-    { id: "live", label: "Live", alert: worstOn("live") },
-    { id: "episodes", label: episodes.length > 0 ? `Episodes (${episodes.length})` : "Episodes" },
-    { id: "uploads", label: "Uploads", alert: worstOn("uploads") },
+    { id: "live", label: "Live", icon: "pulse" as const, alert: worstOn("live") },
+    { id: "episodes", label: episodes.length > 0 ? `Episodes (${episodes.length})` : "Episodes", icon: "list" as const },
+    { id: "uploads", label: "Uploads", icon: "upload" as const, alert: worstOn("uploads") },
     // A package's warnings leave it usable: degraded, amber.
-    { id: "robot", label: "Robot", alert: (robot?.warnings.length ?? 0) > 0 ? ("warning" as const) : null },
-    { id: "system", label: "System", alert: worstOn("system") },
+    {
+      id: "robot",
+      label: "Robot",
+      icon: "arm" as const,
+      alert: (robot?.warnings.length ?? 0) > 0 ? ("warning" as const) : null,
+    },
+    { id: "system", label: "System", icon: "chip" as const, alert: worstOn("system") },
   ]);
 
   /** What each stream is declared to send and whether it is kept, by stream. */
@@ -761,7 +808,7 @@
     </p>
   {/if}
 
-  <main>
+  <main class:folded={foldedNow}>
     <section class="viewer">
       {#if replay}
         <ReplayBar
@@ -798,74 +845,76 @@
         </div>
       {/if}
     </section>
-    <aside>
-      <Tabs {tabs} selected={tab} onselect={select} />
-      <div role="tabpanel" id="panel-{tab}" aria-labelledby="tab-{tab}">
-        {#if tab === "episodes"}
-          <h2>Episodes</h2>
-          <EpisodeList
-            {episodes}
-            open={openEpisode}
-            quality={openQuality}
-            statistics={openStatistics}
-            events={openEvents}
-            uploads={openUploads}
-            destinations={uploads?.destinations ?? []}
-            kinds={eventKinds}
-            {eventFilter}
-            onevent={filterByEvent}
-            filter={episodeFilter}
-            onselect={(id) => void showEpisode(id)}
-            onfilter={filterEpisodes}
-            {replay}
-            onreplay={(id, moment) => void replayEpisode(id, moment)}
-            onretry={retry}
-            {inBin}
-            onbin={showBin}
-            keepDays={Number(settings?.settings.find((setting) => setting.key === "bin.keep_days")?.value ?? 7)}
-            ondelete={(id) => void binned(() => deleteEpisode(id))}
-            onrestore={(id) => void binned(() => restoreEpisode(id))}
-            onempty={() => void binned(() => emptyBin())}
-          />
-        {:else if tab === "uploads"}
-          <h2>Uploads</h2>
-          <UploadsPanel
-            overview={uploads}
-            measured={uploadRates}
-            marker={settings?.settings.find((setting) => setting.key === "upload.marker")?.value !== "false"}
-            onretry={retry}
-            ontest={testDestination}
-          />
-        {:else if tab === "robot"}
-          {#if robot}
-            <RobotPanel {robot} values={status?.capture.values ?? []} />
+    <aside aria-label="Side panel">
+      <Tabs {tabs} selected={tab} onselect={select} folded={foldedNow} onfold={narrow ? undefined : fold} />
+      {#if !foldedNow}
+        <div role="tabpanel" id="panel-{tab}" aria-labelledby="tab-{tab}">
+          {#if tab === "episodes"}
+            <h2>Episodes</h2>
+            <EpisodeList
+              {episodes}
+              open={openEpisode}
+              quality={openQuality}
+              statistics={openStatistics}
+              events={openEvents}
+              uploads={openUploads}
+              destinations={uploads?.destinations ?? []}
+              kinds={eventKinds}
+              {eventFilter}
+              onevent={filterByEvent}
+              filter={episodeFilter}
+              onselect={(id) => void showEpisode(id)}
+              onfilter={filterEpisodes}
+              {replay}
+              onreplay={(id, moment) => void replayEpisode(id, moment)}
+              onretry={retry}
+              {inBin}
+              onbin={showBin}
+              keepDays={Number(settings?.settings.find((setting) => setting.key === "bin.keep_days")?.value ?? 7)}
+              ondelete={(id) => void binned(() => deleteEpisode(id))}
+              onrestore={(id) => void binned(() => restoreEpisode(id))}
+              onempty={() => void binned(() => emptyBin())}
+            />
+          {:else if tab === "uploads"}
+            <h2>Uploads</h2>
+            <UploadsPanel
+              overview={uploads}
+              measured={uploadRates}
+              marker={settings?.settings.find((setting) => setting.key === "upload.marker")?.value !== "false"}
+              onretry={retry}
+              ontest={testDestination}
+            />
+          {:else if tab === "robot"}
+            {#if robot}
+              <RobotPanel {robot} values={status?.capture.values ?? []} />
+            {:else}
+              <p class="unknown">Not known yet.</p>
+            {/if}
+          {:else if tab === "system"}
+            <h2>Processes</h2>
+            <ProcessTable {processes} />
+            {#if settings}
+              <h2>Settings</h2>
+              <SettingsPanel {settings} />
+            {/if}
           {:else}
-            <p class="unknown">Not known yet.</p>
+            <h2 id={LIVE.preflight} class="anchor" tabindex="-1">Pre-flight</h2>
+            <PreflightPanel
+              run={status?.capture.preflight ?? null}
+              {recording}
+              running={preflightRunning}
+              busy={busy || status === null}
+              onrun={() => void preflightAgain()}
+              onrecordanyway={(waive) => act(() => startEpisode(choice, waive))}
+            />
+            <h2 id={LIVE.streams} class="anchor" tabindex="-1">Streams</h2>
+            <!-- Its rows are where the header's health chip opens a stream's problem. -->
+            <StreamTable streams={status?.capture.streams ?? []} known={status !== null} {rates} {recording} {declared} {kept} anchored />
+            <h2 id={LIVE.storage} class="anchor" tabindex="-1">Storage</h2>
+            <StorageSummary {storage} {writing} />
           {/if}
-        {:else if tab === "system"}
-          <h2>Processes</h2>
-          <ProcessTable {processes} />
-          {#if settings}
-            <h2>Settings</h2>
-            <SettingsPanel {settings} />
-          {/if}
-        {:else}
-          <h2 id={LIVE.preflight} class="anchor" tabindex="-1">Pre-flight</h2>
-          <PreflightPanel
-            run={status?.capture.preflight ?? null}
-            {recording}
-            running={preflightRunning}
-            busy={busy || status === null}
-            onrun={() => void preflightAgain()}
-            onrecordanyway={(waive) => act(() => startEpisode(choice, waive))}
-          />
-          <h2 id={LIVE.streams} class="anchor" tabindex="-1">Streams</h2>
-          <!-- Its rows are where the header's health chip opens a stream's problem. -->
-          <StreamTable streams={status?.capture.streams ?? []} known={status !== null} {rates} {recording} {declared} {kept} anchored />
-          <h2 id={LIVE.storage} class="anchor" tabindex="-1">Storage</h2>
-          <StorageSummary {storage} {writing} />
-        {/if}
-      </div>
+        </div>
+      {/if}
     </aside>
   </main>
 
@@ -916,6 +965,10 @@
     main {
       grid-template-columns: minmax(0, 3fr) minmax(24rem, 2fr);
     }
+  }
+  /* Folded, the panel is a strip of its tabs' icons and the view takes the rest. */
+  main.folded {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
   .viewer {
     display: flex;

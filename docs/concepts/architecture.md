@@ -931,7 +931,10 @@ opens the tab holding it at its row ([layouts](../design/layouts.md)). The
 bar over the header, the notice under it and the marks on the tabs take
 that colour too: red for what loses data, stops recording or leaves an
 upload failed, amber for what is degraded or being retried. The
-side panel opens on Episodes, or on the tab last chosen. **Live** has
+side panel opens on Episodes, or on the tab last chosen. A button on its
+edge, or `P`, folds it to a strip of its tabs' icons, still marked, so the
+view takes the page's width, the header staying; a tab picked there or the
+health chip opens it again, and this browser remembers it folded. **Live** has
 pre-flight's latest run, each failed check with what to do about it, a
 *Run again* button and *Record anyway*, which starts an episode waiving
 exactly the checks that failed; each stream's rate (marked when it falls silent or well below the rate

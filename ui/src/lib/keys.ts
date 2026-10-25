@@ -8,6 +8,7 @@ export const SHORTCUTS = [
   { keys: "Esc", does: "Back to now" },
   { keys: "F", does: "Fit the robot in the view" },
   { keys: "1–9", does: "Mark the kind of event with that number" },
+  { keys: "P", does: "Fold the side panel, for a wider view, or open it again" },
   { keys: "?", does: "Show or hide these keys" },
 ] as const;
 

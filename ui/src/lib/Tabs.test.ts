@@ -4,10 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import Tabs from "./Tabs.svelte";
 
 const tabs = [
-  { id: "live", label: "Live" },
-  { id: "episodes", label: "Episodes" },
-  { id: "uploads", label: "Uploads", alert: "danger" as const },
-  { id: "system", label: "System", alert: "warning" as const },
+  { id: "live", label: "Live", icon: "pulse" as const },
+  { id: "episodes", label: "Episodes", icon: "list" as const },
+  { id: "uploads", label: "Uploads", icon: "upload" as const, alert: "danger" as const },
+  { id: "system", label: "System", icon: "chip" as const, alert: "warning" as const },
 ];
 
 describe("Tabs", () => {
@@ -38,5 +38,31 @@ describe("Tabs", () => {
     const mark = (name: string) => screen.getByRole("tab", { name }).querySelector(".attention");
     expect(mark("Uploads needs attention")?.classList.contains("danger")).toBe(true);
     expect(mark("System needs attention")?.classList.contains("warning")).toBe(true);
+  });
+
+  it("folds to a strip of icons, each opening its tab, still marked where it needs attention", async () => {
+    const onselect = vi.fn();
+    render(Tabs, { tabs, selected: "live", onselect, folded: true, onfold: vi.fn() });
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.getByRole("button", { name: "Uploads needs attention" }).querySelector(".attention.danger")).not.toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Episodes" }));
+    expect(onselect).toHaveBeenCalledWith("episodes");
+  });
+
+  it("asks to fold from its edge, and to open again once folded", async () => {
+    const onfold = vi.fn();
+    const shown = render(Tabs, { tabs, selected: "live", onselect: vi.fn(), onfold });
+    await fireEvent.click(screen.getByRole("button", { name: "Fold the side panel" }));
+    expect(onfold).toHaveBeenLastCalledWith(true);
+    await shown.rerender({ tabs, selected: "live", onselect: vi.fn(), onfold, folded: true });
+    const open = screen.getByRole("button", { name: "Open the side panel" });
+    expect(open.getAttribute("aria-expanded")).toBe("false");
+    await fireEvent.click(open);
+    expect(onfold).toHaveBeenLastCalledWith(false);
+  });
+
+  it("has no fold button where the panel can't fold", () => {
+    render(Tabs, { tabs, selected: "live", onselect: vi.fn() });
+    expect(screen.queryByRole("button", { name: "Fold the side panel" })).toBeNull();
   });
 });

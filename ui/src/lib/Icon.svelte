@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** The icons there are: one set, drawn on a 24px grid in one stroke weight. */
-  export type IconName = "play" | "pause" | "record" | "stop" | "frame" | "cube" | "chevron" | "attention" | "keyboard" | "list" | "bin" | "grip";
+  export type IconName = "play" | "pause" | "record" | "stop" | "frame" | "cube" | "chevron" | "attention" | "keyboard" | "list" | "bin" | "grip" | "pulse" | "upload" | "arm" | "chip";
 </script>
 
 <script lang="ts">
@@ -48,6 +48,16 @@
     <path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" />
   {:else if name === "grip"}
     <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />
+  {:else if name === "pulse"}
+    <path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
+  {:else if name === "upload"}
+    <path d="M12 15V4.5M7.5 9L12 4.5 16.5 9M4.5 14.5v5h15v-5" />
+  {:else if name === "arm"}
+    <path d="M4.5 20h9M9 20v-3.5L6.5 10l8-4.5M14.5 5.5l3.5-1M14.5 5.5l2 3" />
+    <circle cx="6.5" cy="10" r="1.5" />
+  {:else if name === "chip"}
+    <rect x="7" y="7" width="10" height="10" rx="1.5" />
+    <path d="M10 3.5V7M14 3.5V7M10 17v3.5M14 17v3.5M3.5 10H7M3.5 14H7M17 10h3.5M17 14h3.5" />
   {:else if name === "bin"}
     <path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5M10 10.5v6M14 10.5v6" />
   {/if}

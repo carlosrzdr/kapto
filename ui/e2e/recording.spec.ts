@@ -823,6 +823,54 @@ test("an operator records, looks back and comes back to now from the keyboard, a
   expect(elsewhere).toEqual([]);
 });
 
+test("the side panel folds to a strip for a wider view, by its button or P, kept across a reload, and opens again on a tab", async ({
+  page,
+}) => {
+  const elsewhere = requestsLeavingTheMachine(page);
+  await page.goto("/");
+  const live = page.getByTitle("Live view of the robot");
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
+  const width = async () => (await live.boundingBox())?.width ?? 0;
+  const open = await width();
+  const panel = page.getByRole("tabpanel");
+  const strip = page.getByRole("complementary", { name: "Side panel" });
+
+  // Folded from its edge: the tabs' icons left, the view wider, the header there.
+  await page.getByRole("button", { name: "Fold the side panel" }).click();
+  await expect(panel).toBeHidden();
+  await expect(strip.getByRole("button", { name: "Uploads" })).toBeVisible();
+  await expect.poll(width).toBeGreaterThan(open + 200);
+  await expect(page.getByRole("banner").getByRole("button", { name: /^Health: / })).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("button", { name: "Record", exact: true })).toBeVisible();
+
+  // Kept across a reload, in this browser.
+  await page.reload();
+  await expect(strip.getByRole("button", { name: "Uploads" })).toBeVisible();
+  await expect(panel).toBeHidden();
+
+  // P opens it, and folds it again; the keys say so.
+  await page.keyboard.press("p");
+  await expect(panel).toBeVisible();
+  await page.keyboard.press("p");
+  await expect(panel).toBeHidden();
+  await page.keyboard.press("?");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("Fold the side panel");
+  await page.keyboard.press("Escape");
+
+  // A tab in the strip opens the panel on that tab.
+  await strip.getByRole("button", { name: "Uploads" }).click();
+  await expect(page.getByRole("tab", { name: /^Uploads/ })).toHaveAttribute("aria-selected", "true");
+  await expect(panel).toBeVisible();
+  await expect.poll(width).toBeLessThan(open + 50);
+
+  // The health chip opens it on the tab it points at.
+  await page.getByRole("button", { name: "Fold the side panel" }).click();
+  await expect(panel).toBeHidden();
+  await page.getByRole("banner").getByRole("button", { name: /^Health: / }).click();
+  await expect(panel).toBeVisible();
+  expect(elsewhere).toEqual([]);
+});
+
 test("episodes go up to each destination, one that can't take them says why and is retried, and each is tested", async ({
   page,
 }) => {

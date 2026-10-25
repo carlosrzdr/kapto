@@ -58,6 +58,13 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
   await shot(page, "keys");
   await page.keyboard.press("Escape");
+  // The side panel folded to its tabs' icons, the view at the page's width.
+  await page.getByRole("button", { name: "Fold the side panel" }).click();
+  await expect(page.getByRole("tabpanel")).toBeHidden();
+  await page.waitForTimeout(2_000);
+  await shot(page, "side-panel-folded");
+  await page.getByRole("button", { name: "Open the side panel" }).click();
+  await expect(page.getByRole("tabpanel")).toBeVisible();
   // Paused and looking back ten seconds.
   const liveView = page.getByTitle("Live view of the robot");
   await page.getByRole("button", { name: "Pause" }).click();
