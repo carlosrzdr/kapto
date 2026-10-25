@@ -11,6 +11,7 @@ import type {
   ReplayStatus,
 } from "./api-types";
 import { ApiFailure } from "./api";
+import { choose, offered, openList } from "./controls/testing";
 import EpisodeList from "./EpisodeList.svelte";
 import { offset } from "./format";
 
@@ -172,7 +173,9 @@ describe("EpisodeList", () => {
     expect(second?.textContent).toContain("accepted");
     expect(third?.textContent).toContain("not checked yet");
 
-    await fireEvent.change(screen.getByRole("combobox", { name: "Quality" }), { target: { value: "rejected" } });
+    const quality = screen.getByRole("group", { name: "Quality" });
+    expect(within(quality).getByRole("radio", { name: "All" }).getAttribute("aria-checked")).toBe("true");
+    await fireEvent.click(within(quality).getByRole("radio", { name: "Rejected" }));
     expect(onfilter).toHaveBeenCalledWith("rejected");
   });
 
@@ -476,15 +479,14 @@ describe("EpisodeList's events", () => {
     render(EpisodeList, { episodes: [marked], open: null, kinds: [intervention], onselect: vi.fn(), onevent });
     expect(screen.getByText(/2 Intervention · 1 kapto.stream_lost/)).toBeTruthy();
     // The vocabulary's kinds, then the others listed episodes hold.
-    const select = screen.getByRole("combobox", { name: "With an event of kind" }) as HTMLSelectElement;
-    expect([...select.options].map((option) => option.textContent)).toEqual([
+    expect(offered(await openList("With an event of kind")).map(([label]) => label)).toEqual([
       "Any events",
       "Intervention",
       "kapto.stream_lost",
     ]);
-    await fireEvent.change(select, { target: { value: "intervention" } });
+    await choose("With an event of kind", "Intervention");
     expect(onevent).toHaveBeenCalledWith("intervention");
-    await fireEvent.change(select, { target: { value: "" } });
+    await choose("With an event of kind", "Any events");
     expect(onevent).toHaveBeenLastCalledWith(null);
   });
 
@@ -565,8 +567,10 @@ describe("EpisodeList's bin", () => {
     await fireEvent.click(within(kept).getByRole("button", { name: "Restore" }));
     expect(onrestore).toHaveBeenCalledWith(summary.id);
     await fireEvent.click(screen.getByRole("button", { name: "Empty the bin…" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "Empty the bin" });
+    expect(confirm.textContent).toContain("Delete all 1 episode in the bin for good?");
     expect(onempty).not.toHaveBeenCalled();
-    await fireEvent.click(within(screen.getByRole("group", { name: "Empty the bin" })).getByRole("button", { name: "Empty the bin" }));
+    await fireEvent.click(within(confirm).getByRole("button", { name: "Empty the bin" }));
     expect(onempty).toHaveBeenCalledOnce();
   });
 });

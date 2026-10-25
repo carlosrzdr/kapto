@@ -1,6 +1,6 @@
 <script lang="ts" module>
   /** The icons there are: one set, drawn on a 24px grid in one stroke weight. */
-  export type IconName = "play" | "pause" | "record" | "stop" | "frame" | "cube" | "chevron" | "attention" | "keyboard" | "list";
+  export type IconName = "play" | "pause" | "record" | "stop" | "frame" | "cube" | "chevron" | "attention" | "keyboard" | "list" | "bin";
 </script>
 
 <script lang="ts">
@@ -46,6 +46,8 @@
     <path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8" />
   {:else if name === "list"}
     <path d="M9 6.5h11M9 12h11M9 17.5h11M4.5 6.5h.01M4.5 12h.01M4.5 17.5h.01" />
+  {:else if name === "bin"}
+    <path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 12.5h9l1-12.5M10 10.5v6M14 10.5v6" />
   {/if}
 </svg>
 

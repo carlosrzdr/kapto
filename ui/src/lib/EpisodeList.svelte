@@ -12,7 +12,11 @@
     UploadDestination,
     VocabularyKind,
   } from "./api-types";
+  import { AlertDialog, Toggle, ToggleGroup } from "bits-ui";
+
+  import Choice from "./controls/Choice.svelte";
   import EpisodeDetails from "./EpisodeDetails.svelte";
+  import Icon from "./Icon.svelte";
   import { bytes, count, duration, time } from "./format";
 
   interface Props {
@@ -124,54 +128,49 @@
 </script>
 
 <div class="filters">
-  <label class="filter">
-    Quality
-    <select value={filter} onchange={(event) => onfilter(event.currentTarget.value as QualityFilter)}>
-      <option value="all">All episodes</option>
-      <option value="accepted">Accepted</option>
-      <option value="rejected">Rejected</option>
-    </select>
-  </label>
-  <label class="filter">
-    With
-    <select
-      aria-label="With an event of kind"
-      value={eventFilter ?? ""}
-      onchange={(event) => onevent(event.currentTarget.value === "" ? null : event.currentTarget.value)}
-    >
-      <option value="">Any events</option>
-      {#each findable as kind (kind)}
-        <option value={kind}>{names[kind] ?? kind}</option>
-      {/each}
-    </select>
-  </label>
-  <button
-    type="button"
+  <ToggleGroup.Root
+    type="single"
+    class="segments"
+    aria-label="Quality"
+    value={filter}
+    onValueChange={(value) => value && onfilter(value as QualityFilter)}
+  >
+    <ToggleGroup.Item class="segment" value="all">All</ToggleGroup.Item>
+    <ToggleGroup.Item class="segment" value="accepted">Accepted</ToggleGroup.Item>
+    <ToggleGroup.Item class="segment" value="rejected">Rejected</ToggleGroup.Item>
+  </ToggleGroup.Root>
+  <Choice
+    label="With"
+    showLabel={false}
+    name="With an event of kind"
+    value={eventFilter ?? ""}
+    options={[{ value: "", label: "Any events" }, ...findable.map((kind) => ({ value: kind, label: names[kind] ?? kind }))]}
+    onchange={(value) => onevent(value === "" ? null : value)}
+  />
+  <Toggle.Root
     class="bin-toggle"
-    aria-pressed={inBin}
+    pressed={inBin}
     title="Episodes deleted, until the bin is emptied or they are restored"
-    onclick={() => {
-      emptying = false;
-      onbin(!inBin);
-    }}>In the bin</button
+    onPressedChange={(pressed) => onbin(pressed)}><Icon name="bin" /> In the bin</Toggle.Root
   >
   {#if inBin && episodes.length > 0}
-    {#if emptying}
-      <span class="confirm" role="group" aria-label="Empty the bin">
-        Delete all {episodes.length} for good?
-        <button
-          type="button"
-          class="delete"
-          onclick={() => {
-            emptying = false;
-            onempty();
-          }}>Empty the bin</button
-        >
-        <button type="button" onclick={() => (emptying = false)}>Cancel</button>
-      </span>
-    {:else}
-      <button type="button" class="delete" onclick={() => (emptying = true)}>Empty the bin…</button>
-    {/if}
+    <AlertDialog.Root bind:open={emptying}>
+      <AlertDialog.Trigger class="delete">Empty the bin…</AlertDialog.Trigger>
+      <AlertDialog.Portal>
+        <AlertDialog.Overlay class="overlay" />
+        <AlertDialog.Content class="dialog">
+          <AlertDialog.Title class="dialog-title">Empty the bin</AlertDialog.Title>
+          <AlertDialog.Description class="dialog-text">
+            Delete all {episodes.length} {episodes.length === 1 ? "episode" : "episodes"} in the bin for good? Their
+            recordings are removed from this machine; copies already uploaded stay where they are.
+          </AlertDialog.Description>
+          <div class="dialog-actions">
+            <AlertDialog.Cancel class="secondary">Cancel</AlertDialog.Cancel>
+            <AlertDialog.Action class="delete" onclick={() => onempty()}>Empty the bin</AlertDialog.Action>
+          </div>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
   {/if}
 </div>
 
@@ -202,18 +201,25 @@
           <span class="warning" title="Only finishing a recording counts what it lost">loss unknown</span>
         {:else if lost > 0}
           <span class="warning">{count(lost)} missing</span>
+        {:else}
+          <!-- Its place kept, so the verdicts line up. -->
+          <span></span>
         {/if}
-        <span class="session">
-          {#if episode.accepted === false}<span
-              class="rejected"
-              title="A quality gate failed: the episode isn't accepted">rejected</span
-            >{:else if episode.accepted === true}<span title="Every quality gate passed">accepted</span
-            >{:else}<span title="The worker checks each episode after it is recorded">not checked yet</span
-            >{/if}{#if session(episode)}{` · ${session(episode)}`}{/if}{#if happened(episode)}<span
-              class="happened"
-              title="Its events, by kind">{` · ${happened(episode)}`}</span
-            >{/if}
-        </span>
+        {#if episode.accepted === false}<span
+            class="badge rejected"
+            title="A quality gate failed: the episode isn't accepted">rejected</span
+          >{:else if episode.accepted === true}<span class="badge accepted" title="Every quality gate passed"
+            >accepted</span
+          >{:else}<span class="badge pending" title="The worker checks each episode after it is recorded"
+            >not checked yet</span
+          >{/if}
+        {#if session(episode) || happened(episode)}
+          <span class="session"
+            >{session(episode)}{#if happened(episode)}<span class="happened" title="Its events, by kind"
+                >{`${session(episode) ? " · " : ""}${happened(episode)}`}</span
+              >{/if}</span
+          >
+        {/if}
       </button>
       {#if expanded && open}
         <EpisodeDetails
@@ -255,7 +261,8 @@
   }
   button {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    align-items: center;
     gap: 0.75rem;
     width: 100%;
     /* Its highlight reaches the panel's edges; its text stays off them. */
@@ -286,46 +293,148 @@
   .filters {
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
-    margin-bottom: 0.4rem;
+    gap: var(--space-2);
+    align-items: center;
+    margin-bottom: var(--space-2);
   }
-  .bin-toggle,
-  .filters .delete,
-  .confirm button {
-    /* Not the rows' full-width grid. */
-    display: inline-block;
-    width: auto;
-    padding: 0.2rem 0.6rem;
+  /* The filters' controls are Bits UI's elements, so their rules are global
+     under the filters. */
+  .filters :global(.segments) {
+    display: inline-flex;
+    box-sizing: border-box;
+    height: var(--control-height);
+    align-items: center;
+    padding: 2px;
+    border: 1px solid var(--control-line);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+  .filters :global(.segment) {
+    height: 100%;
+    padding: 0 var(--space-2);
+    border: none;
+    border-radius: calc(var(--radius) - 1px);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .filters :global(.segment:hover) {
+    color: var(--text);
+  }
+  .filters :global(.segment[data-state="on"]) {
+    background: var(--raised);
+    color: var(--text);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .filters :global(.bin-toggle),
+  .filters :global(.delete) {
+    display: inline-flex;
+    gap: var(--space-1);
+    align-items: center;
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--control-line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .filters :global(.bin-toggle[data-state="on"]) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .filters :global(.delete) {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .filters :global(:is(.segment, .bin-toggle, .delete):focus-visible) {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* The dialog is drawn over the page, outside the list. */
+  :global(.overlay) {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgb(0 0 0 / 60%);
+  }
+  :global(.dialog) {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 61;
+    width: min(28rem, calc(100vw - 2rem));
+    padding: var(--space-6);
     border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--raised);
+    color: var(--text);
+    font-family: var(--font-ui);
+    transform: translate(-50%, -50%);
+    box-shadow: 0 16px 48px rgb(0 0 0 / 60%);
+  }
+  :global(.dialog-title) {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-lg);
+    font-weight: 600;
+  }
+  :global(.dialog-text) {
+    margin: 0 0 var(--space-6);
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  :global(.dialog-actions) {
+    display: flex;
+    gap: var(--space-2);
+    justify-content: flex-end;
+  }
+  :global(.dialog :is(.secondary, .delete)) {
+    height: 2rem;
+    padding: 0 var(--space-4);
+    border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: transparent;
     color: var(--text);
     font: inherit;
     cursor: pointer;
   }
-  .confirm {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: center;
+  :global(.dialog .delete) {
+    border-color: var(--danger-fill);
+    background: var(--danger-fill);
+    color: var(--on-danger);
+    font-weight: 600;
   }
-  .bin-toggle[aria-pressed="true"] {
-    border-color: var(--accent);
+  :global(.dialog :is(.secondary, .delete):focus-visible) {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
-  .filters .delete {
+  /* The verdict at a glance, in a word as well as a colour. */
+  .badge {
+    justify-self: end;
+    min-width: 7rem;
+    box-sizing: border-box;
+    padding: 0 var(--space-2);
+    border: 1px solid currentColor;
+    border-radius: var(--radius);
+    text-align: center;
+    font-size: var(--text-xs);
+    line-height: 1.5;
+  }
+  .badge.accepted {
+    color: var(--ok);
+  }
+  .badge.rejected {
     border-color: var(--danger);
-    color: var(--danger);
-  }
-  .filter {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    color: var(--muted);
-    font-size: var(--text-sm);
-  }
-  .rejected {
+    background: var(--danger-background);
     color: var(--danger);
     font-weight: 600;
+  }
+  .badge.pending {
+    color: var(--muted);
   }
   .unchecked,
   .recovered,

@@ -1,7 +1,7 @@
 import { expect, test, type Route } from "@playwright/test";
 
 import { open, shot, shotWhole, tab, viewer, VIEWPORT } from "./screens";
-import { choose } from "./controls";
+import { choose, pick } from "./controls";
 
 // A route that fetches the real answer before changing it reads that answer
 // after the request is made: the page's polls keep coming until the test
@@ -214,10 +214,10 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await shot(aside, "episode");
   await shot(details.getByRole("table", { name: "Events" }), "episode-events");
   // Only the episodes with an intervention.
-  await page.getByRole("combobox", { name: "With an event of kind" }).selectOption("intervention");
+  await choose(page, "With an event of kind", /intervention/i);
   await expect(episode).toContainText("Intervention");
   await shot(aside, "episodes-by-event");
-  await page.getByRole("combobox", { name: "With an event of kind" }).selectOption("");
+  await choose(page, "With an event of kind", "Any events");
 
   // One a gate rejected, listed among the rejected ones. The demo's
   // recordings are complete, so that answer is given here.
@@ -247,14 +247,14 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
       },
     }),
   );
-  await page.getByRole("combobox", { name: "Quality" }).selectOption("rejected");
+  await pick(page, "Quality", "Rejected");
   await expect(episode).toContainText("rejected");
   await episode.getByTitle("Show this episode in full").click();
   await episode.getByTitle("Show this episode in full").click();
   await expect(details).toContainText("rejected: a gate failed");
   await shot(aside, "episode-rejected");
   await page.unrouteAll({ behavior: "wait" });
-  await page.getByRole("combobox", { name: "Quality" }).selectOption("all");
+  await pick(page, "Quality", "All");
   await episode.getByTitle("Show this episode in full").click();
   await episode.getByTitle("Show this episode in full").click();
   await expect(details).toContainText("accepted · settings 1");
@@ -278,8 +278,8 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   const oneEpisode = /\/api\/episodes\/[^/?]+$/;
   await page.route(listing, recovered);
   await page.route(oneEpisode, recovered);
-  await page.getByRole("combobox", { name: "Quality" }).selectOption("accepted");
-  await page.getByRole("combobox", { name: "Quality" }).selectOption("all");
+  await pick(page, "Quality", "Accepted");
+  await pick(page, "Quality", "All");
   await expect(episode).toContainText("loss unknown");
   await episode.getByTitle("Show this episode in full").click();
   await episode.getByTitle("Show this episode in full").click();
@@ -287,8 +287,8 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await shot(aside, "episode-recovered");
   await page.unroute(listing);
   await page.unroute(oneEpisode);
-  await page.getByRole("combobox", { name: "Quality" }).selectOption("accepted");
-  await page.getByRole("combobox", { name: "Quality" }).selectOption("all");
+  await pick(page, "Quality", "Accepted");
+  await pick(page, "Quality", "All");
   await episode.getByTitle("Show this episode in full").click();
   await episode.getByTitle("Show this episode in full").click();
   await expect(details).toContainText("99 % within");

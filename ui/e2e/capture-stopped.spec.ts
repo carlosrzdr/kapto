@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { requestsLeavingTheMachine } from "./local-only";
+import { pick } from "./controls";
 
 const open = (page: Page, tab: RegExp) => page.getByRole("tab", { name: tab }).click();
 
@@ -66,13 +67,12 @@ test("with the capture process stopped, the page says why and can't record", asy
 
   // The filter lists the rejected episodes only: the flows record some
   // shorter than the 2 s an episode is accepted from.
-  const quality = page.getByRole("combobox", { name: "Quality" });
-  await quality.selectOption("rejected");
+  await pick(page, "Quality", "Rejected");
   const listed = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") });
   await expect(listed.first().or(page.getByText("No rejected episodes."))).toBeVisible();
   // Retried: the list shown before stays until the server answers the filter.
   await expect(listed.filter({ hasNotText: "rejected" })).toHaveCount(0);
-  await quality.selectOption("all");
+  await pick(page, "Quality", "All");
 
   // One a gate rejected says so, with what the gate found. The demo's
   // recordings are complete, so that answer is given here.

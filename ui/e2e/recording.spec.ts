@@ -673,7 +673,7 @@ test("events marked from the page and sent through the API show on the timeline,
   // has read its events: the newest with an intervention.
   await open(page, /^Episodes/);
   const episodes = page.getByRole("tabpanel");
-  await episodes.getByRole("combobox", { name: "With an event of kind" }).selectOption("intervention");
+  await choose(page, "With an event of kind", /intervention/i);
   const newest = episodes.getByRole("button", { name: /Intervention/ }).first();
   await expect(newest).toBeVisible({ timeout: 30_000 });
   await expect(newest).toContainText(/2 Intervention/);
