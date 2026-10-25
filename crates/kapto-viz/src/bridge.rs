@@ -89,6 +89,7 @@ impl BridgeSettings {
 }
 
 /// A running bridge.
+#[derive(Debug)]
 pub struct Bridge {
     stream: FrameStream,
     reader: TapReader,

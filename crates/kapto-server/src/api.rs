@@ -256,7 +256,7 @@ async fn stopped(stop: Arc<AtomicBool>) {
 }
 
 /// The OpenAPI document.
-#[derive(OpenApi)]
+#[derive(Debug, OpenApi)]
 #[openapi(
     info(
         title = "Kapto API",

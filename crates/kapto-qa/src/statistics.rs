@@ -246,10 +246,11 @@ mod tests {
     fn exact(values: &[f64], fraction: f64) -> f64 {
         let mut sorted = values.to_vec();
         sorted.sort_by(f64::total_cmp);
-        #[allow(
+        #[expect(
             clippy::cast_precision_loss,
             clippy::cast_possible_truncation,
-            clippy::cast_sign_loss
+            clippy::cast_sign_loss,
+            reason = "a short list's last index times a fraction from 0 to 1, rounded: a rank within it"
         )]
         let rank = (fraction * (sorted.len() - 1) as f64).round() as usize;
         sorted[rank]

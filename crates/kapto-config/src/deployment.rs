@@ -41,6 +41,17 @@ pub struct Inputs<'a> {
     pub cli: &'a [CliOverride],
 }
 
+// The environment is a closure, and what it holds can be secret, so only
+// the file and the flags are shown.
+impl std::fmt::Debug for Inputs<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inputs")
+            .field("file", &self.file)
+            .field("cli", &self.cli)
+            .finish_non_exhaustive()
+    }
+}
+
 /// How Kapto runs on this machine, with the source of every value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeploymentConfig {

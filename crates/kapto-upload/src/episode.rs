@@ -104,6 +104,16 @@ pub struct Store<'a> {
     pub multipart: Option<&'a dyn MultipartStore>,
 }
 
+// `MultipartStore` isn't `Debug`, so only whether there is one is shown.
+impl std::fmt::Debug for Store<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Store")
+            .field("objects", &self.objects)
+            .field("multipart", &self.multipart.is_some())
+            .finish()
+    }
+}
+
 /// Waiting between tries and to keep under the cap: the runtime's timer
 /// and the monotonic clock, or a test's.
 pub trait Sleep: Send + Sync {
@@ -115,6 +125,7 @@ pub trait Sleep: Send + Sync {
 }
 
 /// Waits on the runtime's timer.
+#[derive(Debug)]
 pub struct RuntimeSleep;
 
 impl Sleep for RuntimeSleep {

@@ -41,6 +41,7 @@ impl de::Error for CdrError {
 }
 
 /// The bytes being read, and where.
+#[derive(Debug)]
 struct Reader<'de> {
     data: &'de [u8],
     pos: usize,
@@ -146,6 +147,7 @@ pub fn deserializer<'de, 'd>(
 }
 
 /// A CDR message, ready to be read through serde.
+#[derive(Debug)]
 pub struct CdrDeserializer<'de, 'd> {
     reader: Reader<'de>,
     definitions: &'d MessageDefinitions,

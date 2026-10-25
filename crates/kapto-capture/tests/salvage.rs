@@ -135,7 +135,12 @@ proptest! {
     ) {
         let (bytes, chunks) = reference();
         let header = 64;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss,
+            reason = "a test recording's length times a fraction from 0 to 1: a whole number of bytes within it"
+        )]
         let cut = header + ((bytes.len() - header) as f64 * fraction) as usize;
         let folder = TempDir::new("salvage-cut");
         let path = written(&folder, &bytes[..cut]);

@@ -49,6 +49,16 @@ pub struct Ros2Transport {
     stats: Arc<TransportStats>,
 }
 
+// The node is rcl's handles, which can't be printed.
+impl std::fmt::Debug for Ros2Transport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ros2Transport")
+            .field("streams", &self.streams)
+            .field("stats", &self.stats)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Ros2Transport {
     /// Starts Kapto's node, named `node_name`, and subscribes to every topic.
     ///

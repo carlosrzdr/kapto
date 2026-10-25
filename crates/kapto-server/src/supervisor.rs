@@ -100,11 +100,13 @@ pub enum Event {
 pub type Listener = Arc<dyn Fn(Event) + Send + Sync>;
 
 /// Running children, each watched by its own thread.
+#[derive(Debug)]
 pub struct Supervisor {
     stopping: Arc<AtomicBool>,
     children: Vec<Watched>,
 }
 
+#[derive(Debug)]
 struct Watched {
     spec: ChildSpec,
     /// The running process's ID, or 0 while none runs.

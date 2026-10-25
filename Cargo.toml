@@ -132,6 +132,7 @@ unsafe_code = "deny"
 missing_docs = "warn"
 unreachable_pub = "warn"
 unused_qualifications = "warn"
+missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }

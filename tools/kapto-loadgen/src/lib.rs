@@ -216,6 +216,15 @@ pub struct Prepared<'a> {
     output: Output,
 }
 
+// The run's configuration; not the encoded frames or the open sockets.
+impl std::fmt::Debug for Prepared<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Prepared")
+            .field("config", self.config)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Makes a run of `config` ready to start with [`Prepared::run_until`].
 ///
 /// # Errors

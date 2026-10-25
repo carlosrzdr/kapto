@@ -68,6 +68,15 @@ pub struct EnvSource<'a> {
     env: &'a dyn Fn(&str) -> Option<String>,
 }
 
+// Only the prefix: the environment it reads holds credentials.
+impl fmt::Debug for EnvSource<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EnvSource")
+            .field("prefix", &self.prefix)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a> EnvSource<'a> {
     /// Variables starting with `prefix`, read through `env`.
     #[must_use]
@@ -96,6 +105,7 @@ impl CredentialSource for EnvSource<'_> {
 }
 
 /// A TOML file holding the values under their names.
+#[derive(Debug)]
 pub struct FileSource {
     path: PathBuf,
 }
@@ -187,6 +197,13 @@ pub(crate) mod tests {
         let source = EnvSource::new("SITE_NAS", &env);
         conformance(&source, "kapto-s3cr3t");
         assert_eq!(source.describe(), "the environment variables SITE_NAS_*");
+    }
+
+    #[test]
+    fn an_environment_source_shows_its_prefix_but_no_value() {
+        let env = |_: &str| Some("kapto-s3cr3t".to_owned());
+        let shown = format!("{:?}", EnvSource::new("SITE_NAS", &env));
+        assert_eq!(shown, "EnvSource { prefix: \"SITE_NAS\", .. }");
     }
 
     #[test]

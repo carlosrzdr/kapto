@@ -110,6 +110,7 @@ pub struct ViewContents {
 
 /// Writes a view as an episode is read: messages and poses in the order
 /// they were received.
+#[derive(Debug)]
 pub struct ViewWriter {
     file: BufWriter<File>,
     written: u64,
@@ -120,6 +121,7 @@ pub struct ViewWriter {
 }
 
 /// One step's record being merged, and the records it has finished.
+#[derive(Debug)]
 struct Merging {
     step_ns: i64,
     at: i64,
@@ -381,6 +383,7 @@ fn encode(record: &Record, bytes: &mut Vec<u8>) {
 }
 
 /// A view opened to read stretches of it.
+#[derive(Debug)]
 pub struct View {
     file: BufReader<File>,
     about: ViewAbout,

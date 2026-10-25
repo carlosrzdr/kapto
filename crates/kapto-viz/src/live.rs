@@ -8,6 +8,7 @@ use kapto_core::ClockSample;
 use kapto_robot::{JointMap, Kinematics, RobotModel, Transform};
 
 /// The robot's current joint values, and where each comes from.
+#[derive(Debug)]
 pub struct LiveRobot {
     kinematics: Kinematics,
     /// For each stream, the `(joint, value)` pairs it sets: the joint's

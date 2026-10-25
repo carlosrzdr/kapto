@@ -343,6 +343,7 @@ pub struct LiveViewCounts {
 }
 
 /// A request waiting for the capture process's answer.
+#[derive(Debug)]
 pub struct Pending {
     /// The request.
     pub request: Request,
@@ -360,6 +361,7 @@ impl Pending {
 /// The capture process's end: listens on the control socket and hands each
 /// request after `hello` to whoever polls [`ControlServer::pending`]. The
 /// socket file is removed when it is dropped.
+#[derive(Debug)]
 pub struct ControlServer {
     requests: Receiver<Pending>,
     path: PathBuf,
@@ -740,6 +742,7 @@ fn version_mismatch(theirs: u32) -> KaptoError {
 }
 
 /// A client's end: a connection to a capture process, greeted.
+#[derive(Debug)]
 pub struct ControlClient {
     reader: BufReader<UnixStream>,
     writer: UnixStream,
@@ -841,6 +844,7 @@ impl ControlClient {
 }
 
 /// What a watching client is told, one announcement at a time.
+#[derive(Debug)]
 pub struct Announcements {
     reader: BufReader<UnixStream>,
 }
