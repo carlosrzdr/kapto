@@ -343,24 +343,26 @@ fn a_page_that_stops_reading_misses_pictures_and_never_holds_up_the_bridge() {
         .chain(vec![0; 900_000])
         .collect::<Vec<u8>>();
     let started = Instant::now();
+    let deadline = started + Duration::from_secs(10);
     for _ in 0..60 {
         capture.send(1, &compressed_image(&big));
     }
-    // A few more once the page has had longer than it takes to look: the
-    // picture waiting for it all that while is dropped, not thinned.
-    for _ in 0..3 {
+    // More, each once the page has had longer than it takes to look, until
+    // one waits for it all that while and is dropped, not thinned: only
+    // once the socket to the page is full, after as many pictures as the
+    // kernel holds for it.
+    let mut sent = 60;
+    while bridge.stream_stats().pictures_dropped == 0 {
+        assert!(Instant::now() < deadline, "{:?}", bridge.stream_stats());
         std::thread::sleep(Duration::from_millis(250));
         capture.send(1, &compressed_image(&big));
+        sent += 1;
     }
     // Every frame read, none of them waiting for the page.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while bridge.camera_totals().unwrap().frames < 63 {
+    while bridge.camera_totals().unwrap().frames < sent {
         assert!(Instant::now() < deadline, "{:?}", bridge.camera_totals());
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(started.elapsed() < Duration::from_secs(10));
-    let stream = bridge.stream_stats();
-    assert!(stream.pictures_dropped > 0, "{stream:?}");
     drop(bridge);
     std::fs::remove_dir_all(folder).unwrap();
 }
