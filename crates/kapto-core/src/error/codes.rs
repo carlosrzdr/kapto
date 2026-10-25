@@ -470,6 +470,12 @@ error_codes! {
         remedy: "Check that no other program (or other Kapto) uses server.port and that server.bind is an address of this machine. Ports below 1024 need extra permissions.",
     }
 
+    /// Another process, another `kapto serve`, holds the data directory.
+    ServerDataDirInUse = "server.data_dir_in_use" {
+        summary: "Another Kapto serve uses the data directory",
+        remedy: "One `kapto serve` runs per data directory (paths.data): two would rebuild, requeue and even delete each other's runtime state in kapto.db. Stop the other one (the message names its process where it can), or give this one a data directory of its own.",
+    }
+
     /// The server couldn't start one of Kapto's processes, or it didn't
     /// come up.
     ServerChildFailed = "server.child_failed" {

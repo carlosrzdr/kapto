@@ -565,3 +565,28 @@ fn serve_stops_while_clients_hold_the_event_stream_and_a_request_open() {
     assert!(!alive(capture));
     drop((stream, half));
 }
+
+#[test]
+fn a_second_serve_on_the_same_data_directory_is_refused_naming_the_first() {
+    let folder = scratch("two-serves");
+    let mapping = root().join("packages/arm7/mapping.toml");
+    let first = Serve::start(&folder, &mapping);
+    first.wait_for("Kapto is running: ", 1);
+
+    let mut second = Serve::start(&folder, &mapping);
+    let status = second.child.take().unwrap().wait().unwrap();
+    assert_eq!(status.code(), Some(1));
+    let error = second.wait_for("error[", 1);
+    assert!(
+        error.starts_with("error[server.data_dir_in_use]"),
+        "{error}"
+    );
+    let lines = second.lines.lock().unwrap().join("\n");
+    assert!(
+        lines.contains(&format!("process {} holds it", first.pid())),
+        "{lines}"
+    );
+    assert!(!lines.contains("[serve] started"), "{lines}");
+    // The first goes on as it was.
+    assert_eq!(first.http("GET", "/api/version", None).0, 200);
+}

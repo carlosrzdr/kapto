@@ -26,6 +26,7 @@ use kapto_server::api::ApiError;
 use kapto_server::api::{self, ApiState, CaptureAnnouncements};
 use kapto_server::jobs::{Bin, Destination, JOB_SOCKET, JobServer, Uploads};
 use kapto_server::layouts::Layouts;
+use kapto_server::lock::DataDirLock;
 use kapto_server::processes::sample_while;
 use kapto_server::retention::Retention;
 use kapto_server::robot::RobotOverview;
@@ -119,6 +120,8 @@ fn robot(
 /// Runs Kapto until SIGINT or SIGTERM.
 pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
     let (file, deployment) = crate::config::load(flags)?;
+    // Before anything touches the data directory, held until serve returns.
+    let _data_dir = DataDirLock::take(&deployment.data_dir.value).map_err(|error| vec![error])?;
     let settings = Arc::new(crate::config::overview(&file, &deployment));
     // Checked here once, rather than by children that would fail and be
     // restarted over and over.

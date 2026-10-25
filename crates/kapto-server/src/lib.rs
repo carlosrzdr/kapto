@@ -15,6 +15,7 @@ pub mod index;
 #[cfg(unix)]
 pub mod jobs;
 pub mod layouts;
+pub mod lock;
 pub mod preflight;
 #[cfg(unix)]
 pub mod processes;

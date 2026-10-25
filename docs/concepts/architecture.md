@@ -574,7 +574,11 @@ cargo run --bin kapto -- episode stop --data-dir /tmp/kapto
 
 `kapto serve` runs Kapto as its processes, all from the same binary: it
 starts `kapto capture`, `kapto viz-bridge` and `kapto worker` as children
-and keeps them running. A child that exits is started again after a second, then after
+and keeps them running. It first locks `kapto.lock` in the data directory
+for as long as it runs, so a second `serve` on the same directory, which
+would rebuild or even delete the runtime state under the first, ends with
+`server.data_dir_in_use`, naming the first; the lock goes with the process
+however it ends. A child that exits is started again after a second, then after
 waits that double up to 30 s while it keeps failing, and from a second
 again once it has run for a minute (`supervisor.restart_delay`,
 `restart_max_delay`, `stable_after`). Ctrl-C, SIGINT or SIGTERM stops them

@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use kapto_core::clock::utc_now_ns;
 use kapto_core::{EpisodeId, ErrorCode, KaptoError};
@@ -715,6 +716,10 @@ impl Reader {
     pub fn open(path: &Path) -> Result<Self, KaptoError> {
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         Connection::open_with_flags(path, flags)
+            .and_then(|connection| {
+                connection.busy_timeout(BUSY_TIMEOUT)?;
+                Ok(connection)
+            })
             .map(Self)
             .map_err(|error| open_failed(path, &error))
     }
@@ -1114,10 +1119,16 @@ fn tables(connection: &Connection) -> rusqlite::Result<Vec<String>> {
         .collect()
 }
 
+/// How long a connection waits for another's transaction to end before
+/// its own fails as busy: another process (a command run beside serve, or
+/// the worker) may be writing for a moment.
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Opens the database's file, creating it if needed, in WAL mode.
 fn connect(path: &Path) -> Result<Connection, KaptoError> {
     let failed = |error: rusqlite::Error| open_failed(path, &error);
     let connection = Connection::open(path).map_err(failed)?;
+    connection.busy_timeout(BUSY_TIMEOUT).map_err(failed)?;
     // WAL lets readers go on while the writer writes. `NORMAL` syncs at
     // checkpoints rather than every commit: a power cut can lose the last
     // changes, which is runtime state that is rebuilt or redone, never a
@@ -1151,7 +1162,6 @@ fn query_failed(error: impl std::fmt::Display) -> KaptoError {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::Duration;
 
     use kapto_core::{ClockMap, ClockSample, RecvTime};
 
@@ -1884,6 +1894,21 @@ mod tests {
                 .unwrap();
             assert_eq!(version, SCHEMA_VERSION);
         }
+    }
+
+    #[test]
+    fn a_write_waits_for_another_connections_transaction_rather_than_failing_busy() {
+        let dir = TempDir::new("busy");
+        let writer = Writer::open(&dir.database()).unwrap();
+        let other = Connection::open(dir.database()).unwrap();
+        other.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let held = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(300));
+            other.execute_batch("COMMIT").unwrap();
+        });
+        writer.index(episode(OLDER, true)).unwrap();
+        held.join().unwrap();
+        assert_eq!(writer.reader().unwrap().episodes(10).unwrap().len(), 1);
     }
 
     #[test]
