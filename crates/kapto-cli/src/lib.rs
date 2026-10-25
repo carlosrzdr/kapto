@@ -564,6 +564,11 @@ enum ConfigCommand {
     Show,
 }
 
+/// `count` and the word for it: `one` for a single thing, otherwise `many`.
+pub(crate) fn counted(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
 /// The setting flags every help shows; the others only in `--help`.
 const SHOWN_SETTINGS: &[&str] = &["config", "bind", "port", "data_dir", "packages_dir"];
 
@@ -726,6 +731,13 @@ mod tests {
                 about.len()
             );
         }
+    }
+
+    #[test]
+    fn a_count_of_one_takes_the_singular() {
+        assert_eq!(counted(1, "camera", "cameras"), "1 camera");
+        assert_eq!(counted(0, "camera", "cameras"), "0 cameras");
+        assert_eq!(counted(16, "stream", "streams"), "16 streams");
     }
 
     #[test]

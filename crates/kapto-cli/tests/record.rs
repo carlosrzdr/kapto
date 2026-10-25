@@ -525,7 +525,9 @@ fn an_episode_names_the_robot_package_its_streams_were_declared_in_or_none() {
     // It carries what it was recorded from: the stream declarations alone.
     assert_eq!(carried, ["streams.toml"]);
     assert!(
-        seen.iter().any(|line| line.contains("unchecked")),
+        seen.iter().any(|line| line
+            == "No robot package declares these streams, so episodes are recorded \
+                without a robot model or quality checks."),
         "{seen:#?}"
     );
 

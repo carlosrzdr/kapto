@@ -706,7 +706,7 @@ fn package_and_files(
         ),
         (Some(package), Some(Err(error))) => {
             eprintln!(
-                "warning: the robot package in {} can't be read, so episodes are recorded unchecked:\n\n{}\n",
+                "warning: the robot package in {} can't be read, so episodes are recorded without a robot model or quality checks:\n\n{}\n",
                 package.folder.display(),
                 error.report()
             );
@@ -814,7 +814,7 @@ pub(crate) fn loaded_package(streams: &Path) -> Option<Package> {
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
             eprintln!(
-                "warning: the robot package in {} can't be loaded, so episodes are recorded unchecked:\n\n{}\n",
+                "warning: the robot package in {} can't be loaded, so episodes are recorded without a robot model or quality checks:\n\n{}\n",
                 folder.display(),
                 reports.join("\n\n")
             );
@@ -827,7 +827,10 @@ pub(crate) fn loaded_package(streams: &Path) -> Option<Package> {
 /// starts.
 pub(crate) fn describe(package: Option<&PackageIdentity>) -> String {
     package.map_or_else(
-        || "no robot package declares these streams: episodes are recorded unchecked".to_owned(),
+        || {
+            "no robot package, as none declares these streams, so without a robot model or quality checks"
+                .to_owned()
+        },
         |package| {
             format!(
                 "robot package {} {} (hash {})",
@@ -856,11 +859,11 @@ impl Silence {
         if silent.is_empty() {
             return Self::None;
         }
-        let plural = if streams == 1 { "stream" } else { "streams" };
         let error = KaptoError::new(ErrorCode::CaptureNothingReceived).detail(format!(
-            "{} ({} of {streams} {plural})",
+            "{} ({} of {})",
             silent.join(", "),
-            silent.len()
+            silent.len(),
+            crate::counted(streams, "stream", "streams")
         ));
         if silent.len() == streams {
             Self::All(error)
@@ -890,14 +893,21 @@ fn session(
     (station.package, station.carried) =
         package_of(streams, mapping, deployment.attach_meshes.value);
     station.writer = writer;
-    eprintln!("Recording with {}.", describe(station.package.as_ref()));
+    if station.package.is_some() {
+        eprintln!("Recording with {}.", describe(station.package.as_ref()));
+    } else {
+        eprintln!(
+            "No robot package declares these streams, so episodes are recorded without a robot model or quality checks."
+        );
+    }
     let streams = station.plan.streams.len();
     let mut next_second = 1;
     let recorded = station.record(
         monotonic_now(),
         &mut |episode, buffers| {
             eprintln!(
-                "Recording episode {episode} from {streams} streams for {} s (buffers: {} batches, {} MiB). Started.",
+                "Recording episode {episode} from {} for {} s (buffers: {} batches, {} MiB). Started.",
+                crate::counted(streams, "stream", "streams"),
                 duration.as_secs(),
                 buffers.batches,
                 buffers.memory_bytes / (1024 * 1024),

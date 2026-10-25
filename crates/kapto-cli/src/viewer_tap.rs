@@ -105,8 +105,8 @@ pub(crate) fn open(
             min_interval: Duration::from_secs(1) / cameras.max_fps.max(1),
         };
         eprintln!(
-            "Live view: the newest frames of {} cameras, up to {} a second each, through {} MiB set aside.",
-            config.cameras.len(),
+            "Live view: the newest frames of {}, up to {} a second each, through {} MiB set aside.",
+            crate::counted(config.cameras.len(), "camera", "cameras"),
             cameras.max_fps,
             config.memory_bytes().div_ceil(1024 * 1024),
         );
