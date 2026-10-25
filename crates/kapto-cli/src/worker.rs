@@ -43,6 +43,7 @@ use kapto_store::db::DATABASE_FILE;
 use kapto_store::{Episode, JobFailure, JobId, Reader, episode_folder, verify_episode_with};
 
 mod learned;
+mod memory;
 mod priority;
 #[cfg(feature = "run")]
 mod replay;
@@ -572,6 +573,7 @@ fn work(
     let mut between = || step(recording, shutdown);
     for order in ordered {
         let result = run_job(data_dir, jobs, &order, &mut between);
+        memory::give_back();
         if ended.send((order.id, result)).is_err() {
             return;
         }

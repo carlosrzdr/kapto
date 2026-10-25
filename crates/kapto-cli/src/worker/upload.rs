@@ -93,6 +93,7 @@ pub(super) fn lane(
                 .block_on(upload(data_dir, destinations, &order, client, &mut between))
                 .err()
         };
+        super::memory::give_back();
         if let Some(error) = &failure
             && error.code() == ErrorCode::WorkerJobStopped
         {
