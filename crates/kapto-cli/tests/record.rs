@@ -430,6 +430,52 @@ fn record_a_second_in(
     (episode, carried, seen)
 }
 
+/// The nice value of each thread of process `pid` named `name`.
+#[cfg(target_os = "linux")]
+fn nice_of_threads_named(pid: u32, name: &str) -> Vec<i32> {
+    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else {
+        return Vec::new();
+    };
+    tasks
+        .filter_map(|entry| {
+            let task = entry.ok()?.path();
+            let comm = std::fs::read_to_string(task.join("comm")).ok()?;
+            let stat = std::fs::read_to_string(task.join("stat")).ok()?;
+            // After the name in brackets, from the third field on.
+            let fields: Vec<&str> = stat[stat.rfind(')')? + 2..].split(' ').collect();
+            (comm.trim() == name).then(|| fields[16].parse().ok())?
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn an_episode_is_hashed_while_it_is_recorded_by_cap_hash_at_the_workers_low_priority() {
+    let dir = TempDir::new("record-hash");
+    let streams = streams_file(&dir.0, free_ports(1), 1, 1000, Transport::Udp);
+    let data = dir.0.join("data");
+    let (child, _) = start_recording(&streams, &data, 3);
+    let start = std::time::Instant::now();
+    let nice = loop {
+        let nice = nice_of_threads_named(child.id(), "cap-hash");
+        if !nice.is_empty() || start.elapsed() > Duration::from_secs(3) {
+            break nice;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(nice, [10]);
+    assert_eq!(
+        child.wait_with_output().unwrap().status.code(),
+        Some(NOTHING_RECEIVED)
+    );
+    let episode = std::fs::read_dir(&data)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| !path.ends_with(".recording"))
+        .unwrap();
+    verify_episode(&episode).unwrap();
+}
+
 #[test]
 fn an_episode_killed_mid_recording_is_recovered_by_the_next_recording_before_it_starts() {
     let dir = TempDir::new("record-killed");

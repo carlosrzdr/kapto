@@ -2,10 +2,12 @@
 
 //! `cap-finalise`: closes each episode capture hands it, in turn, while
 //! capture receives again and feeds the live view. Closing an episode
-//! (the file's index and sync, `episode.json`, the rename, the manifest,
-//! which reads every byte back, and `_FINALISED`) grows with what was
-//! recorded, seconds for a minute of cameras; on capture's own thread
-//! nothing was received meanwhile and the live view stopped.
+//! (the file's index and sync, `episode.json`, the rename, the manifest
+//! and `_FINALISED`) took seconds for a minute of cameras when the
+//! manifest read every byte back; on capture's own thread nothing was
+//! received meanwhile and the live view stopped. The recording is now
+//! hashed behind the writer by `cap-hash`, so closing reads only what it
+//! hadn't reached, unless it has to read the whole file again.
 //!
 //! Stop is still answered, and the episode's end announced, only once the
 //! episode is finalised, so whoever acts on it finds it complete. Episodes

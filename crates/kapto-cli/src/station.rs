@@ -13,9 +13,9 @@
 //! Threads: `cap-rx-udp-0` receives every UDP stream and `cap-rx-tcp-<n>`
 //! the n-th TCP stream, each into its own ring; `cap-writer` writes every
 //! ring to the episode, or while idle only offers each batch to the live
-//! view; `cap-tap` sends the live view's samples and cameras' frames; the
-//! calling thread
-//! watches, samples the clocks and decides when the phase ends.
+//! view; `cap-tap` sends the live view's samples and cameras' frames;
+//! `cap-hash` hashes an episode's recording behind the writer; the calling
+//! thread watches, samples the clocks and decides when the phase ends.
 //!
 //! The writer also keeps, in every phase, the newest messages of each
 //! stream kept for late subscribers (`/tf_static`), and each episode starts
@@ -36,7 +36,7 @@ use kapto_capture::tap::frames::{FrameStats, FrameTotals};
 use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
-    Accounting, ChannelSpec, Drainer, Filler, HandedOver, Kept, KeptHeld, LossCounters,
+    Accounting, ChannelSpec, Drainer, Filler, HandedOver, HashBehind, Kept, KeptHeld, LossCounters,
     LossDetection, PostRoll, PreRoll, Recording, RingConfig, RingStats, StreamIndex, StreamTotals,
     Waiting, WriterConfig, discard_keeping_rings, ring,
 };
@@ -180,6 +180,8 @@ type Describe = Box<dyn FnOnce(&ClockMap, DurabilityStats) -> Episode + Send>;
 pub(crate) struct Closing {
     pub(crate) episode: EpisodeId,
     recording: Recording,
+    /// The recording hashed so far, if `cap-hash` started.
+    hash: Option<HashBehind>,
     staged: Staged,
     clock: ClockMap,
     describe: Describe,
@@ -198,6 +200,7 @@ impl Closing {
     pub(crate) fn close(self) -> Outcome<PathBuf> {
         let Self {
             recording,
+            hash,
             staged,
             clock,
             describe,
@@ -210,10 +213,42 @@ impl Closing {
         describe(&clock, durability)
             .write(&staged.dir())
             .map_err(one)?;
-        let finalised = staged.finalise().map_err(one)?;
+        // `cap-hash` reads the rest, the index and summary just written; if
+        // it can't vouch for every byte, the manifest reads the file whole.
+        let hashed = match hash.map(HashBehind::finish) {
+            Some(Ok(hashed)) => vec![hashed.entry(RECORDING_FILE)],
+            Some(Err(reason)) => {
+                say!("The recording is hashed again whole: {reason}.");
+                Vec::new()
+            }
+            None => Vec::new(),
+        };
+        let finalised = staged.finalise_with(&hashed).map_err(one)?;
         outln!("Finalised {}", finalised.dir().display());
         out!("{table}");
         Ok(finalised.dir().to_path_buf())
+    }
+}
+
+/// Starts `cap-hash` on the recording at `path`, at the worker's lower
+/// priority, so hashing it never takes a core from receiving, and has
+/// `recording` publish how far it is written to it. Without it, closing
+/// hashes the whole file.
+fn hash_behind(path: &Path, recording: &mut Recording) -> Option<HashBehind> {
+    let lower = || {
+        if let Err(error) = crate::worker::lower_priority() {
+            say!("The recording is hashed at capture's priority: {error}");
+        }
+    };
+    match HashBehind::start(path, lower) {
+        Ok((written, hash)) => {
+            recording.set_hash_behind(written);
+            Some(hash)
+        }
+        Err(error) => {
+            say!("The recording will be hashed when the episode is closed: {error}");
+            None
+        }
     }
 }
 
@@ -430,6 +465,7 @@ impl Station {
             &self.writer,
         )
         .map_err(one)?;
+        let hash = hash_behind(&staged.recording_path(), &mut recording);
         let (started_utc_ns, carried) = self
             .write_start(&mut recording, &episode, (&clock, asked, begun), &counters)
             .map_err(one)?;
@@ -485,6 +521,8 @@ impl Station {
             .write_record(SUMMARY_RECORD, summary.record())
             .map_err(one)?;
         if ending == Next::Discard {
+            // Nothing will be listed: `cap-hash` is stopped first.
+            drop(hash);
             recording.finish(&clock).map_err(one)?;
             staged.discard().map_err(one)?;
             outln!("Aborted episode {episode}; nothing of it was kept.");
@@ -502,7 +540,12 @@ impl Station {
             streams,
             commands,
         );
-        let closing = self.closing(episode, (recording, staged, clock), description, table);
+        let closing = self.closing(
+            episode,
+            (recording, hash, staged, clock),
+            description,
+            table,
+        );
         Ok(Recorded {
             episode,
             closing: Some(closing),
@@ -517,7 +560,7 @@ impl Station {
     fn closing(
         &self,
         episode: EpisodeId,
-        (recording, staged, clock): (Recording, Staged, ClockMap),
+        (recording, hash, staged, clock): (Recording, Option<HashBehind>, Staged, ClockMap),
         (times, buffers, streams, commands): Description,
         table: String,
     ) -> Closing {
@@ -544,6 +587,7 @@ impl Station {
         Closing {
             episode,
             recording,
+            hash,
             staged,
             clock,
             describe,
