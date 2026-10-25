@@ -310,9 +310,15 @@ fn a_page_that_stops_reading_misses_pictures_and_never_holds_up_the_bridge() {
     for _ in 0..60 {
         capture.send(1, &compressed_image(&big));
     }
+    // A few more once the page has had longer than it takes to look: the
+    // picture waiting for it all that while is dropped, not thinned.
+    for _ in 0..3 {
+        std::thread::sleep(Duration::from_millis(250));
+        capture.send(1, &compressed_image(&big));
+    }
     // Every frame read, none of them waiting for the page.
     let deadline = Instant::now() + Duration::from_secs(10);
-    while bridge.camera_totals().unwrap().frames < 60 {
+    while bridge.camera_totals().unwrap().frames < 63 {
         assert!(Instant::now() < deadline, "{:?}", bridge.camera_totals());
         std::thread::sleep(Duration::from_millis(10));
     }

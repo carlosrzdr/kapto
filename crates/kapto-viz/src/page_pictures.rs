@@ -43,6 +43,11 @@ impl PageShare {
     }
 }
 
+/// How long a picture may wait due, untaken, before its page is called
+/// slow: a page's thread looks for pictures between frames, or every few
+/// tens of milliseconds without them.
+const SLOW: Duration = Duration::from_millis(100);
+
 /// What became of a picture offered to a page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Offered {
@@ -50,8 +55,8 @@ pub enum Offered {
     Waits,
     /// It replaced a picture of its camera waiting for its share: thinned.
     Thinned,
-    /// It replaced a picture already due that the page hadn't taken: the
-    /// page is slow, and missed it.
+    /// It replaced a picture that had been due for longer than a page
+    /// takes to look: the page is slow, and missed it.
     Dropped,
 }
 
@@ -59,7 +64,8 @@ pub enum Offered {
 #[derive(Debug)]
 pub struct Waiting {
     interval: Duration,
-    newest: BTreeMap<u16, Bytes>,
+    /// Each camera's newest, with when it was offered.
+    newest: BTreeMap<u16, (Bytes, Instant)>,
     /// When each camera's last picture was taken for the page.
     sent: BTreeMap<u16, Instant>,
 }
@@ -75,20 +81,32 @@ impl Waiting {
         }
     }
 
+    /// From when camera `stream` may have its next picture taken: at once
+    /// if none was yet.
+    fn due_from(&self, stream: u16) -> Option<Instant> {
+        self.sent.get(&stream).map(|sent| *sent + self.interval)
+    }
+
     /// Whether camera `stream` may have its next picture taken at `now`.
     fn due(&self, stream: u16, now: Instant) -> bool {
-        self.sent
-            .get(&stream)
-            .is_none_or(|sent| now.saturating_duration_since(*sent) >= self.interval)
+        self.due_from(stream).is_none_or(|due| now >= due)
     }
 
     /// Keeps `picture` as camera `stream`'s newest at `now`, in place of any
     /// waiting.
     pub fn offer(&mut self, stream: u16, picture: Bytes, now: Instant) -> Offered {
-        match self.newest.insert(stream, picture) {
+        let due_from = self.due_from(stream);
+        match self.newest.insert(stream, (picture, now)) {
             None => Offered::Waits,
-            Some(_) if self.due(stream, now) => Offered::Dropped,
-            Some(_) => Offered::Thinned,
+            Some((_, offered)) => {
+                // Due once offered and its camera's share allowed one.
+                let due = due_from.map_or(offered, |due| due.max(offered));
+                if now.saturating_duration_since(due) > SLOW {
+                    Offered::Dropped
+                } else {
+                    Offered::Thinned
+                }
+            }
         }
     }
 
@@ -103,7 +121,7 @@ impl Waiting {
         due.into_iter()
             .filter_map(|stream| {
                 self.sent.insert(stream, now);
-                self.newest.remove(&stream)
+                self.newest.remove(&stream).map(|(picture, _)| picture)
             })
             .collect()
     }
@@ -148,10 +166,12 @@ mod tests {
         assert_eq!(waiting.offer(2, picture(20), at(110)), Offered::Waits);
         assert_eq!(waiting.take_due(at(110)), [picture(20)]);
 
-        // A picture due but not taken, as a slow page leaves it, is dropped
-        // when the next replaces it.
+        // A picture due and not yet taken is thinned if the next comes
+        // before a page would have looked, and dropped if after: the page
+        // is slow.
         assert_eq!(waiting.offer(1, picture(4), at(250)), Offered::Waits);
-        assert_eq!(waiting.offer(1, picture(5), at(260)), Offered::Dropped);
-        assert_eq!(waiting.take_due(at(270)), [picture(5)]);
+        assert_eq!(waiting.offer(1, picture(5), at(260)), Offered::Thinned);
+        assert_eq!(waiting.offer(1, picture(6), at(400)), Offered::Dropped);
+        assert_eq!(waiting.take_due(at(410)), [picture(6)]);
     }
 }
