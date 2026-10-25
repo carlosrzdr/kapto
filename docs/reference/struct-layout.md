@@ -53,8 +53,8 @@ and `unit` to none.
 | `offset` | Byte offset of the first value in the message. |
 | `count` | Number of values one after another: 1 for a single value, more for an array. |
 | `byte_order` | `little` (least significant byte first) or `big`. |
-| `scale` | Multiplier applied to each value, e.g. 0.001 for a value sent in thousandths. Scaled values are decimals. Not allowed on `bool`. |
-| `unit` | The unit of the (scaled) value, e.g. `rad`. |
+| `scale` | Multiplier applied to each value, e.g. 0.001 for a value sent in thousandths. Scaled values are decimals. Not allowed on `bool` or `time`. |
+| `unit` | The unit of the (scaled) value, e.g. `rad`; for a `time`, `s` or `ns`. |
 
 Every field must end within 65,507 bytes, the largest UDP message.
 Fields may overlap. Bytes no field covers are ignored, and a message
@@ -76,6 +76,10 @@ recorded).
 | `f32` | 4 |
 | `f64` | 8 |
 | `bool` | 1 |
+| `time` | 8 |
 
 Integers decode as integers unless scaled, so 64-bit values keep every
-digit. A `bool` is one byte: 0 is false, anything else true.
+digit. A `bool` is one byte: 0 is false, anything else true. A `time`
+is a moment, kept in nanoseconds: an `f64` of seconds, or with
+`unit = "ns"` an `i64` of nanoseconds; seconds that aren't a number
+leave it missing.

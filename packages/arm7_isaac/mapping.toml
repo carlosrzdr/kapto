@@ -15,3 +15,6 @@ gripper = "arm_joints.gripper"
 # above plays its own role already: joints.<joint>.position.
 [roles]
 "gripper.opening" = "arm_joints.gripper"
+# The simulation's time, from its /clock, which Isaac Sim gives in
+# simulated seconds.
+"time.simulated" = "clock.time"

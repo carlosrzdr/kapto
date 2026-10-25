@@ -231,6 +231,13 @@ error_codes! {
         remedy: "Add the joint to the `[joints]` table of mapping.toml with the field that holds its position. Until then it is shown at 0.",
     }
 
+    /// A role is given a field of a type it can't be played by: the
+    /// simulation's time, `time.simulated`, by anything but a `time`.
+    MappingRoleType = "mapping.role_type" {
+        summary: "The role's field is of a type that can't play it",
+        remedy: "Give `time.simulated` a single field of type `time`: the `clock` of a `rosgraph_msgs/msg/Clock`, a map of `sec` and `nanosec`, or a number of seconds (`unit = \"ns\"` for nanoseconds).",
+    }
+
     /// A mapped field's unit doesn't fit the joint.
     MappingUnitMismatch = "mapping.unit_mismatch" {
         summary: "The mapped field's unit doesn't fit the joint",

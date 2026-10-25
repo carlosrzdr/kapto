@@ -29,11 +29,16 @@ pub enum ScalarType {
     F64,
     /// One byte: zero is false, anything else true.
     Bool,
+    /// A moment, read as nanoseconds: in a fixed layout, eight bytes, an
+    /// `f64` of seconds or, with the unit `ns`, an `i64` of nanoseconds;
+    /// found by path, a number the same way, or a map of seconds and
+    /// nanoseconds, as ROS 2's `builtin_interfaces/msg/Time` is.
+    Time,
 }
 
 impl ScalarType {
     /// Every type, in the order they are listed in documentation.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::U8,
         Self::I8,
         Self::U16,
@@ -45,6 +50,7 @@ impl ScalarType {
         Self::F32,
         Self::F64,
         Self::Bool,
+        Self::Time,
     ];
 
     /// Bytes one value takes.
@@ -54,7 +60,7 @@ impl ScalarType {
             Self::U8 | Self::I8 | Self::Bool => 1,
             Self::U16 | Self::I16 => 2,
             Self::U32 | Self::I32 | Self::F32 => 4,
-            Self::U64 | Self::I64 | Self::F64 => 8,
+            Self::U64 | Self::I64 | Self::F64 | Self::Time => 8,
         }
     }
 
@@ -73,6 +79,7 @@ impl ScalarType {
             Self::F32 => "f32",
             Self::F64 => "f64",
             Self::Bool => "bool",
+            Self::Time => "time",
         }
     }
 
@@ -81,6 +88,54 @@ impl ScalarType {
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|ty| ty.name() == name)
     }
+}
+
+/// `seconds` in whole nanoseconds, rounded; `None` if it isn't a number or
+/// is beyond what an `i64` of nanoseconds holds, about 292 years.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "checked to be in range first"
+)]
+pub(crate) fn seconds_to_nanos(seconds: f64) -> Option<i64> {
+    // 2^63: every i64 is below it, and -2^63 is the least.
+    const I64_END: f64 = 9_223_372_036_854_775_808.0;
+    let nanos = (seconds * 1e9).round();
+    (-I64_END..I64_END).contains(&nanos).then_some(nanos as i64)
+}
+
+/// Everything wrong with a field's scale and unit for its type, the same
+/// for a fixed layout and one found by path: a flag or a moment isn't
+/// scaled, a scale is a finite number other than 0, a unit isn't empty,
+/// and a moment's is `s` or `ns`.
+pub(crate) fn scale_and_unit_problems(
+    name: &str,
+    ty: ScalarType,
+    scale: Option<f64>,
+    unit: Option<&str>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    match scale {
+        Some(_) if ty == ScalarType::Bool => {
+            problems.push(format!("`{name}` is a bool, which can't be scaled"));
+        }
+        Some(_) if ty == ScalarType::Time => {
+            problems.push(format!("`{name}` is a time, which can't be scaled"));
+        }
+        Some(scale) if !scale.is_finite() || scale == 0.0 => {
+            problems.push(format!(
+                "`{name}` has scale {scale}; it must be a finite number other than 0"
+            ));
+        }
+        _ => {}
+    }
+    if unit.is_some_and(str::is_empty) {
+        problems.push(format!("`{name}` has an empty unit; leave it out instead"));
+    } else if ty == ScalarType::Time && unit.is_some_and(|unit| unit != "s" && unit != "ns") {
+        problems.push(format!(
+            "`{name}` is a time, in `s` or `ns`; leave the unit out for seconds"
+        ));
+    }
+    problems
 }
 
 /// The order of a number's bytes.
@@ -107,6 +162,10 @@ pub enum Value {
     Float(f64),
     /// A true/false flag.
     Bool(bool),
+    /// A moment, in nanoseconds: since the Unix epoch for a clock that
+    /// tells the time of day, since the simulation started for one that
+    /// counts from it.
+    Time(i64),
     /// Not in this message: a field found by path, or by name, that the
     /// message doesn't have, while it has others. Never read as 0.
     Missing,
@@ -120,7 +179,8 @@ impl Default for Value {
 
 impl Value {
     /// The value as a float, e.g. for plotting. Integers beyond 2^53 lose
-    /// their lowest digits; a missing value is NaN, which plots leave out.
+    /// their lowest digits; a moment is in seconds; a missing value is NaN,
+    /// which plots leave out.
     #[must_use]
     #[allow(
         clippy::cast_precision_loss,
@@ -132,6 +192,7 @@ impl Value {
             Self::Int(value) => value as f64,
             Self::Float(value) => value,
             Self::Bool(value) => f64::from(u8::from(value)),
+            Self::Time(nanos) => nanos as f64 / 1e9,
             Self::Missing => f64::NAN,
         }
     }
@@ -144,6 +205,17 @@ impl fmt::Display for Value {
             Self::Int(value) => write!(f, "{value}"),
             Self::Float(value) => write!(f, "{value}"),
             Self::Bool(value) => write!(f, "{value}"),
+            // Seconds, every nanosecond written.
+            Self::Time(nanos) => {
+                let sign = if *nanos < 0 { "-" } else { "" };
+                let nanos = nanos.unsigned_abs();
+                write!(
+                    f,
+                    "{sign}{}.{:09}",
+                    nanos / 1_000_000_000,
+                    nanos % 1_000_000_000
+                )
+            }
             // Nothing: an empty cell, not a number.
             Self::Missing => Ok(()),
         }
@@ -256,6 +328,7 @@ mod tests {
         assert_eq!(ScalarType::I16.size(), 2);
         assert_eq!(ScalarType::F32.size(), 4);
         assert_eq!(ScalarType::U64.size(), 8);
+        assert_eq!(ScalarType::Time.size(), 8);
     }
 
     #[test]
@@ -263,6 +336,14 @@ mod tests {
         assert_eq!(Value::UInt(3).as_f64(), 3.0);
         assert_eq!(Value::Int(-2).as_f64(), -2.0);
         assert_eq!(Value::Bool(true).as_f64(), 1.0);
+        assert_eq!(Value::Time(12_500_000_000).as_f64(), 12.5);
+    }
+
+    #[test]
+    fn a_time_is_written_in_seconds_with_every_nanosecond() {
+        assert_eq!(Value::Time(12_345_678_901).to_string(), "12.345678901");
+        assert_eq!(Value::Time(-1_500_000_000).to_string(), "-1.500000000");
+        assert_eq!(Value::Time(7).to_string(), "0.000000007");
     }
 
     #[test]

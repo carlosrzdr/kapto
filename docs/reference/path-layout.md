@@ -55,6 +55,7 @@ every format, then multiplied by its `scale` if it has one:
 | `u8` … `u64`, `i8` … `i64` | integers in the type's range; numbers without a fraction (`3.0`), in range; `true` as 1 and `false` as 0 |
 | `f32`, `f64` | any number, an `f32` rounded to 32 bits; `true` as 1 and `false` as 0 |
 | `bool` | `true` and `false`; numbers: 0 is false, anything else true |
+| `time` | a map of `sec` and `nanosec`, as ROS 2's `builtin_interfaces/msg/Time`, or of `seconds` and `nanos`, as Protobuf's `Timestamp`, a part left out taken as 0 but not both; a number of seconds, or of nanoseconds with the unit `ns` |
 
 A path that isn't in the message, or a name it doesn't hold, leaves
 that field missing and the others decoded: a topic two publishers

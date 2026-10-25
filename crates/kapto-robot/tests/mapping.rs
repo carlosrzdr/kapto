@@ -78,6 +78,12 @@ fn streams() -> Vec<StreamDeclaration> {
            { name = \"efforts\", type = \"f32\", offset = 60, count = 7, unit = \"N·m\" },\n\
            { name = \"enabled\", type = \"bool\", offset = 88 },\n\
            { name = \"wrist_deg\", type = \"f32\", offset = 89, unit = \"deg\" },\n\
+         ]\n\
+         [streams.clock.decoder]\n\
+         kind = \"struct\"\n\
+         fields = [\n\
+           { name = \"time\", type = \"time\", offset = 0 },\n\
+           { name = \"times\", type = \"time\", offset = 8, count = 2 },\n\
          ]\n",
     ))
     .unwrap()
@@ -224,4 +230,37 @@ fn a_role_may_be_any_decoded_value_and_one_that_isnt_decoded_is_reported_with_it
             "mapping.unknown_field 5: The mapping names a field that isn't decoded: `arm.effort`: stream `arm` decodes no field `effort` (did you mean `efforts`?)",
         ]
     );
+}
+
+#[test]
+fn only_a_single_time_plays_the_simulations_time_and_a_time_drives_no_joint() {
+    let mapping = "[roles]\n\
+                   \"time.simulated\" = \"clock.time\"\n\
+                   \"clock.second\" = \"clock.times[1]\"\n";
+    assert!(map(&panda(), &streams(), mapping).is_ok());
+    assert_eq!(
+        problems(
+            &panda(),
+            &streams(),
+            "[joints]\n\
+             panda_joint1 = \"clock.time\"\n\
+             [roles]\n\
+             \"time.simulated\" = \"arm.sequence\"\n"
+        ),
+        [
+            "mapping.unknown_field 2: The mapping names a field that isn't decoded: `clock.time`: `time` is a time, not a joint's value",
+            "mapping.role_type 4: The role's field is of a type that can't play it: `arm.sequence` plays `time.simulated`, but `sequence` is a `u32`",
+        ]
+    );
+    assert_eq!(
+        problems(
+            &panda(),
+            &streams(),
+            "[roles]\n\"time.simulated\" = \"clock.times[0]\"\n"
+        ),
+        [
+            "mapping.role_type 2: The role's field is of a type that can't play it: `clock.times[0]` plays `time.simulated`, but `times` holds 2 times"
+        ]
+    );
+    assert!(ErrorCode::MappingRoleType.remedy().contains("`time`"));
 }

@@ -137,6 +137,68 @@ fn flags_take_true_and_false_and_numbers_as_nonzero() {
 }
 
 #[test]
+fn a_time_takes_seconds_and_nanoseconds_as_ros_2_and_protobuf_send_them_or_a_number() {
+    let time = |json: &str| decode(&one("t", ScalarType::Time), &format!(r#"{{"t": {json}}}"#));
+    let at = |seconds: i64, nanos: i64| Ok(vec![Value::Time(seconds * 1_000_000_000 + nanos)]);
+    assert_eq!(
+        time(r#"{"sec": 12, "nanosec": 345678901}"#),
+        at(12, 345_678_901)
+    );
+    assert_eq!(
+        time(r#"{"nanosec": 5, "frame": "x", "sec": -3}"#),
+        at(-3, 5),
+        "in any order, others passed over"
+    );
+    assert_eq!(
+        time(r#"{"seconds": 1773066812, "nanos": 500}"#),
+        at(1_773_066_812, 500)
+    );
+    assert_eq!(time("12.5"), at(12, 500_000_000), "a number is seconds");
+    assert_eq!(time("7"), at(7, 0));
+    let nanos = vec![PathField {
+        unit: Some("ns".to_owned()),
+        ..PathField::new("value", "t", ScalarType::Time)
+    }];
+    assert_eq!(
+        decode(&nanos, r#"{"t": 12345678901}"#),
+        at(12, 345_678_901),
+        "with the unit ns, nanoseconds"
+    );
+    assert_eq!(
+        decode(&nanos, r#"{"t": 1.5}"#),
+        Err(DecodeError::WrongType { field: 0 }),
+        "nanoseconds are whole"
+    );
+}
+
+#[test]
+fn a_time_takes_a_part_left_out_as_0_but_not_both_and_not_too_many_nanoseconds() {
+    let time = |json: &str| decode(&one("t", ScalarType::Time), &format!(r#"{{"t": {json}}}"#));
+    // Writers that leave out fields of 0 send a whole second so.
+    assert_eq!(
+        time(r#"{"sec": 12}"#),
+        Ok(vec![Value::Time(12_000_000_000)])
+    );
+    assert_eq!(time(r#"{"nanos": 12}"#), Ok(vec![Value::Time(12)]));
+    let wrong = Err(DecodeError::WrongType { field: 0 });
+    for bad in [
+        "{}",
+        r#"{"frame": "base"}"#,
+        r#"{"sec": 1, "nanosec": 1000000000}"#,
+        r#"{"sec": 1, "nanosec": -1}"#,
+        r#"{"sec": "1", "nanosec": 0}"#,
+        r#"{"sec": 1.5, "nanosec": 0}"#,
+        r#""12""#,
+        "true",
+        "null",
+        "[12, 0]",
+        "1e300",
+    ] {
+        assert_eq!(time(bad), wrong, "{bad}");
+    }
+}
+
+#[test]
 fn a_scale_turns_values_into_floats_in_the_declared_unit() {
     let fields = vec![PathField {
         scale: Some(0.001),
@@ -324,6 +386,23 @@ fn a_name_is_looked_up_once_per_path_for_one_value_after_an_arrays_key() {
     assert!(
         messages[0].contains("declare a field for each name"),
         "{messages:?}"
+    );
+}
+
+#[test]
+fn a_time_is_never_scaled_and_is_in_seconds_or_nanoseconds() {
+    let field = |scale: Option<f64>, unit: Option<&str>| PathField {
+        scale,
+        unit: unit.map(str::to_owned),
+        ..PathField::new("t", "t", ScalarType::Time)
+    };
+    assert_eq!(
+        layout_problems(vec![field(Some(2.0), None)]),
+        ["Invalid message layout: `t` is a time, which can't be scaled"]
+    );
+    assert_eq!(
+        layout_problems(vec![field(None, Some("ms"))]),
+        ["Invalid message layout: `t` is a time, in `s` or `ns`; leave the unit out for seconds"]
     );
 }
 

@@ -2028,7 +2028,7 @@ ros2 = { topic = "robot/status", type = "std_msgs/msg/Header", qos = { reliabili
                  typ = \"u8\"\n"
             ),
             [
-                "config.invalid_value 5: Invalid configuration value: `streams.arm.decoder.fields[0].type` must be one of \"u8\", \"i8\", \"u16\", \"i16\", \"u32\", \"i32\", \"u64\", \"i64\", \"f32\", \"f64\", \"bool\"",
+                "config.invalid_value 5: Invalid configuration value: `streams.arm.decoder.fields[0].type` must be one of \"u8\", \"i8\", \"u16\", \"i16\", \"u32\", \"i32\", \"u64\", \"i64\", \"f32\", \"f64\", \"bool\", \"time\"",
                 "stream.unknown_key 9: Unknown key in a stream declaration: `streams.arm.decoder.fields[1].typ` (did you mean `type`?)",
                 "config.invalid_value 8: Invalid configuration value: `streams.arm.decoder.fields[1]` needs `type`",
                 "config.invalid_value 8: Invalid configuration value: `streams.arm.decoder.fields[1]` needs `offset`",

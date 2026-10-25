@@ -63,6 +63,15 @@ unit = "m"
 rate_hz = 60
 ros2 = { topic = "/clock", type = "rosgraph_msgs/msg/Clock" }
 
+# The simulation's time, which mapping.toml gives the role time.simulated.
+[streams.clock.decoder]
+kind = "cdr"
+
+[[streams.clock.decoder.fields]]
+name = "time"
+type = "time"
+path = "clock"
+
 # The cameras' pictures are raw rgb8, as Isaac Sim renders them: 1.5 MiB
 # for the 960 x 540 one beside the arm, 0.9 MiB for the 640 x 480 one on
 # the wrist. The simulation asks for 30 a second of each; fewer arrive, how

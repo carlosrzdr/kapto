@@ -13,7 +13,10 @@ use kapto_core::name::is_name;
 use kapto_core::{ErrorCode, KaptoError};
 
 use crate::Decoder;
-use crate::field::{DecodeError, Endianness, FieldDescription, ScalarType, Value};
+use crate::field::{
+    DecodeError, Endianness, FieldDescription, ScalarType, Value, scale_and_unit_problems,
+    seconds_to_nanos,
+};
 
 /// The largest UDP payload: no field may end beyond it.
 pub const MAX_MESSAGE_BYTES: usize = 65_507;
@@ -106,6 +109,7 @@ impl StructLayout {
                     ty: field.ty,
                     endianness: field.endianness,
                     scale: field.scale,
+                    nanos: field.unit.as_deref() == Some("ns"),
                 });
             }
         }
@@ -144,20 +148,12 @@ fn problems(field: &FieldSpec, names: &mut BTreeSet<String>) -> Vec<String> {
     if field.count == 0 {
         problems.push(format!("`{name}` is an array of 0 values"));
     }
-    match field.scale {
-        Some(_) if field.ty == ScalarType::Bool => {
-            problems.push(format!("`{name}` is a bool, which can't be scaled"));
-        }
-        Some(scale) if !scale.is_finite() || scale == 0.0 => {
-            problems.push(format!(
-                "`{name}` has scale {scale}; it must be a finite number other than 0"
-            ));
-        }
-        _ => {}
-    }
-    if field.unit.as_deref().is_some_and(str::is_empty) {
-        problems.push(format!("`{name}` has an empty unit; leave it out instead"));
-    }
+    problems.extend(scale_and_unit_problems(
+        name,
+        field.ty,
+        field.scale,
+        field.unit.as_deref(),
+    ));
     if field.end() > MAX_MESSAGE_BYTES {
         problems.push(format!(
             "`{name}` ends at byte {}, past the largest UDP message ({MAX_MESSAGE_BYTES} bytes)",
@@ -174,6 +170,8 @@ struct Read {
     ty: ScalarType,
     endianness: Endianness,
     scale: Option<f64>,
+    /// For a moment: an `i64` of nanoseconds, not an `f64` of seconds.
+    nanos: bool,
 }
 
 /// A compiled [`StructLayout`].
@@ -264,7 +262,15 @@ fn read_value(payload: &[u8], read: &Read) -> Option<Value> {
         ScalarType::F32 => float(number!(f32, payload, read).into()),
         ScalarType::F64 => float(number!(f64, payload, read)),
         ScalarType::Bool => Value::Bool(bytes::<1>(payload, read.offset)?[0] != 0),
+        ScalarType::Time if read.nanos => Value::Time(number!(i64, payload, read)),
+        ScalarType::Time => seconds_as_time(number!(f64, payload, read)),
     })
+}
+
+/// A moment sent as an `f64` of seconds, in nanoseconds; missing if it
+/// isn't a number or is beyond what nanoseconds hold.
+fn seconds_as_time(seconds: f64) -> Value {
+    seconds_to_nanos(seconds).map_or(Value::Missing, Value::Time)
 }
 
 #[cfg(test)]
@@ -368,6 +374,65 @@ mod tests {
                 needed: 68,
                 got: 67
             })
+        );
+    }
+
+    #[test]
+    fn a_time_is_an_f64_of_seconds_or_with_the_unit_ns_an_i64_of_nanoseconds() {
+        let decoder = StructLayout {
+            fields: vec![
+                FieldSpec::new("seconds", ScalarType::Time, 0),
+                FieldSpec {
+                    unit: Some("ns".to_owned()),
+                    ..FieldSpec::new("nanos", ScalarType::Time, 8)
+                },
+            ],
+        }
+        .compile()
+        .unwrap();
+        let mut payload = 12.5_f64.to_le_bytes().to_vec();
+        payload.extend((-3_000_000_007_i64).to_le_bytes());
+        assert_eq!(
+            decode(&decoder, &payload).unwrap(),
+            [Value::Time(12_500_000_000), Value::Time(-3_000_000_007)]
+        );
+        let not_a_number = f64::NAN
+            .to_le_bytes()
+            .into_iter()
+            .chain([0; 8])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            decode(&decoder, &not_a_number).unwrap(),
+            [Value::Missing, Value::Time(0)]
+        );
+    }
+
+    #[test]
+    fn a_time_is_never_scaled_and_is_in_seconds_or_nanoseconds() {
+        let layout = StructLayout {
+            fields: vec![
+                FieldSpec {
+                    scale: Some(2.0),
+                    ..FieldSpec::new("scaled", ScalarType::Time, 0)
+                },
+                FieldSpec {
+                    unit: Some("ms".to_owned()),
+                    ..FieldSpec::new("in_ms", ScalarType::Time, 8)
+                },
+            ],
+        };
+        let messages: Vec<String> = layout
+            .compile()
+            .unwrap_err()
+            .iter()
+            .map(KaptoError::message)
+            .collect();
+        assert_eq!(
+            messages,
+            [
+                "Invalid message layout: `scaled` is a time, which can't be scaled",
+                "Invalid message layout: `in_ms` is a time, in `s` or `ns`; leave the unit out for seconds",
+            ]
         );
     }
 
@@ -503,12 +568,37 @@ mod tests {
             ScalarType::F32 => Value::Float(f64::from(f32::from_bits(raw as u32))),
             ScalarType::F64 => Value::Float(f64::from_bits(raw)),
             ScalarType::Bool => Value::Bool(raw & 1 == 1),
+            // Seconds as an f64, worked out with integer arithmetic on the
+            // decimal digits rather than as the decoder multiplies.
+            ScalarType::Time => {
+                let seconds = f64::from_bits(raw);
+                if seconds.is_finite() && seconds.abs() < 9.2e9 {
+                    Value::Time(
+                        format!("{seconds:.9}")
+                            .replace('.', "")
+                            .parse::<i64>()
+                            .unwrap_or(0),
+                    )
+                } else {
+                    Value::Missing
+                }
+            }
         }
     }
 
     fn same(a: Value, b: Value) -> bool {
         match (a, b) {
             (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
+            // The reference rounds the seconds' decimal digits, the decoder
+            // their product by 10^9: as far apart as the f64 of seconds
+            // holds nanoseconds, a nanosecond until about 104 days.
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "a bound, as precise as the f64 it is about"
+            )]
+            (Value::Time(a), Value::Time(b)) => {
+                a.abs_diff(b) as f64 <= 1.0 + b.unsigned_abs() as f64 * f64::EPSILON
+            }
             _ => a == b,
         }
     }

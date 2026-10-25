@@ -79,6 +79,24 @@ fn every_message_ros_2_serialised_reads_back_as_its_values() {
 }
 
 #[test]
+fn a_header_stamp_is_one_time_of_its_seconds_and_nanoseconds_as_ros_2_serialised_it() {
+    let joint_state = reference("joint_state");
+    let decoder = CdrLayout {
+        type_name: joint_state.type_name.clone(),
+        definition: joint_state.definition.clone(),
+        fields: vec![PathField::new("stamp", "header.stamp", ScalarType::Time)],
+    }
+    .compile(65_507)
+    .unwrap();
+    let stamp = &joint_state.values["header"]["stamp"];
+    let expected =
+        stamp["sec"].as_i64().unwrap() * 1_000_000_000 + stamp["nanosec"].as_i64().unwrap();
+    let mut out = [Value::default()];
+    decoder.decode(&joint_state.cdr, &mut out).unwrap();
+    assert_eq!(out, [Value::Time(expected)]);
+}
+
+#[test]
 fn fields_are_found_by_path_with_the_same_conversions_as_json() {
     let joint_state = reference("joint_state");
     let layout = |fields| CdrLayout {

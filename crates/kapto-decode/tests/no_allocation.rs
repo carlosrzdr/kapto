@@ -68,12 +68,17 @@ fn decoding_payloads_never_allocates() {
                 scale: Some(0.5),
                 ..FieldSpec::new("joint_positions", ScalarType::F64, 12)
             },
+            FieldSpec::new("sent", ScalarType::Time, 68),
+            FieldSpec {
+                unit: Some("ns".to_owned()),
+                ..FieldSpec::new("sent_ns", ScalarType::Time, 76)
+            },
         ],
     }
     .compile()
     .unwrap();
     let mut out = vec![Value::default(); decoder.value_count()];
-    let payload = [3_u8; 68];
+    let payload = [3_u8; 84];
     let short = [3_u8; 10];
 
     let before = allocations();
@@ -97,9 +102,11 @@ fn decoding_json_and_msgpack_by_path_allocates_nothing_when_it_succeeds() {
             },
             PathField::new("mode", "status.flags[1]", ScalarType::Bool),
             PathField::new("b", "joints.position[names=b]", ScalarType::F64),
+            PathField::new("stamp", "header.stamp", ScalarType::Time),
+            PathField::new("elapsed", "status.elapsed", ScalarType::Time),
         ],
     };
-    let json = br#"{"header":{"seq":7,"frame":"base"},"joints":{"names":["a","b","c"],"position":[0.1,0.2,0.3]},"status":{"flags":[false,true]}}"#;
+    let json = br#"{"header":{"seq":7,"frame":"base","stamp":{"sec":12,"nanosec":5}},"joints":{"names":["a","b","c"],"position":[0.1,0.2,0.3]},"status":{"flags":[false,true],"elapsed":1.5}}"#;
     let message: serde_json::Value = serde_json::from_slice(json).unwrap();
     let msgpack = rmp_serde::to_vec_named(&message).unwrap();
     for (format, payload) in [
@@ -116,6 +123,12 @@ fn decoding_json_and_msgpack_by_path_allocates_nothing_when_it_succeeds() {
         assert_eq!(out[0], Value::UInt(7));
         assert_eq!(out[4], Value::Bool(true));
         assert_eq!(out[5], Value::Float(0.2), "found by name");
+        assert_eq!(
+            out[6],
+            Value::Time(12_000_000_005),
+            "a map of seconds and nanoseconds"
+        );
+        assert_eq!(out[7], Value::Time(1_500_000_000), "a number of seconds");
     }
 }
 

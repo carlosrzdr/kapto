@@ -38,11 +38,13 @@ use kapto_core::{ErrorCode, KaptoError};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 
 use crate::Decoder;
-use crate::field::{DecodeError, FieldDescription, ScalarType, Value};
+use crate::field::{
+    DecodeError, FieldDescription, ScalarType, Value, scale_and_unit_problems, seconds_to_nanos,
+};
 
 /// What a field of each declared type accepts from the message, as
 /// `(types, accepts)`. Documented as written.
-pub const CONVERSIONS: [(&str, &str); 3] = [
+pub const CONVERSIONS: [(&str, &str); 4] = [
     (
         "`u8` … `u64`, `i8` … `i64`",
         "integers in the type's range; numbers without a fraction (`3.0`), in range; `true` as 1 and `false` as 0",
@@ -54,6 +56,10 @@ pub const CONVERSIONS: [(&str, &str); 3] = [
     (
         "`bool`",
         "`true` and `false`; numbers: 0 is false, anything else true",
+    ),
+    (
+        "`time`",
+        "a map of `sec` and `nanosec`, as ROS 2's `builtin_interfaces/msg/Time`, or of `seconds` and `nanos`, as Protobuf's `Timestamp`, a part left out taken as 0 but not both; a number of seconds, or of nanoseconds with the unit `ns`",
     ),
 ];
 
@@ -280,6 +286,7 @@ impl Paths {
                         ty: field.ty,
                         count: field.count,
                         scale: field.scale,
+                        nanos: field.unit.as_deref() == Some("ns"),
                     });
                 }
                 Err(problem) => problems.push(problem),
@@ -427,20 +434,12 @@ fn problems(field: &PathField, names: &mut BTreeSet<String>) -> Vec<String> {
     if field.count == 0 {
         problems.push(format!("`{name}` is an array of 0 values"));
     }
-    match field.scale {
-        Some(_) if field.ty == ScalarType::Bool => {
-            problems.push(format!("`{name}` is a bool, which can't be scaled"));
-        }
-        Some(scale) if !scale.is_finite() || scale == 0.0 => {
-            problems.push(format!(
-                "`{name}` has scale {scale}; it must be a finite number other than 0"
-            ));
-        }
-        _ => {}
-    }
-    if field.unit.as_deref().is_some_and(str::is_empty) {
-        problems.push(format!("`{name}` has an empty unit; leave it out instead"));
-    }
+    problems.extend(scale_and_unit_problems(
+        name,
+        field.ty,
+        field.scale,
+        field.unit.as_deref(),
+    ));
     problems
 }
 
@@ -467,6 +466,8 @@ struct Read {
     ty: ScalarType,
     count: usize,
     scale: Option<f64>,
+    /// For a moment given as a number: in nanoseconds, not seconds.
+    nanos: bool,
 }
 
 /// A compiled [`PathLayout`].
@@ -628,6 +629,9 @@ impl<'de> Visitor<'de> for Follow<'_> {
     }
 
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+        if self.steps.is_empty() && self.read.ty == ScalarType::Time && self.read.count == 1 {
+            return self.moment(map);
+        }
         let Some((Step::Key(wanted), rest)) = self.steps.split_first() else {
             // An index into a map, or a map where a value is expected.
             return Err(if self.steps.is_empty() {
@@ -730,6 +734,32 @@ impl<'de> Visitor<'de> for Follow<'_> {
 }
 
 impl Follow<'_> {
+    /// A map reached where a moment is expected: its seconds and
+    /// nanoseconds, every other key passed over.
+    fn moment<'de, A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+        let (mut seconds, mut nanos) = (None, None);
+        while let Some(part) = map.next_key_seed(TimeKey)? {
+            match part {
+                Some(TimePart::Seconds) => seconds = Some(map.next_value_seed(Plain)?),
+                Some(TimePart::Nanos) => nanos = Some(map.next_value_seed(Plain)?),
+                None => map.next_value_seed(Skip)?,
+            }
+        }
+        // A part left out is 0, as writers that leave out zero fields send a
+        // whole second; but one of them must be there.
+        let moment = match (seconds, nanos) {
+            (None, None) => None,
+            (seconds, nanos) => whole(seconds.unwrap_or(Some(Number::Int(0))))
+                .zip(whole(nanos.unwrap_or(Some(Number::Int(0)))))
+                .filter(|&(_, nanos)| (0..1_000_000_000).contains(&nanos))
+                .and_then(|(seconds, nanos)| {
+                    seconds.checked_mul(1_000_000_000)?.checked_add(nanos)
+                }),
+        };
+        self.values[0] = Value::Time(moment.ok_or_else(|| self.wrong_type())?);
+        Ok(())
+    }
+
     /// A number or flag reached: the field's value if the path ends here.
     fn scalar<E: de::Error>(self, number: Number) -> Result<(), E> {
         if !self.steps.is_empty() {
@@ -880,6 +910,146 @@ impl Visitor<'_> for KeyIs<'_> {
     }
 }
 
+/// A key of a map holding a moment: its seconds, its nanoseconds, or
+/// another to pass over.
+#[derive(Clone, Copy)]
+enum TimePart {
+    Seconds,
+    Nanos,
+}
+
+/// Reads a key of a map holding a moment as a [`TimePart`].
+struct TimeKey;
+
+impl<'de> DeserializeSeed<'de> for TimeKey {
+    type Value = Option<TimePart>;
+
+    fn deserialize<D: Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Option<TimePart>, D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl Visitor<'_> for TimeKey {
+    type Value = Option<TimePart>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a key")
+    }
+
+    fn visit_str<E: de::Error>(self, key: &str) -> Result<Option<TimePart>, E> {
+        Ok(match key {
+            "sec" | "seconds" => Some(TimePart::Seconds),
+            "nanosec" | "nanos" => Some(TimePart::Nanos),
+            _ => None,
+        })
+    }
+
+    fn visit_bytes<E: de::Error>(self, key: &[u8]) -> Result<Option<TimePart>, E> {
+        std::str::from_utf8(key).map_or(Ok(None), |key| self.visit_str(key))
+    }
+
+    fn visit_u64<E: de::Error>(self, _: u64) -> Result<Option<TimePart>, E> {
+        Ok(None)
+    }
+
+    fn visit_i64<E: de::Error>(self, _: i64) -> Result<Option<TimePart>, E> {
+        Ok(None)
+    }
+
+    fn visit_bool<E: de::Error>(self, _: bool) -> Result<Option<TimePart>, E> {
+        Ok(None)
+    }
+
+    fn visit_f64<E: de::Error>(self, _: f64) -> Result<Option<TimePart>, E> {
+        Ok(None)
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Option<TimePart>, E> {
+        Ok(None)
+    }
+}
+
+/// A number as the payload has it, for a part of a moment.
+struct Plain;
+
+impl<'de> DeserializeSeed<'de> for Plain {
+    type Value = Option<Number>;
+
+    fn deserialize<D: Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Option<Number>, D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for Plain {
+    type Value = Option<Number>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a number")
+    }
+
+    fn visit_u64<E: de::Error>(self, value: u64) -> Result<Option<Number>, E> {
+        Ok(Some(Number::UInt(value)))
+    }
+
+    fn visit_i64<E: de::Error>(self, value: i64) -> Result<Option<Number>, E> {
+        Ok(Some(Number::Int(value)))
+    }
+
+    fn visit_f64<E: de::Error>(self, value: f64) -> Result<Option<Number>, E> {
+        Ok(Some(Number::Float(value)))
+    }
+
+    fn visit_bool<E: de::Error>(self, _: bool) -> Result<Option<Number>, E> {
+        Ok(None)
+    }
+
+    fn visit_str<E: de::Error>(self, _: &str) -> Result<Option<Number>, E> {
+        Ok(None)
+    }
+
+    fn visit_unit<E: de::Error>(self) -> Result<Option<Number>, E> {
+        Ok(None)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Option<Number>, A::Error> {
+        while map.next_key_seed(Skip)?.is_some() {
+            map.next_value_seed(Skip)?;
+        }
+        Ok(None)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Option<Number>, A::Error> {
+        while seq.next_element_seed(Skip)?.is_some() {}
+        Ok(None)
+    }
+}
+
+/// A part of a moment as a whole number: seconds or nanoseconds.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "checked to be whole and in range first"
+)]
+fn whole(number: Option<Number>) -> Option<i64> {
+    match number? {
+        Number::Int(value) => Some(value),
+        Number::UInt(value) => i64::try_from(value).ok(),
+        // 2^63: every i64 is below it, and -2^63 is the least.
+        Number::Float(value)
+            if value.fract() == 0.0
+                && (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&value) =>
+        {
+            Some(value as i64)
+        }
+        Number::Float(_) | Number::Bool(_) => None,
+    }
+}
+
 /// One element of a field's array.
 struct Scalar<'a> {
     read: &'a Read,
@@ -983,6 +1153,28 @@ fn convert(number: Number, read: &Read) -> Option<Value> {
     const I64_END: f64 = 9_223_372_036_854_775_808.0;
     let whole = |value: f64| value.is_finite() && value.fract() == 0.0;
     let value = match read.ty {
+        ScalarType::Time => {
+            let nanos = if read.nanos {
+                match number {
+                    Number::UInt(value) => i64::try_from(value).ok()?,
+                    Number::Int(value) => value,
+                    Number::Float(value)
+                        if whole(value) && (-I64_END..I64_END).contains(&value) =>
+                    {
+                        value as i64
+                    }
+                    Number::Float(_) | Number::Bool(_) => return None,
+                }
+            } else {
+                match number {
+                    Number::UInt(value) => i64::try_from(value).ok()?.checked_mul(1_000_000_000)?,
+                    Number::Int(value) => value.checked_mul(1_000_000_000)?,
+                    Number::Float(value) => seconds_to_nanos(value)?,
+                    Number::Bool(_) => return None,
+                }
+            };
+            Value::Time(nanos)
+        }
         ScalarType::Bool => Value::Bool(match number {
             Number::Bool(flag) => flag,
             Number::UInt(value) => value != 0,

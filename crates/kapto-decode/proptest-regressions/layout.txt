@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc ffb8736c36024bfc327d33cb90b7691479462882521e130fffe37579e06e6a02 # shrinks to fields = [Generated { ty: Time, endianness: Little, raw: [4716975595403385883] }]

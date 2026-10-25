@@ -479,4 +479,7 @@ letters, digits and underscores as `_`. Other values are mapped under
 ```
 
 A role is checked like a joint's field: its stream and field must be
-decoded, and an index must be within the array.
+decoded, and an index must be within the array. `time.simulated`, a
+simulation's time, is played only by a single field of type `time`, such
+as a `rosgraph_msgs/msg/Clock`'s `clock` (`mapping.role_type` otherwise);
+the episodes and checks timed by it are *(planned)*.

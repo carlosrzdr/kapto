@@ -720,7 +720,6 @@ before it.
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M20-02 `feat(decode): the time field type` | As [simulated time](../design/simulated-time.md) says: a decoder field of type `time`, a ROS `builtin_interfaces/msg/Time` read as one value and a number as seconds, or nanoseconds with `unit = "ns"`, in the CDR, struct, JSON and MessagePack decoders; the role `time.simulated` accepted by `mapping.toml` only on such a field, refused otherwise with a cause code; `arm7_isaac` giving it to `/clock` | Property round trip, fuzz target and error snapshots per decoder; the role on a field of another type refused | — |
 | M20-02b `feat(store): how a simulation ran, in episode.json` | The mapping from receive time to simulated time, worked out from the clock stream's recorded messages (pauses, resets as new segments), in one place the worker, the server and the bridge share; the optional `simulated` object in `episode.json` (start, end, duration, ratio, pauses, resets), written once the episode is finalised | Synthetic clocks: at half and twice real time, paused, stepped and reset to zero; schema-lock test and `episode.json` snapshot | — |
 | M20-02c `feat(qa): rates in simulated time` | With the role given, pre-flight's rate check, the rate checks and the loss estimated from silences judged per simulated second, a paused simulation's silences not lost | Loadgen with a `/clock` at half real time: no slow stream, no loss; paused: no silence counted | — |
 | M20-02d `feat(ui): replays and the live view in simulated time` | The replay's *Simulated time* switch: the cursor through simulated time, pauses passed at once, segments between resets in turn with each marked, the axis in simulated seconds; the live view's simulated time, paused or not | Vitest for the mapping in the page; Playwright: a replay of a reset episode played in simulated time; screenshots | Watching a slowed simulation replayed at its own pace |
@@ -996,7 +995,7 @@ reference.
    the live view's memory over hours (M15-06f); `tokio-console`
    (M15-06b) once its open question is answered.
 4. Recording a robot simulated in Isaac Sim (WP M20), starting with
-   M20-02, simulated time, in its four PRs.
+   M20-02b, simulated time, in its three PRs left.
 
 The other work packages wait until then.
 

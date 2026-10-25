@@ -95,9 +95,13 @@ fn layouts(put: &Put<'_>) -> io::Result<()> {
     array.endianness = Endianness::Big;
     array.scale = Some(0.001);
     let layout = StructLayout {
-        fields: vec![FieldSpec::new("counter", ScalarType::U32, 0), array],
+        fields: vec![
+            FieldSpec::new("counter", ScalarType::U32, 0),
+            array,
+            FieldSpec::new("sent", ScalarType::Time, 10),
+        ],
     };
-    let payload: Vec<u8> = (1..=10).collect();
+    let payload: Vec<u8> = (1..=10).chain(12.5_f64.to_le_bytes()).collect();
     let schema = layout.to_schema_json();
     put(
         "struct_layout",
@@ -111,13 +115,14 @@ fn layouts(put: &Put<'_>) -> io::Result<()> {
         position,
         PathField::new("shoulder", "effort[name=shoulder]", ScalarType::F32),
         PathField::new("ok", "[0].ok", ScalarType::Bool),
+        PathField::new("stamp", "header.stamp", ScalarType::Time),
     ];
     let schema = PathLayout {
         format: PathFormat::Json,
         fields,
     }
     .to_schema_json();
-    let json = br#"{"joints":{"position":[0.5,1.5,2]},"name":["elbow","shoulder"],"effort":[1,2]}"#;
+    let json = br#"{"header":{"stamp":{"sec":12,"nanosec":5}},"joints":{"position":[0.5,1.5,2]},"name":["elbow","shoulder"],"effort":[1,2]}"#;
     put(
         "path_layout",
         "json",

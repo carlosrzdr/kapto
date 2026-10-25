@@ -773,8 +773,8 @@ fn struct_layout() -> String {
          | `offset` | Byte offset of the first value in the message. |\n\
          | `count` | Number of values one after another: 1 for a single value, more for an array. |\n\
          | `byte_order` | `little` (least significant byte first) or `big`. |\n\
-         | `scale` | Multiplier applied to each value, e.g. 0.001 for a value sent in thousandths. Scaled values are decimals. Not allowed on `bool`. |\n\
-         | `unit` | The unit of the (scaled) value, e.g. `rad`. |\n\n\
+         | `scale` | Multiplier applied to each value, e.g. 0.001 for a value sent in thousandths. Scaled values are decimals. Not allowed on `bool` or `time`. |\n\
+         | `unit` | The unit of the (scaled) value, e.g. `rad`; for a `time`, `s` or `ns`. |\n\n\
          Every field must end within 65,507 bytes, the largest UDP message.\n\
          Fields may overlap. Bytes no field covers are ignored, and a message\n\
          shorter than the end of the last field is not decoded (it is still\n\
@@ -786,7 +786,10 @@ fn struct_layout() -> String {
     }
     page.push_str(
         "\nIntegers decode as integers unless scaled, so 64-bit values keep every\n\
-         digit. A `bool` is one byte: 0 is false, anything else true.\n",
+         digit. A `bool` is one byte: 0 is false, anything else true. A `time`\n\
+         is a moment, kept in nanoseconds: an `f64` of seconds, or with\n\
+         `unit = \"ns\"` an `i64` of nanoseconds; seconds that aren't a number\n\
+         leave it missing.\n",
     );
     page
 }

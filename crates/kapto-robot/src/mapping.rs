@@ -107,7 +107,7 @@ impl JointMap {
             }
         }
         for role in &mapping.roles {
-            if let Err(error) = role_field(streams, &role.field) {
+            if let Err(error) = role_field(streams, role.role.as_str(), &role.field) {
                 errors.push(
                     error
                         .context("file", file.display().to_string())
@@ -223,12 +223,31 @@ fn find_field(
     Ok((stream, fields, field))
 }
 
-/// Checks that the value `reference` names for a role is decoded: a whole
+/// The role a simulation's time plays, which only a single `time` field can.
+pub const SIMULATED_TIME: &str = "time.simulated";
+
+/// Checks that the value `reference` names for `role` is decoded: a whole
 /// field, or an element of an array field. Any type plays a role, a
-/// true/false flag as much as a number.
-fn role_field(streams: &[StreamDeclaration], reference: &FieldReference) -> Result<(), KaptoError> {
+/// true/false flag as much as a number, but for the simulation's time,
+/// which only a single `time` field plays.
+fn role_field(
+    streams: &[StreamDeclaration],
+    role: &str,
+    reference: &FieldReference,
+) -> Result<(), KaptoError> {
     let (_, fields, field) = find_field(streams, reference)?;
     let spec = &fields[field];
+    if role == SIMULATED_TIME && (spec.ty != ScalarType::Time || spec.count != 1) {
+        let what = if spec.ty == ScalarType::Time {
+            format!("holds {} times", spec.count)
+        } else {
+            format!("is a `{}`", spec.ty.name())
+        };
+        return Err(KaptoError::new(ErrorCode::MappingRoleType).detail(format!(
+            "`{reference}` plays `{role}`, but `{}` {what}",
+            spec.name
+        )));
+    }
     let wrong =
         |detail: String| Err(KaptoError::new(ErrorCode::MappingUnknownField).detail(detail));
     match (spec.count, reference.index) {
@@ -281,6 +300,12 @@ fn source(
     if spec.ty == ScalarType::Bool {
         return Err(unknown(format!(
             "`{reference}`: `{}` is true/false, not a number",
+            spec.name
+        )));
+    }
+    if spec.ty == ScalarType::Time {
+        return Err(unknown(format!(
+            "`{reference}`: `{}` is a time, not a joint's value",
             spec.name
         )));
     }
