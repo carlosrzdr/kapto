@@ -119,3 +119,28 @@ pub(crate) fn user() -> String {
     };
     format!("{}:{}", id("-u"), id("-g"))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use kapto_core::ErrorCode;
+
+    /// The header's health chip ranks what a failed pre-flight check says by
+    /// its code; a check added to Kapto must be given words and a place there.
+    #[test]
+    fn the_health_chip_knows_every_pre_flight_check() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let health = std::fs::read_to_string(root.join("ui/src/lib/health.ts")).unwrap();
+        let missing: Vec<&str> = ErrorCode::ALL
+            .iter()
+            .map(|code| code.id())
+            .filter(|id| id.starts_with("preflight."))
+            .filter(|id| !health.contains(&format!("\"{id}\":")))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "ui/src/lib/health.ts has no words in PREFLIGHT for {missing:?}"
+        );
+    }
+}

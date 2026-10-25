@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { StreamCounts } from "./api-types";
   import { count } from "./format";
+  import { streamAnchor, streamState, type StreamState } from "./health";
 
   interface Props {
     streams: StreamCounts[];
@@ -17,31 +18,24 @@
     kept?: Record<string, boolean>;
     /** Whether capture answered, so its streams are known. */
     known?: boolean;
+    /**
+     * Whether each row carries the ID the header's health chip opens it by:
+     * in the side panel only, as the view's health panels show the same rows.
+     */
+    anchored?: boolean;
   }
 
-  let { streams, rates, recording, declared = {}, kept = {}, known = true }: Props = $props();
+  let { streams, rates, recording, declared = {}, kept = {}, known = true, anchored = false }: Props = $props();
 
-  /** Below this share of its declared rate, a stream is shown as a problem. */
-  const SLOW = 0.9;
-
-  /** How a stream is arriving; `null` until its rate is known. */
-  function health(stream: StreamCounts): "silent" | "slow" | "ok" | "kept" | null {
-    const rate = rates[stream.stream];
-    if (rate === undefined) {
-      return null;
-    }
-    if (rate === 0) {
-      return kept[stream.stream] ? "kept" : "silent";
-    }
-    const expected = declared[stream.stream];
-    return expected && rate < expected * SLOW ? "slow" : "ok";
-  }
+  /** How a stream is arriving, by the same rule the health chip judges it. */
+  const health = (stream: StreamCounts): StreamState | null =>
+    streamState(rates[stream.stream], declared[stream.stream], kept[stream.stream]);
 
   /** A stream's name in the pieces a line may break between: after each `_`. */
   const words = (name: string): string[] => name.split(/(?<=_)/);
 
   /** What a stream's dot says, for a screen reader and on hover. */
-  function said(state: "silent" | "slow" | "ok" | "kept", expected: number | null | undefined): string {
+  function said(state: StreamState, expected: number | null | undefined): string {
     if (state === "silent") {
       return "nothing arriving";
     }
@@ -78,7 +72,7 @@
   <tbody>
     {#each streams as stream (stream.stream)}
       {@const state = health(stream)}
-      <tr>
+      <tr id={anchored ? streamAnchor(stream.stream) : undefined} class:anchor={anchored} tabindex={anchored ? -1 : undefined}>
         <th scope="row">
           <span class="named"
             ><span class="name"
