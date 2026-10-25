@@ -63,13 +63,20 @@ stream, and its messages go through a ring of its own:
   frame (24 MiB) fits, for TCP and ROS 2 streams; UDP streams keep 65,507.
 - **Declared memory.** Each ring's memory is set aside when capture starts
   and counted in what it declares, so a camera's cost shows before an
-  episode is recorded.
+  episode is recorded. The rings are kept for as long as capture runs,
+  every phase, idle or recording, reusing them with their counts cleared;
+  a ring is replaced only when the writer let it fill three quarters or
+  dropped anything, by one twice as large, which is rare and said when it
+  happens.
 
 ## Consequences
 
 - Cameras can be recorded beside the 2 kHz streams without growing their
   buffers, at memory that grows with each camera's rate and frame size,
   known when capture starts.
+- Starting an episode allocates no batches: memory capture couldn't set
+  aside fails it at startup, not at a Start. Only a ring grown after a
+  writer fell behind allocates later, once, and says so.
 - Each camera topic costs a thread and a middleware node more: a robot
   sees Kapto as several nodes, `kapto` and one per camera.
 - The writer's allocations, made per chunk of the recording, come with
