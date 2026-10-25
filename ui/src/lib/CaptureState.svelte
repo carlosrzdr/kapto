@@ -16,7 +16,8 @@
 
 <span class="state" class:live={recording}>
   {#if status === null}
-    {unreachable ? "Capture not reachable" : "Connecting…"}
+    <!-- Unreachable, the health chip beside Record says so: said once. -->
+    {unreachable ? "" : "Connecting…"}
   {:else if recording}
     Recording · {duration(status.capture.seconds)}
   {:else}

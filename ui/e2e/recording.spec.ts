@@ -74,6 +74,15 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await expect(panels.getByRole("region", { name: /sequence/ })).toHaveCount(0);
   // The streams' counts are beside the view, in the console, not in it.
   await expect(panels.getByRole("table")).toHaveCount(0);
+  // The side panel opens on the episodes: the header says whether anything
+  // needs attention, and opens the live tab for the details.
+  await expect(page.getByRole("tab", { name: /^Episodes/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByText("No episodes recorded yet.")).toBeVisible();
+  const chip = page.getByRole("banner").getByRole("button", { name: /^Health: / });
+  await expect(chip).toHaveAccessibleName("Health: All well", { timeout: 20_000 });
+  await expect(chip).toHaveAccessibleDescription(/nothing needs attention/);
+  await chip.click();
+  await expect(page.getByRole("tab", { name: /^Live/ })).toHaveAttribute("aria-selected", "true");
   // The live tab: streams and storage.
   const stream = page.locator("aside").getByRole("row", { name: /arm_joints/ });
   const received = stream.getByRole("cell").nth(1);
@@ -85,9 +94,7 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await expect(rate).toHaveText(/\/s$/);
   await expect(rate).not.toHaveClass(/problem/);
   await expect(page.getByText(/ free of /)).toBeVisible();
-
-  await open(page, /^Episodes/);
-  await expect(page.getByText("No episodes recorded yet.")).toBeVisible();
+  await expect(chip).toHaveAccessibleName("Health: All well");
 
   await open(page, /^System/);
   for (const process of ["serve", "capture", "viz-bridge"]) {
@@ -420,6 +427,7 @@ test("pre-flight runs again from the page, and an episode it refuses is recorded
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
   await expect(page.getByText("Live, not recording")).toBeVisible();
+  await open(page, /^Live/);
   // The demo's robot sends before capture starts: its first run passes.
   await expect(page.getByText(/^Passed at/)).toBeVisible();
   const ran = page.waitForResponse((response) => response.url().endsWith("/api/preflight"));
@@ -470,6 +478,12 @@ test("pre-flight runs again from the page, and an episode it refuses is recorded
 
   await expect(page.getByText("1 of 1 checks failed")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Live" })).toHaveClass(/alert/);
+  // The header says it too, in the warning colour: first, before the
+  // uploads to the destination xtask makes fail for the episodes recorded
+  // by the tests before.
+  const chip = page.getByRole("banner").getByRole("button", { name: /^Health: / });
+  await expect(chip).toHaveAccessibleName(/^Health: Pre-flight: arm_joints silent( \+1)?$/);
+  await expect(chip).toHaveClass(/warning/);
   await open(page, /^System/);
   await page.getByRole("button", { name: "Record", exact: true }).click();
   // Refused: the live tab shows what failed and what to do.
@@ -1050,6 +1064,7 @@ test("streams with long names still fit the side panel with every count", async 
   ]) {
     await page.setViewportSize(size);
     await page.goto("/");
+    await open(page, /^Live/);
     await expect(page.locator("aside").getByRole("rowheader", { name: /^front_left_actuator/ })).toBeVisible({ timeout: 20_000 });
     await fitsPanel(page, `with long stream names at ${size.width}×${size.height}`);
     // A name breaks only after an underscore: no word of it is split.
@@ -1089,6 +1104,8 @@ test("the demo's wrist camera is shown live beside the arm", async ({ page }) =>
   // Its caption says on hover what became of its frames on their way to
   // the page; the side panel's loss table doesn't.
   await expect(figure.locator("figcaption")).toHaveAttribute("title", /Live view: .+ of .+ frames sent/);
+  await open(page, /^Live/);
+  await expect(page.locator("aside").getByRole("row", { name: /wrist_camera/ })).toBeVisible();
   await expect(page.locator("aside").getByText(/^Live view:/)).toHaveCount(0);
   expect(elsewhere).toEqual([]);
 });

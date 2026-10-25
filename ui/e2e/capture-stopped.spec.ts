@@ -21,7 +21,16 @@ test("with the capture process stopped, the page says why and can't record", asy
   await expect(record).toHaveAccessibleDescription(why);
   await expect(record).toHaveAttribute("title", `Record an episode (R): ${why}`);
   await expect(record).toHaveCSS("cursor", "not-allowed");
-  await expect(page.getByText("Capture not reachable")).toBeVisible();
+  // The header says it is what most needs attention, in the danger colour,
+  // and opens the live tab at it.
+  const chip = page.getByRole("banner").getByRole("button", { name: /^Health: / });
+  await expect(chip).toHaveAccessibleName(/^Health: Capture not reachable( \+\d+)?$/);
+  await expect(chip).toHaveClass(/danger/);
+  await expect(chip).toHaveAccessibleDescription(/capture restarting/);
+  await expect(page.getByRole("tab", { name: /^Episodes/ })).toHaveAttribute("aria-selected", "true");
+  await chip.click();
+  await expect(page.getByRole("tab", { name: /^Live/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Streams" })).toBeFocused();
   // Where the robot would be: that it can't be shown, pointing at why,
   // which the page says once.
   const noView = page.getByRole("status").filter({ hasText: "No live view" });

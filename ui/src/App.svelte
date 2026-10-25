@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "./lib/Icon.svelte";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
 
   import {
     ApiFailure,
@@ -56,6 +56,8 @@
   } from "./lib/api-types";
   import CaptureState from "./lib/CaptureState.svelte";
   import EpisodeList from "./lib/EpisodeList.svelte";
+  import HealthChip from "./lib/HealthChip.svelte";
+  import { health, LIVE, type Target } from "./lib/health";
   import LiveView from "./lib/LiveView.svelte";
   import Logo from "./lib/Logo.svelte";
   import PreflightPanel from "./lib/PreflightPanel.svelte";
@@ -81,12 +83,18 @@
   /** The tabs, in order; a remembered tab no longer among them is ignored. */
   const TAB_IDS = ["live", "episodes", "uploads", "robot", "system"];
 
+  /**
+   * The tab first shown: the episodes, as the header's health chip says
+   * whether anything needs attention and opens the tab that says more.
+   */
+  const FIRST_TAB = "episodes";
+
   function rememberedTab(): string {
     try {
       const remembered = localStorage.getItem(TAB_KEY);
-      return remembered !== null && TAB_IDS.includes(remembered) ? remembered : "live";
+      return remembered !== null && TAB_IDS.includes(remembered) ? remembered : FIRST_TAB;
     } catch {
-      return "live";
+      return FIRST_TAB;
     }
   }
 
@@ -157,6 +165,11 @@
    * next status answer.
    */
   let refused = $state<ApiFailure | null>(null);
+  /**
+   * Why the last status request failed, if it did: the status shown is then
+   * the last one capture gave, not what is so now.
+   */
+  let statusFailure = $state<ApiFailure | null>(null);
   let status = $state<Status | null>(null);
   let rates = $state<Record<string, number>>({});
   let episodes = $state<EpisodeSummary[]>([]);
@@ -301,6 +314,33 @@
     { id: "system", label: "System", alert: processes.some((p) => p.state === "restarting") },
   ]);
 
+  /** What each stream is declared to send and whether it is kept, by stream. */
+  const declared = $derived(Object.fromEntries((robot?.streams ?? []).map((s) => [s.name, s.rate_hz])));
+  const kept = $derived(Object.fromEntries((robot?.streams ?? []).map((s) => [s.name, s.kept])));
+
+  /** Everything wrong that the page knows of, from what it already asks for. */
+  const healthNow = $derived(
+    health({
+      status,
+      failure: statusFailure,
+      rates,
+      declared,
+      kept,
+      storage,
+      processes,
+      destinations: uploads?.destinations ?? [],
+    }),
+  );
+
+  /** Opens the tab where `target` is shown in full, and brings it into view. */
+  async function showProblem(target: Target | null) {
+    select(target?.tab ?? "live");
+    await tick();
+    const shown = document.getElementById(target?.anchor ?? LIVE.preflight);
+    shown?.scrollIntoView({ block: "center" });
+    shown?.focus({ preventScroll: true });
+  }
+
   function failure(error: unknown): ApiFailure {
     return error instanceof ApiFailure
       ? error
@@ -336,11 +376,13 @@
       const ended = status?.capture.episode;
       status = next;
       problem = null;
+      statusFailure = null;
       if (ended != null && next.capture.episode !== ended) {
         void refreshEpisodes();
       }
     } catch (error) {
       problem = failure(error);
+      statusFailure = problem;
     }
   }
 
@@ -627,14 +669,7 @@
 
 <!-- The streams' counts: in the side panel, and in the view's health panels. -->
 {#snippet streamTable()}
-  <StreamTable
-    streams={status?.capture.streams ?? []}
-    known={status !== null}
-    {rates}
-    {recording}
-    declared={Object.fromEntries((robot?.streams ?? []).map((s) => [s.name, s.rate_hz]))}
-    kept={Object.fromEntries((robot?.streams ?? []).map((s) => [s.name, s.kept]))}
-  />
+  <StreamTable streams={status?.capture.streams ?? []} known={status !== null} {rates} {recording} {declared} {kept} />
 {/snippet}
 
 <svelte:window onkeydown={appKey} />
@@ -669,6 +704,7 @@
       title="The keys for what you do most (?)"
       onclick={() => (keysShown = !keysShown)}><Icon name="keyboard" /> Keys</button
     >
+    <HealthChip health={healthNow} onopen={() => void showProblem(healthNow.target)} />
     <RecordButton
       {recording}
       {busy}
@@ -795,7 +831,7 @@
             <SettingsPanel {settings} />
           {/if}
         {:else}
-          <h2>Pre-flight</h2>
+          <h2 id={LIVE.preflight} class="anchor" tabindex="-1">Pre-flight</h2>
           <PreflightPanel
             run={status?.capture.preflight ?? null}
             {recording}
@@ -804,9 +840,10 @@
             onrun={() => void preflightAgain()}
             onrecordanyway={(waive) => act(() => startEpisode(choice, waive))}
           />
-          <h2>Streams</h2>
-          {@render streamTable()}
-          <h2>Storage</h2>
+          <h2 id={LIVE.streams} class="anchor" tabindex="-1">Streams</h2>
+          <!-- Its rows are where the header's health chip opens a stream's problem. -->
+          <StreamTable streams={status?.capture.streams ?? []} known={status !== null} {rates} {recording} {declared} {kept} anchored />
+          <h2 id={LIVE.storage} class="anchor" tabindex="-1">Storage</h2>
           <StorageSummary {storage} {writing} />
         {/if}
       </div>

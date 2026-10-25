@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ProcessStatus } from "./api-types";
   import { bytes, cores, duration } from "./format";
+  import { processAnchor } from "./health";
 
   interface Props {
     processes: ProcessStatus[];
@@ -37,7 +38,8 @@
   </thead>
   <tbody>
     {#each processes as process (process.name)}
-      <tr>
+      <!-- Opened by the header's health chip when it is what needs attention. -->
+      <tr id={processAnchor(process.name)} class="anchor" tabindex="-1">
         <th scope="row">{process.name}</th>
         <td class:problem={process.state === "restarting"} title={process.last_exit ? `Last ended: ${process.last_exit}` : undefined}>
           {state(process)}

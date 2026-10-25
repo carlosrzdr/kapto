@@ -2,6 +2,7 @@
   import type { ApiFailure } from "./api";
   import type { DestinationTested, UploadsOverview, UploadStatus } from "./api-types";
   import { bytes, count, duration, plain, sentence, time } from "./format";
+  import { destinationAnchor } from "./health";
   import { type Measured, timeLeft, uploadKey } from "./uploads";
 
   interface Props {
@@ -75,7 +76,8 @@
   <ul class="destinations">
     {#each overview.destinations as destination (destination.name)}
       {@const tested = tests[destination.name]}
-      <li aria-label={destination.name}>
+      <!-- Opened by the header's health chip when it is what needs attention. -->
+      <li aria-label={destination.name} id={destinationAnchor(destination.name)} class="anchor" tabindex="-1">
         <div class="head">
           <strong>{destination.name}</strong>
           <button type="button" disabled={tested === "testing"} aria-busy={tested === "testing"} onclick={() => void test(destination.name)}>

@@ -132,6 +132,12 @@ h3:first-child {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+/* What the header's health chip opened is focused from a click, which
+   browsers don't ring by themselves: it is ringed, so the eye finds it. */
+.anchor:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
 input,
 select,
 textarea {

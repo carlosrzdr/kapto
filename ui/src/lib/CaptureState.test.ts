@@ -17,8 +17,9 @@ describe("CaptureState", () => {
     expect(screen.getByText("Live, not recording")).toBeTruthy();
     rerender({ status: status("e1"), unreachable: false });
     expect(screen.getByText(/^Recording · /)).toBeTruthy();
+    // Unreachable, the health chip says so, not this too.
     rerender({ status: null, unreachable: true });
-    expect(screen.getByText("Capture not reachable")).toBeTruthy();
+    expect(screen.queryByText(/reachable|Connecting/)).toBeNull();
   });
 
   it("says an episode is being finalised while capture goes on, and which", () => {

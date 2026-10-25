@@ -19,9 +19,16 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   const nothingLeft = await open(page);
   const aside = page.locator("aside");
 
-  // Live, once the stream's rate is known and the viewer has drawn the arm.
-  // The browser draws the viewer in software here, which slows the page's
-  // first readings.
+  // As the page opens: on the episodes, the header saying all is well.
+  const chip = page.getByRole("banner").getByRole("button", { name: /^Health: / });
+  await expect(chip).toHaveAccessibleName("Health: All well", { timeout: 60_000 });
+  await expect(page.getByTitle("Live view of the robot").getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 60_000 });
+  await page.waitForTimeout(5_000);
+  await shot(page, "opened");
+  // Live, opened from the header, once the stream's rate is known and the
+  // viewer has drawn the arm. The browser draws the viewer in software
+  // here, which slows the page's first readings.
+  await chip.click();
   const stream = page.locator("aside").getByRole("row", { name: /arm_joints/ });
   await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(5_000);
@@ -123,6 +130,9 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   );
   await expect(page.getByText(/2 of 4 checks failed/)).toBeVisible();
   await shot(aside, "preflight-failed");
+  // The header names the worst, and how many more.
+  await expect(chip).toHaveAccessibleName("Health: Pre-flight: arm_joints silent +1");
+  await shot(page.getByRole("banner"), "health-warning");
   await page.getByRole("button", { name: "Record", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await shot(page.getByRole("alert"), "preflight-refused");
@@ -525,6 +535,7 @@ test("a screenshot of each tab at a tablet's width", async ({ page }) => {
   test.setTimeout(180_000);
   const nothingLeft = await open(page);
   await page.setViewportSize({ width: 1024, height: 768 });
+  await tab(page, /^Live/);
   const stream = page.locator("aside").getByRole("row", { name: /arm_joints/ });
   await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(3_000);
