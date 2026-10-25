@@ -988,19 +988,65 @@ test("a replay is arranged by the layout its recording carries", async ({ page }
   // Arranged as recorded, not as the live view is: no plots, no wrist camera.
   await expect(panels.getByRole("region", { name: /^Plot of / })).toHaveCount(0);
   await expect(panels.getByRole("region", { name: "Cameras" })).toHaveCount(0);
+  // A recording is arranged as it says: nothing to arrange on a replay.
+  await expect(page.getByRole("button", { name: "Arrange" })).toHaveCount(0);
   await page.getByRole("banner").getByRole("button", { name: "Back to live" }).click();
   await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+});
+
+test("Arrange is at the view's top right, above its panels, and pressed while its editor is open under it", async ({ page }) => {
+  await page.goto("/");
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const arrange = page.getByRole("button", { name: "Arrange" });
+  const editor = page.getByRole("region", { name: "Arrange the view" });
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible({ timeout: 20_000 });
+  const viewport = page.viewportSize();
+  for (const size of [
+    { width: 1400, height: 900 },
+    { width: 1024, height: 768 },
+  ]) {
+    await page.setViewportSize(size);
+    const at = `at ${size.width}×${size.height}`;
+    const button = (await arrange.boundingBox())!;
+    const view = (await panels.boundingBox())!;
+    // At the right edge of the view, on a line of its own above the panels:
+    // nothing a panel shows is under it.
+    expect(Math.abs(button.x + button.width - (view.x + view.width)), `its right edge ${at}`).toBeLessThan(2);
+    expect(button.y + button.height, `its bottom ${at}`).toBeLessThanOrEqual(view.y);
+    await expect(arrange).toHaveAttribute("aria-pressed", "false");
+
+    await arrange.click();
+    await expect(arrange).toHaveAttribute("aria-pressed", "true");
+    await expect(arrange).toHaveAttribute("aria-expanded", "true");
+    await expect(editor).toBeVisible();
+    // The editor opens right under its button, its right edge on the button's;
+    // measured by the box it scrolls in, which is what takes room.
+    const box = (await editor.locator("xpath=..").boundingBox())!;
+    const pressed = (await arrange.boundingBox())!;
+    expect(box.y - (pressed.y + pressed.height), `the editor's gap under it ${at}`).toBeGreaterThanOrEqual(0);
+    expect(box.y - (pressed.y + pressed.height), `the editor's gap under it ${at}`).toBeLessThan(12);
+    expect(Math.abs(box.x + box.width - (pressed.x + pressed.width)), `the editor's right edge ${at}`).toBeLessThan(2);
+    // Beside the panels where there is room; above them, never over them, where there isn't.
+    const after = (await panels.boundingBox())!;
+    if (size.width === 1024) {
+      expect(after.y, `the panels' top ${at}`).toBeGreaterThanOrEqual(box.y + box.height);
+    } else {
+      expect(after.x + after.width, `the panels' right edge ${at}`).toBeLessThanOrEqual(box.x);
+    }
+
+    await arrange.click();
+    await expect(arrange).toHaveAttribute("aria-pressed", "false");
+    await expect(editor).toHaveCount(0);
+  }
+  if (viewport) {
+    await page.setViewportSize(viewport);
+  }
 });
 
 test("the operator arranges their own view, keeps it, and saves it for every browser", async ({ page, browser }) => {
   await page.goto("/");
   const panels = page.getByRole("group", { name: "The view's panels" });
   await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible({ timeout: 20_000 });
-  // The Arrange button sits on the marks' line, beside "Mark".
-  await expect(page.getByRole("button", { name: /^Mark / })).toBeVisible();
-  const arrange = await page.getByRole("button", { name: "Arrange" }).boundingBox();
-  const mark = await page.getByRole("button", { name: /^Mark / }).boundingBox();
-  expect(Math.abs((arrange?.y ?? 0) + (arrange?.height ?? 0) / 2 - ((mark?.y ?? 0) + (mark?.height ?? 0) / 2))).toBeLessThan(3);
   await page.getByRole("button", { name: "Arrange" }).click();
   const editor = page.getByRole("region", { name: "Arrange the view" });
   // The gripper's plot removed; the joints' positions as one plot of their

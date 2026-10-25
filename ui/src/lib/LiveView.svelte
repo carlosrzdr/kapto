@@ -1283,6 +1283,39 @@
 <svelte:window onkeydown={viewKey} />
 
 <div class="view">
+{#if packageId && replay === null}
+  <!-- A bar of its own above the columns, so Arrange never covers what a
+       panel shows (the robot's own buttons, a plot's key, a camera's
+       picture); the list of layouts goes beside it, on its left. -->
+  <div class="view-bar">
+    <button
+      type="button"
+      class="arrange-toggle"
+      aria-pressed={arranging}
+      aria-expanded={arranging}
+      aria-controls="arranging"
+      onclick={() => (arranging = !arranging)}
+    >
+      Arrange
+    </button>
+  </div>
+  {#if arranging}
+    <!-- Next to its button in the page's order too, so at a tablet's width
+         it opens under it rather than at the page's foot. -->
+    <div class="arranging" id="arranging" class:faded={carried !== null || sharing !== null}>
+      <LayoutEditor
+        layout={own ?? editable(liveLayout)}
+        {offered}
+        {recordedOnly}
+        onchange={arrange}
+        onsave={() => void settle(() => saveDefaultLayout(own ?? editable(liveLayout)), "Saved as the default: every browser shows the view this way.")}
+        onreset={() => void settle(removeDefaultLayout, "Back to the package's layout, in every browser.")}
+        said={arrangeSaid}
+        failed={arrangeFailed}
+      />
+    </div>
+  {/if}
+{/if}
 <div class="home" hidden bind:this={home}>
 <div
   class="live"
@@ -1463,29 +1496,8 @@
   onwatch={watch}
   replaying={replay !== null}
 />
-<div class="under">
-  <!-- Marks go to what is recorded now: not offered while an episode is replayed. -->
-  <div hidden={replay !== null}><MarkBar onkinds={knowKinds} /></div>
-  {#if packageId && replay === null}
-    <button type="button" class="arrange-toggle" aria-expanded={arranging} onclick={() => (arranging = !arranging)}>
-      Arrange
-    </button>
-  {/if}
-</div>
-{#if arranging && packageId && replay === null}
-  <div class="arranging" class:faded={carried !== null || sharing !== null}>
-    <LayoutEditor
-      layout={own ?? editable(liveLayout)}
-      {offered}
-      {recordedOnly}
-      onchange={arrange}
-      onsave={() => void settle(() => saveDefaultLayout(own ?? editable(liveLayout)), "Saved as the default: every browser shows the view this way.")}
-      onreset={() => void settle(removeDefaultLayout, "Back to the package's layout, in every browser.")}
-      said={arrangeSaid}
-      failed={arrangeFailed}
-    />
-  </div>
-{/if}
+<!-- Marks go to what is recorded now: not offered while an episode is replayed. -->
+<div hidden={replay !== null}><MarkBar onkinds={knowKinds} /></div>
 </div>
 
 <style>
@@ -1685,13 +1697,9 @@
     .panel {
       flex-basis: 0;
     }
-    /* No room beside: the editor goes under the view instead. */
+    /* No room beside: the editor goes above the panels instead. */
     .columns.on-view {
       margin-right: 0;
-    }
-    .arranging {
-      position: static;
-      width: 100%;
     }
     .between-columns {
       width: auto;
@@ -1775,15 +1783,18 @@
     font-size: var(--text-xs);
     cursor: pointer;
   }
-  /* Arrange on the marks' line: their bar keeps room above it. */
-  .under {
+  /* The view's own controls, at its top right where a view's settings are
+     looked for, with room on their left for more of them. */
+  .view-bar {
     display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 0.5rem;
+    flex: none;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    height: var(--control-height);
+    margin-bottom: var(--space-1);
   }
   .arrange-toggle {
-    padding: 0.2rem 0.6rem;
+    padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: transparent;
@@ -1792,17 +1803,39 @@
     font-size: var(--text-sm);
     cursor: pointer;
   }
+  /* Pressed while arranging, in the accent its editor's top edge carries
+     too, so the two read as one. */
+  .arrange-toggle[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+  }
+  /* Right under its button, the columns making room for it beside them. */
   .arranging {
     position: absolute;
-    top: 0;
+    top: calc(var(--control-height) + var(--space-1));
     right: 0;
     z-index: 2;
     width: min(30rem, 100%);
     max-height: calc(100% - 6rem);
     overflow-y: auto;
     border: 1px solid var(--line);
+    border-top-color: var(--accent);
     border-radius: var(--radius);
     background: var(--panel);
+    /* Its edges inside its width, so it ends where its button and the view do. */
+    box-sizing: border-box;
+  }
+  /* No room beside, as on a tablet: the editor goes between its button and
+     the panels instead. After the rule above, which it would lose to before it. */
+  @media (max-width: 70rem) {
+    .arranging {
+      position: static;
+      flex: none;
+      width: 100%;
+      max-height: 40%;
+      margin-bottom: var(--space-2);
+    }
   }
   .environment {
     position: absolute;

@@ -603,6 +603,11 @@ test("a screenshot of each tab at a tablet's width", async ({ page }) => {
   await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(3_000);
   await shot(page, "tablet-live");
+  // Arranging at this width: the editor under its button, above the panels.
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await page.waitForTimeout(500);
+  await shot(page, "tablet-live-arrange");
+  await page.getByRole("button", { name: "Arrange" }).click();
   await viewer(page, false);
   await tab(page, /^Episodes/);
   const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
