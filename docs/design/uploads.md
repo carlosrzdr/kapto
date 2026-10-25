@@ -86,7 +86,12 @@ progress.
   a restart read again to be hashed), and completes the file at the store
   only if that matches its manifest. A file that doesn't, changed on disk
   or misread, fails with `upload.local_changed`, its parts dropped, and is
-  never marked verified, so never deleted here.
+  never marked verified, so never deleted here. A part sent before a
+  restart may have been misread then and read correctly now, so a file
+  carried on from such parts is also read back from the store by range
+  and hashed before it counts as verified; one that doesn't match fails
+  with `upload.verify_failed`, its progress dropped so the next try sends
+  it again from the start. A file sent in one run isn't read back for this.
 - **The stores.** `object_store` covers S3 and S3-compatible storage, GCS,
   Azure, a local folder and memory (for tests). For SFTP, Google Drive and
   the other services Apache OpenDAL covers, `object_store_opendal` (part

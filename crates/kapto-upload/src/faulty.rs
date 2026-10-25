@@ -29,6 +29,8 @@ pub struct Faulty<S> {
     faults: Mutex<VecDeque<Error>>,
     /// Where what is put is stored with its first byte changed.
     corrupted: Mutex<Vec<Path>>,
+    /// Each location read, once per read, to show what was read back.
+    reads: Mutex<Vec<Path>>,
 }
 
 impl<S> Faulty<S> {
@@ -38,6 +40,7 @@ impl<S> Faulty<S> {
             store,
             faults: Mutex::new(VecDeque::new()),
             corrupted: Mutex::new(Vec::new()),
+            reads: Mutex::new(Vec::new()),
         }
     }
 
@@ -48,6 +51,17 @@ impl<S> Faulty<S> {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(location);
+    }
+
+    /// How many reads of `location`'s contents, whole or by range, it
+    /// passed on.
+    pub fn reads_of(&self, location: &Path) -> usize {
+        self.reads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|read| *read == location)
+            .count()
     }
 
     /// Makes the next call fail with `error`, after those queued before.
@@ -106,6 +120,13 @@ impl<S: ObjectStore> ObjectStore for Faulty<S> {
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
         self.fault()?;
+        // A head request asks for the metadata only, reading nothing.
+        if !options.head {
+            self.reads
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(location.clone());
+        }
         self.store.get_opts(location, options).await
     }
 

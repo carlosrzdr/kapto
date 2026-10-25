@@ -20,7 +20,9 @@
 //!   says; the marker is written only once every file is. Unless only sizes
 //!   are compared, a file's bytes are hashed as they are read to be sent
 //!   and checked against its manifest before the file is completed there: a
-//!   store checking what it took proves only that it got what was read.
+//!   store checking what it took proves only that it got what was read. A
+//!   file carried on from parts sent before a restart is also read back
+//!   from the store, since one of those parts may have been misread then.
 //! - **Kept under the bandwidth cap.** Each request that sends data waits
 //!   its turn at the [`Pace`] the cap sets, if one is set.
 //! - **Paused or stopped between files.** The caller is asked before each
@@ -57,7 +59,8 @@ use crate::throttle::{Window, throttled};
 pub enum Verify {
     /// The bytes read to be sent match the manifest, and the store checked
     /// their SHA-256 as it took them; a store that doesn't has the file
-    /// read back instead.
+    /// read back instead, as does a file carried on from parts sent before
+    /// a restart.
     ServerChecksum,
     /// The bytes read to be sent match the manifest, and each file is read
     /// back and hashed again.
@@ -246,9 +249,21 @@ pub async fn upload_episode(
             between()?;
             let at = key.clone().join(file.path.as_str());
             let uploading = upload_file(store, folder, file, &at, &tries, progress, save);
-            kapto_core::instrument!(uploading, "upload file", file = %file.path, bytes = file.bytes)
+            let resumed = kapto_core::instrument!(uploading, "upload file", file = %file.path, bytes = file.bytes)
                 .await?;
-            let e_tag = verify(store, file, &at, &tries).await?;
+            let e_tag = match verify(store, file, &at, &tries, resumed).await {
+                Ok(e_tag) => e_tag,
+                Err(error) => {
+                    // What is there isn't the file: sent again from the
+                    // start on the next try, not carried on from its parts.
+                    if error.code() == ErrorCode::UploadVerifyFailed {
+                        progress.files.remove(&file.path);
+                        tries.count(progress);
+                        save(progress);
+                    }
+                    return Err(error);
+                }
+            };
             progress
                 .files
                 .insert(file.path.clone(), FileProgress::Verified { e_tag });
@@ -338,6 +353,8 @@ async fn existing_marker(
     }
 }
 
+/// Puts `file` at `at`, returning whether it was carried on from parts sent
+/// before a restart, which only reading it back from the store checks.
 async fn upload_file(
     store: Store<'_>,
     folder: &std::path::Path,
@@ -346,7 +363,7 @@ async fn upload_file(
     tries: &Tries<'_>,
     progress: &mut Progress,
     save: &mut (dyn FnMut(&Progress) + Send),
-) -> Result<(), KaptoError> {
+) -> Result<bool, KaptoError> {
     let carried = match progress.files.remove(&file.path) {
         Some(FileProgress::Parts {
             upload_id,
@@ -362,7 +379,8 @@ async fn upload_file(
         .unwrap_or_else(|| part_size(tries.policy, file.bytes));
     let mut reading = Reading::new(tries.policy, folder, file, part);
     let Some(multipart) = store.multipart.filter(|_| file.bytes > part) else {
-        return put_whole(store.objects, at, &reading, tries).await;
+        put_whole(store.objects, at, &reading, tries).await?;
+        return Ok(false);
     };
 
     let count = file.bytes.div_ceil(part);
@@ -406,7 +424,7 @@ async fn upload_file(
         };
         kapto_core::instrument!(putting, "upload part", file = %file.path, index, bytes = part)
     };
-    let (mut next, mut sent_before) = (0, Vec::new());
+    let (mut next, mut sent_before, resumed) = (0, Vec::new(), !parts.is_empty());
     let mut in_flight = FuturesUnordered::new();
     loop {
         while in_flight.len() < lock(&tries.window).limit() && next < count {
@@ -449,7 +467,7 @@ async fn upload_file(
     tries
         .run(|| multipart.complete_multipart(at, &upload_id, ids.clone()))
         .await
-        .map(|_| ())
+        .map(|_| resumed)
         .map_err(|error| store_error(at, &error))
 }
 
@@ -593,12 +611,14 @@ impl<'a> Reading<'a> {
     }
 }
 
-/// Checks the file at `at` is `file`, returning the store's tag of it.
+/// Checks the file at `at` is `file`, returning the store's tag of it;
+/// `resumed`, it was carried on from parts sent before a restart.
 async fn verify(
     store: Store<'_>,
     file: &FileEntry,
     at: &Path,
     tries: &Tries<'_>,
+    resumed: bool,
 ) -> Result<Option<String>, KaptoError> {
     let meta = tries
         .run(|| store.objects.head(at))
@@ -613,21 +633,26 @@ async fn verify(
     let read_back = match tries.policy.verify {
         Verify::SizeOnly => false,
         Verify::ReadBack => true,
-        Verify::ServerChecksum => !tries.policy.store_checks_sha256,
+        // A part sent before a restart was hashed as read now, not as read
+        // then to be sent: only what the store holds shows it.
+        Verify::ServerChecksum => !tries.policy.store_checks_sha256 || resumed,
     };
     if read_back {
-        let sha256 = tries
-            .run(|| async {
-                let mut stream = store.objects.get(at).await?.into_stream();
-                let mut hasher = Sha256::new();
-                while let Some(chunk) = stream.next().await {
-                    hasher.update(chunk?);
-                }
-                Ok(hex(&hasher.finalize()))
-            })
-            .await
-            .map_err(|error| store_error(at, &error))?;
-        if sha256 != file.sha256 {
+        // By ranges the size of a part, so memory stays at one, and a
+        // range that fails is tried again on its own.
+        let chunk = part_size(tries.policy, file.bytes);
+        let mut hasher = Sha256::new();
+        let mut offset = 0;
+        while offset < file.bytes {
+            let end = file.bytes.min(offset.saturating_add(chunk));
+            let data = tries
+                .run(|| store.objects.get_range(at, offset..end))
+                .await
+                .map_err(|error| store_error(at, &error))?;
+            hasher.update(&data);
+            offset = end;
+        }
+        if hex(&hasher.finalize()) != file.sha256 {
             return Err(mismatch(at, "another SHA-256"));
         }
     }
@@ -1140,6 +1165,93 @@ mod tests {
                 assert!(matches!(outcome, Ok(Uploaded::Now(_))), "{outcome:?}");
                 let recording = object(&memory, "recording.mcap").await.unwrap();
                 assert_eq!(recording, (0..40).collect::<Vec<u8>>());
+            }
+        }
+    }
+
+    /// The progress of `recording.mcap` going up in parts of 16 bytes to
+    /// `store`, with part `index` sent before a restart as `data`.
+    async fn sent_before_a_restart(
+        store: &dyn MultipartStore,
+        index: u64,
+        data: Vec<u8>,
+    ) -> Progress {
+        let at = Path::from("robot/episode/recording.mcap");
+        let upload_id = store.create_multipart(&at).await.unwrap();
+        let place = usize::try_from(index).unwrap();
+        let part = store
+            .put_part(&at, &upload_id, place, PutPayload::from(data))
+            .await
+            .unwrap();
+        let mut progress = Progress::default();
+        progress.files.insert(
+            "recording.mcap".into(),
+            FileProgress::Parts {
+                upload_id,
+                part_bytes: 16,
+                parts: BTreeMap::from([(index, part.content_id)]),
+            },
+        );
+        progress
+    }
+
+    #[tokio::test]
+    async fn a_part_misread_before_a_restart_is_caught_by_reading_the_file_back_and_sent_again() {
+        let folder = episode("upload-resumed-misread");
+        let faulty = Faulty::new(InMemory::new());
+        // Part 0 was misread before the restart, one byte off; read again
+        // now it hashes right, so only what the store holds shows it.
+        let mut misread: Vec<u8> = (0..16).collect();
+        misread[3] ^= 0x01;
+        let mut progress = sent_before_a_restart(&faulty, 0, misread).await;
+        let store = Store {
+            objects: &faulty,
+            multipart: Some(&faulty),
+        };
+        let (outcome, saves, _) = upload(store, &folder, &SERVER_CHECKSUM, &mut progress).await;
+        let error = outcome.unwrap_err();
+        assert_eq!(error.code(), ErrorCode::UploadVerifyFailed);
+        assert!(error.message().contains("another SHA-256"), "{error:?}");
+        assert_eq!(object(&faulty, SUCCESS_FILE).await, None);
+        // Not verified, so never deleted here, nor carried on from its
+        // parts by the next try.
+        assert!(!progress.done);
+        assert_eq!(progress.files.get("recording.mcap"), None);
+        assert_eq!(saves.last(), Some(&progress), "saved as it is");
+
+        let (outcome, _, _) = upload(store, &folder, &SERVER_CHECKSUM, &mut progress).await;
+        assert!(matches!(outcome, Ok(Uploaded::Now(_))), "{outcome:?}");
+        let recording = object(&faulty, "recording.mcap").await.unwrap();
+        assert_eq!(recording, (0..40).collect::<Vec<u8>>(), "sent again whole");
+    }
+
+    #[tokio::test]
+    async fn only_a_file_carried_on_from_parts_sent_before_a_restart_is_read_back() {
+        let at = Path::from("robot/episode/recording.mcap");
+        for resumed in [false, true] {
+            let folder = episode(&format!("upload-read-back-{resumed}"));
+            let faulty = Faulty::new(InMemory::new());
+            let mut progress = if resumed {
+                sent_before_a_restart(&faulty, 1, (16..32).collect()).await
+            } else {
+                Progress::default()
+            };
+            let store = Store {
+                objects: &faulty,
+                multipart: Some(&faulty),
+            };
+            let (outcome, _, _) = upload(store, &folder, &SERVER_CHECKSUM, &mut progress).await;
+            assert!(matches!(outcome, Ok(Uploaded::Now(_))), "{outcome:?}");
+            assert!(matches!(
+                progress.files.get("recording.mcap"),
+                Some(FileProgress::Verified { .. })
+            ));
+            // By ranges of a part: 40 bytes in three.
+            let reads = if resumed { 3 } else { 0 };
+            assert_eq!(faulty.reads_of(&at), reads, "resumed: {resumed}");
+            for file in ["episode.json", "manifest.json"] {
+                let other = Path::from("robot/episode").join(file);
+                assert_eq!(faulty.reads_of(&other), 0, "{file}");
             }
         }
     }
