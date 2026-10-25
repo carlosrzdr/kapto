@@ -26,6 +26,7 @@
   import Timeline from "./Timeline.svelte";
   import { camerasOf, Decoder, type Shown, withPicture, withSaid } from "./viewer/cameras";
   import { type Item, MarkLog } from "./viewer/marks";
+  import { OffThreadDecoder } from "./viewer/pictures-off-thread";
   import { frameAt, replayCamera, type ReplayCamera, steppedTo } from "./viewer/replay-cameras";
   import {
     applyPlacement,
@@ -326,20 +327,20 @@
   const cameraWidths = new Map<number, number>();
   /**
    * Decodes each camera's pictures as they come, by the browser's own
-   * decoder, scaled down to the width they are shown at: a 1080p picture
+   * decoder off the page's main thread, scaled down to the width they are shown at: a 1080p picture
    * shown a few hundred pixels wide costs the page far less decoded that
    * small. Never scaled up: one shown wider than the camera's is decoded
    * whole, and tells the camera's width again.
    */
+  const offThread = new OffThreadDecoder();
   const pictures = new Decoder(
     (picture) => {
-      const blob = new Blob([picture.bytes], { type: picture.type });
       const shownWidth = shownWidths.get(picture.stream);
       const cameraWidth = cameraWidths.get(picture.stream);
       if (shownWidth !== undefined && cameraWidth !== undefined && shownWidth < cameraWidth) {
-        return createImageBitmap(blob, { resizeWidth: shownWidth, resizeQuality: "medium" });
+        return offThread.decode(picture.bytes, picture.type, shownWidth);
       }
-      return createImageBitmap(blob).then((bitmap) => {
+      return offThread.decode(picture.bytes, picture.type, null).then((bitmap) => {
         cameraWidths.set(picture.stream, bitmap.width);
         return bitmap;
       });
@@ -1038,6 +1039,7 @@
     return () => {
       watched?.stop();
       watched = null;
+      offThread.stop();
       dropPictures();
       closeCameras();
       clearInterval(shown);

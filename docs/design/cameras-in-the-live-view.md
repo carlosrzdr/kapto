@@ -75,7 +75,8 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   WebSocket as a message of its own, beside the frames of poses and
   samples: the camera's position among the streams, when Kapto received
   the frame, its size, and the JPEG. The page decodes it with the
-  browser's own decoder and draws the newest one per camera. As for every
+  browser's own decoder, in a worker off its main thread, and draws the
+  newest one per camera. As for every
   message to a page, each page has room for a few; a picture that doesn't
   fit is dropped for that page and counted, and the bridge never waits on
   a page.
