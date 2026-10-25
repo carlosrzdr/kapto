@@ -20,6 +20,8 @@ jpeg-encoder.workspace = true
 # Cameras' pictures decoded at a fraction of their size, by the decoder's
 # own scaling, to keep a thinned history of them to look back over.
 jpeg-decoder.workspace = true
+# Waiting for the tap's datagrams without switching its socket to blocking.
+rustix = { workspace = true, features = ["event"] }
 serde.workspace = true
 serde_json.workspace = true
 tungstenite.workspace = true

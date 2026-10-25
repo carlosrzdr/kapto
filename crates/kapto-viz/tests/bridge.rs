@@ -584,6 +584,41 @@ fn another_site_s_page_is_refused_and_one_that_never_reads_costs_only_the_frames
 }
 
 #[test]
+fn connections_that_never_finish_their_handshake_count_against_the_pages_allowed() {
+    let opening = Opening {
+        version: STREAM_VERSION,
+        links: Vec::new(),
+        streams: Vec::new(),
+        history_s: 600,
+        cameras: Vec::new(),
+    };
+    let stream = FrameStream::start(
+        (LOCALHOST, 0, 7700),
+        &opening,
+        History::new(i64::MAX, usize::MAX),
+        Marks::new(i64::MAX),
+    )
+    .unwrap();
+    let port = stream.address().port();
+    // As many as are allowed, each sending nothing: no page yet, but each
+    // holds a thread waiting for its handshake.
+    let stalled: Vec<_> = (0..kapto_viz::stream::MAX_PAGES)
+        .map(|_| TcpStream::connect((LOCALHOST, port)).unwrap())
+        .collect();
+    let one_more = TcpStream::connect((LOCALHOST, port)).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while stream.stats().refused == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the one more was never refused"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(stream.stats().pages, 0);
+    drop((stalled, one_more));
+}
+
+#[test]
 fn waiting_on_the_tap_returns_as_soon_as_a_sample_arrives() {
     let folder = scratch("wait");
     let path = folder.join("tap.sock");

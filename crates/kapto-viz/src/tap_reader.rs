@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use kapto_capture::tap::MAX_PATH_BYTES;
 use kapto_capture::tap::wire::{self, TapSample, WireError};
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use rustix::io::Errno;
 
 /// What the reader has seen.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -63,31 +65,23 @@ impl TapReader {
     pub fn drain_waiting(
         &mut self,
         timeout: Duration,
-        mut each: impl FnMut(&TapSample),
+        each: impl FnMut(&TapSample),
     ) -> io::Result<usize> {
-        // Blocking with a timeout only for the first datagram, so the
-        // bridge wakes as one arrives rather than on a timer of its own.
-        self.socket.set_nonblocking(false)?;
-        self.socket
-            .set_read_timeout(Some(timeout.max(Duration::from_millis(1))))?;
-        let first = self.socket.recv(&mut self.buffer);
-        self.socket.set_nonblocking(true)?;
-        let length = match first {
-            Ok(length) => length,
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock
-                        | io::ErrorKind::TimedOut
-                        | io::ErrorKind::Interrupted
-                ) =>
-            {
-                return Ok(0);
-            }
-            Err(error) => return Err(error),
+        // Waits for the socket to be readable, so the bridge wakes as a
+        // sample arrives rather than on a timer of its own; the socket stays
+        // non-blocking throughout, so nothing failing midway leaves it
+        // blocking for `drain`.
+        let timeout = timeout.max(Duration::from_millis(1));
+        let timeout = Timespec {
+            tv_sec: i64::try_from(timeout.as_secs()).unwrap_or(i64::MAX),
+            tv_nsec: i64::from(timeout.subsec_nanos()),
         };
-        let first = self.take(length, &mut each);
-        Ok(first + self.drain(each)?)
+        let mut sockets = [PollFd::new(&self.socket, PollFlags::IN)];
+        match poll(&mut sockets, Some(&timeout)) {
+            Ok(0) | Err(Errno::INTR) => Ok(0),
+            Ok(_) => self.drain(each),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Hands every sample waiting on the socket to `each`, oldest first,

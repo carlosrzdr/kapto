@@ -22,7 +22,7 @@
 
 use std::io::{self, ErrorKind};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
@@ -42,6 +42,12 @@ use crate::page_pictures::{Offered, PageShare, Waiting};
 use crate::picture::{Picture, PictureFormat};
 use crate::plots::Plots;
 
+// The stream's format (its magics, headers and version) is fixed by the
+// page reading it; the queues, the most pages and the waits below are
+// limits of the bridge's own, which keep a page that stopped reading from
+// holding anything up, not behaviour an operator tunes, so they aren't
+// settings. What an operator does tune (rates, history) is `viewer.*`.
+
 /// What a frame starts with.
 pub const FRAME_MAGIC: &[u8; 4] = b"KVFR";
 /// What a camera's picture starts with.
@@ -59,8 +65,9 @@ const PAGE_QUEUE: usize = 4;
 /// Marks a page may have waiting before the next is dropped: they come a
 /// few a second at most, so only a page that stopped reading fills it.
 const MARKS_QUEUE: usize = 256;
-/// Pages connected at once; more are refused.
-const MAX_PAGES: usize = 16;
+/// Pages connected at once, counted from the moment each connects, its
+/// handshake not yet done; more are refused.
+pub const MAX_PAGES: usize = 16;
 /// How long writing to a page may take before the page is let go.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often the listener checks whether the bridge is stopping.
@@ -633,18 +640,27 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Takes connections until the bridge stops, each on a thread of its own,
 /// so a slow handshake never holds up the others.
 fn accept(listener: &TcpListener, ui_port: u16, opening: &str, shared: &Shared, stop: &AtomicBool) {
+    // Every connection's thread, its handshake done or not: counting only
+    // pages that finished theirs would let one that never does take a
+    // thread each time.
+    let connected = Arc::new(AtomicUsize::new(0));
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((connection, _)) => {
-                if lock(&shared.pages).len() >= MAX_PAGES {
+                // Only this thread adds, so a place counted free is still free.
+                if connected.load(Ordering::Acquire) >= MAX_PAGES {
                     shared.refused.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
+                connected.fetch_add(1, Ordering::AcqRel);
+                let place = Connected(Arc::clone(&connected));
                 let shared = shared.clone();
                 let opening = opening.to_owned();
+                // Not started, the place is given back as the closure is dropped.
                 let _ = thread::Builder::new()
                     .name("viz-stream-page".into())
                     .spawn(move || {
+                        let _place = place;
                         if serve_page(connection, ui_port, &opening, &shared).is_err() {
                             shared.refused.fetch_add(1, Ordering::Relaxed);
                         }
@@ -652,6 +668,16 @@ fn accept(listener: &TcpListener, ui_port: u16, opening: &str, shared: &Shared, 
             }
             Err(_) => thread::sleep(ACCEPT_POLL),
         }
+    }
+}
+
+/// Held by a connection's thread: its place among the [`MAX_PAGES`],
+/// given back however it ends.
+struct Connected(Arc<AtomicUsize>);
+
+impl Drop for Connected {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
