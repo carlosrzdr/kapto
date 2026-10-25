@@ -269,6 +269,13 @@ error_codes! {
         remedy: "Add the file to the package folder, or correct its path in `package.toml`. Paths are relative to the folder that holds `package.toml`.",
     }
 
+    /// `package.toml` names a `streams.toml` in a folder of its own, where
+    /// recording wouldn't find the package from it.
+    PackageStreamsInSubfolder = "package.streams_in_subfolder" {
+        summary: "The robot package's streams file isn't beside package.toml",
+        remedy: "Move the streams file into the folder that holds `package.toml` and name it there, e.g. `streams = \"streams.toml\"`: Kapto finds a package from the streams it records by the `package.toml` beside them.",
+    }
+
     /// A package holds something that isn't a plain file or folder, such as
     /// a symbolic link, or a name that isn't UTF-8.
     PackageUnsafePath = "package.unsafe_path" {

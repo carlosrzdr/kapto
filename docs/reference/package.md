@@ -34,7 +34,7 @@ urdf = "urdf/arm7.urdf"
 | `description` | no | A sentence or two about the robot. |
 | `contact` | no | Where to ask about the package, e.g. an email address or web page. |
 | `urdf` | yes | The robot description, relative to the package folder, e.g. `urdf/arm7.urdf`. |
-| `streams` | no | What the robot sends, relative to the package folder. `streams.toml` by default. |
+| `streams` | no | What the robot sends, a file beside `package.toml`, where recording finds the package from it. `streams.toml` by default. |
 | `mapping` | no | Which decoded value drives which joint, relative to the package folder. `mapping.toml` by default. |
 | `layout` | no | How the live view and replays are arranged, relative to the package folder. `layout.toml` by default; without it, a layout is made from what the package declares. |
 

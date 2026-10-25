@@ -66,7 +66,7 @@ pub const PACKAGE_KEYS: [FileKey; 10] = [
     FileKey {
         name: "streams",
         required: false,
-        help: "What the robot sends, relative to the package folder. `streams.toml` by default.",
+        help: "What the robot sends, a file beside `package.toml`, where recording finds the package from it. `streams.toml` by default.",
     },
     FileKey {
         name: "mapping",
@@ -129,7 +129,8 @@ pub fn parse_package_manifest(file: &ConfigFile) -> Result<PackageManifest, Vec<
     let [name, vendor, description, contact] =
         ["name", "vendor", "description", "contact"].map(|key| reader.text(key, "text", |_| true));
     let urdf = path(&mut reader, "urdf");
-    let streams = path(&mut reader, "streams");
+    let streams =
+        path(&mut reader, "streams").filter(|streams| beside_manifest(&mut reader, streams));
     let mapping = path(&mut reader, "mapping");
     let layout = path(&mut reader, "layout");
     if !reader.errors.is_empty() {
@@ -170,6 +171,25 @@ fn path(reader: &mut Reader<'_>, key: &str) -> Option<PathBuf> {
         reader.located(error, key);
         None
     }
+}
+
+/// Whether `streams` names a file beside `package.toml`, as recording finds
+/// a package by the `package.toml` beside the streams it records; reported
+/// if not.
+fn beside_manifest(reader: &mut Reader<'_>, streams: &Path) -> bool {
+    let names = streams
+        .components()
+        .filter(|component| matches!(component, Component::Normal(_)))
+        .count();
+    if names == 1 {
+        return true;
+    }
+    let error = KaptoError::new(ErrorCode::PackageStreamsInSubfolder).detail(format!(
+        "`streams` is \"{}\", in a folder of its own",
+        streams.display()
+    ));
+    reader.located(error, "streams");
+    false
 }
 
 /// Whether `path` names something inside the folder it is relative to.
@@ -231,7 +251,7 @@ mod tests {
         let manifest = parse(
             "id = \"cobot\"\nversion = \"2024.3-rc1\"\nname = \"A cobot\"\nvendor = \"Acme\"\n\
              description = \"Six joints.\"\ncontact = \"robots@acme.example\"\n\
-             urdf = \"robot.urdf\"\nstreams = \"config/streams.toml\"\nmapping = \"./config/mapping.toml\"\n\
+             urdf = \"robot.urdf\"\nstreams = \"./robot-streams.toml\"\nmapping = \"./config/mapping.toml\"\n\
              layout = \"views/arm.toml\"\n",
         )
         .unwrap();
@@ -239,9 +259,21 @@ mod tests {
         assert_eq!(manifest.vendor.as_deref(), Some("Acme"));
         assert_eq!(manifest.description.as_deref(), Some("Six joints."));
         assert_eq!(manifest.contact.as_deref(), Some("robots@acme.example"));
-        assert_eq!(manifest.streams, Path::new("config/streams.toml"));
+        assert_eq!(manifest.streams, Path::new("./robot-streams.toml"));
         assert_eq!(manifest.mapping, Path::new("./config/mapping.toml"));
         assert_eq!(manifest.layout, Path::new("views/arm.toml"));
+    }
+
+    #[test]
+    fn a_streams_file_in_a_folder_of_its_own_is_refused() {
+        assert_eq!(
+            problems(
+                "id = \"arm7\"\nversion = \"1\"\nurdf = \"arm7.urdf\"\nstreams = \"config/streams.toml\"\n"
+            ),
+            [
+                "package.streams_in_subfolder 4: The robot package's streams file isn't beside package.toml: `streams` is \"config/streams.toml\", in a folder of its own"
+            ]
+        );
     }
 
     #[test]
