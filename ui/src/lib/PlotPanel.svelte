@@ -9,13 +9,14 @@
     choose,
     type Drawn,
     drawAgain,
+    FILLED_FIRST_MS,
     type PlotPart,
     plotColumns,
     type PlotStream,
     resolvePlot,
     shortLabels,
-    shownSpan,
     shownStretch,
+    stretchShown,
     type ValuesAt,
     valuesAt,
   } from "./viewer/plots";
@@ -33,9 +34,11 @@
     spanMs?: number;
     /** When the stretch shown ends, UTC milliseconds; its newest sample if not given. */
     endMs?: number | null;
+    /** Nothing before this is shown, UTC milliseconds: an episode's start while it is recorded. */
+    fromMs?: number | null;
   }
 
-  let { fields, roles, streams, spanMs = 30_000, endMs = null }: Props = $props();
+  let { fields, roles, streams, spanMs = 30_000, endMs = null, fromMs = null }: Props = $props();
   /** The most times a second it is drawn again. */
   const DRAWS_PER_SECOND = 30;
 
@@ -277,7 +280,7 @@
           first,
           lines: part.labels.map((_, place) => look[first + place] === "l"),
           middles: part.labels.map(() => new Float64Array(part.stream.samples.capacity)),
-          stretch: [0, spanMs / 1000],
+          stretch: [0, (Number.isFinite(spanMs) ? spanMs : FILLED_FIRST_MS) / 1000],
           data: [],
           points: 0,
         };
@@ -383,13 +386,13 @@
         if (end === null) {
           continue;
         }
-        // Only as far back as the samples kept reach, so a chart just opened is filled.
-        const shown = shownSpan(spanMs, end, part.stream.samples.oldestMs);
-        const [from, to] = shownStretch(end, shown, plot.bbox.width);
+        // From the oldest sample kept while they are fewer than the span, so a chart just opened fills from its left.
+        const stretch = stretchShown(spanMs, end, part.stream.samples.oldestMs, fromMs);
+        const [from, to] = shownStretch(stretch.endMs, stretch.spanMs, plot.bbox.width);
         const next: Drawn = {
           toMs: to * 1000,
           widthPx: plot.bbox.width,
-          spanMs: shown,
+          spanMs: stretch.spanMs,
           stream: part.stream,
           newestMs: part.stream.samples.newestMs,
           atMs: now,

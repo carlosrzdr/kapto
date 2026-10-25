@@ -1,18 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ALL_MS,
   banded,
   choose,
   type Drawn,
   drawAgain,
+  FILLED_FIRST_MS,
   plotColumns,
   type PlotStream,
   plotStreams,
   resolvePlot,
   SampleBuffer,
   shortLabels,
-  shownSpan,
   shownStretch,
+  stretchShown,
   valuesAt,
 } from "./plots";
 import type { Opening } from "./stream";
@@ -134,21 +136,54 @@ describe("shortLabels", () => {
   });
 });
 
-describe("shownSpan", () => {
+describe("stretchShown", () => {
+  it("fills a stretch from the oldest sample, drawn from the left edge, while they are fewer", () => {
+    expect(stretchShown(30_000, 100_000, 100_000)).toEqual({ endMs: 105_000, spanMs: FILLED_FIRST_MS });
+    expect(stretchShown(30_000, 103_000, 100_000)).toEqual({ endMs: 105_000, spanMs: FILLED_FIRST_MS });
+  });
+
+  it("zooms out from there with the samples kept, the oldest at the left edge, until they reach back the whole span", () => {
+    expect(stretchShown(30_000, 105_000, 100_000)).toEqual({ endMs: 105_000, spanMs: 5_000 });
+    expect(stretchShown(30_000, 112_500, 100_000)).toEqual({ endMs: 112_500, spanMs: 12_500 });
+    expect(stretchShown(30_000, 130_000, 100_000)).toEqual({ endMs: 130_000, spanMs: 30_000 });
+  });
+
+  it("never jumps: a few milliseconds more change it by as much, filling, zooming or moving on", () => {
+    for (const end of [101_000, 104_990, 110_000, 129_990, 150_000]) {
+      const now = stretchShown(30_000, end, 100_000);
+      const next = stretchShown(30_000, end + 10, 100_000);
+      expect(Math.abs(next.endMs - now.endMs)).toBeLessThanOrEqual(10);
+      expect(Math.abs(next.spanMs - now.spanMs)).toBeLessThanOrEqual(10);
+    }
+  });
+
   it("shows the whole span once the samples kept reach back that far", () => {
-    expect(shownSpan(30_000, 100_000, 60_000)).toBe(30_000);
-    expect(shownSpan(30_000, 100_000, null)).toBe(30_000);
+    expect(stretchShown(30_000, 100_000, 60_000)).toEqual({ endMs: 100_000, spanMs: 30_000 });
   });
 
-  it("shows only back to the oldest sample kept, in whole seconds, while they are fewer", () => {
-    expect(shownSpan(30_000, 100_000, 95_500)).toBe(5_000);
-    expect(shownSpan(30_000, 100_000, 95_000)).toBe(5_000);
-    expect(shownSpan(30_000, 100_000, 99_990)).toBe(1_000);
-    expect(shownSpan(30_000, 100_000, 100_000)).toBe(1_000);
+  it("fills a span shorter than the first stretch as it is", () => {
+    expect(stretchShown(3_000, 101_000, 100_000)).toEqual({ endMs: 103_000, spanMs: 3_000 });
   });
 
-  it("shows the whole span when what is kept starts after the end shown", () => {
-    expect(shownSpan(30_000, 100_000, 120_000)).toBe(30_000);
+  it("with all there is asked for, zooms out over everything kept, however long", () => {
+    expect(stretchShown(ALL_MS, 102_000, 100_000)).toEqual({ endMs: 105_000, spanMs: FILLED_FIRST_MS });
+    expect(stretchShown(ALL_MS, 700_000, 100_000)).toEqual({ endMs: 700_000, spanMs: 600_000 });
+    expect(stretchShown(ALL_MS, 100_000, null)).toEqual({ endMs: 100_000, spanMs: FILLED_FIRST_MS });
+  });
+
+  it("shows nothing before an episode's start while it is recorded, filling from there", () => {
+    expect(stretchShown(ALL_MS, 160_000, 100_000, 158_000)).toEqual({ endMs: 163_000, spanMs: FILLED_FIRST_MS });
+    expect(stretchShown(ALL_MS, 400_000, 100_000, 158_000)).toEqual({ endMs: 400_000, spanMs: 242_000 });
+    // An episode longer than what is kept: from the oldest kept.
+    expect(stretchShown(ALL_MS, 400_000, 200_000, 158_000)).toEqual({ endMs: 400_000, spanMs: 200_000 });
+    // Looked back to before it started: as if it hadn't.
+    expect(stretchShown(ALL_MS, 150_000, 100_000, 158_000)).toEqual({ endMs: 150_000, spanMs: 50_000 });
+  });
+
+  it("shows the whole span to the end when nothing is kept, or what is kept starts after the end", () => {
+    expect(stretchShown(30_000, 100_000, null)).toEqual({ endMs: 100_000, spanMs: 30_000 });
+    expect(stretchShown(30_000, 100_000, 120_000)).toEqual({ endMs: 100_000, spanMs: 30_000 });
+    expect(stretchShown(ALL_MS, 100_000, 120_000)).toEqual({ endMs: 100_000, spanMs: FILLED_FIRST_MS });
   });
 });
 

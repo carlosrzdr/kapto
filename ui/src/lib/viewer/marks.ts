@@ -97,11 +97,14 @@ export class MarkLog {
   readonly items: Item[] = [];
   /** Stretches begun and not ended yet, by `kind/id`. */
   private open = new Map<string, Item>();
+  /** When the episode being recorded started, if one is. */
+  recordingSinceMs: number | null = null;
 
   /** Forgets everything: the bridge tells it all again when it reconnects. */
   clear(): void {
     this.items.length = 0;
     this.open.clear();
+    this.recordingSinceMs = null;
   }
 
   add(marks: Mark[]): void {
@@ -111,10 +114,12 @@ export class MarkLog {
       } else if ("episode_started" in mark) {
         const at = ms(mark.episode_started.at_utc_ns);
         this.push({ kind: "episode", startMs: at, endMs: at, label: "Episode started" });
+        this.recordingSinceMs = at;
       } else if ("episode_ended" in mark) {
         const at = ms(mark.episode_ended.at_utc_ns);
         const label = mark.episode_ended.finalised ? "Episode ended" : "Episode aborted";
         this.push({ kind: "episode", startMs: at, endMs: at, label });
+        this.recordingSinceMs = null;
       }
     }
     if (this.items.length > MAX_ITEMS) {

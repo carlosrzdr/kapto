@@ -3,6 +3,7 @@
   import { duration } from "./format";
   import TimelineMarks from "./TimelineMarks.svelte";
   import type { Item } from "./viewer/marks";
+  import { ALL_MS } from "./viewer/plots";
   import { SPEEDS } from "./viewer/play";
 
   interface Props {
@@ -64,6 +65,7 @@
     { ms: 30_000, label: "30 s" },
     { ms: 120_000, label: "2 min" },
     { ms: 600_000, label: "10 min" },
+    { ms: ALL_MS, label: "All" },
   ];
 
   const oldest = $derived(keptMs?.[0] ?? 0);

@@ -39,7 +39,7 @@
   } from "./viewer/environment";
   import { browserLayouts, editable, laidOut, type LayoutStore, type Offered } from "./viewer/layouts";
   import { decodeMesh } from "./viewer/mesh";
-  import { type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
+  import { ALL_MS, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
   import { applyPoses, buildRobot, type Robot, viewingDistance } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
@@ -431,8 +431,12 @@
   let speed = $state(1);
   /** Where the play started, to know where it is now. */
   let started: Started | null = null;
-  /** How long a stretch the plots show. */
-  let spanMs = $state(30_000);
+  /** How long a stretch the plots show: all there is unless a span is chosen. */
+  let spanMs = $state(ALL_MS);
+  /** When the episode being recorded started, if one is, as the bridge says. */
+  let recordingSince = $state<number | null>(null);
+  /** Showing all there is while an episode is recorded: the episode, from its start. */
+  const fromMs = $derived(replay === null && spanMs === ALL_MS ? recordingSince : null);
   /** The oldest and newest moments the bridge keeps, as far as the page knows. */
   let keptMs = $state<[number, number] | null>(null);
   /** How far back the bridge keeps, from its opening message. */
@@ -516,9 +520,21 @@
     return watched ? watched.ask(from, to, points) : Promise.reject(new Error("not watching the live stream"));
   }
 
+  /**
+   * Whether the plots show more than the page keeps of its own, from the
+   * bridge's last minutes: a longer span, or all there is once that is
+   * longer.
+   */
+  function beyondPage(): boolean {
+    if (spanMs !== ALL_MS) {
+      return spanMs > PAGE_KEEPS_MS;
+    }
+    return keptMs !== null && keptMs[1] - Math.max(keptMs[0], fromMs ?? keptMs[0]) > PAGE_KEEPS_MS;
+  }
+
   /** Fills the plots, and while paused the robot, from the stretch ending at `endMs`. */
   function lookBack(endMs: number) {
-    wanted = [endMs - spanMs, endMs];
+    wanted = [spanMs === ALL_MS ? Math.max(keptMs?.[0] ?? 0, fromMs ?? 0) : endMs - spanMs, endMs];
     if (asking || !(replay || watched)) {
       return;
     }
@@ -716,11 +732,11 @@
 
   function setSpan(ms: number) {
     spanMs = ms;
-    if (!paused && spanMs <= PAGE_KEEPS_MS) {
+    if (!paused && !beyondPage()) {
       lookedBack = null;
     }
     const end = paused ? cursorMs : keptMs?.[1];
-    if (end !== null && end !== undefined && (paused || spanMs > PAGE_KEEPS_MS)) {
+    if (end !== null && end !== undefined && (paused || beyondPage())) {
       lookBack(end);
     }
   }
@@ -952,12 +968,15 @@
     drawRobotOf(replay?.id ?? null);
 
     // Showing more than the page keeps, live: the stretch asked for again
-    // each second.
+    // each second; and the page's own samples again once they are enough,
+    // as when an episode starts.
     let seconds = 0;
     const following = setInterval(() => {
       const newest = keptMs?.[1];
-      if (!paused && spanMs > PAGE_KEEPS_MS && newest !== undefined) {
+      if (!paused && beyondPage() && newest !== undefined) {
         lookBack(newest);
+      } else if (!paused && !replay && lookedBack !== null) {
+        lookedBack = null;
       }
       // How far back the bridge keeps, again every ten seconds.
       seconds += 1;
@@ -992,6 +1011,7 @@
         // All that is kept comes again after the opening.
         log.clear();
         items = [];
+        recordingSince = null;
         plots = plotStreams(opening);
         dropPictures();
         cameras = camerasOf(opening);
@@ -1028,6 +1048,7 @@
       onmarks: (marks) => {
         log.add(marks);
         items = [...log.items];
+        recordingSince = log.recordingSinceMs;
       },
       onpicture: (picture) => pictures.add(picture, Date.now()),
       oncamera: (said) => {
@@ -1131,6 +1152,7 @@
               streams={lookedBack ?? plots}
               {spanMs}
               endMs={paused ? cursorMs : null}
+              {fromMs}
             />
           {:else if panel.kind === "health"}
             {@render health?.()}

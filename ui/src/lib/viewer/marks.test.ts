@@ -34,6 +34,18 @@ describe("MarkLog", () => {
     expect(log.items.at(-1)?.label).toBe("Episode aborted");
   });
 
+  it("knows when the episode being recorded started, until it ends or the log is cleared", () => {
+    const log = new MarkLog();
+    expect(log.recordingSinceMs).toBeNull();
+    log.add([{ episode_started: { episode: "e1", at_utc_ns: 1_000_000_000 } }, noted({ kind: "note", at_utc_ns: 2_000_000_000 })]);
+    expect(log.recordingSinceMs).toBe(1000);
+    log.add([{ episode_ended: { episode: "e1", at_utc_ns: 3_000_000_000, finalised: true } }]);
+    expect(log.recordingSinceMs).toBeNull();
+    log.add([{ episode_started: { episode: "e2", at_utc_ns: 4_000_000_000 } }]);
+    log.clear();
+    expect(log.recordingSinceMs).toBeNull();
+  });
+
   it("shows an end whose beginning it never heard as a moment, and forgets everything when cleared", () => {
     const log = new MarkLog();
     log.add([noted({ kind: "grasp", at_utc_ns: 6_000_000_000, phase: "end", id: "g0" })]);

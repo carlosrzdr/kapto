@@ -202,23 +202,39 @@ export function shownStretch(endMs: number, spanMs: number, widthPx: number): [n
   return [(end - spanMs) / 1000, end / 1000];
 }
 
-/** The least a plot shows, however little it holds yet. */
-export const SHORTEST_SHOWN_MS = 1000;
+/** How long a stretch a plot just opened is filled from its left before it zooms out. */
+export const FILLED_FIRST_MS = 5000;
+
+/** The span that shows everything kept, however long. */
+export const ALL_MS = Number.POSITIVE_INFINITY;
+
+/** The stretch a plot shows: when it ends and how long it is, in milliseconds. */
+export interface Shown {
+  endMs: number;
+  spanMs: number;
+}
 
 /**
- * How long a stretch a plot shows, ending at `endMs`, of the `spanMs` asked
- * for: all of it once the samples kept reach back that far, and until then
- * only back to the oldest, `oldestMs`, so a chart just opened is filled
- * rather than mostly empty. Rounded up to whole seconds, so that, as the
- * samples kept grow, the curve keeps its scale for a second at a time and
- * moves by whole pixels in between.
+ * The stretch a plot shows of the `spanMs` asked for, [`ALL_MS`] for all
+ * there is, ending at `endMs`, whose oldest sample kept is at `oldestMs`,
+ * and nothing before `fromMs` if given, as an episode's start while it is
+ * recorded. Until there is [`FILLED_FIRST_MS`] to show, that long a stretch
+ * from the first, so a chart just opened draws from its left edge towards
+ * its right; then from the first to the end, zooming out as the samples
+ * grow, so it never jumps; and once they reach back all of `spanMs`, that
+ * much, moving on with the end.
  */
-export function shownSpan(spanMs: number, endMs: number, oldestMs: number | null): number {
-  if (oldestMs === null || oldestMs > endMs) {
-    return spanMs;
+export function stretchShown(spanMs: number, endMs: number, oldestMs: number | null, fromMs: number | null = null): Shown {
+  const firstMs = fromMs !== null && fromMs <= endMs ? Math.max(fromMs, oldestMs ?? fromMs) : oldestMs;
+  if (firstMs === null || firstMs > endMs) {
+    return { endMs, spanMs: Number.isFinite(spanMs) ? spanMs : FILLED_FIRST_MS };
   }
-  const kept = Math.ceil((endMs - oldestMs) / SHORTEST_SHOWN_MS) * SHORTEST_SHOWN_MS;
-  return Math.min(spanMs, Math.max(kept, SHORTEST_SHOWN_MS));
+  const filled = Math.min(FILLED_FIRST_MS, spanMs);
+  const kept = endMs - firstMs;
+  if (kept < filled) {
+    return { endMs: firstMs + filled, spanMs: filled };
+  }
+  return { endMs, spanMs: Math.min(kept, spanMs) };
 }
 
 /** The most values a plot draws each with the band from its minimum to its maximum. */
