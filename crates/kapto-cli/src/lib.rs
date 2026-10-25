@@ -9,6 +9,10 @@
 
 // Without `run`, the commands are only described, never called.
 #![cfg_attr(not(feature = "run"), allow(dead_code, unused_imports))]
+// `print!` and `eprint!` panic once their reader has gone, which would end
+// a recording over a log reader's death: printing goes through `out!`,
+// `outln!` and `kapto_core::say!`.
+#![warn(clippy::print_stdout, clippy::print_stderr)]
 
 mod capture;
 mod closing;
@@ -19,6 +23,7 @@ mod episode;
 mod export;
 #[cfg(feature = "run")]
 mod live_view;
+mod output;
 mod overview;
 mod own_events;
 mod package;
@@ -621,7 +626,13 @@ pub fn run() -> ExitCode {
     // Each process's spans, named for its command, in a profiling build.
     #[cfg(feature = "profiling")]
     let _trace = trace::start(matches.subcommand_name().unwrap_or("kapto"));
-    match cli.command {
+    // What the processes serve runs print only reports on them: their
+    // status stays theirs when it can't be printed.
+    let supervised = matches!(
+        cli.command,
+        Command::Capture { .. } | Command::Serve(_) | Command::VizBridge(_) | Command::Worker(_)
+    );
+    let status = match cli.command {
         Command::Config(ConfigCommand::Validate) => config::validate(&cli.settings),
         Command::Config(ConfigCommand::Show) => config::show(&cli.settings),
         Command::Decode(args) => decode::decode(&cli.settings, &args),
@@ -652,6 +663,13 @@ pub fn run() -> ExitCode {
             mapping.as_deref(),
             std::time::Duration::from_secs(u64::from(duration)),
         ),
+    };
+    // A result that couldn't all be printed (`| head -1`) fails the command,
+    // quietly: whoever cut it short wanted no more.
+    if output::stdout_gone() && !supervised {
+        ExitCode::FAILURE
+    } else {
+        status
     }
 }
 

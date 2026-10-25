@@ -17,7 +17,7 @@ use std::thread;
 use std::time::Duration;
 
 use kapto_capture::control::Announcement;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_store::db::{DATABASE_FILE, finalised_folders};
 use kapto_store::{Episode, Writer, episode_folder};
 use tokio::sync::broadcast::Receiver;
@@ -66,7 +66,7 @@ pub fn keep_up_to_date(
         if began != caught_up {
             caught_up = began;
             if let Err(error) = catch_up(store, data_dir) {
-                eprintln!("[serve] the episode index wasn't caught up: {error}");
+                say!("[serve] the episode index wasn't caught up: {error}");
             }
         }
         let done = match announced.try_recv() {
@@ -88,7 +88,7 @@ pub fn keep_up_to_date(
             Err(TryRecvError::Closed) => return,
         };
         if let Err(error) = done {
-            eprintln!("[serve] the episode index wasn't updated: {error}");
+            say!("[serve] the episode index wasn't updated: {error}");
         }
     }
 }
@@ -140,8 +140,8 @@ fn catch_up(store: &Writer, data_dir: &Path) -> Result<(), KaptoError> {
             continue;
         }
         match add(store, data_dir, episode) {
-            Ok(()) => eprintln!("[serve] {episode} finalised unannounced: listed and queued"),
-            Err(error) => eprintln!("[serve] {} isn't listed: {error}", folder.display()),
+            Ok(()) => say!("[serve] {episode} finalised unannounced: listed and queued"),
+            Err(error) => say!("[serve] {} isn't listed: {error}", folder.display()),
         }
     }
     Ok(())
@@ -154,7 +154,7 @@ fn catch_up(store: &Writer, data_dir: &Path) -> Result<(), KaptoError> {
 fn rebuild(store: &Writer, data_dir: &Path) -> Result<(), KaptoError> {
     let unreadable = store.rebuild(data_dir)?;
     for (folder, error) in &unreadable {
-        eprintln!("[serve] {} isn't listed: {error}", folder.display());
+        say!("[serve] {} isn't listed: {error}", folder.display());
     }
     for folder in finalised_folders(data_dir) {
         let listed = !unreadable.iter().any(|(left_out, _)| *left_out == folder);

@@ -32,7 +32,7 @@ use kapto_capture::control::{ControlClient, Request, Response};
 use kapto_capture::disk::free_bytes;
 use kapto_capture::reader::read_events;
 use kapto_config::{DeploymentConfig, QA_FILE, StatisticsSelection, UploadDestination, parse_qa};
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_qa::anomalies::{self, AnomalyDetector, Session, run_detectors};
 use kapto_qa::autoencoder::AutoencoderAnomalies;
 use kapto_qa::carried::carried;
@@ -219,7 +219,7 @@ fn selected(selection: &StatisticsSelection, episode: &EpisodeView) -> Statistic
     let all = episode_statistics::of_episode(episode);
     let names: Vec<&str> = all.keys().map(String::as_str).collect();
     for pattern in selection.unmatched(&names) {
-        eprintln!(
+        say!(
             "[worker] qa {}: `{pattern}` in the `[statistics]` of its qa.toml names none of its statistics",
             episode.summary().id
         );
@@ -327,7 +327,7 @@ pub(crate) fn worker(flags: &SettingFlags, args: &WorkerArgs) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }
@@ -352,11 +352,11 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     if let Some(parent) = args.parent
         && let Err(error) = crate::parent::end_with(parent)
     {
-        eprintln!("[worker] won't end with serve: {error}");
+        say!("[worker] won't end with serve: {error}");
     }
     // Before any thread starts, so every thread has it.
     if let Err(error) = priority::lower() {
-        eprintln!("[worker] runs at normal priority: can't lower it: {error}");
+        say!("[worker] runs at normal priority: can't lower it: {error}");
     }
     let upload_pauses = deployment.upload.pause_while_recording.value;
     let recording = watched(&deployment, &shutdown)?;
@@ -404,7 +404,7 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
             }
         })
         .map_err(|error| vec![thread_failed(&error.to_string())])?;
-    eprintln!(
+    say!(
         "Worker is running: jobs from {}.",
         data_dir.join(JOB_SOCKET).display()
     );
@@ -426,7 +426,7 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     if !ended.is_empty() {
         return Err(ended);
     }
-    eprintln!("Worker stopped.");
+    say!("Worker stopped.");
     Ok(())
 }
 
@@ -611,13 +611,13 @@ fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool, quiet: Dur
             }
             Said::Unexpected(other) => {
                 if !failing {
-                    eprintln!("[worker] capture answered its status with {other}");
+                    say!("[worker] capture answered its status with {other}");
                 }
                 failing = true;
             }
             Said::Absent(why) | Said::Silent(why) => {
                 if !failing && unreachable.for_longer_than(quiet, Instant::now()) {
-                    eprintln!("[worker] can't ask capture whether it records: {why}");
+                    say!("[worker] can't ask capture whether it records: {why}");
                     failing = true;
                 }
             }
@@ -627,9 +627,9 @@ fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool, quiet: Dur
         let now = now.unwrap_or(false);
         if now != before {
             if now {
-                eprintln!("[worker] waiting while an episode is recorded");
+                say!("[worker] waiting while an episode is recorded");
             } else {
-                eprintln!("[worker] carrying on");
+                say!("[worker] carrying on");
             }
         }
         wait(WAIT, shutdown);
@@ -806,10 +806,10 @@ impl Cache<'_> {
         let free = free_bytes(self.data_dir).ok();
         let trimmed = trim(self.data_dir, &self.limits, free, SystemTime::now());
         for (name, reason) in &trimmed.removed {
-            eprintln!("[worker] removed replay {name}: {}", reason.describe());
+            say!("[worker] removed replay {name}: {}", reason.describe());
         }
         for (name, error) in &trimmed.failed {
-            eprintln!("[worker] can't remove replay {name}: {error}");
+            say!("[worker] can't remove replay {name}: {error}");
         }
     }
 }
@@ -843,7 +843,7 @@ fn schedule(
                 }
                 Err(error) => {
                     if !told_unreachable {
-                        eprintln!("[worker] {error}; trying again");
+                        say!("[worker] {error}; trying again");
                         told_unreachable = true;
                     }
                     wait(WAIT, shutdown);
@@ -865,7 +865,7 @@ fn schedule(
                 continue;
             }
             Err(error) => {
-                eprintln!("[worker] {error}");
+                say!("[worker] {error}");
                 serve = None;
                 continue;
             }
@@ -896,8 +896,8 @@ fn schedule(
             && error.code() == ErrorCode::WorkerJobStopped
         {
             match client.released(id) {
-                Ok(()) => eprintln!("[worker] {kind} {episode}: stopped part-way, given back"),
-                Err(error) => eprintln!("[worker] {error}"),
+                Ok(()) => say!("[worker] {kind} {episode}: stopped part-way, given back"),
+                Err(error) => say!("[worker] {error}"),
             }
             return;
         }
@@ -907,15 +907,15 @@ fn schedule(
         }
         match &result {
             Ok(Done { qa: Some(qa), .. }) if !qa.accepted() => {
-                eprintln!("[worker] {kind} {episode}: done, a gate failed: not accepted");
+                say!("[worker] {kind} {episode}: done, a gate failed: not accepted");
             }
             Ok(done) => {
-                eprintln!("[worker] {kind} {episode}: done");
+                say!("[worker] {kind} {episode}: done");
                 for warning in &done.warnings {
-                    eprintln!("[worker] {kind} {episode}: {warning}");
+                    say!("[worker] {kind} {episode}: {warning}");
                 }
             }
-            Err(error) => eprintln!("[worker] {kind} {episode}: {error}"),
+            Err(error) => say!("[worker] {kind} {episode}: {error}"),
         }
         let (done, failure) = match result {
             Ok(done) => (done, None),
@@ -927,7 +927,7 @@ fn schedule(
             warnings: done.warnings.iter().map(JobFailure::from).collect(),
         };
         if let Err(error) = client.finished(id, failure, found) {
-            eprintln!("[worker] {error}");
+            say!("[worker] {error}");
             serve = None;
         }
     }

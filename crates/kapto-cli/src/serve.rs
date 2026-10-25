@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use clap::Args;
 use kapto_capture::control::{ControlClient, Request};
 use kapto_config::DeploymentConfig;
-use kapto_core::{ClockSample, ErrorCode, KaptoError};
+use kapto_core::{ClockSample, ErrorCode, KaptoError, say};
 use kapto_robot::Declared;
 use kapto_server::api::ApiError;
 use kapto_server::api::{self, ApiState, CaptureAnnouncements};
@@ -80,7 +80,7 @@ pub(crate) fn serve(flags: &SettingFlags, args: &ServeArgs) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }
@@ -204,14 +204,14 @@ pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
     } else {
         deployment.server_bind.value.to_string()
     };
-    eprintln!(
+    say!(
         "Kapto is running: http://{host}:{}  (API under /api). Ctrl-C stops.",
         deployment.server_port.value
     );
     while !shutdown.load(Ordering::Relaxed) && !api.is_finished() {
         thread::sleep(Duration::from_millis(100));
     }
-    eprintln!("Stopping…");
+    say!("Stopping…");
     // The processes first, so capture has its whole stop grace to finalise
     // an episode, whatever the API's clients do; the API then has a moment
     // to finish what is open (`api::DRAIN`).
@@ -224,7 +224,7 @@ pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
                 .detail(format!("the API stopped: {error}")),
         ]);
     }
-    eprintln!("Stopped.");
+    say!("Stopped.");
     Ok(())
 }
 
@@ -243,9 +243,10 @@ fn open_state(deployment: &DeploymentConfig) -> Outcome<(Writer, JobServer)> {
         .requeue_interrupted(max_attempts)
         .map_err(|error| vec![error])?;
     if requeued.queued + requeued.failed > 0 {
-        eprintln!(
+        say!(
             "[serve] {} interrupted jobs queued again, {} failed after {max_attempts} attempts",
-            requeued.queued, requeued.failed
+            requeued.queued,
+            requeued.failed
         );
     }
     // Episodes are queued for upload only where there is somewhere to
@@ -486,18 +487,18 @@ fn watch_over_capture(socket: &Path, watching: &AtomicBool) {
 
 fn report(event: Event) {
     match event {
-        Event::Started { name, pid } => eprintln!("[serve] started {name} (pid {pid})"),
+        Event::Started { name, pid } => say!("[serve] started {name} (pid {pid})"),
         Event::Restarting {
             name,
             reason,
             delay,
-        } => eprintln!(
+        } => say!(
             "[serve] {name} ended ({reason}); starting it again in {} s",
             delay.as_secs_f32()
         ),
         Event::Stopped { name, killed: true } => {
-            eprintln!("[serve] {name} didn't stop in time and was killed");
+            say!("[serve] {name} didn't stop in time and was killed");
         }
-        Event::Stopped { name, .. } => eprintln!("[serve] {name} stopped"),
+        Event::Stopped { name, .. } => say!("[serve] {name} stopped"),
     }
 }

@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_server::jobs::{Found, JobClient, JobOrder};
 use kapto_store::episode::EPISODE_FILE;
 use kapto_store::{BIN_DIR, JobFailure, episode_folder};
@@ -27,12 +27,12 @@ pub(super) const ASIDE: &str = ".deleting-";
 pub(super) fn delete_job(data_dir: &Path, order: &JobOrder, client: &mut JobClient) -> bool {
     let result = delete(data_dir, &order.episode, client);
     match &result {
-        Ok(()) => eprintln!("[worker] delete {}: done", order.episode),
-        Err(error) => eprintln!("[worker] delete {}: {error}", order.episode),
+        Ok(()) => say!("[worker] delete {}: done", order.episode),
+        Err(error) => say!("[worker] delete {}: {error}", order.episode),
     }
     let failure = result.as_ref().err().map(JobFailure::from);
     if let Err(error) = client.finished(order.id, failure, Found::default()) {
-        eprintln!("[worker] {error}");
+        say!("[worker] {error}");
         return false;
     }
     true
@@ -54,8 +54,8 @@ pub(super) fn finish_left_aside(data_dir: &Path, client: &mut JobClient) {
         .collect();
     for episode in left {
         match delete(data_dir, &episode, client) {
-            Ok(()) => eprintln!("[worker] delete {episode}: finished after a restart"),
-            Err(error) => eprintln!("[worker] delete {episode}: {error}"),
+            Ok(()) => say!("[worker] delete {episode}: finished after a restart"),
+            Err(error) => say!("[worker] delete {episode}: {error}"),
         }
     }
 }
@@ -98,7 +98,7 @@ fn delete(data_dir: &Path, episode: &str, client: &mut JobClient) -> Result<(), 
 
 fn put_back(aside: &Path, folder: &Path) {
     if let Err(error) = std::fs::rename(aside, folder) {
-        eprintln!(
+        say!(
             "[worker] can't put {} back as {}: {error}",
             aside.display(),
             folder.display()

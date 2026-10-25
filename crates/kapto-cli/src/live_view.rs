@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use kapto_core::{ClockSample, ErrorCode, KaptoError};
+use kapto_core::{ClockSample, ErrorCode, KaptoError, say};
 use kapto_viz::camera_history::CameraHistorySettings;
 use kapto_viz::page_pictures::PageShare;
 use kapto_viz::picture::CameraKind;
 use kapto_viz::{Bridge, BridgeSettings, LiveRobot, Plots, StreamFields};
 
 use crate::SettingFlags;
+use crate::output::outln;
 use crate::viz_bridge::{Prepared, VizBridgeArgs, prepare, warning};
 
 pub(crate) fn viz_bridge(flags: &SettingFlags, args: &VizBridgeArgs) -> ExitCode {
@@ -24,7 +25,7 @@ pub(crate) fn viz_bridge(flags: &SettingFlags, args: &VizBridgeArgs) -> ExitCode
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }
@@ -36,7 +37,7 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
     if let Some(parent) = args.parent
         && let Err(error) = crate::parent::end_with(parent)
     {
-        eprintln!("The viewer bridge won't end with serve: {error}");
+        say!("The viewer bridge won't end with serve: {error}");
     }
     let (_, deployment) = crate::config::load(flags)?;
     let prepared = prepare(
@@ -46,7 +47,7 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
         &deployment.packages_dir.value,
     )?;
     for problem in prepared.warnings() {
-        eprintln!("{}\n", warning(problem));
+        say!("{}\n", warning(problem));
     }
     let Prepared {
         robot,
@@ -65,17 +66,17 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
 
     let settings = bridge_settings(&deployment, cameras);
     let mut bridge = Bridge::start(&settings, &robot, live, &plots).map_err(|error| vec![error])?;
-    println!(
+    outln!(
         "Streaming {} to the live view on port {}",
         robot.name,
         bridge.stream_address().port()
     );
-    println!(
+    outln!(
         "Live samples from capture: {}",
         settings.tap_socket.display()
     );
     if !settings.cameras.is_empty() {
-        println!(
+        outln!(
             "Cameras' frames from capture: {}",
             deployment.frame_socket.value.display()
         );
@@ -96,13 +97,15 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
     }
     bridge.run(&stop).map_err(|error| vec![error])?;
     let stats = bridge.tap_stats();
-    println!(
+    outln!(
         "Read {} live samples; skipped {} of another version and {} unreadable",
-        stats.samples, stats.other_version, stats.unreadable
+        stats.samples,
+        stats.other_version,
+        stats.unreadable
     );
     if let Some(cameras) = bridge.camera_totals() {
         let stream = bridge.stream_stats();
-        println!(
+        outln!(
             "Read {} cameras' frames: {} shown, {} that can't be shown, {} raw ones no page wanted, {} connections that sent something else; pictures sent to pages {}, held back for a page's share {}, missed by slow pages {}",
             cameras.frames,
             cameras.shown,

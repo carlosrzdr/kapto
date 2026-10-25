@@ -15,10 +15,11 @@ use std::process::ExitCode;
 
 use clap::Subcommand;
 use kapto_capture::reader::read_recording;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_decode::{CDR_ENCODING, TOPIC_METADATA};
 
 use crate::decode::recording_path;
+use crate::output::outln;
 
 /// The formats an episode is exported to.
 #[derive(Subcommand)]
@@ -42,9 +43,9 @@ pub(crate) fn export(command: &ExportCommand) -> ExitCode {
     match rosbag2(&recording_path(episode), output) {
         Ok(topics) => {
             for (topic, messages) in &topics {
-                println!("{topic}: {messages} messages");
+                outln!("{topic}: {messages} messages");
             }
-            println!(
+            outln!(
                 "Wrote {}; play it with: ros2 bag play {}",
                 output.display(),
                 output.display()
@@ -52,7 +53,7 @@ pub(crate) fn export(command: &ExportCommand) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("{}", error.report());
+            say!("{}", error.report());
             ExitCode::FAILURE
         }
     }

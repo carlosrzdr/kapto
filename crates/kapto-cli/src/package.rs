@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Subcommand, ValueEnum};
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_robot::{Package, discover, import_package, lint, load_package};
 
 use crate::SettingFlags;
+use crate::output::{out, outln};
 
 #[derive(Subcommand)]
 pub(crate) enum PackageCommand {
@@ -79,7 +80,7 @@ pub(crate) fn package(flags: &SettingFlags, command: &PackageCommand) -> ExitCod
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }
@@ -92,7 +93,7 @@ fn list(flags: &SettingFlags) -> Result<(), Vec<KaptoError>> {
     let folder = &deployment.packages_dir.value;
     let (packages, errors) = discover(folder);
     if packages.is_empty() && errors.is_empty() {
-        println!("No robot packages in {}.", folder.display());
+        outln!("No robot packages in {}.", folder.display());
         return Ok(());
     }
     let rows: Vec<[String; 4]> = packages
@@ -117,7 +118,7 @@ fn list(flags: &SettingFlags) -> Result<(), Vec<KaptoError>> {
         })
         .collect();
     for row in std::iter::once(&header).chain(&rows) {
-        println!(
+        outln!(
             "{:<w0$}  {:<w1$}  {:<w2$}  {}",
             row[0],
             row[1],
@@ -138,7 +139,7 @@ fn list(flags: &SettingFlags) -> Result<(), Vec<KaptoError>> {
 /// Shows the package in a folder, or with an ID in the packages folder.
 fn show(flags: &SettingFlags, wanted: &str) -> Result<(), Vec<KaptoError>> {
     let (folder, _) = find(flags, wanted)?;
-    print!("{}", describe(&load_package(&folder)?));
+    out!("{}", describe(&load_package(&folder)?));
     Ok(())
 }
 
@@ -177,7 +178,7 @@ fn import(
         name,
     )?;
     let bytes: u64 = imported.copied.iter().map(|(_, bytes)| bytes).sum();
-    println!(
+    outln!(
         "Imported {} as the package `{id}` in {}: {} and {} files beside it ({}).",
         urdf.display(),
         imported.folder.display(),
@@ -186,14 +187,14 @@ fn import(
         crate::upload::mebibytes(bytes),
     );
     if !imported.left_out.is_empty() {
-        println!(
+        outln!(
             "\nLeft out, {} of what it names:\n",
             imported.left_out.len()
         );
         let reports: Vec<String> = imported.left_out.iter().map(KaptoError::report).collect();
-        println!("{}", reports.join("\n\n"));
+        outln!("{}", reports.join("\n\n"));
     }
-    println!(
+    outln!(
         "\nNext: declare what the robot sends in {folder}/streams.toml, give each of its {} moving joints the field that drives it in {folder}/mapping.toml, then check it with `kapto package lint {id}`.",
         imported.joints.len(),
         folder = imported.folder.display(),
@@ -207,7 +208,7 @@ fn lint_package(flags: &SettingFlags, wanted: &str, format: LintFormat) -> ExitC
         Ok(found) => found,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             return ExitCode::FAILURE;
         }
     };
@@ -217,8 +218,8 @@ fn lint_package(flags: &SettingFlags, wanted: &str, format: LintFormat) -> ExitC
     search.extend(folder.parent().map(Path::to_path_buf));
     let report = lint(&folder, &search);
     match format {
-        LintFormat::Text => print!("{}", report.to_text()),
-        LintFormat::Json => println!("{}", report.to_json()),
+        LintFormat::Text => out!("{}", report.to_text()),
+        LintFormat::Json => outln!("{}", report.to_json()),
     }
     if report.errors == 0 {
         ExitCode::SUCCESS

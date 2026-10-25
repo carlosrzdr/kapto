@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use clap::Subcommand;
 use kapto_config::UploadDestination;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_server::api::{UploadDestination as ApiDestination, UploadsOverview, upload_status};
 use kapto_server::jobs::{JOB_SOCKET, JobClient};
 use kapto_store::Reader;
@@ -22,6 +22,7 @@ use kapto_store::db::DATABASE_FILE;
 use kapto_upload::probe;
 
 use crate::SettingFlags;
+use crate::output::{out, outln};
 
 /// What `kapto upload` does.
 #[derive(Subcommand)]
@@ -50,7 +51,7 @@ pub(crate) fn upload(flags: &SettingFlags, command: &UploadCommand) -> ExitCode 
         Ok((_, deployment)) => deployment,
         Err(errors) => {
             for error in errors {
-                eprintln!("{}", error.report());
+                say!("{}", error.report());
             }
             return ExitCode::FAILURE;
         }
@@ -66,7 +67,7 @@ pub(crate) fn upload(flags: &SettingFlags, command: &UploadCommand) -> ExitCode 
     match done {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{}", error.report());
+            say!("{}", error.report());
             ExitCode::FAILURE
         }
     }
@@ -85,11 +86,11 @@ fn status(data_dir: &Path, destinations: &[UploadDestination]) -> Result<(), Kap
     if !database.exists() {
         // Serve creates it when it first starts: before then, nothing was
         // recorded or uploaded from this data directory.
-        print!("{}", nothing_yet(data_dir, &listed));
+        out!("{}", nothing_yet(data_dir, &listed));
         return Ok(());
     }
     let reader = Reader::open(&database)?;
-    print!("{}", described(&upload_status(&reader, &listed)?));
+    out!("{}", described(&upload_status(&reader, &listed)?));
     Ok(())
 }
 
@@ -172,7 +173,7 @@ fn retry(data_dir: &Path, episode: &str) -> Result<(), KaptoError> {
     let mut serve = JobClient::connect(&data_dir.join(JOB_SOCKET))
         .map_err(|error| error.context("needs", "`kapto serve` running".to_owned()))?;
     let destinations = serve.retry_uploads(episode)?;
-    println!(
+    outln!(
         "{episode}: queued to try again now, to {}",
         destinations.join(", ")
     );
@@ -190,7 +191,7 @@ fn check_each(destinations: &[UploadDestination], destination: Option<&String>) 
             Some(name) => format!("no `[[upload.destination]]` is named `{name}`"),
             None => "`kapto.toml` has no `[[upload.destination]]`".to_owned(),
         });
-        eprintln!("{}", error.report());
+        say!("{}", error.report());
         return ExitCode::FAILURE;
     }
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -200,7 +201,7 @@ fn check_each(destinations: &[UploadDestination], destination: Option<&String>) 
     {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("can't start the network runtime: {error}");
+            say!("can't start the network runtime: {error}");
             return ExitCode::FAILURE;
         }
     };
@@ -208,7 +209,7 @@ fn check_each(destinations: &[UploadDestination], destination: Option<&String>) 
     for destination in chosen {
         let started = Instant::now();
         match runtime.block_on(probe::check(destination, &|name| std::env::var(name).ok())) {
-            Ok(probed) => println!(
+            Ok(probed) => outln!(
                 "{}: ok, a probe written, read back and {} in {} ms",
                 destination.name,
                 if probed.removed {
@@ -223,7 +224,7 @@ fn check_each(destinations: &[UploadDestination], destination: Option<&String>) 
             ),
             Err(error) => {
                 failed = true;
-                eprintln!("{}: {}", destination.name, error.report());
+                say!("{}: {}", destination.name, error.report());
             }
         }
     }

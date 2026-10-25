@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use clap::Args;
 use kapto_config::{DeploymentConfig, Source};
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_loadgen::{Config, Transport, prepare, run_until};
 
 use crate::SettingFlags;
@@ -79,7 +79,7 @@ pub(crate) fn demo(flags: &SettingFlags, args: &DemoArgs) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }
@@ -91,7 +91,7 @@ fn run(flags: &SettingFlags, args: &DemoArgs) -> Outcome<()> {
     let folder = deployment.data_dir.value.join("demo/arm7");
     let camera_port = (!args.no_camera).then(|| args.robot_port.wrapping_add(1));
     write_arm7(&folder, args.robot_port, args.rate, camera_port).map_err(|error| vec![error])?;
-    eprintln!(
+    say!(
         "Demo: a synthetic seven-joint arm sends its joint positions at {} Hz to UDP port {}{}. Its files are in {}.",
         args.rate,
         args.robot_port,
@@ -162,10 +162,10 @@ fn run(flags: &SettingFlags, args: &DemoArgs) -> Outcome<()> {
         );
         stop.store(true, Ordering::Relaxed);
         if let Ok(Err(error)) = sending.join() {
-            eprintln!("warning: the synthetic robot stopped: {error}");
+            say!("warning: the synthetic robot stopped: {error}");
         }
         if let Some(Ok(Err(error))) = filming.map(thread::ScopedJoinHandle::join) {
-            eprintln!("warning: the synthetic camera stopped: {error}");
+            say!("warning: the synthetic camera stopped: {error}");
         }
         served
     })

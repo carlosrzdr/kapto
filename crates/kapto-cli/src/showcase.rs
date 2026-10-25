@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use clap::Args;
 use kapto_capture::control::{ANSWER_TIMEOUT, ControlClient, NewEvent, Request, Response};
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_loadgen::faults::{Fault, Faults};
 use kapto_loadgen::{Config, Transport, run_with_faults};
 use kapto_store::db::DATABASE_FILE;
@@ -25,6 +25,7 @@ use kapto_store::{Phase, QaRun, Reader, Verdict};
 
 use crate::SettingFlags;
 use crate::demo::write_arm7;
+use crate::output::outln;
 use crate::serve::{self, ServeArgs};
 use crate::station::Outcome;
 
@@ -76,7 +77,7 @@ pub(crate) fn showcase(flags: &SettingFlags, args: &ShowcaseArgs) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }
@@ -138,7 +139,7 @@ fn run(flags: &SettingFlags, args: &ShowcaseArgs) -> Outcome<()> {
             .name("showcase".into())
             .spawn_scoped(scope, || {
                 if let Err(error) = story.tell() {
-                    eprintln!("The showcase stopped: {}", error.report());
+                    say!("The showcase stopped: {}", error.report());
                 }
             })
             .map_err(|error| vec![thread_failed(&error)])?;
@@ -152,7 +153,7 @@ fn run(flags: &SettingFlags, args: &ShowcaseArgs) -> Outcome<()> {
         );
         stop.store(true, Ordering::Relaxed);
         if let Ok(Err(error)) = sending.join() {
-            eprintln!("warning: the synthetic robot stopped: {error}");
+            say!("warning: the synthetic robot stopped: {error}");
         }
         served
     })
@@ -203,7 +204,7 @@ impl Story<'_> {
             thread::sleep(Duration::from_secs(u64::from(self.args.seconds)));
             wait_stopped(&mut capture)?;
             let run = self.checked(&episode)?;
-            println!(
+            outln!(
                 "   episode {n} of {}: {}",
                 self.args.episodes,
                 if run.accepted() {
@@ -227,7 +228,7 @@ impl Story<'_> {
             (Fault::Vibrate, 3, "the wrist vibrates"),
             (Fault::Drop, 1, "messages are lost"),
         ] {
-            println!("   {said}");
+            outln!("   {said}");
             self.faults.start(fault, Duration::from_secs(lasts));
             thread::sleep(Duration::from_secs(lasts + 1));
         }
@@ -235,16 +236,16 @@ impl Story<'_> {
         thread::sleep(Duration::from_secs(1));
         capture.ask(&Request::Stop)?;
         let run = self.checked(&episode)?;
-        println!("   What Kapto found in it:");
+        outln!("   What Kapto found in it:");
         for found in findings(&run) {
-            println!("   - {found}");
+            outln!("   - {found}");
         }
 
         self.step(
             "4. In the page: Episodes, With: Intervention, then open the newest. Its events come first;\n   \
              each check's moments have a Watch button that replays the episode from just before it.",
         );
-        println!(
+        outln!(
             "The showcase is done. Kapto keeps running for questions; Ctrl-C stops it. Run it again to start over."
         );
         Ok(())
@@ -253,12 +254,12 @@ impl Story<'_> {
     /// Says `what` and waits for Enter, or a moment when unattended or with
     /// nothing to read Enter from.
     fn step(&self, what: &str) {
-        println!("\n{what}");
+        outln!("\n{what}");
         if self.args.unattended || !std::io::stdin().is_terminal() {
             thread::sleep(UNATTENDED_PAUSE);
             return;
         }
-        println!("   (Enter to go on)");
+        outln!("   (Enter to go on)");
         let _ = std::io::stdin().lock().read_line(&mut String::new());
     }
 

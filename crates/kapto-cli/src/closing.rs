@@ -18,7 +18,7 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
 use kapto_capture::control::{Announcement, ControlServer, Pending, Response};
-use kapto_core::{EpisodeId, ErrorCode, KaptoError};
+use kapto_core::{EpisodeId, ErrorCode, KaptoError, say};
 
 use crate::station::{Closing, Outcome, thread_failed};
 
@@ -61,7 +61,7 @@ impl Closer {
             .name("cap-finalise".to_owned())
             .spawn(move || {
                 if let Err(error) = crate::worker::lower_priority() {
-                    eprintln!("Episodes are closed at capture's priority: {error}");
+                    say!("Episodes are closed at capture's priority: {error}");
                 }
                 for closing in to_close {
                     let episode = closing.episode;
@@ -147,7 +147,7 @@ impl Closer {
         if let Some(thread) = self.thread.take()
             && thread.join().is_err()
         {
-            eprintln!("cap-finalise stopped unexpectedly");
+            say!("cap-finalise stopped unexpectedly");
         }
         self.answer(control);
         // Any left never came back: the thread is gone.
@@ -176,7 +176,7 @@ fn tell(control: &ControlServer, stopped: Stopped) {
         ),
         Some(Ended::Closed(Err(errors))) => {
             for error in &errors {
-                eprintln!("{}", error.report());
+                say!("{}", error.report());
             }
             let error = errors
                 .into_iter()

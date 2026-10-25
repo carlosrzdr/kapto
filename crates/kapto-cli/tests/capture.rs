@@ -79,6 +79,19 @@ impl Capture {
         flags: &[&str],
         environment: &[(&str, String)],
     ) -> Self {
+        Self::launch(folder, declared, port, flags, environment, true)
+    }
+
+    /// The same, its stderr read on (`kept_reading`) or closed once it
+    /// receives, as when a log reader dies.
+    fn launch(
+        folder: &Path,
+        declared: &str,
+        port: &str,
+        flags: &[&str],
+        environment: &[(&str, String)],
+        kept_reading: bool,
+    ) -> Self {
         let streams = folder.join("streams.toml");
         std::fs::write(&streams, declared).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_kapto"))
@@ -102,8 +115,10 @@ impl Capture {
                 break;
             }
         }
-        // Keep reading stderr so the process never blocks on a full pipe.
-        std::thread::spawn(move || lines.for_each(drop));
+        if kept_reading {
+            // Keep reading stderr so the process never blocks on a full pipe.
+            std::thread::spawn(move || lines.for_each(drop));
+        }
         Self {
             child: Some(child),
             folder: folder.to_path_buf(),
@@ -953,6 +968,27 @@ fn sigterm_while_recording_finalises_the_episode_before_exiting() {
         .find_map(|line| line.strip_prefix("Finalised "))
         .unwrap();
     assert_eq!(finalised(episode_folder).streams[0].written, 200);
+}
+
+#[test]
+fn a_recording_goes_on_and_ends_normally_after_the_reader_of_captures_stderr_has_gone() {
+    let folder = scratch("stderr-gone");
+    let port = free_udp_port();
+    let streams =
+        format!("[streams.joints]\nrate_hz = 1000\nudp = {{ bind = \"127.0.0.1:{port}\" }}\n");
+    let flags = ["--capture-preflight", "warn"];
+    let mut capture = Capture::launch(&folder, &streams, &port, &flags, &[], false);
+    let mut client = capture.client();
+    start(&mut client);
+    capture.send(200);
+    // Past the status line capture prints each second while recording.
+    std::thread::sleep(Duration::from_millis(2500));
+    capture.send(100);
+    capture.wait_for("recording", |s| s.streams[0].written == 300);
+    let folder = stop(&mut client);
+    assert_eq!(finalised(&folder).streams[0].written, 300);
+    let output = capture.stop();
+    assert!(output.status.success(), "{output:?}");
 }
 
 #[test]

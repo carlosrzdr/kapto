@@ -2,6 +2,10 @@
 
 //! The Kapto daemon: process supervisor, local REST and WebSocket API, and the embedded web UI.
 
+// `eprint!` panics once stderr's reader has gone, which would end the
+// server over a log reader's death: it says things with `kapto_core::say!`.
+#![warn(clippy::print_stdout, clippy::print_stderr)]
+
 #[cfg(unix)]
 pub mod api;
 pub mod cameras;

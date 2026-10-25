@@ -219,3 +219,19 @@ fn version_flag_prints_the_version() {
         format!("kapto {}\n", env!("CARGO_PKG_VERSION"))
     );
 }
+
+#[test]
+fn show_into_a_reader_that_has_gone_fails_quietly_instead_of_panicking() {
+    // As `kapto config show | head -1` once `head` has had its line.
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let output = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .args(["config", "show"])
+        .env_clear()
+        .env("HOME", "/home/u")
+        .stdout(writer)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(stderr(&output), "");
+}

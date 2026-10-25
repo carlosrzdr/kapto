@@ -8,6 +8,7 @@ pub mod error;
 pub mod failpoints;
 pub mod hex;
 pub mod name;
+pub mod output;
 pub mod profiling;
 pub mod role;
 pub mod stream;

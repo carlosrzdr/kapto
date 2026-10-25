@@ -9,11 +9,12 @@ use std::process::ExitCode;
 use clap::Subcommand;
 use kapto_capture::control::{ANSWER_TIMEOUT, ControlClient, NewEvent, Request, Response, Status};
 use kapto_core::clock::utc_now_ns;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_server::jobs::{JOB_SOCKET, JobClient};
 use kapto_store::{Event, Phase, Preflight};
 
 use crate::SettingFlags;
+use crate::output::{out, outln};
 
 #[derive(Subcommand)]
 pub(crate) enum EpisodeCommand {
@@ -90,7 +91,7 @@ pub(crate) fn episode(flags: &SettingFlags, command: &EpisodeCommand) -> ExitCod
         Ok((_, deployment)) => deployment,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             return ExitCode::FAILURE;
         }
     };
@@ -104,7 +105,7 @@ pub(crate) fn episode(flags: &SettingFlags, command: &EpisodeCommand) -> ExitCod
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
-            eprintln!("{}", error.report());
+            say!("{}", error.report());
             ExitCode::FAILURE
         }
     }
@@ -121,10 +122,10 @@ fn bin(
         .map_err(|error| error.context("needs", "`kapto serve` running".to_owned()))?;
     if matches!(command, EpisodeCommand::Restore { .. }) {
         serve.put_back(episode)?;
-        println!("{episode}: put back from the bin");
+        outln!("{episode}: put back from the bin");
     } else {
         serve.put_in_bin(episode)?;
-        println!(
+        outln!(
             "{episode}: in the bin, deleted for good when it is emptied; `kapto episode restore {episode}` puts it back until then"
         );
     }
@@ -184,15 +185,15 @@ fn order(
         }
     };
     match client.ask(&request)? {
-        Response::Started { episode } => println!("Recording episode {episode}."),
-        Response::Stopped { folder, .. } => println!("Finalised {folder}"),
+        Response::Started { episode } => outln!("Recording episode {episode}."),
+        Response::Stopped { folder, .. } => outln!("Finalised {folder}"),
         Response::Aborted { episode } => {
-            println!("Aborted episode {episode}; nothing of it was kept.");
+            outln!("Aborted episode {episode}; nothing of it was kept.");
         }
-        Response::Status(status) => print!("{}", table(&status)),
-        Response::Noted { event, episode } => println!("{}", noted(&event, episode.as_deref())),
+        Response::Status(status) => out!("{}", table(&status)),
+        Response::Noted { event, episode } => outln!("{}", noted(&event, episode.as_deref())),
         Response::Preflight(report) => {
-            print!("{}", checks(&report));
+            out!("{}", checks(&report));
             return Ok(report.checks.iter().all(|check| check.passed));
         }
         other => return Err(unexpected(&format!("{other:?}"))),

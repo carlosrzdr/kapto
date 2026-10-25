@@ -24,7 +24,7 @@ use kapto_capture::preflight::{
 };
 use kapto_config::{DeploymentConfig, PreflightFailures, StreamDeclaration};
 use kapto_core::clock::utc_now_ns;
-use kapto_core::{ErrorCode, KaptoError, utc_iso8601};
+use kapto_core::{ErrorCode, KaptoError, say, utc_iso8601};
 use kapto_store::Preflight as Report;
 
 use crate::record::RecordSettings;
@@ -203,7 +203,7 @@ impl Preflight {
             window_ms: u64::try_from(window.as_millis()).unwrap_or(u64::MAX),
             checks: evaluate(&measured, self.needs),
         };
-        eprintln!("{}", summary(&report));
+        say!("{}", summary(&report));
         for pending in self.waiting.drain(..) {
             pending.answer(Response::Preflight(report.clone()));
         }

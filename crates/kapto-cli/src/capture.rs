@@ -46,7 +46,7 @@ use kapto_capture::tap::LatestValues;
 use kapto_capture::{Compression, WriterConfig};
 use kapto_config::{DeploymentConfig, StreamDeclaration};
 use kapto_core::clock::{monotonic_now, utc_now_ns};
-use kapto_core::{EpisodeId, ErrorCode, KaptoError, RecvTime};
+use kapto_core::{EpisodeId, ErrorCode, KaptoError, RecvTime, say};
 use kapto_store::{Event, PackageIdentity, Preflight as PreflightReport};
 use kapto_transport::UdpOptions;
 
@@ -69,7 +69,7 @@ pub(crate) fn capture(
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }
@@ -78,7 +78,7 @@ pub(crate) fn capture(
 /// Says what capture receives and where it takes orders, and what its
 /// pre-roll keeps.
 fn say_receiving(station: &Station, deployment: &DeploymentConfig) {
-    eprintln!(
+    say!(
         "Receiving {} streams, not recording. Orders on {}; live view on {}. Episodes are recorded with {}.",
         station.plan.streams.len(),
         deployment.control_socket.value.display(),
@@ -86,7 +86,7 @@ fn say_receiving(station: &Station, deployment: &DeploymentConfig) {
         describe(station.package.as_ref()),
     );
     if let Some(pre_roll) = station.pre_roll_said() {
-        eprintln!("{pre_roll}");
+        say!("{pre_roll}");
     }
 }
 
@@ -225,11 +225,11 @@ fn open_station(
 /// closing. Stopped by serve, serve says so for it.
 fn stop(closer: Closer, control: &ControlServer, (served, orphaned): (bool, bool)) {
     if orphaned {
-        eprintln!("kapto serve has gone and no episode is recorded: capture stops.");
+        say!("kapto serve has gone and no episode is recorded: capture stops.");
     }
     closer.finish(control);
     if !served || orphaned {
-        eprintln!("Stopped.");
+        say!("Stopped.");
     }
 }
 
@@ -393,7 +393,7 @@ fn episode(
     let finished = station.record(
         asked,
         &mut |episode, buffers| {
-            eprintln!(
+            say!(
                 "Recording episode {episode} from {streams} streams (buffers: {} batches, {} MiB). Started.",
                 buffers.batches,
                 buffers.memory_bytes / (1024 * 1024),
@@ -425,7 +425,7 @@ fn episode(
             let since_asked = monotonic_now().saturating_since(asked);
             let abandoned = abandoned(control, control_timeout, since_asked, stop.is_none());
             if elapsed >= Duration::from_secs(next_second) {
-                eprintln!("{}", live.line(next_second));
+                say!("{}", live.line(next_second));
                 next_second += 1;
             }
             let full = told.check(disk);
@@ -503,7 +503,7 @@ fn startable(
     match disk.room(Instant::now()) {
         Room::TooLow(free) => {
             let error = nearly_full(free, disk.limits());
-            eprintln!("{}", error.report());
+            say!("{}", error.report());
             pending.answer(Response::error(&error));
             None
         }
@@ -516,14 +516,14 @@ fn startable(
                 Ok(cleared) => {
                     let mut checks = cleared.iter().flat_map(|report| &report.checks);
                     if checks.any(|check| !check.passed && !check.waived) {
-                        eprintln!(
+                        say!(
                             "Starting despite failed pre-flight checks: capture.preflight is `warn`."
                         );
                     }
                     Some((pending, cleared))
                 }
                 Err(error) => {
-                    eprintln!("{}", error.report());
+                    say!("{}", error.report());
                     pending.answer(Response::error(&error));
                     None
                 }
@@ -592,7 +592,7 @@ fn abandoned(
         .unsupervised_for()
         .is_some_and(|gone| gone >= control_timeout && gone <= since_asked);
     if abandoned && say {
-        eprintln!(
+        say!(
             "kapto serve has been gone for {} s: finalising the episode.",
             control_timeout.as_secs_f64()
         );
@@ -615,11 +615,11 @@ impl DiskTold {
         match disk.room(Instant::now()) {
             Room::Low(free) if !self.warned => {
                 self.warned = true;
-                eprintln!("{}", warning(&low(free, disk.limits())));
+                say!("{}", warning(&low(free, disk.limits())));
             }
             Room::TooLow(free) if !self.full => {
                 self.full = true;
-                eprintln!(
+                say!(
                     "{}\nFinalising the episode. Receiving goes on.",
                     nearly_full(free, disk.limits()).report()
                 );
@@ -700,7 +700,7 @@ fn refuse(pending: Pending, code: ErrorCode) {
 
 fn report(errors: &[KaptoError]) {
     let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-    eprintln!("{}", reports.join("\n\n"));
+    say!("{}", reports.join("\n\n"));
 }
 
 #[cfg(test)]

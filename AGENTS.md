@@ -206,7 +206,9 @@ green means actions, selection and good state. Fonts are bundled.
 - `unsafe` only where a module allows it, each block with `// SAFETY:`,
   Miri where possible, reviewed by a second person.
 - `tracing` with structured fields *(planned: every process prints for
-  now)*; no per-message logs.
+  now, through `kapto_core::say!` and the CLI's `out!`, never `println!`
+  or `eprintln!`, which panic once their reader has gone)*; no per-message
+  logs.
 - Public items documented; Linux-only code behind `cfg` with a fallback.
 - Match the surrounding code. Comments give the reason in place; never
   requirement IDs, plan references or milestone numbers outside

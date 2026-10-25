@@ -25,7 +25,7 @@ use kapto_capture::reader::{
 use kapto_config::{
     MAX_MESSAGE_BYTES, StreamDeclaration, UdpDeclaration, parse_streams, read_config_file,
 };
-use kapto_core::{ErrorCode, KaptoError, utc_iso8601};
+use kapto_core::{ErrorCode, KaptoError, say, utc_iso8601};
 use kapto_decode::{DecodeError, Decoder, DecoderDeclaration, Value};
 use kapto_robot::load_package;
 
@@ -81,7 +81,7 @@ pub(crate) fn decode(flags: &SettingFlags, args: &DecodeArgs) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{}", error.report());
+            say!("{}", error.report());
             ExitCode::FAILURE
         }
     }
@@ -110,7 +110,7 @@ impl Input {
             .ok_or_else(|| KaptoError::new(ErrorCode::PackageMissingFile))?;
         let streams = parse_streams(&file).map_err(first)?;
         for stream in streams.iter().filter(|stream| stream.udp.is_none()) {
-            eprintln!(
+            say!(
                 "{} doesn't arrive over UDP, so it isn't looked for in the capture.",
                 stream.id
             );
@@ -177,18 +177,18 @@ impl Input {
                     each(&channels[stream], message)
                 })?;
                 if elsewhere > 0 {
-                    eprintln!(
+                    say!(
                         "{elsewhere} UDP datagram(s) in the capture went to no stream of the package."
                     );
                 }
                 if passed.fragments > 0 {
-                    eprintln!(
+                    say!(
                         "{} packet(s) were fragments of datagrams too large for one packet, which can't be read on their own.",
                         passed.fragments
                     );
                 }
                 if passed.cut_short > 0 {
-                    eprintln!(
+                    say!(
                         "{} packet(s) were cut short when captured; capture with a larger snapshot length (tcpdump -s 0).",
                         passed.cut_short
                     );
@@ -311,7 +311,7 @@ impl View {
             }
             Err(error) => {
                 let error = error.context("stream", channel.topic.clone());
-                eprintln!("{}\n(showing this stream as raw bytes)\n", error.report());
+                say!("{}\n(showing this stream as raw bytes)\n", error.report());
                 Self::Raw
             }
         }
@@ -591,13 +591,13 @@ fn csv(input: &Input, args: &DecodeArgs) -> Result<(), KaptoError> {
         return Ok(());
     }
     if let Some((count, first)) = not_decoded {
-        eprintln!(
+        say!(
             "{count} message(s) of `{topic}` weren't decoded and are left out; the first: {}.",
             view.explain(first)
         );
     }
     if cut_off {
-        eprintln!(
+        say!(
             "The recording stops part-way (it was cut off, e.g. by a crash); every complete message before that point is included."
         );
     }

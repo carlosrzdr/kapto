@@ -8,10 +8,11 @@ use std::process::ExitCode;
 use kapto_config::{
     DeploymentConfig, Entry, Inputs, Source, default_config_path, read_config_file,
 };
-use kapto_core::KaptoError;
+use kapto_core::{KaptoError, say};
 use kapto_server::settings::{Setting, SettingsOverview};
 
 use crate::SettingFlags;
+use crate::output::{out, outln};
 
 /// Looks up the real process environment.
 fn process_env(name: &str) -> Option<String> {
@@ -69,9 +70,9 @@ fn describe(status: &FileStatus) -> String {
 
 fn report_errors(errors: &[KaptoError]) -> ExitCode {
     let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-    eprintln!("{}", reports.join("\n\n"));
+    say!("{}", reports.join("\n\n"));
     let count = errors.len();
-    eprintln!(
+    say!(
         "\n{count} configuration problem{} found.",
         if count == 1 { "" } else { "s" }
     );
@@ -85,16 +86,16 @@ pub(crate) fn validate(flags: &SettingFlags) -> ExitCode {
         Ok(loaded) => loaded,
         Err(errors) => return report_errors(&errors),
     };
-    println!("{}", describe(&status));
+    outln!("{}", describe(&status));
     for warning in marker_warnings(&config) {
-        eprintln!("warning: {warning}");
+        say!("warning: {warning}");
     }
     // The profiles and tasks beside it, with their robot packages.
     let (sessions, folder) = match crate::session::load(flags) {
         Ok(loaded) => loaded,
         Err(errors) => return report_errors(&errors),
     };
-    println!(
+    outln!(
         "Profiles: {}, tasks: {}, in {}",
         sessions.profiles.len(),
         sessions.tasks.len(),
@@ -108,7 +109,7 @@ pub(crate) fn validate(flags: &SettingFlags) -> ExitCode {
     if !problems.is_empty() {
         return report_errors(&problems);
     }
-    println!("The configuration is valid.");
+    outln!("The configuration is valid.");
     ExitCode::SUCCESS
 }
 
@@ -157,8 +158,8 @@ pub(crate) fn overview(status: &FileStatus, config: &DeploymentConfig) -> Settin
 pub(crate) fn show(flags: &SettingFlags) -> ExitCode {
     match load(flags) {
         Ok((status, config)) => {
-            println!("{}\n", describe(&status));
-            print!("{}", table(&config.entries()));
+            outln!("{}\n", describe(&status));
+            out!("{}", table(&config.entries()));
             ExitCode::SUCCESS
         }
         Err(errors) => report_errors(&errors),

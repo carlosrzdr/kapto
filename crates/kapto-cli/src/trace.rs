@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use kapto_core::clock::monotonic_now;
+use kapto_core::say;
 use serde_json::{Map, Value, json};
 use tracing::Subscriber;
 use tracing::field::{Field, Visit};
@@ -36,7 +37,7 @@ pub(crate) fn start(command: &str) -> Option<Guard> {
     let out = match Out::create(&path, command) {
         Ok(out) => Arc::new(Mutex::new(out)),
         Err(error) => {
-            eprintln!("can't write the trace {}: {error}", path.display());
+            say!("can't write the trace {}: {error}", path.display());
             return None;
         }
     };
@@ -121,7 +122,7 @@ impl Out {
             }))
         });
         if let Err(error) = written {
-            eprintln!("can't write to the trace: {error}");
+            say!("can't write to the trace: {error}");
         }
     }
 }

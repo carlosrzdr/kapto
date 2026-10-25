@@ -19,6 +19,7 @@ use kapto_capture::tap::{
     Decimator, LatestValues, TapConfig, TapDrain, TapFeed, TapSocket, TapStats, tap,
 };
 use kapto_config::StreamDeclaration;
+use kapto_core::say;
 use kapto_decode::{Decoder, Value};
 
 /// How often samples are sent: a display's refresh rate.
@@ -83,7 +84,7 @@ pub(crate) fn open(
     let socket = match TapSocket::new(socket, Arc::clone(&stats)) {
         Ok(socket) => socket,
         Err(error) => {
-            eprintln!("warning: no live view: can't create a socket for the viewer: {error}\n");
+            say!("warning: no live view: can't create a socket for the viewer: {error}\n");
             return None;
         }
     };
@@ -104,7 +105,7 @@ pub(crate) fn open(
             cameras: cameras.streams.to_vec(),
             min_interval: Duration::from_secs(1) / cameras.max_fps.max(1),
         };
-        eprintln!(
+        say!(
             "Live view: the newest frames of {}, up to {} a second each, through {} MiB set aside.",
             crate::counted(config.cameras.len(), "camera", "cameras"),
             cameras.max_fps,

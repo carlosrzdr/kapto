@@ -41,7 +41,9 @@ use kapto_capture::{
 };
 use kapto_config::{MAX_DATAGRAM_BYTES, StreamDeclaration};
 use kapto_core::clock::monotonic_now;
-use kapto_core::{ClockMap, ClockSample, EpisodeId, ErrorCode, KaptoError, RecvTime, StreamId};
+use kapto_core::{
+    ClockMap, ClockSample, EpisodeId, ErrorCode, KaptoError, RecvTime, StreamId, say,
+};
 use kapto_store::records::{
     CAPTURE_RECORD, EPISODE_RECORD, EpisodeEnd, EpisodeStart, PREFLIGHT_RECORD, SUMMARY_RECORD,
 };
@@ -55,6 +57,7 @@ use kapto_transport::{
     Receiver, ReceiverConfig, TcpTransport, Transport, TransportStats, UdpOptions, UdpTransport,
 };
 
+use crate::output::{out, outln};
 use crate::record::{Plan, Source};
 use crate::viewer_tap;
 
@@ -204,8 +207,8 @@ impl Closing {
             .write(&staged.dir())
             .map_err(one)?;
         let finalised = staged.finalise().map_err(one)?;
-        println!("Finalised {}", finalised.dir().display());
-        print!("{table}");
+        outln!("Finalised {}", finalised.dir().display());
+        out!("{table}");
         Ok(finalised.dir().to_path_buf())
     }
 }
@@ -293,7 +296,7 @@ impl Station {
                         Some(opened.latest),
                     ),
                     Err(error) => {
-                        eprintln!(
+                        say!(
                             "warning: no live view: {}",
                             thread_failed("cap-tap", &error.to_string()).message()
                         );
@@ -475,7 +478,7 @@ impl Station {
         if ending == Next::Discard {
             recording.finish(&clock).map_err(one)?;
             staged.discard().map_err(one)?;
-            println!("Aborted episode {episode}; nothing of it was kept.");
+            outln!("Aborted episode {episode}; nothing of it was kept.");
             return Ok(Recorded {
                 episode,
                 closing: None,
@@ -803,7 +806,7 @@ impl Station {
             );
             if next > batches {
                 input.ring.batches = next;
-                eprintln!(
+                say!(
                     "{}: the writer fell behind, filling {} of {batches} buffer batches{}; \
                      from now on it has {next} ({} MiB). Check what else writes to the disk \
                      holding the data directory.",
@@ -1102,7 +1105,7 @@ fn open_transport(source: &Source, udp: UdpOptions) -> Result<Box<dyn Transport>
             let transport = UdpTransport::open(sockets, udp)?;
             for warning in transport.warnings() {
                 // Recording goes ahead.
-                eprintln!("{}\n", warning.warning_report());
+                say!("{}\n", warning.warning_report());
             }
             Ok(Box::new(transport))
         }

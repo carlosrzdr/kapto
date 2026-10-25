@@ -8,10 +8,11 @@ use std::process::ExitCode;
 
 use clap::Subcommand;
 use kapto_config::{PROFILES_DIR, Profile, Sessions, Task, load_sessions};
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_robot::discover;
 
 use crate::SettingFlags;
+use crate::output::{out, outln};
 
 #[derive(Subcommand)]
 pub(crate) enum ProfileCommand {
@@ -65,7 +66,7 @@ pub(crate) fn profile(flags: &SettingFlags, command: &ProfileCommand) -> ExitCod
                 |p| &p.id,
                 ErrorCode::ProfileNotFound,
             )?;
-            print!("{}", describe_profile(found));
+            out!("{}", describe_profile(found));
             Ok(())
         }
     }))
@@ -86,7 +87,7 @@ pub(crate) fn task(flags: &SettingFlags, command: &TaskCommand) -> ExitCode {
         }
         TaskCommand::Show { task } => {
             let found = find(&sessions.tasks, task, |t| &t.id, ErrorCode::TaskNotFound)?;
-            print!("{}", describe_task(found));
+            out!("{}", describe_task(found));
             Ok(())
         }
     }))
@@ -141,7 +142,7 @@ fn list<const N: usize>(
 ) {
     let rows: Vec<[String; N]> = rows.collect();
     if rows.is_empty() {
-        println!("No {what} in {}.", folder.join(what).display());
+        outln!("No {what} in {}.", folder.join(what).display());
         return;
     }
     let header = header.map(str::to_owned);
@@ -160,7 +161,7 @@ fn list<const N: usize>(
             .zip(&widths)
             .map(|(cell, width)| format!("{cell:<width$}"))
             .collect();
-        println!("{}", cells.join("  ").trim_end());
+        outln!("{}", cells.join("  ").trim_end());
     }
 }
 
@@ -241,7 +242,7 @@ fn finish(result: Result<(), Vec<KaptoError>>) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }

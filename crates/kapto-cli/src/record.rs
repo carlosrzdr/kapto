@@ -25,7 +25,7 @@ use kapto_config::{
     TcpDeclaration, TcpEndpointDeclaration, msg_files, parse_streams, read_config_file,
 };
 use kapto_core::clock::monotonic_now;
-use kapto_core::{ClockSample, EpisodeId, ErrorCode, KaptoError, StreamId};
+use kapto_core::{ClockSample, EpisodeId, ErrorCode, KaptoError, StreamId, say};
 use kapto_decode::{CDR_ENCODING, ROS2MSG_ENCODING, TOPIC_METADATA};
 use kapto_robot::{Package, is_mesh_or_texture, load_package};
 use kapto_store::PackageIdentity;
@@ -35,6 +35,7 @@ use kapto_transport::{
 };
 
 use crate::SettingFlags;
+use crate::output::outln;
 use crate::station::{Carried, CarriedFile, Next, Outcome, Station};
 use crate::viewer_tap;
 
@@ -579,17 +580,17 @@ pub(crate) fn record(
         Ok(silence) => match silence {
             Silence::None => ExitCode::SUCCESS,
             Silence::Some(warning) => {
-                eprintln!("{}", warning.warning_report());
+                say!("{}", warning.warning_report());
                 ExitCode::SUCCESS
             }
             Silence::All(error) => {
-                eprintln!("{}", error.report());
+                say!("{}", error.report());
                 ExitCode::from(NOTHING_RECEIVED)
             }
         },
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!("{}", reports.join("\n\n"));
+            say!("{}", reports.join("\n\n"));
             ExitCode::FAILURE
         }
     }
@@ -603,14 +604,14 @@ pub(crate) fn recover(data_dir: &Path, recovered: &mut dyn FnMut(&EpisodeId)) {
         match outcome {
             Ok(done) => {
                 match done.salvaged {
-                    Some(salvaged) => eprintln!(
+                    Some(salvaged) => say!(
                         "Recovered episode {}, which recording left unfinished: {} messages kept, {} bytes cut off its end. Finalised {}",
                         done.episode,
                         salvaged.messages,
                         salvaged.cut_bytes,
                         done.folder.display(),
                     ),
-                    None => eprintln!(
+                    None => say!(
                         "Finalised episode {}, whose finalising was cut short: {}",
                         done.episode,
                         done.folder.display(),
@@ -618,7 +619,7 @@ pub(crate) fn recover(data_dir: &Path, recovered: &mut dyn FnMut(&EpisodeId)) {
                 }
                 recovered(&done.episode);
             }
-            Err(error) => eprintln!(
+            Err(error) => say!(
                 "An episode recording left unfinished couldn't be recovered, and is left where it is.\n{}",
                 error.report()
             ),
@@ -705,7 +706,7 @@ fn package_and_files(
             carried,
         ),
         (Some(package), Some(Err(error))) => {
-            eprintln!(
+            say!(
                 "warning: the robot package in {} can't be read, so episodes are recorded without a robot model or quality checks:\n\n{}\n",
                 package.folder.display(),
                 error.report()
@@ -757,7 +758,7 @@ fn declarations_alone(streams: &Path, mapping: Option<&Path>) -> Carried {
                 data,
             }),
             Err(error) => {
-                eprintln!(
+                say!(
                     "warning: {} can't be read again, so recordings won't carry it: {error}",
                     path.display()
                 );
@@ -813,7 +814,7 @@ pub(crate) fn loaded_package(streams: &Path) -> Option<Package> {
         }
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
-            eprintln!(
+            say!(
                 "warning: the robot package in {} can't be loaded, so episodes are recorded without a robot model or quality checks:\n\n{}\n",
                 folder.display(),
                 reports.join("\n\n")
@@ -895,9 +896,9 @@ fn session(
         package_of(streams, mapping, deployment.attach_meshes.value);
     station.writer = writer;
     if station.package.is_some() {
-        eprintln!("Recording with {}.", describe(station.package.as_ref()));
+        say!("Recording with {}.", describe(station.package.as_ref()));
     } else {
-        eprintln!(
+        say!(
             "No robot package declares these streams, so episodes are recorded without a robot model or quality checks."
         );
     }
@@ -906,7 +907,7 @@ fn session(
     let recorded = station.record(
         monotonic_now(),
         &mut |episode, buffers| {
-            eprintln!(
+            say!(
                 "Recording episode {episode} from {} for {} s (buffers: {} batches, {} MiB). Started.",
                 crate::counted(streams, "stream", "streams"),
                 duration.as_secs(),
@@ -919,7 +920,7 @@ fn session(
                 return Next::Finalise;
             }
             if elapsed >= Duration::from_secs(next_second) {
-                eprintln!("{}", live.line(next_second));
+                say!("{}", live.line(next_second));
                 next_second += 1;
             }
             Next::Record
@@ -930,11 +931,11 @@ fn session(
         closing.close()?;
     }
     if let Some(stats) = station.tap_stats() {
-        println!("{}", viewer_tap::summary(stats));
+        outln!("{}", viewer_tap::summary(stats));
     }
     if let Some(stats) = station.frame_stats() {
         for line in viewer_tap::frames_summary(stats, &declarations) {
-            println!("{line}");
+            outln!("{line}");
         }
     }
     recorded.receivers?;

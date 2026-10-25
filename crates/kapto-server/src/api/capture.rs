@@ -10,7 +10,7 @@ use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use kapto_capture::control::{self, Request};
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, say};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -171,7 +171,7 @@ pub(super) async fn stop(
                 tokio::task::spawn_blocking(move || crate::index::add(&store, &data_dir, &id))
                     .await;
             if let Ok(Err(error)) = indexed {
-                eprintln!("[serve] {episode} isn't listed yet: {error}");
+                say!("[serve] {episode} isn't listed yet: {error}");
             }
             Ok(Json(Stopped { episode }))
         }

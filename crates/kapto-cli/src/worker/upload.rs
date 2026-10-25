@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use kapto_config::UploadDestination;
 use kapto_core::clock::utc_now_ns;
-use kapto_core::{ErrorCode, KaptoError, hex};
+use kapto_core::{ErrorCode, KaptoError, hex, say};
 use kapto_server::jobs::{Found, JOB_SOCKET, JobClient, JobOrder, JobRequest, UPLOAD};
 use kapto_store::manifest::MANIFEST_FILE;
 use kapto_store::{Episode, JobFailure, UploadCounts, UploadedObject, episode_folder};
@@ -53,7 +53,7 @@ pub(super) fn lane(
     {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("[worker] uploads stopped: no runtime for them: {error}");
+            say!("[worker] uploads stopped: no runtime for them: {error}");
             return;
         }
     };
@@ -82,7 +82,7 @@ pub(super) fn lane(
                 continue;
             }
             Err(error) => {
-                eprintln!("[worker] {error}");
+                say!("[worker] {error}");
                 serve = None;
                 continue;
             }
@@ -98,11 +98,11 @@ pub(super) fn lane(
             && error.code() == ErrorCode::WorkerJobStopped
         {
             match client.released(order.id) {
-                Ok(()) => eprintln!(
+                Ok(()) => say!(
                     "[worker] upload {}: stopped part-way, given back",
                     order.episode
                 ),
-                Err(error) => eprintln!("[worker] {error}"),
+                Err(error) => say!("[worker] {error}"),
             }
             // Stopped as the episode went into the bin, the lane carries
             // on with the next; stopped as the worker stops, it ends.
@@ -112,11 +112,11 @@ pub(super) fn lane(
             continue;
         }
         if let Some(error) = &failure {
-            eprintln!("[worker] {} not uploaded: {error}", order.episode);
+            say!("[worker] {} not uploaded: {error}", order.episode);
         }
         let failure = failure.as_ref().map(JobFailure::from);
         if let Err(error) = client.finished(order.id, failure, Found::default()) {
-            eprintln!("[worker] {error}");
+            say!("[worker] {error}");
             serve = None;
         }
     }

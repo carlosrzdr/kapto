@@ -9,7 +9,9 @@ use std::fmt::Write as _;
 use std::process::ExitCode;
 
 use clap::Args;
-use kapto_core::KaptoError;
+use kapto_core::{KaptoError, say};
+
+use crate::output::out;
 
 /// Arguments of `kapto topics`.
 #[derive(Args)]
@@ -51,11 +53,11 @@ struct Heard {
 pub(crate) fn topics(args: &TopicsArgs) -> ExitCode {
     match listed(args) {
         Ok(text) => {
-            print!("{text}");
+            out!("{text}");
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("{}", error.report());
+            say!("{}", error.report());
             ExitCode::FAILURE
         }
     }
