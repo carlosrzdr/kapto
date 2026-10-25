@@ -8,6 +8,7 @@
 //! uses no CPU.
 
 mod flamegraph;
+mod page;
 mod stacks;
 mod timeline;
 
@@ -19,6 +20,7 @@ use clap::{Args, ValueEnum};
 
 use super::place::{Place, current_ids};
 use super::{Cameras, Spec, record_load_watched, tidy, work_dir};
+pub(crate) use page::PageArgs;
 use stacks::{Reading, ThreadTimes};
 
 /// The image `perf` runs in, the Dockerfile's `profiler` stage.
@@ -111,6 +113,30 @@ pub(crate) fn record(root: &Path, args: ScenarioArgs) -> ExitCode {
                 work.display()
             );
             ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Watches the live view in a browser under the scenario's load and checks
+/// what it costs the page against its budget.
+pub(crate) fn page(root: &Path, args: PageArgs) -> ExitCode {
+    match page::profiled_page(root, args) {
+        Ok((work, report, within)) => {
+            println!("{report}");
+            eprintln!(
+                "The page's profile is in {}: page.md, and page.cpuprofile for DevTools",
+                work.display()
+            );
+            if within {
+                ExitCode::SUCCESS
+            } else {
+                eprintln!("The page cost more than its budget in perf-budget.toml.");
+                ExitCode::FAILURE
+            }
         }
         Err(error) => {
             eprintln!("error: {error}");

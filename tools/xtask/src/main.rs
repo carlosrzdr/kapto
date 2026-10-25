@@ -149,6 +149,12 @@ enum ProfileCommand {
     /// batches wait for the writer, each job's cost per minute recorded,
     /// and checksums' and, with `--upload`, uploading's cost per GB.
     Trace(bench::profile::TraceArgs),
+    /// Watch the live view in Chromium drawing with the graphics card under
+    /// a scenario's load (Playwright in Docker): pictures drawn a second,
+    /// each frame's delay to the screen, memory and the main thread's busy
+    /// time, checked against perf-budget.toml, and the main thread's
+    /// profile.
+    Page(bench::profile::PageArgs),
 }
 
 fn main() -> ExitCode {
@@ -167,6 +173,7 @@ fn main() -> ExitCode {
             bench::profile::record(&repo_root(), args)
         }
         Command::Profile(ProfileCommand::Trace(args)) => bench::profile::trace(&repo_root(), args),
+        Command::Profile(ProfileCommand::Page(args)) => bench::profile::page(&repo_root(), args),
         Command::Ui { task } => ui::run(&repo_root(), task),
         Command::Clean { workspace, all } => clean::run(
             &repo_root(),

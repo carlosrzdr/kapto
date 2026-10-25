@@ -195,6 +195,46 @@ pub(crate) fn run(root: &Path, args: &BrowserArgs) -> ExitCode {
 }
 
 fn measure(root: &Path, args: &BrowserArgs) -> Result<BrowserReport, String> {
+    let work = work_dir(root, "browser");
+    let spec = Spec {
+        streams: 16,
+        tcp_streams: 0,
+        cameras: None,
+        rate: 2_000,
+        seconds: args.minutes * 60 + 180,
+        max_message_bytes: None,
+        place: Place::Native,
+        tap_socket: None,
+        decoded: true,
+    };
+    let environment = [("KAPTO_WATCH_SECONDS", (args.minutes * 60).to_string())];
+    watch(root, &spec, "live-load.spec.ts", &work, &environment)?;
+
+    let path = work.join("live-load.json");
+    let watched: Watched = std::fs::read_to_string(&path)
+        .map_err(|error| format!("can't read {}: {error}", path.display()))
+        .and_then(|text| serde_json::from_str(&text).map_err(|error| error.to_string()))?;
+    let report = BrowserReport::new(Machine::this(Place::Native), args.minutes, watched);
+    write_reports(
+        &work,
+        &serde_json::to_string_pretty(&report),
+        &report.markdown(),
+    )?;
+    Ok(report)
+}
+
+/// Runs `kapto serve` with the sample arm, driven by the first of `spec`'s
+/// streams, and the load generator sending them and its cameras, while the
+/// Playwright spec `spec_file` watches the page in Chromium drawing with
+/// the graphics card, `environment` set for it and `work` its results
+/// folder, `/results`. The UI and the release build are made first.
+pub(super) fn watch(
+    root: &Path,
+    spec: &Spec,
+    spec_file: &str,
+    work: &Path,
+    environment: &[(&str, String)],
+) -> Result<(), String> {
     let render_node = Path::new("/dev/dri/renderD128");
     let render_group = std::fs::metadata(render_node)
         .map_err(|error| {
@@ -209,26 +249,15 @@ fn measure(root: &Path, args: &BrowserArgs) -> Result<BrowserReport, String> {
         return Err("the UI didn't build".to_owned());
     }
     build(root, Place::Native)?;
-    let work = work_dir(root, "browser");
     // Kapto's sockets are in its data folder, which must be short.
     let data = std::env::temp_dir().join(format!("kapto-bench-browser-{}", std::process::id()));
-    for folder in [&work, &data.join("config")] {
+    for folder in [work, &data.join("config")] {
         std::fs::create_dir_all(folder)
             .map_err(|error| format!("can't create {}: {error}", folder.display()))?;
     }
-    let spec = Spec {
-        streams: 16,
-        tcp_streams: 0,
-        cameras: None,
-        rate: 2_000,
-        seconds: args.minutes * 60 + 180,
-        max_message_bytes: None,
-        place: Place::Native,
-        tap_socket: None,
-        decoded: true,
-    };
-    let port = free_ports(spec.streams)?;
-    let streams = write_streams(&work, port, &spec)?;
+    let cameras = spec.cameras.map_or(0, |cameras| cameras.count);
+    let port = free_ports(spec.streams + cameras)?;
+    let streams = write_streams(work, port, spec)?;
     let mapping = work.join("mapping.toml");
     let config = data.join("config/kapto.toml");
     std::fs::write(&mapping, super::viewer::mapping_of_first_stream())
@@ -237,31 +266,50 @@ fn measure(root: &Path, args: &BrowserArgs) -> Result<BrowserReport, String> {
     let binaries = root.join("target/release");
 
     let (mut kapto, url) = start_serve(&binaries, root, &streams, &mapping, &data, &config)?;
-    let generator = Command::new(binaries.join("kapto-loadgen"))
+    let mut generators = Vec::new();
+    let mut generator = Command::new(binaries.join("kapto-loadgen"));
+    generator
         .args(["--streams", &spec.streams.to_string()])
         .args(["--rate", &spec.rate.to_string()])
         .args(["--duration", &spec.seconds.to_string()])
-        .args(["--target", &format!("127.0.0.1:{port}")])
-        .stdout(Stdio::null())
-        .spawn();
-    let watched = generator
+        .args(["--target", &format!("127.0.0.1:{port}")]);
+    generators.push(generator);
+    if let Some(sent) = spec.cameras {
+        let mut generator = Command::new(binaries.join("kapto-loadgen"));
+        generator
+            .args(["--streams", &sent.count.to_string()])
+            .args(["--rate", &sent.fps.to_string()])
+            .args(["--duration", &spec.seconds.to_string()])
+            .args(["--target", &format!("127.0.0.1:{}", port + spec.streams)])
+            .args(["--transport", "tcp-connect"])
+            .args(["--camera", &format!("{}x{}", sent.width, sent.height)]);
+        generators.push(generator);
+    }
+    let started: Result<Vec<_>, _> = generators
+        .iter_mut()
+        .map(|generator| generator.stdout(Stdio::null()).spawn())
+        .collect();
+    let watched = started
         .map_err(|error| format!("can't start the load generator: {error}"))
-        .and_then(|mut generator| {
-            let extra = [
+        .and_then(|mut generators| {
+            let mut extra = vec![
                 "--device".to_owned(),
                 "/dev/dri".to_owned(),
                 "--group-add".to_owned(),
                 render_group.to_string(),
                 "-e".to_owned(),
-                format!("KAPTO_WATCH_SECONDS={}", args.minutes * 60),
-                "-e".to_owned(),
                 "KAPTO_RESULTS=/results".to_owned(),
                 "-v".to_owned(),
                 format!("{}:/results", work.display()),
             ];
-            let watched = crate::ui::e2e::playwright(root, &url, "live-load.spec.ts", &extra);
-            let _ = generator.kill();
-            let _ = generator.wait();
+            for (name, value) in environment {
+                extra.extend(["-e".to_owned(), format!("{name}={value}")]);
+            }
+            let watched = crate::ui::e2e::playwright(root, &url, spec_file, &extra);
+            for generator in &mut generators {
+                let _ = generator.kill();
+                let _ = generator.wait();
+            }
             watched
         });
     let _ = Command::new("kill")
@@ -269,19 +317,7 @@ fn measure(root: &Path, args: &BrowserArgs) -> Result<BrowserReport, String> {
         .status();
     let _ = kapto.wait();
     let _ = std::fs::remove_dir_all(&data);
-    watched?;
-
-    let path = work.join("live-load.json");
-    let watched: Watched = std::fs::read_to_string(&path)
-        .map_err(|error| format!("can't read {}: {error}", path.display()))
-        .and_then(|text| serde_json::from_str(&text).map_err(|error| error.to_string()))?;
-    let report = BrowserReport::new(Machine::this(Place::Native), args.minutes, watched);
-    write_reports(
-        &work,
-        &serde_json::to_string_pretty(&report),
-        &report.markdown(),
-    )?;
-    Ok(report)
+    watched
 }
 
 /// Starts `kapto serve` with the sample arm and the load's streams, and

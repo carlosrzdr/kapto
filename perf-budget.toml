@@ -120,3 +120,16 @@ per_batch_ns = 400
 per_message_ns = 10
 per_kib_ns = 5
 reason = "As tap_offer, plus a look at each message for the cameras' newest frames; only a batch with a frame due (at most thirty a second per camera) looks again, to copy it."
+
+# What the live view may cost the page, checked by `cargo xtask profile
+# page` against each scenario's load: Chromium drawing with the graphics
+# card, samples taken while its profiler runs left out. The page draws at
+# the screen's rate, 60 a second; the delay is from a message's arrival to
+# the page drawing it, as `bench browser` measures it; the memory is the
+# browser's, its second minute against its last.
+[page]
+min_fps = 50
+max_delay_p95_ms = 150
+max_memory_growth_mib = 32
+max_main_thread_busy = 0.85
+reason = "The live view keeps up with the screen and every stream on a robot the size of the largest recorded (50 streams at 2 kHz and two 1080p cameras at 60 fps), and doesn't grow while watched. Measured there on the maintainer's laptop (Intel Iris Xe): 60 pictures a second, 40 ms to the screen at the 95th percentile, 12 MiB more memory over two minutes, and the main thread busy 76 % of the time, half of it the browser's own painting, leaving it free between short tasks for the operator's clicks."

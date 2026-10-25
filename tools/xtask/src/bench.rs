@@ -158,7 +158,8 @@ struct Spec {
     /// Where it sends live samples, if not the default.
     tap_socket: Option<PathBuf>,
     /// Whether each stream declares its values, the load generator's
-    /// joints and gripper, so live samples carry them.
+    /// joints and gripper, so live samples carry them, and each camera its
+    /// pictures' format, so the live view shows them.
     decoded: bool,
 }
 
@@ -749,9 +750,13 @@ fn write_streams(dir: &Path, port: u16, spec: &Spec) -> Result<PathBuf, String> 
             let _ = write!(
                 text,
                 "[streams.camera_{camera}]\nrate_hz = {}\nmax_message_bytes = {CAMERA_MAX_BYTES}\n\
-                 tcp = {{ listen = \"{address}\", framing = {{ kind = \"length_prefix\", length_bytes = 4 }} }}\n\n",
+                 tcp = {{ listen = \"{address}\", framing = {{ kind = \"length_prefix\", length_bytes = 4 }} }}\n",
                 cameras.fps
             );
+            if spec.decoded {
+                text.push_str("camera = { format = \"jpeg\" }\n");
+            }
+            text.push('\n');
         }
     }
     let path = dir.join("streams.toml");
