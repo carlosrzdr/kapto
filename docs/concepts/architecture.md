@@ -229,6 +229,15 @@ same lower priority: it reads the file back up to where `cap-writer` last
 put it on disk, so closing hashes only the rest, and the whole file again
 only if `cap-hash` didn't see every byte.
 
+Every thread capture starts has a stack of 2 MiB, set rather than left to
+the environment, and capture says when it starts what its threads take at
+most (`kapto_capture::threads`): each one's stack and the buffer it holds
+for itself (`cap-hash` and `cap-finalise` 256 KiB to read a file back,
+pre-flight 1 MiB to write its test), with two `cap-hash` for an episode
+closed while the next is recorded, and what each control connection, and
+each episode waiting behind the one being closed, adds. The main thread,
+and threads rcl and the ROS 2 middleware start, aren't counted.
+
 Each recording is written in a staging folder, then moved, listed in a
 manifest with every file's checksum, and marked `_FINALISED` last, so a
 partial recording never looks finished. [Episodes on disk](episodes.md)

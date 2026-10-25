@@ -29,8 +29,9 @@ use sha2::{Digest, Sha256};
 /// How often `cap-hash` looks again once it has caught up with the writer.
 const LOOK_AGAIN: Duration = Duration::from_millis(100);
 
-/// How much `cap-hash` reads at a time.
-const CHUNK: usize = 256 * 1024;
+/// How much `cap-hash` reads at a time, into one buffer it holds for the
+/// episode.
+pub const CHUNK: usize = 256 * 1024;
 
 /// The writer is still writing.
 const WRITING: u8 = 0;
@@ -145,7 +146,7 @@ impl HashBehind {
     ) -> io::Result<(Written, Self)> {
         let file = File::open(path)?;
         let shared = Arc::new(Shared::default());
-        let thread = thread::Builder::new().name("cap-hash".to_owned()).spawn({
+        let thread = crate::threads::named("cap-hash").spawn({
             let shared = Arc::clone(&shared);
             move || {
                 first();

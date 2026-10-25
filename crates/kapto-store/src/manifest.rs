@@ -31,6 +31,9 @@ pub const FORMAT: &str = "kapto.manifest";
 /// The manifest version this code writes.
 pub const VERSION: u32 = 1;
 
+/// How much is read at a time to hash a file, in one buffer for the file.
+pub const HASH_BUFFER_BYTES: usize = 256 * 1024;
+
 /// Every file of a finalised episode, with its size and SHA-256.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -303,7 +306,7 @@ fn hash_file(
     );
     let mut file = File::open(path).map_err(Stopped::Read)?;
     let mut hasher = Sha256::new();
-    let mut buffer = vec![0; 256 * 1024];
+    let mut buffer = vec![0; HASH_BUFFER_BYTES];
     let mut bytes = 0_u64;
     loop {
         let read = file.read(&mut buffer).map_err(Stopped::Read)?;

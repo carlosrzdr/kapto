@@ -22,6 +22,7 @@ pub mod salvage;
 pub mod seek;
 #[cfg(unix)]
 pub mod tap;
+pub mod threads;
 pub mod writer;
 
 pub use batch::{Batch, Gap, Publication, StreamIndex};

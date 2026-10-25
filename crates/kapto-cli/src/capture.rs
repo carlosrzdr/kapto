@@ -34,7 +34,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use kapto_capture::control::{
@@ -43,6 +42,7 @@ use kapto_capture::control::{
 };
 use kapto_capture::disk::{DiskLimits, DiskWatch, Room};
 use kapto_capture::tap::LatestValues;
+use kapto_capture::threads::ThreadMemory;
 use kapto_capture::{Compression, WriterConfig};
 use kapto_config::{DeploymentConfig, StreamDeclaration};
 use kapto_core::clock::{monotonic_now, utc_now_ns};
@@ -88,6 +88,25 @@ fn say_receiving(station: &Station, deployment: &DeploymentConfig) {
     if let Some(pre_roll) = station.pre_roll_said() {
         say!("{pre_roll}");
     }
+    say!("{}", threads_said(&station.threads()));
+}
+
+/// What capture's threads take at most, said when it starts.
+fn threads_said(memory: &ThreadMemory) -> String {
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "a size shown to a tenth of a MiB"
+    )]
+    let mib = |bytes: usize| bytes as f64 / f64::from(1 << 20);
+    format!(
+        "Threads: {}, their stacks and own buffers {:.1} MiB, with an episode being closed \
+         while the next is recorded; each control connection adds {:.1} MiB, and each episode \
+         waiting to be closed behind another {:.1} MiB.",
+        memory.count(),
+        mib(memory.total_bytes()),
+        mib(ThreadMemory::per_connection_bytes()),
+        mib(ThreadMemory::per_waiting_episode_bytes()),
+    )
 }
 
 fn serve(
@@ -347,8 +366,7 @@ fn note(
 /// them.
 fn recover_meanwhile(control: &ControlServer, data_dir: PathBuf) -> Outcome<()> {
     let announcer = control.announcer();
-    thread::Builder::new()
-        .name("cap-recover".into())
+    kapto_capture::threads::named("cap-recover")
         .spawn(move || {
             recover(&data_dir, &mut |episode| {
                 announcer.announce(Announcement::EpisodeRecovered {
@@ -711,6 +729,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn capture_says_what_its_threads_take_with_two_episodes_hashed_at_once() {
+        // Eleven threads of 2 MiB stacks and 64 KiB besides, with the
+        // buffers of pre-flight (1 MiB), two cap-hash and cap-finalise
+        // (256 KiB each).
+        assert_eq!(
+            threads_said(&ThreadMemory::capture(1, true)),
+            "Threads: 11, their stacks and own buffers 24.4 MiB, with an episode being closed \
+             while the next is recorded; each control connection adds 2.1 MiB, and each \
+             episode waiting to be closed behind another 2.3 MiB."
+        );
+    }
+
+    #[test]
     fn the_disk_is_told_once_low_and_once_too_full_and_only_too_full_ends_the_episode() {
         let free = Arc::new(AtomicU64::new(5_000));
         let mut disk = DiskWatch::with_probe(
@@ -728,7 +759,7 @@ mod tests {
         assert!(told.warned && !told.full);
 
         free.store(1_000, Ordering::Relaxed);
-        thread::sleep(DiskWatch::EVERY);
+        std::thread::sleep(DiskWatch::EVERY);
         assert!(told.check(&mut disk));
         assert!(told.check(&mut disk), "stays ended");
     }

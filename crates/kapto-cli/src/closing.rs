@@ -17,7 +17,7 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 
 use kapto_capture::control::{Announcement, ControlServer, Pending, Response};
 use kapto_core::{EpisodeId, ErrorCode, KaptoError, say};
@@ -59,8 +59,7 @@ impl Closer {
     pub(crate) fn start() -> Outcome<Self> {
         let (closings, to_close) = mpsc::channel::<Closing>();
         let (done, closed) = mpsc::channel();
-        let thread = thread::Builder::new()
-            .name("cap-finalise".to_owned())
+        let thread = kapto_capture::threads::named("cap-finalise")
             .spawn(move || {
                 if let Err(error) = crate::worker::lower_priority() {
                     say!("Episodes are closed at capture's priority: {error}");

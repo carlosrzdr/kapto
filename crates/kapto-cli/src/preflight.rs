@@ -14,7 +14,7 @@
 use std::fmt::Write as _;
 use std::io;
 use std::path::PathBuf;
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use kapto_capture::StreamIndex;
@@ -118,15 +118,13 @@ impl Preflight {
         let folder = self.folder.clone();
         let write = std::fs::create_dir_all(&folder)
             .and_then(|()| {
-                thread::Builder::new()
-                    .name("cap-preflight".into())
+                kapto_capture::threads::named("cap-preflight")
                     .spawn(move || write_speed(&folder, WRITE_TEST_BYTES))
             })
             .map_err(|error| error.to_string());
         let router = self.router.clone().and_then(|endpoint| {
             let tried = endpoint.clone();
-            thread::Builder::new()
-                .name("cap-preflight-router".into())
+            kapto_capture::threads::named("cap-preflight-router")
                 .spawn(move || reach(&tried))
                 .ok()
                 .map(|handle| (endpoint, handle))

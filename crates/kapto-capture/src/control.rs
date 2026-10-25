@@ -41,7 +41,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use kapto_core::{ErrorCode, KaptoError};
@@ -478,15 +477,13 @@ impl ControlServer {
         let watchers = Arc::new(Watchers::default());
         let made = Arc::clone(&watchers.made);
         let (announcements, announced) = mpsc::channel();
-        thread::Builder::new()
-            .name("cap-control-tell".into())
+        crate::threads::named("cap-control-tell")
             .spawn({
                 let watchers = Arc::clone(&watchers);
                 move || tell(&announced, &watchers)
             })
             .map_err(|error| failed(error.to_string()))?;
-        thread::Builder::new()
-            .name("cap-control".into())
+        crate::threads::named("cap-control")
             .spawn({
                 let supervision = Arc::clone(&supervision);
                 move || accept(&listener, &sender, &supervision, &watchers)
@@ -557,11 +554,9 @@ fn accept(
         let supervision = Arc::clone(supervision);
         let watchers = Arc::clone(watchers);
         // A thread per connection, so a slow client never holds up another.
-        let _ = thread::Builder::new()
-            .name("cap-control-conn".into())
-            .spawn(move || {
-                let _ = converse(connection, &requests, &supervision, &watchers);
-            });
+        let _ = crate::threads::named("cap-control-conn").spawn(move || {
+            let _ = converse(connection, &requests, &supervision, &watchers);
+        });
     }
 }
 

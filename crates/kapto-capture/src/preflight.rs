@@ -31,6 +31,9 @@ pub const SLOW_SHARE: f64 = 0.9;
 /// on any disk worth recording on.
 pub const WRITE_TEST_BYTES: usize = 32 * 1024 * 1024;
 
+/// How much the write test writes at a time, from one buffer.
+pub const WRITE_BLOCK_BYTES: usize = 1024 * 1024;
+
 /// What pre-flight asks of the machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Needs {
@@ -249,7 +252,7 @@ fn stream(seen: &StreamSeen, window: Duration) -> PreflightCheck {
 )]
 pub fn write_speed(folder: &Path, bytes: usize) -> io::Result<f64> {
     let path = folder.join(format!(".preflight-{}", std::process::id()));
-    let block = vec![0x5A_u8; 1024 * 1024];
+    let block = vec![0x5A_u8; WRITE_BLOCK_BYTES];
     let started = Instant::now();
     let written = (|| {
         let mut file = File::create(&path)?;

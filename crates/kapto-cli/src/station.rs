@@ -34,6 +34,7 @@ use kapto_capture::finalise::{RECORDING_FILE, Staged};
 use kapto_capture::post_roll::NOT_STOPPED;
 use kapto_capture::tap::frames::{FrameStats, FrameTotals};
 use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
+use kapto_capture::threads::ThreadMemory;
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
     Accounting, ChannelSpec, Drainer, Filler, HandedOver, HashBehind, Kept, KeptHeld, LossCounters,
@@ -323,10 +324,7 @@ impl Station {
         let (tap, tap_stats, frame_stats, tap_thread, latest) = match opened {
             Some(opened) => {
                 let viewer = opened.tap;
-                match thread::Builder::new()
-                    .name("cap-tap".into())
-                    .spawn(move || viewer.run())
-                {
+                match kapto_capture::threads::named("cap-tap").spawn(move || viewer.run()) {
                     Ok(handle) => (
                         Some(opened.feed),
                         Some(opened.stats),
@@ -401,6 +399,12 @@ impl Station {
         self.handed = end.handed;
         self.accounting = end.accounting;
         end.receivers
+    }
+
+    /// What capture's threads take at most: one receiver thread per input,
+    /// and the live view's if it runs.
+    pub(crate) fn threads(&self) -> ThreadMemory {
+        ThreadMemory::capture(self.plan.inputs.len(), self.tap_thread.is_some())
     }
 
     /// What the pre-roll keeps and the memory set aside for it, said when
@@ -1032,8 +1036,7 @@ fn run_threads(
     thread::scope(|scope| {
         let mut receiving = Vec::new();
         for (name, receiver) in receivers {
-            let spawned = thread::Builder::new()
-                .name(name.clone())
+            let spawned = kapto_capture::threads::named(name.clone())
                 .spawn_scoped(scope, move || receive(receiver, stop, hand_over));
             match spawned {
                 Ok(handle) => receiving.push((name, handle)),
@@ -1044,9 +1047,8 @@ fn run_threads(
             }
         }
         let writer_counters = Arc::clone(counters);
-        let writing = thread::Builder::new()
-            .name("cap-writer".to_owned())
-            .spawn_scoped(scope, move || match job {
+        let writing =
+            kapto_capture::threads::named("cap-writer").spawn_scoped(scope, move || match job {
                 Job::Write(mut recording) => {
                     if let Some(feed) = tap.take() {
                         recording.set_tap(feed);
