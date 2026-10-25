@@ -219,11 +219,15 @@ longest post-roll has passed, on a thread of its own, `cap-finalise`
 ([design](../design/closing-an-episode-beside-receiving.md)): capture
 hands it the open recording and starts the next idle phase at once, so
 receiving and the live view go on while the file's index is written and
-synced, `episode.json` written, the folder moved and every byte hashed for
+synced, `episode.json` written, the folder moved and every file hashed for
 the manifest. The thread runs at the worker's lower priority and closes
 one episode at a time, in the order they stopped; capture answers each
 Stop, and announces each end, once its episode is finalised. A Start
 meanwhile is accepted, and SIGTERM waits for every episode handed over.
+The recording itself is hashed while it is written, by `cap-hash`, at the
+same lower priority: it reads the file back up to where `cap-writer` last
+put it on disk, so closing hashes only the rest, and the whole file again
+only if `cap-hash` didn't see every byte.
 
 Each recording is written in a staging folder, then moved, listed in a
 manifest with every file's checksum, and marked `_FINALISED` last, so a
@@ -800,7 +804,7 @@ schema changes in place, at version 1 and without migrations: a database
 whose tables differ from it is deleted and made again.
 
 ```
-kapto serve ─┬─ kapto capture      (cap-rx-*, cap-writer, cap-tap, cap-finalise, cap-control, cap-control-tell, cap-preflight)
+kapto serve ─┬─ kapto capture      (cap-rx-*, cap-writer, cap-tap, cap-hash, cap-finalise, cap-control, cap-control-tell, cap-preflight)
   srv-api    ├─ kapto viz-bridge   (viz-stream, viz-stream-page, viz-marks)
              └─ kapto worker       (wrk-sched, wrk-cpu-0, wrk-watch, wrk-upload) ── worker.sock
   srv-watch, srv-stats, srv-announce, srv-index, srv-jobs ── worker.sock

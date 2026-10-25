@@ -24,6 +24,14 @@ closing it takes about 2.5 s on the maintainer's laptop:
   of an episode started right after misses that gap;
 - an episode can't start until the last one is closed.
 
+Closing still reads the whole recording back to hash it, which takes
+longer the longer the episode: seconds for every minute recorded with two
+cameras. On SIGTERM, capture has `capture.stop_grace` (30 s by default) to
+finalise the episode being recorded: an episode long enough can't be
+hashed in time, the process is killed, and the episode is left for
+recovery. Docker's own grace (10 s unless `stop_grace_period` is set) cuts
+it shorter still.
+
 What has to hold:
 
 - **A partial recording never looks finished**: stage, rename, manifest,
@@ -56,6 +64,23 @@ and the episode's end announced, when that thread is done.**
   lower priority, so reading the file back to hash it doesn't take a core
   from receiving. It sends what came of it, the folder or the error, over
   a channel.
+- **Hashing behind the writer.** While an episode is recorded, a thread of
+  its own, `cap-hash`, at the worker's lower priority, reads the recording
+  file back up to where the writer has written and flushed, and keeps the
+  file's SHA-256 running. The writer only publishes how far the file is
+  written and will no longer change, as one atomic store each time it
+  puts the file on disk: a chunk's header is rewritten once the chunk is
+  complete, so only what came before the chunk being written is final. It
+  never waits on `cap-hash`, which may fall behind and catch up. The bytes
+  it reads were just written and are usually still in the page cache, so
+  it costs CPU rather than disk. At closing, `cap-finalise` hands
+  `cap-hash` the rest of the file (the summary and index written at
+  close, and whatever it hadn't reached) and takes the digest for the
+  manifest. Every other file in the folder is small and is hashed at
+  closing as today. If `cap-hash` stopped or failed, or the file isn't
+  the one it read or has another size, closing hashes the whole file as
+  before, so the manifest is never built from a hash that didn't see
+  every byte.
 - **Answering.** The idle phase's loop, which already answers control
   requests between batches, takes that result when it comes: it answers
   the Stop it holds and announces the episode's end, finalised or not.
@@ -85,19 +110,28 @@ and the episode's end announced, when that thread is done.**
   and its rings absorb it as they do any slow write.
 - The control answer to Stop still comes when the episode is finalised,
   so clients see no change but faster answers to everything else.
-- The process and thread model lists `cap-finalise` beside capture's
-  other threads.
+- Closing takes about as long as hashing what `cap-hash` hadn't reached,
+  usually the last moments of the episode, whatever its length: a long
+  episode is finalised within `capture.stop_grace`.
+- One more thread in capture during episodes, reading from the page cache
+  at low priority. On a machine short of CPU it falls behind, and closing
+  does the rest, as slow as before at worst.
+- The process and thread model lists `cap-finalise` and `cap-hash` beside
+  capture's other threads.
 
 ## Alternatives considered
 
 - **Closing on the capture thread, as before**: the simplest, and nothing
   runs concurrently, but the live view stops for seconds after every
   episode, longer the more it recorded.
-- **Hashing as the file is written**: the writer updates the file's
+- **Hashing on the writer thread**: the writer updates the file's
   SHA-256 with each chunk it writes, so closing reads nothing back. It
   saves the reading, but costs the writer thread about a tenth of a core
   at two 1080p cameras' rate, on the recording path, for every episode
   whether or not anything waits on it.
+- **A longer `capture.stop_grace`**: no code, but the grace would have to
+  grow with the longest episode, and a service manager's own timeout
+  still cuts it.
 - **Answering Stop before the episode is finalised**: the page would hear
   back at once, but a client told an episode stopped couldn't rely on its
   folder being complete, and the worker would need a second signal.
