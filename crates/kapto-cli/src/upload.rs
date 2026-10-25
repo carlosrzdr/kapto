@@ -81,9 +81,36 @@ fn status(data_dir: &Path, destinations: &[UploadDestination]) -> Result<(), Kap
             url: destination.url.clone(),
         })
         .collect();
-    let reader = Reader::open(&data_dir.join(DATABASE_FILE))?;
+    let database = data_dir.join(DATABASE_FILE);
+    if !database.exists() {
+        // Serve creates it when it first starts: before then, nothing was
+        // recorded or uploaded from this data directory.
+        print!("{}", nothing_yet(data_dir, &listed));
+        return Ok(());
+    }
+    let reader = Reader::open(&database)?;
     print!("{}", described(&upload_status(&reader, &listed)?));
     Ok(())
+}
+
+/// What `kapto upload status` says of a data directory serve never ran on.
+fn nothing_yet(data_dir: &Path, destinations: &[ApiDestination]) -> String {
+    let mut text = format!(
+        "Nothing has been recorded or uploaded here yet: {} has no {DATABASE_FILE}, \
+         which `kapto serve` creates when it first starts.\n",
+        data_dir.display()
+    );
+    if destinations.is_empty() {
+        text.push_str("No `[[upload.destination]]` is configured.\n");
+    }
+    for destination in destinations {
+        let _ = writeln!(
+            text,
+            "{} ({}): nothing uploaded yet",
+            destination.name, destination.url
+        );
+    }
+    text
 }
 
 /// `overview` in words, a line for each destination and each upload not

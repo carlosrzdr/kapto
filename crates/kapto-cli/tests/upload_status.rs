@@ -93,6 +93,32 @@ fn the_status_says_how_each_destination_and_each_upload_not_done_is_going() {
 }
 
 #[test]
+fn the_status_of_a_data_directory_serve_never_ran_on_says_nothing_is_there_yet() {
+    let folder = scratch("upload-status-fresh");
+    let output = upload(&folder, &["status"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.starts_with("Nothing has been recorded or uploaded here yet: "),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("site (s3://site-data): nothing uploaded yet"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("cloud (gs://cloud-data): nothing uploaded yet"),
+        "{stdout}"
+    );
+    // Only serve creates it.
+    assert!(!folder.join("data").join(DATABASE_FILE).exists());
+}
+
+#[test]
 fn a_failed_upload_is_queued_again_at_once_through_serve_and_nothing_else_is() {
     let folder = scratch("upload-retry");
     // Without serve, it says what it needs.

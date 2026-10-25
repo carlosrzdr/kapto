@@ -69,7 +69,7 @@ error_codes! {
     /// No capture process answers on the control socket.
     CaptureControlUnreachable = "capture.control_unreachable" {
         summary: "Can't reach the capture process",
-        remedy: "Check that `kapto capture` is running and that both use the same capture.control_socket (by default `capture.sock` in the data directory).",
+        remedy: "Check that `kapto serve` (or a `kapto capture` of its own) is running and that both use the same capture.control_socket (by default `capture.sock` in the data directory).",
     }
 
     /// The capture process answered, but not as this side expects: an

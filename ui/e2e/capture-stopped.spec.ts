@@ -11,7 +11,7 @@ test("with the capture process stopped, the page says why and can't record", asy
 
   const alert = page.getByRole("alert");
   await expect(alert).toContainText("Can't reach the capture process");
-  await expect(alert).toContainText("Check that `kapto capture` is running");
+  await expect(alert).toContainText("Check that `kapto serve`");
   await expect(alert).not.toContainText("os error");
   const record = page.getByRole("banner").getByRole("button", { name: "Record" });
   await expect(record).toBeDisabled();
@@ -28,7 +28,7 @@ test("with the capture process stopped, the page says why and can't record", asy
   await expect(noView).toContainText("the message above says why");
   await expect(noView).toContainText("tries again by itself");
   await expect(noView).not.toContainText("Can't reach the capture process");
-  await expect(page.getByText(/Check that `kapto capture` is running/)).toHaveCount(1);
+  await expect(page.getByText(/Check that `kapto serve`/)).toHaveCount(1);
   await expect(page.getByText("Not known while Kapto can't reach the capture process.")).toBeVisible();
   // The disk is still known without capture.
   await expect(page.getByText(/ free of /)).toBeVisible();
