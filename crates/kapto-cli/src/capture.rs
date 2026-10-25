@@ -12,7 +12,10 @@
 //!
 //! When `kapto serve` has gone for longer than `capture.control_timeout`
 //! during an episode, the episode is finalised, so a crashed server loses
-//! nothing; receiving goes on until it returns.
+//! nothing. A capture process serve started (`--parent`) then ends, as it
+//! does whenever serve is gone and no episode is recorded: left running, it
+//! would hold the streams' inputs and the control socket from the next
+//! serve. One started by hand receives until it is told to stop.
 //!
 //! Episodes that recording left unfinished, by a crash, a kill or a power
 //! cut, are recovered when the process starts, on a thread of its own
@@ -41,7 +44,7 @@ use kapto_capture::control::{
 use kapto_capture::disk::{DiskLimits, DiskWatch, Room};
 use kapto_capture::tap::LatestValues;
 use kapto_capture::{Compression, WriterConfig};
-use kapto_config::DeploymentConfig;
+use kapto_config::{DeploymentConfig, StreamDeclaration};
 use kapto_core::clock::{monotonic_now, utc_now_ns};
 use kapto_core::{EpisodeId, ErrorCode, KaptoError, RecvTime};
 use kapto_store::{Event, PackageIdentity, Preflight as PreflightReport};
@@ -50,13 +53,18 @@ use crate::SettingFlags;
 use crate::closing::Closer;
 use crate::own_events::{Counts, OwnEvents, silences};
 use crate::preflight::Preflight;
-use crate::record::{RecordSettings, describe, load_plan, package_of, recover};
+use crate::record::{Plan, RecordSettings, describe, load_plan, package_of, recover};
 use crate::station::{Live, Next, Outcome, Station};
 use crate::viz_bridge::warning;
 
 /// Runs `kapto capture`.
-pub(crate) fn capture(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> ExitCode {
-    match serve(flags, streams, mapping) {
+pub(crate) fn capture(
+    flags: &SettingFlags,
+    streams: &Path,
+    mapping: Option<&Path>,
+    parent: Option<u32>,
+) -> ExitCode {
+    match serve(flags, streams, mapping, parent) {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
@@ -81,7 +89,12 @@ fn say_receiving(station: &Station, deployment: &DeploymentConfig) {
     }
 }
 
-fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcome<()> {
+fn serve(
+    flags: &SettingFlags,
+    streams: &Path,
+    mapping: Option<&Path>,
+    parent: Option<u32>,
+) -> Outcome<()> {
     let (_, deployment) = crate::config::load(flags)?;
     let (declarations, plan) = load_plan(streams, &RecordSettings::of(&deployment))?;
     let shutdown = on_signals()?;
@@ -89,16 +102,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
     // running holds them, and is what to report.
     let control =
         ControlServer::listen(&deployment.control_socket.value).map_err(|error| vec![error])?;
-    let mut station = Station::open(
-        plan,
-        &declarations,
-        live_view(&deployment),
-        deployment.data_dir.value.clone(),
-    )
-    .map_err(|error| vec![error])?;
-    (station.package, station.carried) =
-        package_of(streams, mapping, deployment.attach_meshes.value);
-    station.writer = writer_config(&deployment);
+    let mut station = open_station(&deployment, (streams, mapping), plan, &declarations)?;
     recover_meanwhile(&control, deployment.data_dir.value.clone())?;
     let mut closer = Closer::start()?;
     let mut disk = DiskWatch::new(deployment.data_dir.value.clone(), disk_limits(&deployment));
@@ -109,6 +113,8 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
     // What profiles are checked against; it doesn't change while capture runs.
     let package = station.package.clone();
     let mut first = true;
+    // Serve, once it has gone, between episodes.
+    let mut orphaned = false;
     loop {
         let mut start = None;
         // Starts asked for while pre-flight runs, oldest first, each with
@@ -159,7 +165,9 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
                     live.start_waiting(None);
                 }
             }
-            start.is_none() && !shutdown.load(Ordering::Relaxed)
+            orphaned =
+                start.is_none() && waiting.is_empty() && parent.is_some_and(crate::parent::gone);
+            start.is_none() && !shutdown.load(Ordering::Relaxed) && !orphaned
         })?;
         if let Some((pending, cleared, asked)) = start {
             let Request::Start {
@@ -183,13 +191,42 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
                 (timeout, &silences),
             );
         }
-        if shutdown.load(Ordering::Relaxed) {
-            // What was started is finished: the episodes still closing.
-            closer.finish(&control);
-            eprintln!("Stopped.");
+        if shutdown.load(Ordering::Relaxed) || orphaned {
+            stop(closer, &control, orphaned);
             return Ok(());
         }
     }
+}
+
+/// Opens the streams' inputs, with what each episode carries and how it
+/// is written.
+fn open_station(
+    deployment: &DeploymentConfig,
+    (streams, mapping): (&Path, Option<&Path>),
+    plan: Plan,
+    declarations: &[StreamDeclaration],
+) -> Outcome<Station> {
+    let mut station = Station::open(
+        plan,
+        declarations,
+        live_view(deployment),
+        deployment.data_dir.value.clone(),
+    )
+    .map_err(|error| vec![error])?;
+    (station.package, station.carried) =
+        package_of(streams, mapping, deployment.attach_meshes.value);
+    station.writer = writer_config(deployment);
+    Ok(station)
+}
+
+/// Ends capture once what was started is finished: the episodes still
+/// closing.
+fn stop(closer: Closer, control: &ControlServer, orphaned: bool) {
+    if orphaned {
+        eprintln!("kapto serve has gone and no episode is recorded: capture stops.");
+    }
+    closer.finish(control);
+    eprintln!("Stopped.");
 }
 
 /// A flag SIGINT and SIGTERM set, which ends capture once what it is doing
@@ -549,7 +586,7 @@ fn abandoned(
         .is_some_and(|gone| gone >= control_timeout && gone <= elapsed);
     if abandoned && say {
         eprintln!(
-            "kapto serve has been gone for {} s: finalising the episode. Receiving goes on until it returns.",
+            "kapto serve has been gone for {} s: finalising the episode.",
             control_timeout.as_secs_f64()
         );
     }

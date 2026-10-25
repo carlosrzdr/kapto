@@ -98,6 +98,7 @@ Receives every stream declared in a streams.toml for as long as it runs, feeding
 |---|---|
 | `--streams <FILE>` | The streams.toml declaring each stream's input and rate |
 | `--mapping <FILE>` | The mapping.toml saying which decoded value drives which joint, carried by each recording when the streams aren't declared in a robot package, so its quality checks know the joints |
+| `--parent <PID>` | End once process PID has ended and no episode is recorded, an episode being finalised first: serve passes its own, so this ends with it |
 
 ## `kapto episode`
 

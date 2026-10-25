@@ -474,6 +474,11 @@ enum Command {
         /// robot package, so its quality checks know the joints.
         #[arg(long, value_name = "FILE")]
         mapping: Option<PathBuf>,
+        /// End once process PID has ended and no episode is recorded, an
+        /// episode being finalised first: serve passes its own, so this
+        /// ends with it.
+        #[arg(long, value_name = "PID")]
+        parent: Option<u32>,
     },
     /// Start, stop, mark or delete the episodes of a running `kapto serve`.
     ///
@@ -615,9 +620,11 @@ pub fn run() -> ExitCode {
         Command::Config(ConfigCommand::Validate) => config::validate(&cli.settings),
         Command::Config(ConfigCommand::Show) => config::show(&cli.settings),
         Command::Decode(args) => decode::decode(&cli.settings, &args),
-        Command::Capture { streams, mapping } => {
-            capture::capture(&cli.settings, &streams, mapping.as_deref())
-        }
+        Command::Capture {
+            streams,
+            mapping,
+            parent,
+        } => capture::capture(&cli.settings, &streams, mapping.as_deref(), parent),
         Command::Episode(command) => episode::episode(&cli.settings, &command),
         Command::Package(command) => package::package(&cli.settings, &command),
         Command::Profile(command) => session::profile(&cli.settings, &command),

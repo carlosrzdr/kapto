@@ -383,7 +383,8 @@ fn children(
     (capture_stop_grace, bridge_stop_grace): (Duration, Duration),
 ) -> Vec<ChildSpec> {
     let settings = flags.to_args();
-    // The bridge and the worker end with serve, even killed (see `parent`).
+    // Each ends with serve, even killed: capture once it records nothing
+    // (see `parent`).
     let parent: Vec<std::ffi::OsString> =
         vec!["--parent".into(), std::process::id().to_string().into()];
     let child = |name: &str, own: Vec<std::ffi::OsString>, stop_grace| ChildSpec {
@@ -401,7 +402,10 @@ fn children(
                 args.streams.clone().into(),
                 "--mapping".into(),
                 args.mapping.clone().into(),
-            ],
+            ]
+            .into_iter()
+            .chain(parent.iter().cloned())
+            .collect(),
             capture_stop_grace,
         ),
         child(

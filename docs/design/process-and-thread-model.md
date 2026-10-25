@@ -27,7 +27,9 @@ binary:
 
 - The server restarts the viewer bridge and the worker if they crash. It never
   restarts capture during a recording. If the server dies, capture keeps
-  recording and finishes the current episode.
+  recording and finishes the current episode, then ends: every process ends
+  once the server that started it has gone and it has nothing left to
+  finish, so none is left holding ports or sockets from the next server.
 - Control messages travel over Unix sockets. Live data reaches the viewer
   bridge over non-blocking datagrams that are dropped, and counted, when the
   reader is slow, so a slow reader can never slow capture. The worker reads

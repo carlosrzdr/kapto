@@ -34,6 +34,12 @@ fn signal(signal: &str, pid: u32) {
 }
 
 fn alive(pid: u32) -> bool {
+    // Ended but not yet reaped by whoever took it over from serve: gone.
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        return stat
+            .rsplit_once(") ")
+            .is_some_and(|(_, rest)| !rest.starts_with('Z'));
+    }
     Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stderr(Stdio::null())
@@ -376,8 +382,17 @@ fn a_child_that_dies_is_started_again() {
     assert_ne!(again, bridge);
 }
 
+/// Waits up to `seconds` for process `pid` to end.
+fn ends_within(pid: u32, seconds: u64, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(seconds);
+    while alive(pid) {
+        assert!(Instant::now() < deadline, "{what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 #[test]
-fn capture_keeps_recording_when_serve_is_killed_while_the_bridge_and_worker_end_with_it() {
+fn capture_finishes_its_episode_when_serve_is_killed_then_ends_while_the_others_end_at_once() {
     let folder = scratch("orphan");
     let mut serve = Serve::start_with(
         &folder,
@@ -431,13 +446,55 @@ fn capture_keeps_recording_when_serve_is_killed_while_the_bridge_and_worker_end_
         assert!(Instant::now() < deadline, "never finalised");
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(alive(capture), "capture goes on receiving");
-    let Response::Status(status) = control.ask(&Request::Status).unwrap() else {
-        panic!("not a status");
-    };
-    assert_eq!(status.episode, None);
+    // Holding the streams' inputs and the control socket from the next
+    // serve, with nothing left to finish: it ends.
+    ends_within(capture, 5, "capture outlived serve once idle");
+}
 
-    signal("-TERM", capture);
+#[test]
+fn a_capture_left_idle_by_a_killed_serve_ends_and_the_next_serve_records() {
+    let folder = scratch("orphan-idle");
+    let mapping = root().join("packages/arm7/mapping.toml");
+    let mut serve = Serve::start(&folder, &mapping);
+    serve.wait_for("Kapto is running: ", 1);
+    let capture = serve.child_pid("capture", 1);
+
+    signal("-KILL", serve.pid());
+    serve.child.take().unwrap().wait().unwrap();
+    ends_within(capture, 5, "capture outlived serve");
+
+    let next = Serve::start(&folder, &mapping);
+    next.wait_for("Kapto is running: ", 1);
+    let mut control = next.control();
+    assert!(matches!(
+        control
+            .ask(&Request::Start {
+                duration_s: None,
+                profile: None,
+                task: None,
+                waive: Vec::new(),
+            })
+            .unwrap(),
+        Response::Started { .. }
+    ));
+    let Response::Stopped { episode, .. } = control.ask(&Request::Stop).unwrap() else {
+        panic!("not stopped");
+    };
+    assert!(
+        folder
+            .join("data")
+            .join(&episode)
+            .join("_FINALISED")
+            .exists()
+    );
+    // Its own capture, started once, recorded it.
+    let lines = next.lines.lock().unwrap();
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.contains("[serve] capture ended")),
+        "{lines:#?}"
+    );
 }
 
 #[test]

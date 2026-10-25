@@ -213,7 +213,7 @@ Unix socket the capture process takes its orders on: start and stop episodes, re
 
 ## `capture.control_timeout`
 
-How long, in seconds, the capture process keeps recording after `kapto serve` has gone, for example because it crashed, before it finalises the episode. Long enough for serve to be started again and carry on with the episode. Capture then keeps receiving and waits for serve to return.
+How long, in seconds, the capture process keeps recording after `kapto serve` has gone, for example because it crashed, before it finalises the episode. Long enough for serve to be started again and carry on with the episode. A capture process serve started then ends, as it does whenever serve has gone and no episode is recorded.
 
 | | |
 |---|---|

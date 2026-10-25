@@ -588,13 +588,19 @@ and can still be stopped with `kapto episode stop`. `serve` also keeps a
 connection to capture open (`srv-watch`) and sends a sign of life on it
 every second; if `serve` is gone for a minute (`capture.control_timeout`)
 during an episode, capture finalises the episode, so nothing recorded
-waits on a server that may not return, and keeps receiving until it does.
-The viewer bridge and the worker, on the other hand, end with `serve`, even
-when it is killed outright: of no use without it, they would otherwise hold
-their ports and sockets, and a `serve` started again would start a second of
-each. `serve` passes them its process ID, and Linux sends them SIGTERM once
-it has gone (elsewhere they look once a second); the worker gives back the
-job it was doing.
+waits on a server that may not return. A `serve` started again within that
+time finds capture still answering and carries on with the episode.
+Every child ends with `serve`, even when it is killed outright: of no use
+without it, they would otherwise hold their ports, sockets and the streams'
+inputs, and a `serve` started again would start a second of each. `serve`
+passes them its process ID. The viewer bridge and the worker end at once:
+Linux sends them SIGTERM once it has gone (elsewhere they look once a
+second), and the worker gives back the job it was doing. Capture ends only
+once no episode is recorded, finalising the one it records first; it looks
+ten times a second while idle. A capture process never takes over a control
+socket another one answers on (`capture.already_running`), so a second one
+started meanwhile ends, and `serve` starts it again until the first has
+gone.
 Once a second `srv-stats` reads each process's CPU time, memory and
 threads from `/proc` (Linux only), and the supervisor's events say which
 runs, since when, and how each one that ended last ended. `srv-announce`
