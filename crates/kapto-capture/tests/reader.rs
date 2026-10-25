@@ -13,7 +13,9 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use kapto_capture::reader::{read_events, read_recording, read_start, recorded_channels};
+use kapto_capture::reader::{
+    read_events, read_events_through, read_recording, read_start, recorded_channels,
+};
 use kapto_capture::{
     Batch, ChannelSchema, ChannelSpec, LossCounters, Recording, StreamIndex, WriterConfig,
 };
@@ -298,5 +300,86 @@ fn a_recording_whose_first_record_runs_past_the_end_is_unreadable() {
         for error in [read, start] {
             assert_eq!(error.code(), ErrorCode::RecordingUnreadable, "{length}");
         }
+    }
+}
+
+/// Records a joint state and a camera frame per step in chunks of 4 KiB,
+/// with an event every few steps, so events sit in chunks apart, cameras'
+/// and joints' chunks between them; returns the events in the order
+/// written, some marked earlier than the one before.
+fn record_spread(file: &TempFile) -> Vec<Event> {
+    let config = WriterConfig {
+        chunk_bytes: 4096,
+        ..WriterConfig::default()
+    };
+    let streams = vec![
+        ChannelSpec::from((0, "joints".parse().unwrap())),
+        ChannelSpec::from((1, "camera".parse().unwrap())),
+    ];
+    let mut recording = Recording::create(&file.0, &streams, &clock(), &config).unwrap();
+    let counters = LossCounters::new(2);
+    let mut written = Vec::new();
+    for step in 0..120_u64 {
+        let frame: Vec<u8> = (0..3000_u64)
+            .map(|at| u8::try_from((step * 31 + at * 7) % 251).unwrap())
+            .collect();
+        let mut batch = Batch::new(2, frame.len());
+        assert!(batch.push(0, &step.to_le_bytes()));
+        assert!(batch.push(1, &frame));
+        batch.set_recv_time(RecvTime::from_nanos(6 * SECOND + step * SECOND / 30));
+        recording.write(&batch, &counters).unwrap();
+        if step % 9 == 4 {
+            // Every third one marked a little before the one written last.
+            let back = if step % 27 == 22 { 2 * SECOND } else { 0 };
+            let at = 1_000_006 * SECOND + step * SECOND / 30 - back;
+            let mut marked = event("note", i64::try_from(at).unwrap(), Phase::Moment);
+            marked.text = Some(format!("step {step}"));
+            marked
+                .attributes
+                .insert("step".to_owned(), step.to_string());
+            recording.write_event(&marked).unwrap();
+            written.push(marked);
+        }
+    }
+    recording.finish(&clock()).unwrap();
+    written
+}
+
+#[test]
+fn events_found_by_the_indexes_are_those_a_read_through_finds_in_the_same_order() {
+    let file = TempFile::new("events-indexed");
+    let written = record_spread(&file);
+    assert!(written.len() > 10);
+    let through = read_events_through(&file.0).unwrap();
+    assert_eq!(through, written);
+    assert_eq!(read_events(&file.0).unwrap(), through);
+}
+
+#[test]
+fn events_of_a_recording_without_its_summary_are_found_by_reading_it_through() {
+    let file = TempFile::new("events-no-summary");
+    let written = record_spread(&file);
+    let whole = std::fs::read(&file.0).unwrap();
+    // Its summary, footer and closing magic gone, as a salvaged file's are.
+    let data_end = first_record(&whole, mcap::records::op::DATA_END);
+    std::fs::write(&file.0, &whole[..data_end]).unwrap();
+    assert_eq!(read_events(&file.0).unwrap(), written);
+}
+
+#[test]
+fn events_of_a_recording_with_a_damaged_chunk_are_those_a_read_through_finds() {
+    let file = TempFile::new("events-damaged-chunk");
+    record_spread(&file);
+    let whole = std::fs::read(&file.0).unwrap();
+    let chunk = first_record(&whole, mcap::records::op::CHUNK);
+    for length in damaged_lengths(whole.len()) {
+        let mut bytes = whole.clone();
+        bytes[chunk + 1..chunk + 9].copy_from_slice(&length.to_le_bytes());
+        std::fs::write(&file.0, &bytes).unwrap();
+        assert_eq!(
+            read_events(&file.0).unwrap(),
+            read_events_through(&file.0).unwrap(),
+            "{length}"
+        );
     }
 }

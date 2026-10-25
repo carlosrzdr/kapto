@@ -645,8 +645,9 @@ recorded, done one job at a time and oldest first, each kind at most once
 per episode; a job that was running when Kapto stopped is queued again
 when serve starts, until it has been started `worker.max_attempts` times. Each finalised episode gets a
 `verify` job, which checks its files against its manifest, an `events`
-job, which reads its events back from its recording into the episode index
-(`episode_events`, kept apart from the episodes so a rebuild of the index
+job, which reads its events back from its recording, only the chunks its
+indexes say hold them (the whole file when it has no summary to trust, as
+a salvaged one doesn't), into the episode index (`episode_events`, kept apart from the episodes so a rebuild of the index
 keeps them; an episode whose events were never read, e.g. one copied in,
 gets one when serve starts), and then a `qa`
 job, which runs the **quality checks** on it ([Quality, statistics and

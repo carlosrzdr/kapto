@@ -10,7 +10,8 @@
 //! A recording's streams and Kapto's own channels (named `kapto.…`, such as
 //! its events) are read apart: [`read_recording`] hands over only streams,
 //! as everything that decodes, checks or replays them expects, and
-//! [`read_events`] the events.
+//! [`read_events`] the events, by the recording's indexes where it has
+//! them.
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -171,10 +172,31 @@ pub fn is_kapto_channel(topic: &str) -> bool {
 /// written; an event that can't be read is left out. A recording made
 /// before events were recorded has none.
 ///
+/// A finalised recording's events are found by its indexes, reading only
+/// the chunks that hold them; one whose indexes can't be trusted to find
+/// them all (cut off, salvaged, damaged) is read through instead, with the
+/// same events either way.
+///
 /// # Errors
 ///
 /// `recording.unreadable`, as for [`read_recording`].
 pub fn read_events(path: &Path) -> Result<Vec<Event>, KaptoError> {
+    if let Some(messages) = crate::seek::messages_by_index(path, EVENTS_CHANNEL) {
+        return Ok(messages
+            .iter()
+            .filter_map(|data| Event::from_json(data))
+            .collect());
+    }
+    read_events_through(path)
+}
+
+/// Every event the recording at `path` holds, read from start to end, as
+/// [`read_events`] does for a recording without usable indexes.
+///
+/// # Errors
+///
+/// `recording.unreadable`, as for [`read_recording`].
+pub fn read_events_through(path: &Path) -> Result<Vec<Event>, KaptoError> {
     let mut events = Vec::new();
     read_channels(
         path,

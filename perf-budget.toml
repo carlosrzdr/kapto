@@ -92,13 +92,14 @@ per_kib_ns = 25_000
 reason = "Opens the recording and reads its start once per episode, a fraction of a millisecond; decodes each message with its stored layout and copies each value a role names, about 0.6 µs per message; then the checks and statistics, linear in the values: the motion checks about 0.2 µs per message, and each joint's position, speed, acceleration, jerk and effort counted into its distribution, about 0.4 µs. Measured at 0.6 to 1.1 µs per message in all; raised from 600 ns to about twice that when the motion checks and the joints' position, acceleration and jerk were added, after counting a distribution's buckets in an array rather than a tree made the statistics three times cheaper: 0.08 s per minute of a 1 kHz arm."
 
 # Reading a recorded episode's events back, in the worker, to index them:
-# one batch is one episode, its messages the recording's, all read through
-# since events are among them. Not on the recording path.
+# one batch is one episode, its messages the recording's. The benchmark's
+# arm has an event every second, so every chunk holds one and all are read:
+# the worst case for finding them by the indexes. Not on the recording path.
 [stage.events_job]
 per_batch_ns = 500_000
 per_message_ns = 300
 per_kib_ns = 700
-reason = "Opens the recording and reads it through once, decompressing each chunk and skipping every message but the events, about 0.13 µs per message and 0.3 µs per KiB; then parses each event's JSON, a few a second. Measured at 1.9 ms for 15 s of a 1 kHz arm of 68-byte messages and 7.9 ms for a minute: 0.008 s per minute, budgeted at about twice that."
+reason = "Reads the recording's summary, looks at each chunk's header once, then decompresses only the chunks the indexes say hold events and keeps their events' messages; then parses each event's JSON, a few a second. With an event in every chunk, as here, that is every chunk: measured at 3.8 ms for 15 s of a 1 kHz arm of 68-byte messages and 9.4 ms for a minute on a shared i7-1185G7 laptop, where reading it through, as before, took 7.4 and 29 ms."
 
 # Making a recorded episode's replay, in the worker: one batch is one
 # episode, its messages the recording's. Like the `qa` job, not on the
@@ -134,8 +135,8 @@ ms_per_minute = 5_000
 reason = "Hashes the recording, about 2.6 GB a minute, and compares it with the manifest: 1.7 s a minute measured, all of it hashing."
 
 [job.events]
-ms_per_minute = 4_500
-reason = "Reads the recording through once for its events, every camera frame decompressed on the way: 1.5 s a minute measured."
+ms_per_minute = 30
+reason = "Reads the recording's summary and each chunk's header, then decompresses only the chunks holding events; the cameras' frames are never decompressed. 8 ms a minute measured with no event marked, against 2.6 s a minute reading it through on the same machine; each event adds at most one chunk, about 1 MiB: an event a second beside a raw camera measured 0.2 s a minute. A recording without a summary to trust is read through, as before."
 
 [job.qa]
 ms_per_minute = 6_000

@@ -12,12 +12,13 @@
 //! set aside for it: a damaged recording is refused, never read into
 //! memory it doesn't hold.
 
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use kapto_core::{ErrorCode, KaptoError};
-use mcap::records::{MessageIndexEntry, Record, op};
+use mcap::records::{ChunkIndex, MessageIndexEntry, Record, op};
 use mcap::sans_io::linear_reader::{LinearReadEvent, LinearReader, LinearReaderOptions};
 use mcap::sans_io::summary_reader::{SummaryReadEvent, SummaryReader, SummaryReaderOptions};
 use mcap::{Summary, parse_record};
@@ -155,23 +156,7 @@ impl ChannelIndex {
             .chunk_indexes
             .get(message.chunk)
             .ok_or_else(|| unreadable("its index of chunks has no such chunk".to_owned()))?;
-        // The summary's word for where the chunk is and how long: a damaged
-        // recording's could ask for more than the disk holds.
-        let start = index.chunk_start_offset;
-        let fits = start
-            .checked_add(index.chunk_length)
-            .is_some_and(|end| end <= self.length);
-        if !fits || index.chunk_length < RECORD_HEADER {
-            return Err(unreadable(format!(
-                "its index puts a chunk of {} bytes at byte {start}, which a file of {} bytes can't hold: the recording is damaged",
-                index.chunk_length, self.length
-            )));
-        }
-        let mut chunk = vec![0; to_usize(index.chunk_length)];
-        let mut file = File::open(&self.path).map_err(|error| unreadable(error.to_string()))?;
-        file.seek(SeekFrom::Start(start))
-            .and_then(|_| file.read_exact(&mut chunk))
-            .map_err(|error| unreadable(format!("its chunk: {error}")))?;
+        let chunk = read_chunk(&self.path, self.length, index).map_err(unreadable)?;
         let found = message_in_chunk(&chunk, message.offset, record_length_limit(self.length))
             .map_err(|error| unreadable(format!("a message in its chunk: {error}")))?;
         Ok(Some(found))
@@ -185,13 +170,7 @@ const RECORD_HEADER: u64 = 9;
 /// chunk record, with its receive time. Each record's length inside it is
 /// held to `limit` before anything is set aside for it.
 fn message_in_chunk(chunk: &[u8], offset: u64, limit: usize) -> Result<(u64, Vec<u8>), String> {
-    let mut reader = LinearReader::new_with_options(
-        LinearReaderOptions::default()
-            .with_skip_start_magic(true)
-            .with_skip_end_magic(true)
-            .with_validate_chunk_crcs(true)
-            .with_record_length_limit(limit),
-    );
+    let mut reader = chunk_reader(limit);
     let mut remaining = chunk;
     // Where the next record starts among the chunk's records, decompressed.
     let mut at = 0_u64;
@@ -222,6 +201,158 @@ fn message_in_chunk(chunk: &[u8], offset: u64, limit: usize) -> Result<(u64, Vec
         }
     }
     Err("no message starts where its index says".to_owned())
+}
+
+/// The chunk record `index` points at, read whole from the file at `path`
+/// of `length` bytes.
+fn read_chunk(path: &Path, length: u64, index: &ChunkIndex) -> Result<Vec<u8>, String> {
+    // The summary's word for where the chunk is and how long: a damaged
+    // recording's could ask for more than the disk holds.
+    let start = index.chunk_start_offset;
+    let fits = start
+        .checked_add(index.chunk_length)
+        .is_some_and(|end| end <= length);
+    if !fits || index.chunk_length < RECORD_HEADER {
+        return Err(format!(
+            "its index puts a chunk of {} bytes at byte {start}, which a file of {length} bytes can't hold: the recording is damaged",
+            index.chunk_length
+        ));
+    }
+    let mut chunk = vec![0; to_usize(index.chunk_length)];
+    let mut file = File::open(path).map_err(|error| error.to_string())?;
+    file.seek(SeekFrom::Start(start))
+        .and_then(|_| file.read_exact(&mut chunk))
+        .map_err(|error| format!("its chunk: {error}"))?;
+    Ok(chunk)
+}
+
+/// A reader of the records inside one whole chunk record, each record's
+/// length held to `limit` before anything is set aside for it.
+fn chunk_reader(limit: usize) -> LinearReader {
+    LinearReader::new_with_options(
+        LinearReaderOptions::default()
+            .with_skip_start_magic(true)
+            .with_skip_end_magic(true)
+            .with_validate_chunk_crcs(true)
+            .with_record_length_limit(limit),
+    )
+}
+
+/// Every message of the channels named `topic` in the finalised recording
+/// at `path`, as received, in file order, read from only the chunks its
+/// indexes say hold them: a small channel among cameras' frames is read
+/// without decompressing the frames.
+///
+/// `None` when the indexes can't be trusted to find all of them, so the
+/// caller reads the file through instead: no summary (a recording cut off
+/// or salvaged), no statistics counting every message by channel, no such
+/// channel, a chunk that can't be read, or fewer or more messages found
+/// than the statistics count.
+pub(crate) fn messages_by_index(path: &Path, topic: &str) -> Option<Vec<Vec<u8>>> {
+    let mut file = File::open(path).ok()?;
+    let length = file.metadata().ok()?.len();
+    let summary = read_summary(&mut file).ok()??;
+    let stats = summary.stats.as_ref()?;
+    // Counts by channel that add up to every message: none can be outside
+    // the channels counted, e.g. in no chunk at all.
+    let counted = stats
+        .channel_message_counts
+        .values()
+        .try_fold(0_u64, |sum, count| sum.checked_add(*count))?;
+    if counted != stats.message_count {
+        return None;
+    }
+    let channels: BTreeSet<u16> = summary
+        .channels
+        .values()
+        .filter(|channel| channel.topic == topic)
+        .map(|channel| channel.id)
+        .collect();
+    if channels.is_empty() {
+        return None;
+    }
+    let expected = channels
+        .iter()
+        .filter_map(|id| stats.channel_message_counts.get(id))
+        .try_fold(0_u64, |sum, count| sum.checked_add(*count))?;
+    // A read through stops at a chunk whose own header doesn't match where
+    // the summary puts it, losing every event after it; the indexes would
+    // find those, so such a file is read through too, with the same result.
+    // Chunks are listed in file order, none overlapping: a damaged summary
+    // can't list one twice.
+    let mut previous_end = 0;
+    for index in &summary.chunk_indexes {
+        if index.chunk_start_offset < previous_end {
+            return None;
+        }
+        previous_end = index.chunk_start_offset.checked_add(index.chunk_length)?;
+        let mut header = [0; 9];
+        file.seek(SeekFrom::Start(index.chunk_start_offset))
+            .and_then(|_| file.read_exact(&mut header))
+            .ok()?;
+        let mut size = [0; 8];
+        size.copy_from_slice(&header[1..]);
+        if header[0] != op::CHUNK
+            || Some(u64::from_le_bytes(size)) != index.chunk_length.checked_sub(RECORD_HEADER)
+        {
+            return None;
+        }
+    }
+    let chunks = summary.chunk_indexes.iter().filter(|index| {
+        channels
+            .iter()
+            .any(|id| index.message_index_offsets.contains_key(id))
+    });
+    let limit = record_length_limit(length);
+    let mut messages = Vec::new();
+    for index in chunks {
+        let chunk = read_chunk(path, length, index).ok()?;
+        messages_in_chunk(&chunk, &channels, limit, &mut messages).ok()?;
+        // Never more than counted: a damaged index can't grow this past
+        // what the statistics promise.
+        if messages.len() as u64 > expected {
+            return None;
+        }
+    }
+    (messages.len() as u64 == expected).then_some(messages)
+}
+
+/// Appends to `messages` every message of `channels` in `chunk`, a whole
+/// chunk record, in the order they were written.
+fn messages_in_chunk(
+    chunk: &[u8],
+    channels: &BTreeSet<u16>,
+    limit: usize,
+    messages: &mut Vec<Vec<u8>>,
+) -> Result<(), String> {
+    let mut reader = chunk_reader(limit);
+    let mut remaining = chunk;
+    while let Some(event) = reader.next_event() {
+        match event.map_err(|error| error.to_string())? {
+            LinearReadEvent::ReadRequest(need) => {
+                // The whole chunk is in: its records have all been read.
+                if remaining.is_empty() {
+                    return Ok(());
+                }
+                let len = need.min(remaining.len());
+                reader.insert(len).copy_from_slice(&remaining[..len]);
+                reader.notify_read(len);
+                remaining = &remaining[len..];
+            }
+            LinearReadEvent::Record { opcode, data } => {
+                if opcode != op::MESSAGE {
+                    continue;
+                }
+                if let Record::Message { header, data } =
+                    parse_record(opcode, data).map_err(|error| error.to_string())?
+                    && channels.contains(&header.channel_id)
+                {
+                    messages.push(data.into_owned());
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn to_usize(value: u64) -> usize {
@@ -276,5 +407,58 @@ fn read_message_index(
         Ok(Record::MessageIndex(index)) if index.channel_id == channel => Ok(index.records),
         Ok(_) => Err(bad("a message index of another channel")),
         Err(error) => Err(bad(&error.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use kapto_core::{ClockMap, ClockSample, RecvTime};
+    use kapto_store::{EVENTS_CHANNEL, Event, Phase};
+    use kapto_testkit::TempDir;
+
+    use super::*;
+    use crate::{Batch, ChannelSpec, LossCounters, Recording, WriterConfig};
+
+    #[test]
+    fn a_finished_recording_has_its_events_found_by_its_indexes_and_a_cut_one_not() {
+        let folder = TempDir::new("seek-events-by-index");
+        let path = folder.0.join("recording.mcap");
+        let clock = ClockMap::new(ClockSample::now());
+        let streams = [(0, "arm".parse().unwrap())].map(ChannelSpec::from);
+        let config = WriterConfig {
+            chunk_bytes: 256,
+            ..WriterConfig::default()
+        };
+        let mut recording = Recording::create(&path, &streams, &clock, &config).unwrap();
+        let counters = LossCounters::new(1);
+        let mut marked = Vec::new();
+        for step in 0..50_u64 {
+            let mut batch = Batch::new(1, 64);
+            batch.push(0, &[7; 64]);
+            batch.set_recv_time(RecvTime::from_nanos(step + 1));
+            recording.write(&batch, &counters).unwrap();
+            if step % 10 == 0 {
+                let event = Event {
+                    kind: "note".to_owned(),
+                    at_utc_ns: i64::try_from(step).unwrap(),
+                    until_utc_ns: None,
+                    phase: Phase::Moment,
+                    id: None,
+                    source: "page".to_owned(),
+                    text: None,
+                    attributes: BTreeMap::new(),
+                };
+                recording.write_event(&event).unwrap();
+                marked.push(event.to_json());
+            }
+        }
+        recording.finish(&clock).unwrap();
+        assert_eq!(messages_by_index(&path, EVENTS_CHANNEL), Some(marked));
+
+        let whole = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &whole[..whole.len() - 8]).unwrap();
+        assert_eq!(messages_by_index(&path, EVENTS_CHANNEL), None);
     }
 }

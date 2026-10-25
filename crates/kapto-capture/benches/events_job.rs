@@ -2,8 +2,8 @@
 
 //! How long reading an episode's events back from its recording takes:
 //! what the worker's `events` job does, so episodes can be found by what
-//! happened in them. The whole file is read through, since a recording's
-//! events are among its streams' messages.
+//! happened in them. Only the chunks the recording's indexes say hold
+//! events are read, though every chunk's header is looked at once.
 //!
 //! Each run is one episode of one stream at 1 kHz with an event every
 //! second, across episode lengths (messages) and message sizes, so
