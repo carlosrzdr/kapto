@@ -104,11 +104,14 @@
       <!-- A joint that copies another is shown by the one it copies. -->
       {@const value = current(joint.position_from)}
       <tr>
-        <th scope="row">
+        <!-- What drives a joint is there on demand; one nothing drives says so, being why it doesn't move. -->
+        <th scope="row" title={joint.position_from || joint.mimics ? `Driven by ${driver(joint)}` : undefined}>
           {joint.name}
-          <span class="source" class:problem={!joint.position_from && !joint.mimics}>
-            {#each breakable(driver(joint)) as piece, index (index)}{piece}<wbr />{/each}
-          </span>
+          {#if !joint.position_from && !joint.mimics}
+            <span class="source problem">{driver(joint)}</span>
+          {:else}
+            <span class="visually-hidden">{` · ${driver(joint)}`}</span>
+          {/if}
         </th>
         <td class="now">
           {#if value !== null}
