@@ -25,8 +25,9 @@ closing it takes about 2.5 s on the maintainer's laptop:
 - an episode can't start until the last one is closed.
 
 Closing still reads the whole recording back to hash it, which takes
-longer the longer the episode: seconds for every minute recorded with two
-cameras. On SIGTERM, capture has `capture.stop_grace` (30 s by default) to
+longer the longer the episode: about 3 s for every minute recorded with
+two cameras (1.9 to 3.5 s after a minute, 16 s after five, on the
+maintainer's laptop). On SIGTERM, capture has `capture.stop_grace` (30 s by default) to
 finalise the episode being recorded: an episode long enough can't be
 hashed in time, the process is killed, and the episode is left for
 recovery. Docker's own grace (10 s unless `stop_grace_period` is set) cuts
@@ -112,9 +113,12 @@ and the episode's end announced, when that thread is done.**
   so clients see no change but faster answers to everything else.
 - Closing takes about as long as hashing what `cap-hash` hadn't reached,
   usually the last moments of the episode, whatever its length: a long
-  episode is finalised within `capture.stop_grace`.
+  episode is finalised within `capture.stop_grace`. Measured with two
+  cameras, closing took 0.17 to 0.31 s after one minute and after five
+  alike.
 - One more thread in capture during episodes, reading from the page cache
-  at low priority. On a machine short of CPU it falls behind, and closing
+  at low priority: about 0.05 of a core at two 1080p cameras' rate, with
+  the writer's and the receivers' costs unchanged. On a machine short of CPU it falls behind, and closing
   does the rest, as slow as before at worst.
 - The process and thread model lists `cap-finalise` and `cap-hash` beside
   capture's other threads.
@@ -126,8 +130,8 @@ and the episode's end announced, when that thread is done.**
   episode, longer the more it recorded.
 - **Hashing on the writer thread**: the writer updates the file's
   SHA-256 with each chunk it writes, so closing reads nothing back. It
-  saves the reading, but costs the writer thread about a tenth of a core
-  at two 1080p cameras' rate, on the recording path, for every episode
+  saves the reading, but costs the writer thread what `cap-hash` costs,
+  about 0.05 of a core at two 1080p cameras' rate, on the recording path, for every episode
   whether or not anything waits on it.
 - **A longer `capture.stop_grace`**: no code, but the grace would have to
   grow with the longest episode, and a service manager's own timeout
