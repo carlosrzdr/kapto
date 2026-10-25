@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import PlotPanel from "./PlotPanel.svelte";
@@ -130,6 +131,57 @@ describe("PlotPanel", () => {
     render(PlotPanel, { fields: ["wide.v"], roles: {}, streams: [wide] });
     const swatches = screen.getAllByRole("button").map((entry) => entry.className.match(/series-\d dash-\d/)?.[0]);
     expect(swatches).toEqual(["series-0 dash-0", "series-1 dash-0", "series-2 dash-0", "series-3 dash-0", "series-0 dash-1"]);
+  });
+
+  it("folds a key too long for its two lines into a menu that shows and hides values", async () => {
+    // jsdom lays nothing out: each entry of the key is put on a line of its own, `perLine` to a line.
+    let perLine = 10;
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) {
+      return Math.floor(Array.prototype.indexOf.call(this.parentElement?.children ?? [], this) / perLine) * 24;
+    });
+    const watched: (() => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(seen: () => void) {
+          watched.push(seen);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    render(PlotPanel, { fields: ["arm_joints.joint_positions", "arm_joints.gripper"], roles: {}, streams: [arm] });
+    expect(screen.queryByRole("button", { name: "Values shown" })).toBeNull();
+    // Narrowed until the key takes more than two lines.
+    perLine = 1;
+    watched.forEach((seen) => seen());
+    await tick();
+    expect(document.querySelector("ul.labels")?.getAttribute("aria-hidden")).toBe("true");
+    const opener = screen.getByRole("button", { name: "Values shown" });
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+    await fireEvent.click(opener);
+    expect(opener.getAttribute("aria-expanded")).toBe("true");
+    const items = screen.getAllByRole("menuitemcheckbox");
+    expect(items.map((item) => item.textContent)).toEqual(["joint_positions[0]", "joint_positions[1]", "gripper"]);
+    expect(document.activeElement).toBe(items[0]);
+    // Picking takes a value away from those shown, then adds it back.
+    await fireEvent.click(items[1]!);
+    expect(items[1]!.getAttribute("aria-checked")).toBe("false");
+    expect(items[0]!.getAttribute("aria-checked")).toBe("true");
+    await fireEvent.click(items[0]!);
+    expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false", "true"]);
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Show all" }));
+    expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual(["true", "true", "true"]);
+    // Escape closes it, back on its button.
+    await fireEvent.keyDown(items[0]!, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    // Wide again: the key is back, and the menu gone.
+    perLine = 10;
+    watched.forEach((seen) => seen());
+    await tick();
+    expect(screen.queryByRole("button", { name: "Values shown" })).toBeNull();
+    vi.unstubAllGlobals();
   });
 
   it("says what it waits for until a stream it draws has opened", () => {

@@ -20,6 +20,7 @@
     valuesAt,
   } from "./viewer/plots";
   import { seriesStyle, token } from "./theme";
+  import ValuesMenu from "./ValuesMenu.svelte";
 
   interface Props {
     /** What it draws: `stream.field`, `stream.field[3]` or `role:gripper.opening`. */
@@ -74,6 +75,37 @@
     const next = choose(places, count, place, adding);
     chosen = next === null ? null : { shape, places: next };
   }
+  function showAll() {
+    chosen = null;
+  }
+
+  /** The key's list, measured to know whether it fits in its two lines. */
+  let labels = $state<HTMLUListElement | null>(null);
+  /**
+   * Whether the key is too long for its two lines, and the values are
+   * picked from a menu instead: a key scrolled through hides most of what
+   * it says, and taking more lines takes them from the chart.
+   */
+  let folded = $state(false);
+  /** The most lines the key takes. */
+  const KEY_LINES = 2;
+  $effect(() => {
+    const list = labels;
+    // Measured again whenever the entries change, as well as the panel's width.
+    void key.entries.length;
+    if (!list) {
+      return;
+    }
+    // Its entries are laid out even while it is folded away, so each line they take has its own top.
+    const fit = () => {
+      const tops = new Set(Array.from(list.children, (item) => (item as HTMLElement).offsetTop));
+      folded = tops.size > KEY_LINES;
+    };
+    fit();
+    const watching = new ResizeObserver(fit);
+    watching.observe(list);
+    return () => watching.disconnect();
+  });
 
   let holder = $state<HTMLDivElement | null>(null);
   let panel = $state<HTMLElement | null>(null);
@@ -411,7 +443,8 @@
       </dl>
     {/if}
   </div>
-  <ul class="labels">
+  <!-- Folded away, but still laid out, while it takes more than its lines: the menu says it instead. -->
+  <ul class={["labels", { folded }]} bind:this={labels} aria-hidden={folded} inert={folded}>
     {#if key.heading}
       <li class="heading">{key.heading}</li>
     {/if}
@@ -433,6 +466,9 @@
       </li>
     {/each}
   </ul>
+  {#if folded && choosable}
+    <ValuesMenu heading={key.heading} entries={key.entries} {shown} toggle={(place) => show(place, true)} {showAll} />
+  {/if}
   {#if parts.length === 0}
     <p class="waiting">Waiting for {fields.join(", ")}</p>
   {/if}
@@ -460,10 +496,17 @@
     list-style: none;
     color: var(--muted);
     font-size: var(--text-xs);
-    /* Two lines at most, the rest scrolled to, so the chart keeps the panel. */
-    max-height: calc(2 * 1.5rem + 0.15rem);
-    overflow-y: auto;
     flex: none;
+  }
+  /*
+   * Too long for its two lines: laid out still, to be measured as the panel
+   * changes width, but taking no room, its values picked from the menu.
+   */
+  .labels.folded {
+    height: 0;
+    padding-top: 0;
+    overflow: hidden;
+    visibility: hidden;
   }
   .labels li {
     display: flex;

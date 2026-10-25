@@ -84,6 +84,31 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await joint.click();
   await expect(jointPlot).toHaveAttribute("data-look", /^l+$/);
   expect(await jointPlot.getAttribute("data-builds")).toBe(builds);
+  // Too narrow for its key's two lines: the values are picked from a menu
+  // in the panel's corner instead, there while the pointer is over the plot.
+  await jointPlot.evaluate((panel) => ((panel as HTMLElement).style.width = "240px"));
+  const opener = jointPlot.getByRole("button", { name: "Values shown" });
+  // Neither pointed at nor holding the focus (the key's entry clicked last had it), it is out of sight.
+  await page.mouse.move(0, 0);
+  await jointPlot.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  // Faded as a whole with what holds it, which the button's own style doesn't say.
+  const corner = opener.locator("xpath=..");
+  await expect(corner).toHaveCSS("opacity", "0");
+  await jointPlot.hover();
+  await expect(corner).toHaveCSS("opacity", "1");
+  await opener.click();
+  const menu = jointPlot.getByRole("menu");
+  await menu.getByRole("menuitemcheckbox", { name: "joint_3" }).click();
+  await expect(menu.getByRole("menuitemcheckbox", { name: "joint_3" })).toHaveAttribute("aria-checked", "false");
+  await expect(jointPlot).toHaveAttribute("data-look", /^ll-l+$/);
+  await menu.getByRole("menuitem", { name: "Show all" }).click();
+  await expect(jointPlot).toHaveAttribute("data-look", /^l+$/);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(opener).toBeFocused();
+  expect(await jointPlot.getAttribute("data-builds")).toBe(builds);
+  await jointPlot.evaluate((panel) => ((panel as HTMLElement).style.width = ""));
+  await expect(opener).toHaveCount(0);
   if (viewport) {
     await page.setViewportSize(viewport);
   }

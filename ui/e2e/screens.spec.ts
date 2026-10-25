@@ -33,9 +33,17 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(5_000);
   await shot(page, "live");
-  // On a screen wide enough for the key of the joints' plot, one value
-  // picked in it shows alone, with its band.
+  // The plot of the joints, whose key takes more than its two lines here:
+  // its values picked from the menu in its corner, open.
   const jointPlot = page.getByRole("region", { name: /^Plot of role:joints\.joint_1\.position/ });
+  await jointPlot.hover();
+  await jointPlot.getByRole("button", { name: "Values shown" }).click();
+  await jointPlot.getByRole("menuitemcheckbox", { name: "joint_2" }).click();
+  await page.waitForTimeout(500);
+  await shot(page, "live-plot-menu");
+  await jointPlot.getByRole("menuitem", { name: "Show all" }).click();
+  await page.keyboard.press("Escape");
+  // On a wider screen its key fits: one value picked in it shows alone, with its band.
   await page.setViewportSize({ width: 2200, height: VIEWPORT.height });
   await jointPlot.getByRole("button", { name: "joint_1", exact: true }).click();
   await page.mouse.move(0, 0);
