@@ -80,7 +80,7 @@ Show every setting with its value and where the value came from.
 
 Record one episode from the streams in a streams.toml, for a set time.
 
-Each stream may come over UDP, TCP or ROS 2, as the streams.toml declares it; the episode is written into the data directory.
+Each stream may come over UDP, TCP or ROS 2, as the streams.toml declares it; the episode is written into the data directory. Exits with 2 if no stream received anything (the episode is kept all the same), and with 1 if recording failed.
 
 | Option | Description |
 |---|---|

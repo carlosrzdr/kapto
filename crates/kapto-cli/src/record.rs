@@ -564,6 +564,10 @@ fn sequence_field(sequence: SequenceDeclaration) -> SequenceField {
     }
 }
 
+/// What `kapto record` exits with when no stream received anything: the
+/// episode is recorded and kept, but holds no message.
+pub(crate) const NOTHING_RECEIVED: u8 = 2;
+
 /// Runs `kapto record`.
 pub(crate) fn record(
     flags: &SettingFlags,
@@ -572,7 +576,17 @@ pub(crate) fn record(
     duration: Duration,
 ) -> ExitCode {
     match session(flags, streams, mapping, duration) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(silence) => match silence {
+            Silence::None => ExitCode::SUCCESS,
+            Silence::Some(warning) => {
+                eprintln!("{}", warning.warning_report());
+                ExitCode::SUCCESS
+            }
+            Silence::All(error) => {
+                eprintln!("{}", error.report());
+                ExitCode::from(NOTHING_RECEIVED)
+            }
+        },
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
             eprintln!("{}", reports.join("\n\n"));
@@ -825,12 +839,43 @@ pub(crate) fn describe(package: Option<&PackageIdentity>) -> String {
     )
 }
 
+/// Which streams of an episode received nothing.
+#[derive(Debug)]
+enum Silence {
+    /// Every stream received something.
+    None,
+    /// Some streams received nothing, said by the warning.
+    Some(KaptoError),
+    /// No stream received anything, said by the error.
+    All(KaptoError),
+}
+
+impl Silence {
+    /// What `silent`, of `streams` recorded, means.
+    fn of(silent: &[String], streams: usize) -> Self {
+        if silent.is_empty() {
+            return Self::None;
+        }
+        let plural = if streams == 1 { "stream" } else { "streams" };
+        let error = KaptoError::new(ErrorCode::CaptureNothingReceived).detail(format!(
+            "{} ({} of {streams} {plural})",
+            silent.join(", "),
+            silent.len()
+        ));
+        if silent.len() == streams {
+            Self::All(error)
+        } else {
+            Self::Some(error)
+        }
+    }
+}
+
 fn session(
     flags: &SettingFlags,
     streams: &Path,
     mapping: Option<&Path>,
     duration: Duration,
-) -> Outcome<()> {
+) -> Outcome<Silence> {
     let (_, deployment) = crate::config::load(flags)?;
     let (declarations, plan) = load_plan(streams, &RecordSettings::of(&deployment))?;
     recover(&deployment.data_dir.value, &mut |_| {});
@@ -881,7 +926,8 @@ fn session(
             println!("{line}");
         }
     }
-    recorded.receivers
+    recorded.receivers?;
+    Ok(Silence::of(&recorded.silent, streams))
 }
 
 #[cfg(test)]
@@ -1290,5 +1336,41 @@ mod tests {
     fn a_file_without_streams_is_refused() {
         let errors = plan(&[], Path::new("streams.toml"), &RecordSettings::default()).unwrap_err();
         assert!(errors[0].message().contains("no streams are declared"));
+    }
+
+    #[test]
+    fn streams_that_received_nothing_are_named_a_warning_while_another_did() {
+        let silent = ["gripper".to_owned()];
+        let Silence::Some(warning) = Silence::of(&silent, 3) else {
+            panic!("not a warning");
+        };
+        assert_eq!(warning.code(), ErrorCode::CaptureNothingReceived);
+        assert!(
+            warning.message().ends_with(": gripper (1 of 3 streams)"),
+            "{}",
+            warning.message()
+        );
+        assert!(matches!(Silence::of(&[], 3), Silence::None));
+    }
+
+    #[test]
+    fn every_stream_receiving_nothing_is_an_error() {
+        let silent = ["arm".to_owned(), "gripper".to_owned()];
+        let Silence::All(error) = Silence::of(&silent, 2) else {
+            panic!("not an error");
+        };
+        assert!(
+            error.message().ends_with(": arm, gripper (2 of 2 streams)"),
+            "{}",
+            error.message()
+        );
+        let Silence::All(one) = Silence::of(&silent[..1], 1) else {
+            panic!("not an error");
+        };
+        assert!(
+            one.message().ends_with("(1 of 1 stream)"),
+            "{}",
+            one.message()
+        );
     }
 }

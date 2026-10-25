@@ -22,6 +22,7 @@ for how to read an error report.
 | `capture.already_recording` | An episode is already being recorded | Stop the current episode first; one episode is recorded at a time. |
 | `capture.not_recording` | No episode is being recorded | Start an episode first. If it was started with a duration, it may already have ended. |
 | `capture.preflight_failed` | Pre-flight failed: this machine may not record what the robot sends | Fix what each failed check says and run pre-flight again (`kapto episode preflight`), or record anyway by waiving each failed check (`kapto episode start --waive <code>`); the episode then says which were waived. |
+| `capture.nothing_received` | A stream received nothing while the episode was recorded | Check that the robot sends each stream named to the input its streams.toml declares (UDP address and port, TCP address or ROS 2 topic; `kapto topics` lists a ROS 2 network's), and that no firewall drops it. The episode is kept either way; `kapto record` exits with 2 when no stream received anything. |
 | `config.file_not_found` | Configuration file not found | Check the path passed with --config, or remove the option to use the default location. |
 | `config.unreadable` | Configuration file can't be read | Check that the file is readable by the user Kapto runs as. In a container, check the /config mount. |
 | `config.invalid_syntax` | Configuration file is not valid TOML | Fix the syntax at the reported line. Strings need quotes, and each key is written `key = value`. |

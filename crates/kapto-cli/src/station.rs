@@ -150,6 +150,8 @@ pub(crate) struct Recorded {
     /// A receiver's failure, which ended the episode early. The episode is
     /// still finalised, with everything received until then.
     pub(crate) receivers: Outcome<()>,
+    /// The streams that received nothing in it, kept messages included.
+    pub(crate) silent: Vec<String>,
 }
 
 /// What `episode.json` says of an episode besides how its file was
@@ -455,6 +457,11 @@ impl Station {
         let arrivals = |stream| arrivals(&self.plan, &end.transports, stream);
         let buffers = buffer_summary(&self.plan, &end.rings);
         let streams = stream_summaries(&self.plan, &counters, &arrivals, &carried);
+        let silent = streams
+            .iter()
+            .filter(|stream| stream.received == 0 && stream.carried.unwrap_or(0) == 0)
+            .map(|stream| stream.id.clone())
+            .collect();
         // How it went, before the file is closed: a recording without this
         // record wasn't finished.
         let commands = self.commands(&clock, asked);
@@ -471,6 +478,7 @@ impl Station {
                 episode,
                 closing: None,
                 receivers: end.receivers,
+                silent,
             });
         }
         let table = summary_table(&self.plan, &counters, &arrivals);
@@ -485,6 +493,7 @@ impl Station {
             episode,
             closing: Some(closing),
             receivers: end.receivers,
+            silent,
         })
     }
 

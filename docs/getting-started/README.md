@@ -166,6 +166,8 @@ While it records, Kapto prints a line per second with how many messages it
 received, wrote, dropped, and how many were lost before reaching it. At the
 end it prints the folder of the finished episode and each stream's counts.
 [Episodes on disk](../concepts/episodes.md) explains what the folder holds.
+If a stream received nothing, Kapto names it; if none did, the episode is
+still kept, but `kapto record` exits with 2 instead of 0, so a script notices.
 
-If Kapto warns that the UDP receive buffer is smaller than configured,
+If Kapto warns that the UDP receive buffer is smaller than Kapto asks for,
 recording still works; the warning says how to raise the host's limit.

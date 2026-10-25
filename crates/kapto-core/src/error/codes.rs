@@ -98,6 +98,14 @@ error_codes! {
         remedy: "Fix what each failed check says and run pre-flight again (`kapto episode preflight`), or record anyway by waiving each failed check (`kapto episode start --waive <code>`); the episode then says which were waived.",
     }
 
+    /// A stream received nothing while an episode was recorded: the robot
+    /// didn't send it, or it didn't arrive. A warning while another stream
+    /// did; `kapto record` fails with it when none did.
+    CaptureNothingReceived = "capture.nothing_received" {
+        summary: "A stream received nothing while the episode was recorded",
+        remedy: "Check that the robot sends each stream named to the input its streams.toml declares (UDP address and port, TCP address or ROS 2 topic; `kapto topics` lists a ROS 2 network's), and that no firewall drops it. The episode is kept either way; `kapto record` exits with 2 when no stream received anything.",
+    }
+
     /// The configuration file given explicitly doesn't exist.
     ConfigFileNotFound = "config.file_not_found" {
         summary: "Configuration file not found",

@@ -24,6 +24,9 @@ use kapto_loadgen::Transport;
 use kapto_store::{Episode, LossDetectionKind, verify_episode};
 use kapto_testkit::TempDir;
 
+/// What `kapto record` exits with when no stream received anything.
+const NOTHING_RECEIVED: i32 = 2;
+
 /// The first of `count` consecutive loopback ports free now for UDP and TCP.
 /// Each test runs in its own process, so the search starts at a place that
 /// depends on the process: tests running at the same time don't pick the
@@ -390,6 +393,7 @@ fn a_tcp_stream_is_recorded_across_a_reconnection_and_its_disconnect_counted() {
 /// Records for a second from `streams`, with `args` added to the command,
 /// and returns the episode's `episode.json`, the name of every file the
 /// recording carries, and what `kapto record` printed before starting.
+/// Nothing is sent to it, so it exits saying no stream received anything.
 fn record_a_second(
     streams: &Path,
     data: &Path,
@@ -406,7 +410,10 @@ fn record_a_second_in(
     env: &[(&str, &Path)],
 ) -> (Episode, Vec<String>, Vec<String>) {
     let (child, seen) = start_recording_with(streams, data, 1, args, env);
-    assert!(child.wait_with_output().unwrap().status.success());
+    assert_eq!(
+        child.wait_with_output().unwrap().status.code(),
+        Some(NOTHING_RECEIVED)
+    );
     let episode_dir = std::fs::read_dir(data)
         .unwrap()
         .map(|entry| entry.unwrap().path())
@@ -449,7 +456,11 @@ fn an_episode_killed_mid_recording_is_recovered_by_the_next_recording_before_it_
             .any(|line| line.starts_with(&format!("Recovered episode {killed}"))),
         "{seen:#?}"
     );
-    assert!(child.wait_with_output().unwrap().status.success());
+    // Nothing sends to this one.
+    assert_eq!(
+        child.wait_with_output().unwrap().status.code(),
+        Some(NOTHING_RECEIVED)
+    );
     let recovered = data.join(&killed);
     verify_episode(&recovered).unwrap();
     assert!(Episode::read(&recovered).unwrap().recovered.is_some());
@@ -690,4 +701,81 @@ fn recordings_are_compressed_with_lz4_unless_capture_compression_says_otherwise(
         zstd.iter().all(|compression| compression == "zstd"),
         "{zstd:?}"
     );
+}
+
+#[test]
+fn streams_that_received_nothing_are_named_and_none_receiving_anything_fails() {
+    let dir = TempDir::new("record-silent");
+    let port = free_ports(2);
+    let streams = streams_file(&dir.0, port, 2, 1_000, Transport::Udp);
+
+    // One stream sent, the other silent: a warning naming it, and success.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .args(["record", "--duration", "2", "--streams"])
+        .arg(&streams)
+        .arg("--data-dir")
+        .arg(dir.0.join("data-one"))
+        .arg("--viewer-tap-socket")
+        .arg(dir.0.join("tap-one.sock"))
+        .env_clear()
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let mut said = String::new();
+    while !said.ends_with("Started.\n") {
+        assert_ne!(stderr.read_line(&mut said).unwrap(), 0, "{said}");
+    }
+    let config = kapto_loadgen::Config {
+        target: SocketAddr::from(([127, 0, 0, 1], port)),
+        streams: 1,
+        rate_hz: 1_000,
+        duration: Some(Duration::from_millis(500)),
+        spin: Duration::from_micros(100),
+        transport: Transport::Udp,
+        wait_for_subscribers: None,
+        camera: None,
+        raw_camera: false,
+    };
+    kapto_loadgen::run(&config, |_, _| {}).unwrap();
+    std::io::Read::read_to_string(&mut stderr, &mut said).unwrap();
+    assert!(child.wait().unwrap().success(), "{said}");
+    assert!(
+        said.contains(
+            "warning[capture.nothing_received]: A stream received nothing while the episode \
+             was recorded: joints_1 (1 of 2 streams)"
+        ),
+        "{said}"
+    );
+
+    // Neither sent: an error naming both, the documented exit code, and
+    // the episode kept all the same.
+    let silent = dir.0.join("data-none");
+    let tap_socket = dir.0.join("tap-none.sock");
+    let output = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .args(["record", "--duration", "1", "--streams"])
+        .arg(&streams)
+        .arg("--data-dir")
+        .arg(&silent)
+        .arg("--viewer-tap-socket")
+        .arg(tap_socket)
+        .env_clear()
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(NOTHING_RECEIVED), "{stderr}");
+    assert!(
+        stderr.contains(
+            "error[capture.nothing_received]: A stream received nothing while the episode \
+             was recorded: joints_0, joints_1 (2 of 2 streams)"
+        ),
+        "{stderr}"
+    );
+    let episode = std::fs::read_dir(&silent)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| !path.ends_with(".recording"))
+        .unwrap();
+    verify_episode(&episode).unwrap();
 }
