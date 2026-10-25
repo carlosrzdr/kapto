@@ -720,7 +720,7 @@ or Kapto runs beside Isaac Sim on the same middleware.
 |---|---|---|---|
 | M20-01 `docs(guides): record a robot in isaac sim` | A guide: a robot in Isaac Sim recorded over its ROS 2 bridge, from its package to a replay; what doesn't work yet listed as the rows below, or as new ones | The guide's steps, run against Isaac Sim's headless container on a machine with its GPU | The robot moves in Kapto as in Isaac Sim |
 | M20-02 `feat(capture): simulated time` | The simulation's `/clock` as each message's source time and the episode's, so a paused, slowed or sped-up simulation records and replays at its own pace | Loadgen with a `/clock` running at half and twice real time: replay at simulated time | — |
-| M20-03 `feat(decode): raw ros 2 images` | `sensor_msgs/Image` cameras (rgb8, bgr8, mono8, depth as 16-bit or float) stored as received and shown live and in replay, as the bridge publishes them | Fixtures of each encoding; a 1080p raw camera's rate held | — |
+| M20-03 `perf(viz): a raw 1080p camera at its rate` | A ROS 2 `sensor_msgs/Image` camera at 1080p and 60 fps, in colour or depth, recorded and shown live without falling behind | The five-camera profile with raw cameras: none of capture's frames lost, the bridge's encoding within its budget | — |
 | M20-04 `feat(server): episodes a simulation runs` | Episodes started and stopped by the simulation's script through the API, each with what it was run with (scene, seed, randomised parameters) kept in the recording, and marked as simulated | A script running fifty short episodes: each has its parameters and none is mixed with a real robot's in the list's filter | — |
 
 ## Part 5. Phase B work packages: v1 (P1)

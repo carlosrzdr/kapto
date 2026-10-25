@@ -74,7 +74,7 @@ impl fmt::Display for Unshown {
             }
             Self::Encoding(encoding) => write!(
                 f,
-                "raw pictures in `{encoding}`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8"
+                "raw pictures in `{encoding}`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8, and depth in 16UC1, mono16 or 32FC1"
             ),
             Self::Short { needed, has } => {
                 write!(
@@ -124,24 +124,28 @@ impl Pictures {
                 height,
                 step,
                 encoding,
-            } => self.encode(data, (width, height, step), encoding),
+                big_endian,
+            } => self.encode(data, (width, height, step), (encoding, big_endian)),
         }
     }
 
     /// Encodes the raw picture in `data`, `height` rows of `step` bytes
-    /// each starting with `width` pixels in `encoding`, as JPEG.
+    /// each starting with `width` pixels in `encoding`, as JPEG. A depth
+    /// picture is shown in grey, nearest white.
     fn encode(
         &mut self,
         data: &[u8],
         (width, height, step): (u32, u32, u64),
-        encoding: &str,
+        (encoding, big_endian): (&str, bool),
     ) -> Result<Picture<'_>, Unshown> {
-        let (color, pixel_bytes) = match encoding {
-            "rgb8" => (ColorType::Rgb, 3),
-            "bgr8" => (ColorType::Bgr, 3),
-            "rgba8" => (ColorType::Rgba, 4),
-            "bgra8" => (ColorType::Bgra, 4),
-            "mono8" => (ColorType::Luma, 1),
+        let (color, pixel_bytes, depth) = match encoding {
+            "rgb8" => (ColorType::Rgb, 3, None),
+            "bgr8" => (ColorType::Bgr, 3, None),
+            "rgba8" => (ColorType::Rgba, 4, None),
+            "bgra8" => (ColorType::Bgra, 4, None),
+            "mono8" => (ColorType::Luma, 1, None),
+            "16UC1" | "mono16" => (ColorType::Luma, 2, Some(Depth::U16)),
+            "32FC1" => (ColorType::Luma, 4, Some(Depth::F32)),
             other => return Err(Unshown::Encoding(other.to_owned())),
         };
         let (Ok(jpeg_width), Ok(jpeg_height)) = (u16::try_from(width), u16::try_from(height))
@@ -162,8 +166,16 @@ impl Pictures {
             return Err(Unshown::Short { needed, has });
         }
         // Rows padded to `step` are packed first: the encoder takes them
-        // back to back.
-        let pixels = if step == row {
+        // back to back. Depth is turned into grey as it is.
+        let pixels = if let Some(depth) = depth {
+            grey(
+                data,
+                (width, height, to_usize(step)),
+                (depth, big_endian),
+                &mut self.rows,
+            );
+            &self.rows
+        } else if step == row {
             &data[..to_usize(needed)]
         } else {
             let (step, row) = (to_usize(step), to_usize(row));
@@ -182,6 +194,68 @@ impl Pictures {
             size: Some((width, height)),
             bytes: &self.jpeg,
         })
+    }
+}
+
+/// How a depth picture's pixels are stored.
+#[derive(Clone, Copy)]
+enum Depth {
+    /// Unsigned 16-bit, usually millimetres; 0 is no reading.
+    U16,
+    /// 32-bit float, usually metres; NaN, infinite or 0 is no reading.
+    F32,
+}
+
+/// The depth picture in `data`, `height` rows of `step` bytes, as one byte
+/// of grey per pixel into `grey`: its nearest reading white, its farthest
+/// black, and no reading black too. Spread over the picture's own range, so
+/// any scene shows its shape.
+fn grey(
+    data: &[u8],
+    (width, height, step): (u32, u32, usize),
+    (depth, big_endian): (Depth, bool),
+    grey: &mut Vec<u8>,
+) {
+    let (width, height) = (to_usize(u64::from(width)), to_usize(u64::from(height)));
+    let size = match depth {
+        Depth::U16 => 2,
+        Depth::F32 => 4,
+    };
+    let reading = |line: usize, column: usize| -> Option<f64> {
+        let at = line * step + column * size;
+        let bytes = data.get(at..at + size)?;
+        let value = match (depth, big_endian) {
+            (Depth::U16, false) => f64::from(u16::from_le_bytes([bytes[0], bytes[1]])),
+            (Depth::U16, true) => f64::from(u16::from_be_bytes([bytes[0], bytes[1]])),
+            (Depth::F32, false) => {
+                f64::from(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            }
+            (Depth::F32, true) => {
+                f64::from(f32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            }
+        };
+        (value.is_finite() && value > 0.0).then_some(value)
+    };
+    let readings =
+        || (0..height).flat_map(|line| (0..width).filter_map(move |column| reading(line, column)));
+    let near = readings().fold(f64::INFINITY, f64::min);
+    let far = readings().fold(0.0, f64::max);
+    let span = (far - near).max(f64::EPSILON);
+    grey.clear();
+    for line in 0..height {
+        for column in 0..width {
+            grey.push(reading(line, column).map_or(0, |value| {
+                // Nearest 255, farthest 1: still told from no reading.
+                let shade = 255.0 - 254.0 * (value - near) / span;
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a shade from 1 to 255"
+                )]
+                let shade = shade.round().clamp(1.0, 255.0) as u8;
+                shade
+            }));
+        }
     }
 }
 

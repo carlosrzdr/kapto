@@ -127,7 +127,7 @@ When a camera's frame can't be shown, the page is told why, as text, once
 until it can be again:
 
 ```json
-{"camera": {"stream": 1, "unshown": "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8"}}
+{"camera": {"stream": 1, "unshown": "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8, and depth in 16UC1, mono16 or 32FC1"}}
 ```
 
 and `"unshown": null` when the camera's pictures show again. A page

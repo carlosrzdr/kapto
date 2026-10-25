@@ -122,6 +122,9 @@ pub enum Frame<'a> {
         step: u64,
         /// How each pixel is laid out, as named.
         encoding: &'a str,
+        /// Whether a pixel of more than one byte stores it most significant
+        /// byte first.
+        big_endian: bool,
     },
 }
 
@@ -175,6 +178,7 @@ pub fn frame<'a>(kind: &CameraKind, bytes: &'a [u8]) -> Result<Frame<'a>, FrameE
             height,
             step: u64::from(width) * encoding.bytes_per_pixel(),
             encoding: encoding.name(),
+            big_endian: false,
         }),
         CameraKind::Image => {
             let mut cdr = Cdr::new(bytes)?;
@@ -182,7 +186,7 @@ pub fn frame<'a>(kind: &CameraKind, bytes: &'a [u8]) -> Result<Frame<'a>, FrameE
             let height = cdr.u32()?;
             let width = cdr.u32()?;
             let encoding = cdr.string()?;
-            cdr.u8()?;
+            let big_endian = cdr.u8()? != 0;
             let step = cdr.u32()?;
             let data = cdr.bytes()?;
             Ok(Frame::Raw {
@@ -191,6 +195,7 @@ pub fn frame<'a>(kind: &CameraKind, bytes: &'a [u8]) -> Result<Frame<'a>, FrameE
                 height,
                 step: u64::from(step),
                 encoding,
+                big_endian,
             })
         }
     }
@@ -377,7 +382,8 @@ mod tests {
                 width: 2,
                 height: 1,
                 step: 6,
-                encoding: "rgb8"
+                encoding: "rgb8",
+                big_endian: false,
             })
         );
         assert_eq!(PixelEncoding::named("bgra8"), Some(PixelEncoding::Bgra8));

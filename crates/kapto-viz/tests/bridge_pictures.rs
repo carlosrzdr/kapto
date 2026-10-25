@@ -279,7 +279,7 @@ fn a_page_connecting_is_shown_each_cameras_newest_picture_and_told_why_one_isnt_
     assert_eq!(said["stream"], 2);
     assert_eq!(
         said["unshown"],
-        "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8"
+        "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8, and depth in 16UC1, mono16 or 32FC1"
     );
     let picture = next_picture(&mut page);
     assert_eq!(picture.picture, a_jpeg(250), "the newest");

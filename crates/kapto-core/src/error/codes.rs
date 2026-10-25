@@ -734,7 +734,7 @@ error_codes! {
     /// A recorded camera's frame can't be shown in the web UI.
     ViewerPictureUnshown = "viewer.picture_unshown" {
         summary: "The camera's frame can't be shown",
-        remedy: "The message says why: a picture neither JPEG nor PNG, a raw encoding other than rgb8, bgr8, rgba8, bgra8 or mono8, or a frame that isn't what the camera's stream declares. The frame is recorded as received all the same; export the episode to look at it with another tool.",
+        remedy: "The message says why: a picture neither JPEG nor PNG, a raw encoding other than rgb8, bgr8, rgba8, bgra8 or mono8 (or, from ROS 2, depth in 16UC1, mono16 or 32FC1), or a frame that isn't what the camera's stream declares. The frame is recorded as received all the same; export the episode to look at it with another tool.",
     }
 
     /// An episode's replay file can't be written.

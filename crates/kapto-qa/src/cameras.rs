@@ -121,6 +121,7 @@ fn picture_size(kind: &CameraKind, data: &[u8]) -> Result<u64, String> {
             height,
             step,
             encoding,
+            ..
         } => {
             let has = data.len() as u64;
             // An encoding not among those named holds pixels of a size

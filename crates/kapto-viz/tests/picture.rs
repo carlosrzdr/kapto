@@ -62,12 +62,23 @@ fn compressed_image(format: &str, data: &[u8]) -> Vec<u8> {
 }
 
 fn image(width: u32, height: u32, encoding: &str, step: u32, data: &[u8]) -> Vec<u8> {
+    image_ordered(width, height, (encoding, false), step, data)
+}
+
+/// The same, its pixels stored most significant byte first if `big_endian`.
+fn image_ordered(
+    width: u32,
+    height: u32,
+    (encoding, big_endian): (&str, bool),
+    step: u32,
+    data: &[u8],
+) -> Vec<u8> {
     Cdr::new()
         .header()
         .u32(height)
         .u32(width)
         .string(encoding)
-        .u8(0)
+        .u8(u8::from(big_endian))
         .u32(step)
         .bytes(data)
         .0
@@ -161,6 +172,56 @@ fn a_raw_ros_2_image_is_encoded_as_a_jpeg_of_its_size_and_colour() {
 }
 
 #[test]
+fn a_depth_picture_is_shown_in_grey_its_nearest_white_and_no_reading_black() {
+    // Four bands of eight columns: near, half way, far, and no reading.
+    let (width, height) = (32_u32, 8_u32);
+    let band = |column: u32| usize::try_from(column / 8).unwrap();
+    let millimetres = [500_u16, 1000, 1500, 0];
+    let metres = [0.5_f32, 1.0, 1.5, f32::NAN];
+    let mut cases: Vec<((&str, bool), u32, Vec<u8>)> = Vec::new();
+    for encoding in ["16UC1", "mono16"] {
+        let data = (0..height)
+            .flat_map(|_| (0..width).flat_map(|column| millimetres[band(column)].to_le_bytes()))
+            .collect();
+        cases.push(((encoding, false), width * 2, data));
+    }
+    for big_endian in [false, true] {
+        let data = (0..height)
+            .flat_map(|_| {
+                (0..width).flat_map(move |column| {
+                    let value = metres[band(column)];
+                    if big_endian {
+                        value.to_be_bytes()
+                    } else {
+                        value.to_le_bytes()
+                    }
+                })
+            })
+            .collect();
+        cases.push((("32FC1", big_endian), width * 4, data));
+    }
+    let mut pictures = Pictures::default();
+    for (encoding, step, data) in cases {
+        let frame = image_ordered(width, height, encoding, step, &data);
+        let picture = pictures.picture(&CameraKind::Image, &frame).unwrap();
+        assert_eq!(picture.size, Some((32, 8)), "{encoding:?}");
+        let (pixels, size) = decoded(picture.bytes);
+        assert_eq!(size, (32, 8));
+        // The middle of each band, in the middle row: grey decodes to one
+        // channel.
+        let shade = |band: usize| pixels[4 * 32 + band * 8 + 4];
+        let expected = [255_u8, 128, 1, 0];
+        for (band, want) in expected.iter().enumerate() {
+            assert!(
+                shade(band).abs_diff(*want) <= 12,
+                "{encoding:?} band {band}: {} for {want}",
+                shade(band)
+            );
+        }
+    }
+}
+
+#[test]
 fn rows_padded_past_their_pixels_are_encoded_without_the_padding() {
     let mut pictures = Pictures::default();
     // 10 grey pixels a row, padded to 16 bytes with white the encoder must
@@ -247,7 +308,7 @@ fn frames_that_cant_be_shown_say_why() {
     // What the live view names it as.
     assert_eq!(
         Unshown::Encoding("yuv422".into()).to_string(),
-        "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8"
+        "raw pictures in `yuv422`, which the live view can't show: only rgb8, bgr8, rgba8, bgra8 and mono8, and depth in 16UC1, mono16 or 32FC1"
     );
 }
 

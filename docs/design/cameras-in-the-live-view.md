@@ -73,7 +73,11 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   declares it: a `CompressedImage`'s `format` and `data`, an `Image`'s
   size, encoding and pixels, or a TCP camera's bytes as declared. A raw
   frame in `rgb8`, `bgr8`, `mono8` or `rgba8`/`bgra8` is encoded as JPEG
-  in the bridge, never in capture; another encoding, or a compressed
+  in the bridge, never in capture. A ROS 2 depth image (`16UC1` or
+  `mono16` in millimetres, `32FC1` in metres) is shown in grey, its
+  nearest reading white and its farthest dark, scaled to that picture's
+  own range, with no reading (0, or a float that isn't a positive
+  distance) black. Another encoding, or a compressed
   format the browser can't draw, is counted and named in the live view
   rather than shown.
 - **A page's cameras share its pictures.** The bridge sends each page at
