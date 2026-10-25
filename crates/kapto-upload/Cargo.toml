@@ -28,7 +28,7 @@ sha2.workspace = true
 # Credentials files, written as TOML like the rest of the configuration.
 toml_edit.workspace = true
 # Waits between tries, on the runtime uploads run on.
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["rt", "time"] }
 
 [dev-dependencies]
 async-trait.workspace = true

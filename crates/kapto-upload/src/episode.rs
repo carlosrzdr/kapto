@@ -442,9 +442,9 @@ async fn upload_file(
             let index = next;
             next += 1;
             if parts.contains_key(&index) {
-                reading.read_into(index, &mut sent_before)?;
+                reading.read_into(index, &mut sent_before).await?;
             } else {
-                in_flight.push(put(index, reading.part(index)?));
+                in_flight.push(put(index, reading.part(index).await?));
             }
         }
         let Some(done) = in_flight.next().await else {
@@ -501,7 +501,7 @@ async fn put_whole(
     let file = reading.file;
     if file.bytes <= reading.part {
         let mut reading = reading.clone();
-        let payload = PutPayload::from(reading.part(0)?);
+        let payload = PutPayload::from(reading.part(0).await?);
         reading.check()?;
         tries.paced(file.bytes).await;
         return tries
@@ -519,7 +519,7 @@ async fn put_whole(
             let mut reading = reading.clone();
             let sent: Result<Result<(), KaptoError>, Error> = async {
                 for index in 0..file.bytes.div_ceil(reading.part) {
-                    let data = match reading.part(index) {
+                    let data = match reading.part(index).await {
                         Ok(data) => data,
                         Err(error) => return Ok(Err(error)),
                     };
@@ -581,32 +581,39 @@ impl<'a> Reading<'a> {
     }
 
     /// Part `index`, read and hashed, to send.
-    fn part(&mut self, index: u64) -> Result<Vec<u8>, KaptoError> {
+    async fn part(&mut self, index: u64) -> Result<Vec<u8>, KaptoError> {
         let mut data = Vec::new();
-        self.read_into(index, &mut data)?;
+        self.read_into(index, &mut data).await?;
         Ok(data)
     }
 
     /// Part `index`, read into `data`, whose memory is reused, and hashed;
     /// on its own, for a part sent before a restart, read again only to be
-    /// hashed.
-    fn read_into(&mut self, index: u64, data: &mut Vec<u8>) -> Result<(), KaptoError> {
-        let (local, offset) = (&self.local, index.saturating_mul(self.part));
+    /// hashed. Read and hashed on the runtime's blocking threads: a part is
+    /// megabytes, which would hold up every other part in flight on the
+    /// lane's own thread.
+    async fn read_into(&mut self, index: u64, data: &mut Vec<u8>) -> Result<(), KaptoError> {
+        let (local, offset) = (self.local.clone(), index.saturating_mul(self.part));
         let length = self.part.min(self.file.bytes.saturating_sub(offset));
-        data.clear();
-        data.reserve_exact(usize::try_from(length).unwrap_or(usize::MAX));
-        let mut opened = File::open(local).map_err(|error| unreadable(local, &error))?;
-        opened
-            .seek(SeekFrom::Start(offset))
-            .and_then(|_| opened.take(length).read_to_end(data))
-            .map_err(|error| unreadable(local, &error))?;
-        if bytes(data.len()) != length {
-            return Err(unreadable(local, &"it ends before its manifest's size"));
+        let (mut buffer, mut hasher) = (std::mem::take(data), self.hasher.take());
+        let hashing = hasher.is_some();
+        let read = tokio::task::spawn_blocking(move || {
+            let read = read_part(&local, offset, length, &mut buffer, hasher.as_mut());
+            (read, buffer, hasher)
+        })
+        .await;
+        match read {
+            Ok((read, buffer, hasher)) => {
+                (*data, self.hasher) = (buffer, hasher);
+                read
+            }
+            Err(error) => {
+                // The file's hash is lost with the thread: started again, it
+                // can't match, so nothing of this try is completed.
+                self.hasher = hashing.then(Sha256::new);
+                Err(unreadable(&self.local, &error))
+            }
         }
-        if let Some(hasher) = &mut self.hasher {
-            hasher.update(&*data);
-        }
-        Ok(())
     }
 
     /// Whether every part read, in order, makes the file its manifest says.
@@ -625,6 +632,31 @@ impl<'a> Reading<'a> {
             ))
             .context("path", self.local.display().to_string()))
     }
+}
+
+/// Reads `length` bytes at `offset` of the file at `local` into `data`,
+/// adding them to `hasher`.
+fn read_part(
+    local: &std::path::Path,
+    offset: u64,
+    length: u64,
+    data: &mut Vec<u8>,
+    hasher: Option<&mut Sha256>,
+) -> Result<(), KaptoError> {
+    data.clear();
+    data.reserve_exact(usize::try_from(length).unwrap_or(usize::MAX));
+    let mut opened = File::open(local).map_err(|error| unreadable(local, &error))?;
+    opened
+        .seek(SeekFrom::Start(offset))
+        .and_then(|_| opened.take(length).read_to_end(data))
+        .map_err(|error| unreadable(local, &error))?;
+    if bytes(data.len()) != length {
+        return Err(unreadable(local, &"it ends before its manifest's size"));
+    }
+    if let Some(hasher) = hasher {
+        hasher.update(&*data);
+    }
+    Ok(())
 }
 
 /// Checks the file at `at` is `file`, returning the store's tag of it;
@@ -1021,23 +1053,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refused_credentials_are_not_tried_again() {
-        let folder = episode("upload-denied");
-        let faulty = Faulty::new(InMemory::new());
-        let store = Store {
-            objects: &faulty,
-            multipart: Some(&faulty),
-        };
-        faulty.fail_next(Error::PermissionDenied {
-            path: "robot".into(),
-            source: "access denied".into(),
-        });
-        let (outcome, _, waits) = upload(store, &folder, &POLICY, &mut Progress::default()).await;
-        assert_eq!(outcome.unwrap_err().code(), ErrorCode::UploadDenied);
-        assert_eq!(waits, []);
-    }
-
-    #[tokio::test]
     async fn a_part_the_store_fails_has_its_upload_aborted_before_the_file_is_tried_again() {
         // A store without parts carried over: each try is an upload of its own.
         let folder = episode("upload-part-fails");
@@ -1070,6 +1085,23 @@ mod tests {
         let (outcome, _, _) = upload(store, &folder, &POLICY, &mut Progress::default()).await;
         assert_eq!(outcome.unwrap_err().code(), ErrorCode::UploadUnreachable);
         assert_eq!(faulty.aborted(), POLICY.max_attempts as usize);
+    }
+
+    #[tokio::test]
+    async fn refused_credentials_are_not_tried_again() {
+        let folder = episode("upload-denied");
+        let faulty = Faulty::new(InMemory::new());
+        let store = Store {
+            objects: &faulty,
+            multipart: Some(&faulty),
+        };
+        faulty.fail_next(Error::PermissionDenied {
+            path: "robot".into(),
+            source: "access denied".into(),
+        });
+        let (outcome, _, waits) = upload(store, &folder, &POLICY, &mut Progress::default()).await;
+        assert_eq!(outcome.unwrap_err().code(), ErrorCode::UploadDenied);
+        assert_eq!(waits, []);
     }
 
     #[tokio::test]
