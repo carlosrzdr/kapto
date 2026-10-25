@@ -138,15 +138,11 @@
   .filter input[type="search"] {
     flex: 1 1 12rem;
     min-width: 0;
-    padding: 0.25rem 0.5rem;
-    font: inherit;
-    font-size: var(--text-sm);
-    color: inherit;
-    background: transparent;
-    border: 1px solid var(--control-line);
-    border-radius: 4px;
   }
   .filter label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
     color: var(--muted);
     font-size: var(--text-sm);
     white-space: nowrap;

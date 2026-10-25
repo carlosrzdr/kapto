@@ -1657,7 +1657,8 @@
   }
   .grip.remove {
     margin-left: 0;
-    border-color: var(--warning);
+    border-color: var(--danger);
+    color: var(--danger);
   }
   .carrying,
   .carrying .grip {
@@ -1770,18 +1771,32 @@
     position: absolute;
     top: 0.5rem;
     right: 0.75rem;
+    left: 0.75rem;
     display: flex;
+    /* In a narrow panel, one under the other rather than cut off. */
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.4rem;
+    pointer-events: none;
   }
   .tools button {
-    padding: 0.1rem 0.5rem;
+    pointer-events: auto;
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: color-mix(in srgb, var(--background) 70%, transparent);
     color: var(--text);
     font: inherit;
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
+    white-space: nowrap;
     cursor: pointer;
+  }
+  /* The environment's panel open under it: its button says so, as the
+     header's Keys does. */
+  .tools button[aria-expanded="true"] {
+    border-color: var(--text);
+    background: var(--raised);
   }
   /* The view's own controls, at its top right where a view's settings are
      looked for, with room on their left for more of them. */

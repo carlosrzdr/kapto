@@ -579,17 +579,15 @@
   }
   .replay,
   .retry {
-    padding: 0.25rem 0.75rem;
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--accent);
     border-radius: var(--radius);
     background: transparent;
     color: var(--text);
     font: inherit;
-    cursor: pointer;
-  }
-  .retry {
-    padding: 0 var(--space-2);
     font-size: var(--text-sm);
+    cursor: pointer;
   }
   .bin {
     clear: both;
@@ -611,12 +609,14 @@
   .delete,
   .cancel,
   .restore {
-    padding: 0.25rem 0.75rem;
-    border: 1px solid var(--line);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: transparent;
     color: var(--text);
     font: inherit;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
   .delete {

@@ -68,13 +68,15 @@
     color: var(--text);
   }
   button {
+    height: var(--control-height);
     margin-left: 0.75rem;
-    padding: 0.1rem 0.6rem;
+    padding: 0 var(--space-3);
     border: 1px solid var(--accent);
     border-radius: var(--radius);
     background: transparent;
     color: var(--text);
     font: inherit;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
   .lacks {

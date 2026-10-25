@@ -149,7 +149,8 @@
   }
   button {
     min-width: 6.5rem;
-    padding: 0.2rem 0.7rem;
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--accent);
     border-radius: var(--radius);
     background: transparent;

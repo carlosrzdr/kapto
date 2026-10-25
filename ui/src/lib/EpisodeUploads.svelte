@@ -202,12 +202,13 @@
     white-space: normal;
   }
   button {
-    padding: 0 var(--space-2);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: transparent;
     color: var(--text);
     font: inherit;
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
   }
 </style>

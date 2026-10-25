@@ -399,13 +399,14 @@
     justify-content: flex-end;
   }
   :global(.dialog :is(.secondary, .delete)) {
-    height: 2rem;
-    padding: 0 var(--space-4);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: transparent;
     color: var(--text);
     font: inherit;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
   :global(.dialog .delete) {

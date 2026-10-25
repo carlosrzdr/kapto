@@ -1027,8 +1027,10 @@
     height: var(--control-height);
     cursor: pointer;
   }
+  /* What it opened is shown: as every button that opens a panel, lit. */
   header :global(.keys-toggle[data-state="open"]) {
     border-color: var(--text);
+    background: var(--raised);
     color: var(--text);
   }
   header :global(.keys-toggle:focus-visible) {
@@ -1104,8 +1106,9 @@
     color: var(--muted);
   }
   .dismiss {
+    height: var(--control-height);
     margin-left: 0.75rem;
-    padding: 0.1rem 0.5rem;
+    padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: none;

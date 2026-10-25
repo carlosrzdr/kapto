@@ -156,11 +156,84 @@ input:not([type="range"], [type="checkbox"], [type="radio"]) {
   min-height: var(--control-height);
   font-family: inherit;
 }
-input[type="checkbox"],
 input[type="radio"] {
   width: 1.1rem;
   height: 1.1rem;
   margin: 0.2rem;
+}
+/* Fields, boxes to tick and colour wells drawn as the Bits UI controls
+   are, never as the browser's own: the panel's surface inside a control's
+   edge, the text's colour under the pointer, green once ticked. A
+   component sets only how wide its own are. */
+input:is([type="text"], [type="search"], [type="number"], [type="color"]) {
+  box-sizing: border-box;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+input[type="color"] {
+  width: calc(var(--control-height) * 1.5);
+  padding: 3px;
+  cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+input[type="color"]::-moz-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+input[type="checkbox"] {
+  display: inline-grid;
+  flex: none;
+  place-content: center;
+  box-sizing: border-box;
+  width: 1rem;
+  height: 1rem;
+  margin: 0.2rem;
+  border: 1px solid var(--control-line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  appearance: none;
+  cursor: pointer;
+}
+/* The tick, drawn from two edges of a box turned on its side. */
+input[type="checkbox"]::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.25rem;
+  border: solid var(--on-accent);
+  border-width: 0 0 2px 2px;
+  transform: translateY(-20%) rotate(-45deg);
+  visibility: hidden;
+}
+input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+input[type="checkbox"]:checked::before {
+  visibility: visible;
+}
+input:is([type="text"], [type="search"], [type="number"], [type="color"], [type="checkbox"]:not(:checked)):hover:not(:disabled) {
+  border-color: var(--text);
+}
+html input:is([type="text"], [type="search"], [type="number"], [type="color"], [type="checkbox"]):disabled {
+  border-color: var(--line);
+  background: var(--raised);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+input[type="checkbox"]:checked:disabled::before {
+  border-color: var(--muted);
 }
 button:not(:disabled),
 select:not(:disabled),

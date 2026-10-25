@@ -168,7 +168,11 @@
   }
   button,
   .file {
-    padding: 0.2rem 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: transparent;
@@ -216,21 +220,16 @@
     gap: 0.3rem;
     color: var(--muted);
   }
-  input[type="number"],
-  input[type="text"] {
+  input[type="number"] {
     width: 4.5rem;
-    padding: 0.1rem 0.25rem;
-    border: 1px solid var(--control-line);
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text);
-    font: inherit;
   }
   input[type="text"] {
     width: 12rem;
   }
+  /* Removing is in the danger colour, as every removing action is. */
   .remove {
     align-self: flex-start;
-    border-color: var(--warning);
+    border-color: var(--danger);
+    color: var(--danger);
   }
 </style>

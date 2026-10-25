@@ -116,6 +116,11 @@
   .choice :global(.trigger:hover:not(:disabled)) {
     border-color: var(--text);
   }
+  /* Its list open: lit, as every button that opens a panel. */
+  .choice :global(.trigger[data-state="open"]) {
+    border-color: var(--text);
+    background: var(--raised);
+  }
   .choice :global(.trigger:focus-visible) {
     outline: 2px solid var(--ring);
     outline-offset: 2px;

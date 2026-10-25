@@ -32,7 +32,7 @@
       Passed at <span class="when">{time(Date.parse(run.ran_at) * 1e6)}</span>
     </p>
     {#if !recording}
-      <button type="button" class="small" disabled={running || busy} aria-busy={running} onclick={onrun}>
+      <button type="button" disabled={running || busy} aria-busy={running} onclick={onrun}>
         {running ? "Running…" : "Run again"}
       </button>
     {/if}
@@ -133,18 +133,17 @@
     margin-top: 0.6rem;
   }
   button {
-    padding: 0.3rem 0.8rem;
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--accent);
     border-radius: var(--radius);
     background: transparent;
     color: var(--text);
     font: inherit;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
-  button.small {
-    padding: 0.1rem 0.6rem;
-    font-size: var(--text-sm);
-  }
+  /* Going ahead despite a problem: warned, never removing anything. */
   button.anyway {
     border-color: var(--warning);
   }

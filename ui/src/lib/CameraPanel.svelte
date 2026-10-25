@@ -171,13 +171,15 @@
     gap: 0.25rem;
   }
   .steps button {
-    min-width: 1.6rem;
-    padding: 0.05rem 0.4rem;
+    min-width: var(--control-height);
+    height: var(--control-height);
+    padding: 0 var(--space-2);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: color-mix(in srgb, var(--background) 70%, transparent);
     color: var(--text);
     font: inherit;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
 </style>

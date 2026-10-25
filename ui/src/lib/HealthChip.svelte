@@ -48,7 +48,8 @@
     gap: var(--space-2);
     width: max-content;
     max-width: 18rem;
-    padding: var(--space-1) var(--space-3);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: transparent;

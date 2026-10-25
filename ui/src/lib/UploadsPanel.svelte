@@ -238,7 +238,8 @@
   }
   button {
     justify-self: start;
-    padding: 0.2rem 0.8rem;
+    height: var(--control-height);
+    padding: 0 var(--space-3);
     border: 1px solid var(--accent);
     border-radius: var(--radius);
     background: transparent;

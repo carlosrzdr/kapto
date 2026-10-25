@@ -151,7 +151,7 @@
   button {
     min-width: var(--control-height);
     height: var(--control-height);
-    padding: 0 var(--space-2);
+    padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
     background: transparent;

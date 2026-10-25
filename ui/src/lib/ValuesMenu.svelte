@@ -85,6 +85,10 @@
   .values :global(.opener:focus-visible) {
     border-color: var(--text);
   }
+  /* Its menu open: lit, as every button that opens a panel. */
+  .values.open :global(.opener) {
+    background: var(--raised);
+  }
   :global(.values-menu) {
     z-index: 40;
     display: flex;
