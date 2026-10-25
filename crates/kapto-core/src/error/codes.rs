@@ -687,6 +687,12 @@ error_codes! {
         remedy: "Fix the field named in the message. Field names are lowercase letters, digits and underscores starting with a letter, and unique; an array has at least one element; a scale is a finite number other than 0; every field ends within 65,507 bytes, the largest UDP message.",
     }
 
+    /// A layout by path has more values than its stream's messages can hold.
+    DecoderTooManyValues = "decoder.too_many_values" {
+        summary: "A message layout has more values than its stream's messages can hold",
+        remedy: "Every value takes at least one byte of a message, so a layout's values, every field's `count` together, can't outnumber the stream's `max_message_bytes` (1472 unless it declares more). Lower the `count` of the field named in the message, or, if the robot's messages really are that long, raise the stream's `max_message_bytes`.",
+    }
+
     /// A recording file can't be read.
     RecordingUnreadable = "recording.unreadable" {
         summary: "The recording can't be read",

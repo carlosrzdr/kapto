@@ -74,7 +74,7 @@ impl Default for RecordSettings {
         Self {
             max_writer_stall: Duration::from_secs(2),
             batch_capacity: 64,
-            default_max_message_bytes: 1472,
+            default_max_message_bytes: kapto_config::DEFAULT_MAX_MESSAGE_BYTES,
             pre_roll_max_bytes: 64 << 20,
             start_wait: Duration::from_secs(6),
         }

@@ -39,6 +39,12 @@ given another joint's value. A path looks up one name, for one value
 (`count` 1): declare a field for each joint. Each such field reads
 the message twice, once to find the name and once for the value.
 
+Every value takes at least one byte of a message, so a layout's
+values, every field's `count` together, are at most the stream's
+`max_message_bytes` (1472 unless it declares more). A layout with
+more is refused when its package is loaded
+(`decoder.too_many_values`).
+
 ## Values
 
 Each value is converted to the field's `type` by the same rules in

@@ -208,18 +208,20 @@ fn by_name(path: &str, steps: &[Step], key: &str, text: &str) -> Result<Step, St
 }
 
 impl PathLayout {
-    /// Checks the layout and compiles it into a decoder.
+    /// Checks the layout and compiles it into a decoder for a stream whose
+    /// messages are at most `max_message_bytes` long.
     ///
     /// # Errors
     ///
-    /// Every problem found, each `decoder.invalid_layout` naming its field
-    /// and its position (1 for the first): no fields, an invalid or
+    /// Every problem found, each naming its field and its position (1 for
+    /// the first): `decoder.invalid_layout` for no fields, an invalid or
     /// repeated name, an invalid path, an empty array, a scale that is 0,
-    /// not finite or on a `bool`, or an empty unit.
-    pub fn compile(&self) -> Result<PathDecoder, Vec<KaptoError>> {
+    /// not finite or on a `bool`, or an empty unit; `decoder.too_many_values`
+    /// for more values than `max_message_bytes`.
+    pub fn compile(&self, max_message_bytes: usize) -> Result<PathDecoder, Vec<KaptoError>> {
         Ok(PathDecoder {
             format: self.format,
-            paths: Paths::compile(&self.fields)?,
+            paths: Paths::compile(&self.fields, max_message_bytes)?,
         })
     }
 }
@@ -230,18 +232,38 @@ impl PathLayout {
 pub(crate) struct Paths {
     pub(crate) fields: Vec<FieldDescription>,
     reads: Vec<Read>,
+    /// Every field's count together: what one message decodes into.
+    values: usize,
 }
 
 impl Paths {
-    /// Checks `fields` and compiles their paths.
-    pub(crate) fn compile(fields: &[PathField]) -> Result<Self, Vec<KaptoError>> {
+    /// Checks `fields` and compiles their paths, for messages of at most
+    /// `max_message_bytes`.
+    ///
+    /// Every value takes at least a byte of a message, in every format read
+    /// by path, so a layout with more values than `max_message_bytes` can
+    /// never be filled: it is refused before room is made for its values.
+    pub(crate) fn compile(
+        fields: &[PathField],
+        max_message_bytes: usize,
+    ) -> Result<Self, Vec<KaptoError>> {
         let mut errors = Vec::new();
         if fields.is_empty() {
             errors.push(invalid("the layout has no fields".to_owned()));
         }
         let mut names = BTreeSet::new();
         let mut reads = Vec::new();
+        let mut values = Some(0_usize);
         for (position, field) in (1_usize..).zip(fields) {
+            // Only the field the layout first passes the bound at is named.
+            if let Some(before) = values {
+                values = before
+                    .checked_add(field.count)
+                    .filter(|&sum| sum <= max_message_bytes);
+                if values.is_none() {
+                    errors.push(too_many_values(field, position, before, max_message_bytes));
+                }
+            }
             let mut problems = problems(field, &mut names);
             match steps(&field.path) {
                 Ok(steps) => {
@@ -284,11 +306,12 @@ impl Paths {
                 })
                 .collect(),
             reads,
+            values: values.unwrap_or_default(),
         })
     }
 
-    fn value_count(&self) -> usize {
-        self.reads.iter().map(|read| read.count).sum()
+    pub(crate) fn value_count(&self) -> usize {
+        self.values
     }
 
     /// Fills `out` with each field's values: `parse` runs one [`Walk`] over
@@ -368,6 +391,28 @@ fn invalid(detail: String) -> KaptoError {
     KaptoError::new(ErrorCode::DecoderInvalidLayout).detail(detail)
 }
 
+/// `field`, at `position` with `before` values ahead of it, takes the layout
+/// past `max_message_bytes` values.
+fn too_many_values(
+    field: &PathField,
+    position: usize,
+    before: usize,
+    max_message_bytes: usize,
+) -> KaptoError {
+    let total = before.checked_add(field.count).map_or_else(
+        || "more values than can be counted".to_owned(),
+        |sum| format!("{sum} values"),
+    );
+    KaptoError::new(ErrorCode::DecoderTooManyValues)
+        .detail(format!(
+            "`{}` (count {}) brings the layout to {total}, but the stream's messages are at \
+             most {max_message_bytes} bytes, and each value takes at least one",
+            field.name, field.count
+        ))
+        .context("field", field.name.clone())
+        .context("position", position.to_string())
+}
+
 /// Everything wrong with one field, but its path.
 fn problems(field: &PathField, names: &mut BTreeSet<String>) -> Vec<String> {
     let mut problems = Vec::new();
@@ -434,6 +479,10 @@ pub struct PathDecoder {
 impl Decoder for PathDecoder {
     fn fields(&self) -> &[FieldDescription] {
         &self.paths.fields
+    }
+
+    fn value_count(&self) -> usize {
+        self.paths.value_count()
     }
 
     fn decode(&self, payload: &[u8], out: &mut [Value]) -> Result<(), DecodeError> {

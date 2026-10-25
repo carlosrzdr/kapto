@@ -398,7 +398,10 @@ unit = "rad/s"
 Each value is converted to the field's type: an integer field takes whole
 numbers in range, a float field any number, a `bool` field `true` or `false`.
 Text, `null`, or a path that isn't in the message leaves the message
-undecoded, and it is still recorded as it arrived. The
+undecoded, and it is still recorded as it arrived. Each value takes at
+least a byte of a message, so a layout's `count`s together can't exceed the
+stream's `max_message_bytes`; a layout with more is refused when the package
+is loaded. The
 [layouts by path reference](../reference/path-layout.md) has the
 path syntax and every conversion rule.
 

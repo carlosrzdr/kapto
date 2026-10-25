@@ -289,7 +289,11 @@ impl Player {
         let played = streams
             .iter()
             .map(|declared| {
-                let decoder = declared.decoder.as_ref()?.compile().ok()?;
+                let decoder = declared
+                    .decoder
+                    .as_ref()?
+                    .compile(declared.largest_message())
+                    .ok()?;
                 let values = vec![Value::default(); decoder.value_count()];
                 Some((decoder, values))
             })

@@ -108,6 +108,14 @@ pub struct StreamDeclaration {
 }
 
 impl StreamDeclaration {
+    /// Its largest message in bytes: its `max_message_bytes`, or
+    /// [`DEFAULT_MAX_MESSAGE_BYTES`] if it declares none. Its decoder is
+    /// compiled for messages this long.
+    #[must_use]
+    pub fn largest_message(&self) -> usize {
+        self.max_message_bytes.unwrap_or(DEFAULT_MAX_MESSAGE_BYTES) as usize
+    }
+
     /// Whether its messages are a camera's frames, which the live view
     /// shows as pictures: a ROS 2 topic of a camera's type
     /// ([`CAMERA_MESSAGE_TYPES`]), or a TCP stream with a `camera` table.
@@ -294,6 +302,9 @@ pub const MAX_DATAGRAM_BYTES: u32 = 65_507;
 /// The largest message a TCP or ROS 2 stream may declare: a raw 4K RGB
 /// frame (24 MiB) fits.
 pub const MAX_MESSAGE_BYTES: u32 = 32 << 20;
+/// A stream's largest message when it doesn't declare `max_message_bytes`:
+/// a full Ethernet frame's UDP payload.
+pub const DEFAULT_MAX_MESSAGE_BYTES: u32 = 1472;
 
 /// The longest a silence may settle: a minute, past which a message is
 /// late enough to be lost.
@@ -482,7 +493,9 @@ impl Reader<'_> {
             (Some(_), Some(ros2)) => Topic::Valid(ros2),
             (Some(_), None) => Topic::Invalid,
         };
-        let decoder = decoder.and_then(|decoder| self.decoder(decoder, table, &path, topic));
+        let largest = max_message_bytes.unwrap_or(DEFAULT_MAX_MESSAGE_BYTES) as usize;
+        let decoder =
+            decoder.and_then(|decoder| self.decoder(decoder, (table, largest), &path, topic));
         if let (Some(DecoderDeclaration::Struct(layout)), Some(max)) = (&decoder, max_message_bytes)
         {
             let needed = layout.fields.iter().map(FieldSpec::end).max().unwrap_or(0);
@@ -748,11 +761,12 @@ impl Reader<'_> {
     }
 
     /// The `decoder` table of a stream: its kind and fields, checked as a
-    /// whole so every layout problem is reported with its field's line.
+    /// whole, for messages of at most `max_message_bytes`, so every layout
+    /// problem is reported with its field's line.
     fn decoder(
         &mut self,
         table: &dyn TableLike,
-        stream_table: &dyn TableLike,
+        (stream_table, max_message_bytes): (&dyn TableLike, usize),
         stream: &str,
         topic: Topic<'_>,
     ) -> Option<DecoderDeclaration> {
@@ -831,7 +845,7 @@ impl Reader<'_> {
                 fields: path_fields(fields),
             }),
         };
-        match declaration.compile() {
+        match declaration.compile(max_message_bytes) {
             Ok(_) => Some(declaration),
             Err(errors) => {
                 for error in errors {
@@ -2073,6 +2087,39 @@ ros2 = { topic = "robot/status", type = "std_msgs/msg/Header", qos = { reliabili
             [
                 "config.invalid_value 2: Invalid configuration value: `streams.arm.decoder` reads up to byte 12, but `max_message_bytes` is 8"
             ]
+        );
+    }
+
+    #[test]
+    fn a_layout_by_path_with_more_values_than_its_messages_have_bytes_is_reported() {
+        let json = |max: &str, count: u32| {
+            format!(
+                "[streams.arm]\n\
+                 {max}\n\
+                 [streams.arm.decoder]\n\
+                 kind = \"json\"\n\
+                 [[streams.arm.decoder.fields]]\n\
+                 name = \"position\"\n\
+                 type = \"f64\"\n\
+                 path = \"position\"\n\
+                 count = {count}\n"
+            )
+        };
+        let refused = |max: u32| {
+            format!(
+                "decoder.too_many_values 6: A message layout has more values than its stream's \
+                 messages can hold: `position` (count {}) brings the layout to {} values, but \
+                 the stream's messages are at most {max} bytes, and each value takes at least one",
+                max + 1,
+                max + 1
+            )
+        };
+        assert_eq!(problems(&json("max_message_bytes = 8", 9)), [refused(8)]);
+        assert!(parse(&json("max_message_bytes = 8", 8)).is_ok());
+        // Without `max_message_bytes`, the default bounds it.
+        assert_eq!(
+            problems(&json("", DEFAULT_MAX_MESSAGE_BYTES + 1)),
+            [refused(DEFAULT_MAX_MESSAGE_BYTES)]
         );
     }
 

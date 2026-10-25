@@ -41,14 +41,16 @@ pub struct ProtobufLayout {
 }
 
 impl ProtobufLayout {
-    /// Reads the descriptor set, finds the message and compiles the fields.
+    /// Reads the descriptor set, finds the message and compiles the fields,
+    /// for messages of at most `max_message_bytes`.
     ///
     /// # Errors
     ///
     /// `decoder.invalid_schema` if the set can't be read or doesn't define
     /// the message; otherwise every problem with the fields, each
-    /// `decoder.invalid_layout`.
-    pub fn compile(&self) -> Result<ProtobufDecoder, Vec<KaptoError>> {
+    /// `decoder.invalid_layout`, or `decoder.too_many_values` for more values
+    /// than `max_message_bytes`.
+    pub fn compile(&self, max_message_bytes: usize) -> Result<ProtobufDecoder, Vec<KaptoError>> {
         let invalid =
             |detail: String| vec![KaptoError::new(ErrorCode::DecoderInvalidSchema).detail(detail)];
         let pool = DescriptorPool::decode(self.descriptor_set.as_slice())
@@ -61,7 +63,7 @@ impl ProtobufLayout {
         })?;
         Ok(ProtobufDecoder {
             message,
-            paths: Paths::compile(&self.fields)?,
+            paths: Paths::compile(&self.fields, max_message_bytes)?,
         })
     }
 }
@@ -82,6 +84,10 @@ impl PartialEq for ProtobufDecoder {
 impl Decoder for ProtobufDecoder {
     fn fields(&self) -> &[FieldDescription] {
         &self.paths.fields
+    }
+
+    fn value_count(&self) -> usize {
+        self.paths.value_count()
     }
 
     fn decode(&self, payload: &[u8], out: &mut [Value]) -> Result<(), DecodeError> {

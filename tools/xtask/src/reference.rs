@@ -841,6 +841,11 @@ fn path_layout() -> String {
          given another joint's value. A path looks up one name, for one value\n\
          (`count` 1): declare a field for each joint. Each such field reads\n\
          the message twice, once to find the name and once for the value.\n\n\
+         Every value takes at least one byte of a message, so a layout's\n\
+         values, every field's `count` together, are at most the stream's\n\
+         `max_message_bytes` (1472 unless it declares more). A layout with\n\
+         more is refused when its package is loaded\n\
+         (`decoder.too_many_values`).\n\n\
          ## Values\n\n\
          Each value is converted to the field's `type` by the same rules in\n\
          every format, then multiplied by its `scale` if it has one:\n\n\

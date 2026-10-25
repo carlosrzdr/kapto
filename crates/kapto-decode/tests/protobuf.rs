@@ -33,7 +33,7 @@ fn layout(fields: Vec<PathField>) -> ProtobufLayout {
 }
 
 fn decoder(fields: Vec<PathField>) -> ProtobufDecoder {
-    layout(fields).compile().unwrap()
+    layout(fields).compile(65_507).unwrap()
 }
 
 fn decode(decoder: &ProtobufDecoder, payload: &[u8]) -> Result<Vec<Value>, DecodeError> {
@@ -152,7 +152,7 @@ fn what_isnt_there_or_isnt_a_number_is_said_so() {
 fn a_descriptor_set_that_cant_be_read_or_lacks_the_message_is_refused() {
     let mut missing = layout(every_kind());
     missing.message = "kapto.test.v1.Odometry".to_owned();
-    let errors = missing.compile().unwrap_err();
+    let errors = missing.compile(65_507).unwrap_err();
     assert_eq!(errors[0].code(), ErrorCode::DecoderInvalidSchema);
     assert!(
         errors[0]
@@ -163,13 +163,13 @@ fn a_descriptor_set_that_cant_be_read_or_lacks_the_message_is_refused() {
     let mut garbage = layout(every_kind());
     garbage.descriptor_set = b"not a descriptor set".to_vec();
     assert_eq!(
-        garbage.compile().unwrap_err()[0].code(),
+        garbage.compile(65_507).unwrap_err()[0].code(),
         ErrorCode::DecoderInvalidSchema
     );
 
     let invalid_path = layout(vec![PathField::new("v", "a..b", ScalarType::U8)]);
     assert_eq!(
-        invalid_path.compile().unwrap_err()[0].code(),
+        invalid_path.compile(65_507).unwrap_err()[0].code(),
         ErrorCode::DecoderInvalidLayout
     );
 }

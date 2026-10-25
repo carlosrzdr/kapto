@@ -47,17 +47,22 @@ pub struct StoredDecoder {
 }
 
 impl DecoderDeclaration {
-    /// Checks the declaration and compiles it into a decoder.
+    /// Checks the declaration and compiles it into a decoder for a stream
+    /// whose messages are at most `max_message_bytes` long. A struct layout
+    /// is bounded by its own fields' bytes instead, checked against the
+    /// stream's size where the stream is declared.
     ///
     /// # Errors
     ///
-    /// Every problem found, each `decoder.invalid_layout`, or
-    /// `decoder.invalid_schema` for a ROS 2 definition that can't be read.
-    pub fn compile(&self) -> Result<Box<dyn Decoder>, Vec<KaptoError>> {
+    /// Every problem found, each `decoder.invalid_layout`,
+    /// `decoder.too_many_values` for a layout by path with more values than
+    /// `max_message_bytes`, or `decoder.invalid_schema` for a ROS 2
+    /// definition that can't be read.
+    pub fn compile(&self, max_message_bytes: usize) -> Result<Box<dyn Decoder>, Vec<KaptoError>> {
         match self {
             Self::Struct(layout) => Ok(Box::new(layout.compile()?)),
-            Self::Path(layout) => Ok(Box::new(layout.compile()?)),
-            Self::Cdr(layout) => Ok(Box::new(layout.compile()?)),
+            Self::Path(layout) => Ok(Box::new(layout.compile(max_message_bytes)?)),
+            Self::Cdr(layout) => Ok(Box::new(layout.compile(max_message_bytes)?)),
         }
     }
 
@@ -261,7 +266,7 @@ mod tests {
                 ..PathField::new("height", "pose.z", ScalarType::F64)
             }],
         });
-        let decoder = declaration.compile().unwrap();
+        let decoder = declaration.compile(1).unwrap();
         assert_eq!(decoder.fields(), declaration.fields());
         let mut out = [Value::default()];
         decoder.decode(br#"{"pose":{"z":1.5}}"#, &mut out).unwrap();

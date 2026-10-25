@@ -232,7 +232,7 @@ fn first_positions(messages: &[Vec<u8>]) -> Vec<Option<f64>> {
         definition: assemble(type_name, &mut msg_files_in(&share)).unwrap(),
         fields: vec![PathField::new("position", "position[0]", ScalarType::F64)],
     })
-    .compile()
+    .compile(65_507)
     .unwrap();
     messages
         .iter()

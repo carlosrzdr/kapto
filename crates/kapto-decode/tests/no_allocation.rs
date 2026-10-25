@@ -105,7 +105,7 @@ fn decoding_json_and_msgpack_by_path_allocates_nothing_when_it_succeeds() {
         (PathFormat::Json, json.as_slice()),
         (PathFormat::MsgPack, msgpack.as_slice()),
     ] {
-        let decoder = layout(format).compile().unwrap();
+        let decoder = layout(format).compile(65_507).unwrap();
         let mut out = vec![Value::default(); decoder.value_count()];
         let before = allocations();
         for _ in 0..1_000 {

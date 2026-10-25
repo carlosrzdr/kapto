@@ -93,7 +93,7 @@ pub(crate) fn open(
             declaration
                 .decoder
                 .as_ref()
-                .and_then(|decoder| decoder.compile().ok())
+                .and_then(|decoder| decoder.compile(declaration.largest_message()).ok())
         })
         .collect();
     let latest = Arc::new(LatestValues::new(declarations.len()));

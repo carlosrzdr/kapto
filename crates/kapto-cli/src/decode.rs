@@ -22,7 +22,9 @@ use kapto_capture::reader::{
     ChannelSummary, RecordedChannel, RecordedMessage, RecordedSchema, read_recording,
     recorded_channels,
 };
-use kapto_config::{StreamDeclaration, UdpDeclaration, parse_streams, read_config_file};
+use kapto_config::{
+    MAX_MESSAGE_BYTES, StreamDeclaration, UdpDeclaration, parse_streams, read_config_file,
+};
 use kapto_core::{ErrorCode, KaptoError, utc_iso8601};
 use kapto_decode::{DecodeError, Decoder, DecoderDeclaration, Value};
 use kapto_robot::load_package;
@@ -279,12 +281,16 @@ impl View {
             return Self::Raw;
         };
         let decoder = declaration.and_then(|declaration| {
-            declaration.compile().map_err(|errors| {
-                errors
-                    .into_iter()
-                    .next()
-                    .unwrap_or_else(|| KaptoError::new(ErrorCode::DecoderInvalidSchema))
-            })
+            // A stored layout is bounded by the largest message any stream
+            // may have: the recording's own stream sizes aren't read here.
+            declaration
+                .compile(MAX_MESSAGE_BYTES as usize)
+                .map_err(|errors| {
+                    errors
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| KaptoError::new(ErrorCode::DecoderInvalidSchema))
+                })
         });
         match decoder {
             Ok(decoder) => {

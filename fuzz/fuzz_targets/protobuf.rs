@@ -37,7 +37,9 @@ static DECODER: LazyLock<ProtobufDecoder> = LazyLock::new(|| {
             history,
         ],
     }
-    .compile()
+    // The largest UDP payload: the layout is fixed and holds far fewer
+    // values.
+    .compile(65_507)
     .expect("the layout compiles")
 });
 

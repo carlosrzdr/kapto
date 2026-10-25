@@ -36,18 +36,20 @@ pub struct CdrLayout {
 }
 
 impl CdrLayout {
-    /// Reads the definition, checks the fields and compiles them.
+    /// Reads the definition, checks the fields and compiles them, for
+    /// messages of at most `max_message_bytes`.
     ///
     /// # Errors
     ///
     /// `decoder.invalid_schema` if the definition can't be read; otherwise
-    /// every problem with the fields, each `decoder.invalid_layout`.
-    pub fn compile(&self) -> Result<CdrDecoder, Vec<KaptoError>> {
+    /// every problem with the fields, each `decoder.invalid_layout`, or
+    /// `decoder.too_many_values` for more values than `max_message_bytes`.
+    pub fn compile(&self, max_message_bytes: usize) -> Result<CdrDecoder, Vec<KaptoError>> {
         let definitions = MessageDefinitions::parse(&self.type_name, &self.definition)
             .map_err(|error| vec![error])?;
         Ok(CdrDecoder {
             definitions,
-            paths: Paths::compile(&self.fields)?,
+            paths: Paths::compile(&self.fields, max_message_bytes)?,
         })
     }
 }
@@ -62,6 +64,10 @@ pub struct CdrDecoder {
 impl Decoder for CdrDecoder {
     fn fields(&self) -> &[FieldDescription] {
         &self.paths.fields
+    }
+
+    fn value_count(&self) -> usize {
+        self.paths.value_count()
     }
 
     fn decode(&self, payload: &[u8], out: &mut [Value]) -> Result<(), DecodeError> {

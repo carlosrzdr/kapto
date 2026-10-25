@@ -10,7 +10,7 @@ use std::ops::ControlFlow;
 use std::path::Path;
 
 use kapto_capture::reader::{RecordedChannel, is_kapto_channel, read_channels};
-use kapto_config::{FieldReference, parse_mapping};
+use kapto_config::{FieldReference, MAX_MESSAGE_BYTES, parse_mapping};
 use kapto_core::{KaptoError, Role};
 use kapto_decode::{Decoder, DecoderDeclaration, Value};
 use kapto_store::{EVENTS_CHANNEL, Event};
@@ -213,7 +213,9 @@ fn stream_roles(
         &channel.metadata,
     )?
     .ok()?
-    .compile()
+    // A stored layout is bounded by the largest message any stream may
+    // have: the recording's own stream sizes aren't read here.
+    .compile(MAX_MESSAGE_BYTES as usize)
     .ok()?;
     let fields = decoder.fields();
     let slots: Vec<Slot> = wanted

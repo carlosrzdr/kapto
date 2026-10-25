@@ -33,7 +33,7 @@ impl StreamFields {
                 let decoded = stream
                     .decoder
                     .as_ref()
-                    .and_then(|decoder| decoder.compile().ok())
+                    .and_then(|decoder| decoder.compile(stream.largest_message()).ok())
                     .map(|decoder| decoder.fields().to_vec())
                     .unwrap_or_default();
                 Self {

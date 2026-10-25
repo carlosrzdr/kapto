@@ -15,8 +15,11 @@ use kapto_decode::{
 };
 use proptest::prelude::*;
 
+/// The largest message the layouts here are compiled for: a UDP datagram.
+const LARGEST: usize = 65_507;
+
 fn decoder(format: PathFormat, fields: Vec<PathField>) -> PathDecoder {
-    PathLayout { format, fields }.compile().unwrap()
+    PathLayout { format, fields }.compile(LARGEST).unwrap()
 }
 
 fn one(path: &str, ty: ScalarType) -> Vec<PathField> {
@@ -243,7 +246,7 @@ fn layout_problems(fields: Vec<PathField>) -> Vec<String> {
         format: PathFormat::Json,
         fields,
     }
-    .compile()
+    .compile(LARGEST)
     .unwrap_err()
     .iter()
     .map(|error| {
@@ -369,7 +372,7 @@ fn every_layout_problem_is_reported_with_its_field() {
             },
         ],
     }
-    .compile()
+    .compile(LARGEST)
     .unwrap_err();
     let fields: Vec<(String, String)> = errors
         .iter()
@@ -398,6 +401,67 @@ fn every_layout_problem_is_reported_with_its_field() {
     .collect();
     assert_eq!(fields, expected);
     assert!(layout_problems(Vec::new())[0].ends_with("the layout has no fields"));
+}
+
+fn array(name: &str, count: usize) -> PathField {
+    PathField {
+        count,
+        ..PathField::new(name, name, ScalarType::U8)
+    }
+}
+
+/// The one error compiling `fields` for messages of `max` bytes gives, as
+/// its code, field and position.
+fn too_many(fields: Vec<PathField>, max: usize) -> (ErrorCode, String, String) {
+    let errors = PathLayout {
+        format: PathFormat::Json,
+        fields,
+    }
+    .compile(max)
+    .unwrap_err();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let context = |key: &str| {
+        let entries = errors[0].context_entries();
+        let found = entries.iter().find(|(name, _)| *name == key);
+        found.map(|(_, value)| value.clone()).unwrap()
+    };
+    (errors[0].code(), context("field"), context("position"))
+}
+
+#[test]
+fn a_layout_with_as_many_values_as_its_messages_have_bytes_compiles() {
+    let decoder = PathLayout {
+        format: PathFormat::Json,
+        fields: vec![array("a", 4), array("b", 6)],
+    }
+    .compile(10)
+    .unwrap();
+    assert_eq!(decoder.value_count(), 10);
+}
+
+#[test]
+fn a_layout_with_more_values_than_its_messages_have_bytes_is_refused_at_the_field_past_it() {
+    assert_eq!(
+        too_many(vec![array("a", 4), array("b", 7), array("c", 1)], 10),
+        (
+            ErrorCode::DecoderTooManyValues,
+            "b".to_owned(),
+            "2".to_owned()
+        )
+    );
+    // One field alone too large for the stream, which would otherwise make
+    // room for that many values.
+    assert_eq!(
+        too_many(vec![array("huge", 1 << 40)], LARGEST).0,
+        ErrorCode::DecoderTooManyValues
+    );
+}
+
+#[test]
+fn counts_whose_sum_overflows_are_refused_rather_than_wrapping() {
+    let (code, field, position) = too_many(vec![array("a", usize::MAX), array("b", 2)], usize::MAX);
+    assert_eq!(code, ErrorCode::DecoderTooManyValues);
+    assert_eq!((field.as_str(), position.as_str()), ("b", "2"));
 }
 
 proptest! {

@@ -95,7 +95,7 @@ fn fields_are_found_by_path_with_the_same_conversions_as_json() {
         },
         PathField::new("effort", "effort[2]", ScalarType::F32),
     ])
-    .compile()
+    .compile(65_507)
     .unwrap();
     let mut out = vec![Value::default(); decoder.value_count()];
     decoder.decode(&joint_state.cdr, &mut out).unwrap();
@@ -112,7 +112,7 @@ fn fields_are_found_by_path_with_the_same_conversions_as_json() {
 
     let mut one = [Value::default()];
     let names = layout(vec![PathField::new("name", "name[0]", ScalarType::U8)])
-        .compile()
+        .compile(65_507)
         .unwrap();
     assert_eq!(
         names.decode(&joint_state.cdr, &mut one),
@@ -120,7 +120,7 @@ fn fields_are_found_by_path_with_the_same_conversions_as_json() {
         "text isn't a number"
     );
     let velocity = layout(vec![PathField::new("v", "velocity[0]", ScalarType::F64)])
-        .compile()
+        .compile(65_507)
         .unwrap();
     assert_eq!(
         velocity.decode(&joint_state.cdr, &mut one),
@@ -146,7 +146,7 @@ fn a_joint_is_found_by_name_in_a_joint_state_from_any_of_the_publishers_on_its_t
             ScalarType::F64,
         )],
     }
-    .compile()
+    .compile(65_507)
     .unwrap();
     let mut one = [Value::default()];
     decoder.decode(&joint_state.cdr, &mut one).unwrap();
@@ -181,7 +181,7 @@ fn a_joint_is_found_by_name_in_a_joint_state_from_any_of_the_publishers_on_its_t
             PathField::new("gripper", "position[name=gripper]", ScalarType::F64),
         ],
     }
-    .compile()
+    .compile(65_507)
     .unwrap();
     let mut two = [Value::default(); 2];
     both.decode(&gripper, &mut two).unwrap();
