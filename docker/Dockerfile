@@ -57,14 +57,41 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        ca-certificates ros-${ROS_DISTRO}-rmw-cyclonedds-cpp ros-${ROS_DISTRO}-rmw-zenoh-cpp \
        ros-${ROS_DISTRO}-tf2-msgs \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d /overlays
+# The entry point: ROS 2's environment, then each folder under /overlays
+# over it in name order, as a ROS 2 workspace overlays the installation it
+# was built on, so a robot's own message packages, built for this
+# distribution and mounted read-only at /overlays/<name>, are found as the
+# standard ones are. A folder without setup.sh stops the container here,
+# rather than its types going missing once a topic is subscribed to.
+# colcon's setup.sh can't tell where it is when sh sources it, so it is
+# told. Then the command, in that environment.
+COPY --chmod=0755 <<'EOF' /usr/local/bin/kapto-entrypoint
+#!/bin/sh
+. "/opt/ros/$ROS_DISTRO/setup.sh"
+for overlay in /overlays/*/; do
+    [ -d "$overlay" ] || continue
+    overlay=${overlay%/}
+    if [ ! -f "$overlay/setup.sh" ]; then
+        echo "error: $overlay has no setup.sh: mount a colcon workspace's install folder there, built for ROS 2 $ROS_DISTRO" >&2
+        exit 1
+    fi
+    COLCON_CURRENT_PREFIX=$overlay
+    . "$overlay/setup.sh" || exit 1
+done
+unset COLCON_CURRENT_PREFIX
+exec "$@"
+EOF
 
 FROM ros2-base AS ros2-dev
 # rosbag2 with MCAP storage only for the checks: ROS 2's own tool reads
-# what Kapto records.
+# what Kapto records. colcon builds the checks' own message package, mounted
+# as a robot's would be.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential ca-certificates libclang-dev \
        ros-${ROS_DISTRO}-ros2bag ros-${ROS_DISTRO}-rosbag2-storage-mcap \
+       python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=rust /usr/local/rustup /usr/local/rustup
 COPY --from=rust /usr/local/cargo /usr/local/cargo
@@ -174,7 +201,10 @@ EXPOSE 7700 9877
 COPY --from=build-ros2 /out/kapto /usr/local/bin/kapto
 USER kapto
 VOLUME ["/data", "/packages", "/config"]
-# ROS 2's environment set up first, so Kapto finds its libraries and the
-# middleware, as the robot's nodes do.
-ENTRYPOINT ["/ros_entrypoint.sh", "kapto"]
+# ROS 2's environment set up first, with the overlays mounted at
+# /overlays/<name>, so Kapto finds its libraries, the middleware and the
+# robot's own message types, as the robot's nodes do. /overlays is a folder
+# of the image, not a volume: Kapto never writes there, and a volume would
+# leave an empty one behind for every container.
+ENTRYPOINT ["/usr/local/bin/kapto-entrypoint", "kapto"]
 CMD ["config", "show"]

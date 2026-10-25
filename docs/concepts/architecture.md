@@ -321,6 +321,11 @@ robot's ROS 2 network as the robot's nodes do, over whichever middleware
 `RMW_IMPLEMENTATION` names: the image has Fast DDS (the default), Cyclone
 DDS and Zenoh ([the ROS 2 design](../design/ros-2-through-rcl.md)). It
 lists the topics there (`kapto topics`) and records them, cameras included.
+Its entry point, a few lines in the Dockerfile, sources ROS 2's setup
+script, then that of each folder mounted under `/overlays`, in name order,
+so a robot's own message packages, built for the image's distribution, are
+found as the standard ones are; a folder there without a `setup.sh` stops
+the container at start.
 The slim image's Kapto has no ROS 2 code.
 Building with the feature needs ROS 2 and libclang, so it is only built
 and checked in the ROS 2 image (`cargo xtask ros2`). The node is torn down
