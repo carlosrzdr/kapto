@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! `cargo xtask ci`: formatting, lints, release builds without profiling,
-//! dependency policy, generated pages, links and tests.
+//! `cargo xtask ci`: formatting, lints, release builds without the
+//! development features, dependency policy, generated pages, links and
+//! tests.
 //!
 //! All selected steps run even if an earlier one fails, so one run shows every
 //! problem. The command fails if any step failed.
@@ -76,16 +77,17 @@ const LINTS: Step = Step {
     },
 };
 
-// What only a profiling build has: the spans' subscriber and its trace.
-const PROFILING_LINTS: Step = Step {
-    name: "profiling lints",
+// What only a development build has: the spans' subscriber and its trace,
+// and the failpoints.
+const DEVELOPMENT_LINTS: Step = Step {
+    name: "development lints",
     action: Action::Cargo {
         args: &[
             "clippy",
             "--package",
             "kapto-cli",
             "--features",
-            "profiling",
+            "profiling,failpoints",
             "--all-targets",
             "--",
             "--deny",
@@ -95,9 +97,9 @@ const PROFILING_LINTS: Step = Step {
     },
 };
 
-const RELEASE_WITHOUT_PROFILING: Step = Step {
-    name: "release without profiling",
-    action: Action::Internal(release_is_without_profiling),
+const RELEASE_WITHOUT_DEVELOPMENT: Step = Step {
+    name: "release without development features",
+    action: Action::Internal(release_is_without_development_features),
 };
 
 const DEPENDENCY_POLICY: Step = Step {
@@ -139,9 +141,10 @@ const TESTS: Step = Step {
 };
 
 // nextest doesn't run documentation tests, so they get their own step.
-// The trace a profiling build writes.
-const PROFILING_TESTS: Step = Step {
-    name: "profiling tests",
+// The trace a profiling build writes, and what capture does at its
+// failpoints.
+const DEVELOPMENT_TESTS: Step = Step {
+    name: "development tests",
     action: Action::Cargo {
         args: &[
             "nextest",
@@ -149,9 +152,10 @@ const PROFILING_TESTS: Step = Step {
             "--package",
             "kapto-cli",
             "--features",
-            "profiling",
+            "profiling,failpoints",
             "--no-tests=pass",
-            "trace::",
+            "-E",
+            "test(trace::) | test(closing::)",
         ],
         tool: Some(Tool {
             subcommand: "nextest",
@@ -173,14 +177,14 @@ pub(crate) fn steps(group: Group) -> Vec<&'static Step> {
     let check = [
         &FORMAT,
         &LINTS,
-        &PROFILING_LINTS,
-        &RELEASE_WITHOUT_PROFILING,
+        &DEVELOPMENT_LINTS,
+        &RELEASE_WITHOUT_DEVELOPMENT,
         &DEPENDENCY_POLICY,
         &GENERATED_PAGES,
         &LINKS,
         &AGENTS_FILE,
     ];
-    let test = [&TESTS, &PROFILING_TESTS, &DOC_TESTS];
+    let test = [&TESTS, &DEVELOPMENT_TESTS, &DOC_TESTS];
     match group {
         Group::Check => check.to_vec(),
         Group::Test => test.to_vec(),
@@ -261,8 +265,9 @@ fn agents_file_is_current() -> bool {
 }
 
 /// Whether `kapto` as built by default and by the Dockerfile leaves the
-/// `profiling` feature out: release binaries and images never have it.
-fn release_is_without_profiling() -> bool {
+/// `profiling` and `failpoints` features out: release binaries and images
+/// never have them.
+fn release_is_without_development_features() -> bool {
     let root = repo_root();
     let tree = Command::new(env!("CARGO"))
         .args([
@@ -286,26 +291,34 @@ fn release_is_without_profiling() -> bool {
         }
     };
     let dockerfile = std::fs::read_to_string(root.join("docker/Dockerfile")).unwrap_or_default();
-    let found = profiling_enabled(&tree, &dockerfile);
+    let found = development_features_enabled(&tree, &dockerfile);
     for place in &found {
-        eprintln!("{place} enables the `profiling` feature, which release builds never have");
+        eprintln!("{place}, which release builds never have");
     }
     found.is_empty()
 }
 
-/// Where `profiling` is enabled: in the default build's feature tree, or
-/// in a Dockerfile line building with features.
-fn profiling_enabled(tree: &str, dockerfile: &str) -> Vec<String> {
+/// The features only development builds may have.
+const DEVELOPMENT_FEATURES: [&str; 2] = ["profiling", "failpoints"];
+
+/// Where a development feature is enabled: in the default build's feature
+/// tree, or in a Dockerfile line building with features.
+fn development_features_enabled(tree: &str, dockerfile: &str) -> Vec<String> {
     let mut found = Vec::new();
-    if tree
-        .lines()
-        .any(|line| line.contains("feature \"profiling\""))
-    {
-        found.push("the default build of kapto-cli".to_owned());
-    }
-    for (number, line) in dockerfile.lines().enumerate() {
-        if line.contains("--features") && line.contains("profiling") {
-            found.push(format!("docker/Dockerfile:{}", number + 1));
+    for feature in DEVELOPMENT_FEATURES {
+        let in_tree = format!("feature \"{feature}\"");
+        if tree.lines().any(|line| line.contains(&in_tree)) {
+            found.push(format!(
+                "the default build of kapto-cli enables `{feature}`"
+            ));
+        }
+        for (number, line) in dockerfile.lines().enumerate() {
+            if line.contains("--features") && line.contains(feature) {
+                found.push(format!(
+                    "docker/Dockerfile:{} enables `{feature}`",
+                    number + 1
+                ));
+            }
         }
     }
     found
@@ -341,8 +354,8 @@ mod tests {
             [
                 "format",
                 "lints",
-                "profiling lints",
-                "release without profiling",
+                "development lints",
+                "release without development features",
                 "dependency policy",
                 "generated pages",
                 "links",
@@ -355,7 +368,7 @@ mod tests {
     fn test_group_runs_unit_and_doc_tests_only() {
         assert_eq!(
             names(Group::Test),
-            ["tests", "profiling tests", "doc tests"]
+            ["tests", "development tests", "doc tests"]
         );
     }
 
@@ -366,29 +379,35 @@ mod tests {
             [
                 "format",
                 "lints",
-                "profiling lints",
-                "release without profiling",
+                "development lints",
+                "release without development features",
                 "dependency policy",
                 "generated pages",
                 "links",
                 "agents file",
                 "tests",
-                "profiling tests",
+                "development tests",
                 "doc tests"
             ]
         );
     }
 
     #[test]
-    fn a_release_build_enabling_profiling_is_found() {
+    fn a_release_build_enabling_a_development_feature_is_found() {
         let tree = "kapto-cli feature \"default\"\nkapto-core feature \"default\"\n";
         let dockerfile = "RUN cargo build --release --locked --features ros2\n";
-        assert_eq!(profiling_enabled(tree, dockerfile), Vec::<String>::new());
-        let tree = format!("{tree}kapto-core feature \"profiling\"\n");
-        let dockerfile = format!("{dockerfile}RUN cargo build --release --features profiling\n");
         assert_eq!(
-            profiling_enabled(&tree, &dockerfile),
-            ["the default build of kapto-cli", "docker/Dockerfile:2"]
+            development_features_enabled(tree, dockerfile),
+            Vec::<String>::new()
+        );
+        let tree = format!("{tree}kapto-core feature \"profiling\"\n");
+        let dockerfile = format!("{dockerfile}RUN cargo build --release --features failpoints\n");
+        assert_eq!(
+            development_features_enabled(&tree, &dockerfile),
+            [
+                "the default build of kapto-cli enables `profiling`",
+                "docker/Dockerfile:2 enables `failpoints`"
+            ]
         );
     }
 

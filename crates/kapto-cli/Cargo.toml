@@ -25,6 +25,10 @@ ros2 = ["kapto-transport/ros2", "kapto-loadgen/ros2"]
 # trace, for `cargo xtask profile trace`. Development only: release builds
 # and images never have it.
 profiling = ["kapto-core/profiling", "dep:tracing", "dep:tracing-subscriber"]
+# Places tests can hold or end capture at, as closing an episode, to see
+# what it does meanwhile. Development only: release builds and images
+# never have it.
+failpoints = ["kapto-core/failpoints"]
 
 [dependencies]
 clap.workspace = true

@@ -5,6 +5,7 @@
 pub mod clock;
 pub mod episode;
 pub mod error;
+pub mod failpoints;
 pub mod hex;
 pub mod name;
 pub mod profiling;

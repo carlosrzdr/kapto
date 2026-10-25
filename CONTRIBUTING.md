@@ -30,7 +30,7 @@ quoted here exists.
 
 | Task | Command |
 |---|---|
-| Every check required before a pull request (format, lints with and without the `profiling` feature, release builds without it, dependency policy, generated pages, links, this file, tests) | `cargo xtask ci` |
+| Every check required before a pull request (format, lints with and without the development features `profiling` and `failpoints`, release builds without them, dependency policy, generated pages, links, this file, tests) | `cargo xtask ci` |
 | Only the static checks, or only the tests | `cargo xtask ci check` · `cargo xtask ci test` |
 | Format / lint | `cargo fmt --all` · `cargo clippy --workspace --all-targets -- --deny warnings` |
 | Tests | `cargo nextest run --workspace` · `cargo test --workspace --doc` |

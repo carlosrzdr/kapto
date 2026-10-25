@@ -147,6 +147,7 @@ impl Staged {
     /// `episode.already_exists` if `<out>/<id>/` exists (the staged folder
     /// is left as it is); `capture.write_failed` if the rename fails.
     pub fn rename(self) -> Result<Renamed, KaptoError> {
+        kapto_core::failpoint!("closing.rename");
         let to = final_dir(&self.out, &self.episode);
         if to.exists() {
             return Err(already_exists(&to));
@@ -202,6 +203,7 @@ impl Renamed {
     /// `manifest.write_failed`.
     pub fn write_manifest(self) -> Result<Manifested, KaptoError> {
         let _span = kapto_core::span!("write the manifest");
+        kapto_core::failpoint!("closing.manifest");
         Manifest::of_directory(&self.dir, &self.episode)?.write(&self.dir)?;
         Ok(Manifested {
             dir: self.dir,
@@ -224,6 +226,7 @@ impl Manifested {
     ///
     /// `capture.write_failed`.
     pub fn mark_finalised(self) -> Result<Finalised, KaptoError> {
+        kapto_core::failpoint!("closing.finalised");
         let marker = self.dir.join(FINALISED_FILE);
         File::create(&marker)
             .and_then(|file| file.sync_all())
