@@ -227,15 +227,18 @@ meanwhile is accepted, and SIGTERM waits for every episode handed over.
 The recording itself is hashed while it is written, by `cap-hash`, at the
 same lower priority: it reads the file back up to where `cap-writer` last
 put it on disk, so closing hashes only the rest, and the whole file again
-only if `cap-hash` didn't see every byte.
+only if `cap-hash` didn't see every byte. Once an episode stops,
+`cap-hash` ends at its next read, keeping only its digest and the open
+file, and `cap-finalise` reads the rest when the episode's turn comes: an
+episode waiting behind another being closed holds no thread or buffer.
 
 Every thread capture starts has a stack of 2 MiB, set rather than left to
 the environment, and capture says when it starts what its threads take at
 most (`kapto_capture::threads`): each one's stack and the buffer it holds
 for itself (`cap-hash` and `cap-finalise` 256 KiB to read a file back,
 pre-flight 1 MiB to write its test), with two `cap-hash` for an episode
-closed while the next is recorded, and what each control connection, and
-each episode waiting behind the one being closed, adds. The main thread,
+stopped while the next is recorded, and what each control connection
+adds. The main thread,
 and threads rcl and the ROS 2 middleware start, aren't counted.
 
 Each recording is written in a staging folder, then moved, listed in a

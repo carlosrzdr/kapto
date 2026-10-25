@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! What capture declares for `cap-hash` and `cap-finalise` covers what they
-//! allocate while one episode is closed and the next recorded.
+//! allocate while one episode is closed and the next recorded, and
+//! episodes waiting to be closed hold no `cap-hash` or its buffer.
 //!
 //! A counting allocator wraps the system allocator for this test binary.
 //! It keeps, per thread, the bytes it allocated and hasn't yet freed, and
@@ -22,8 +23,9 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicIsize, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError, mpsc};
+use std::time::{Duration, Instant};
 
 use kapto_capture::finalise::{RECORDING_FILE, Staged};
 use kapto_capture::threads::{SMALL_BYTES, ThreadMemory, Threads, named};
@@ -40,6 +42,17 @@ thread_local! {
     static ID: Cell<u64> = const { Cell::new(0) };
     static LIVE: Cell<isize> = const { Cell::new(0) };
     static PEAK: Cell<isize> = const { Cell::new(0) };
+    static HASH_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// What every `cap-hash` thread holds together, now.
+static HASH_LIVE: AtomicIsize = AtomicIsize::new(0);
+
+/// Adds `bytes` to what `cap-hash` threads hold, if this is one.
+fn hash_thread_holds(bytes: isize) {
+    if HASH_THREAD.try_with(Cell::get).unwrap_or(false) {
+        HASH_LIVE.fetch_add(bytes, Ordering::Relaxed);
+    }
 }
 
 /// The next thread's number; 0 is a thread that couldn't be told apart.
@@ -62,11 +75,13 @@ fn grew(bytes: usize) {
         live.set(live.get().saturating_add(bytes));
         let _ = PEAK.try_with(|peak| peak.set(peak.get().max(live.get())));
     });
+    hash_thread_holds(bytes);
 }
 
 fn shrank(bytes: usize) {
     let bytes = isize::try_from(bytes).unwrap_or(isize::MAX);
     let _ = LIVE.try_with(|live| live.set(live.get().saturating_sub(bytes)));
+    hash_thread_holds(-bytes);
 }
 
 /// Each allocation is preceded by the number of the thread that made it,
@@ -148,6 +163,9 @@ impl Drop for ReportPeak {
         self.into
             .fetch_max(usize::try_from(peak).unwrap_or(0), Ordering::Relaxed);
         if self.hashing {
+            // What it still held goes with it.
+            let live = LIVE.try_with(Cell::get).unwrap_or(0);
+            HASH_LIVE.fetch_sub(live, Ordering::Relaxed);
             HASHING.fetch_sub(1, Ordering::Relaxed);
         }
     }
@@ -164,8 +182,29 @@ fn count_into(into: &'static AtomicUsize, hashing: bool) {
     if hashing {
         let now = HASHING.fetch_add(1, Ordering::Relaxed) + 1;
         MOST_HASHING.fetch_max(now, Ordering::Relaxed);
+        HASH_THREAD.with(|flag| flag.set(true));
     }
     REPORT.with(|report| report.set(Some(ReportPeak { into, hashing })));
+}
+
+/// The tests share the counts, so they run one at a time, each from zero.
+fn alone() -> std::sync::MutexGuard<'static, ()> {
+    static ALONE: Mutex<()> = Mutex::new(());
+    let guard = ALONE.lock().unwrap_or_else(PoisonError::into_inner);
+    for count in [&HASH_PEAK, &FINALISE_PEAK, &HASHING, &MOST_HASHING] {
+        count.store(0, Ordering::Relaxed);
+    }
+    HASH_LIVE.store(0, Ordering::Relaxed);
+    guard
+}
+
+/// Waits up to 30 s for `done`.
+fn wait_until(what: &str, done: impl Fn() -> bool) {
+    let start = Instant::now();
+    while !done() {
+        assert!(start.elapsed() < Duration::from_secs(30), "{what}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 /// An output folder unique to this test, removed when dropped.
@@ -274,6 +313,7 @@ fn declared(name: &str) -> Threads {
 #[test]
 fn what_is_declared_for_cap_hash_and_cap_finalise_covers_an_episode_closing_while_the_next_records()
 {
+    let _alone = alone();
     let out = Out::new("thread-memory");
     let (closings, to_close) = mpsc::channel::<Episode>();
     let (go, held) = mpsc::channel::<()>();
@@ -313,6 +353,75 @@ fn what_is_declared_for_cap_hash_and_cap_finalise_covers_an_episode_closing_whil
     assert!(hashed >= hash.buffer_bytes, "{hashed} bytes");
     assert!(hashed <= hash.buffer_bytes + SMALL_BYTES, "{hashed} bytes");
 
+    let finalise = declared("cap-finalise");
+    let finalised = FINALISE_PEAK.load(Ordering::Relaxed);
+    assert!(finalised >= finalise.buffer_bytes, "{finalised} bytes");
+    assert!(
+        finalised <= finalise.buffer_bytes + SMALL_BYTES,
+        "{finalised} bytes"
+    );
+}
+
+#[test]
+fn episodes_waiting_behind_the_one_being_closed_hold_no_cap_hash_or_its_buffer() {
+    let _alone = alone();
+    let out = Out::new("thread-memory-waiting");
+    let (closings, to_close) = mpsc::channel::<Episode>();
+    let (go, held) = mpsc::channel::<()>();
+    let (closed, done) = mpsc::channel();
+    let finalise = named("cap-finalise")
+        .spawn(move || {
+            count_into(&FINALISE_PEAK, false);
+            for episode in to_close {
+                held.recv().unwrap();
+                closed.send(close(episode)).unwrap();
+            }
+        })
+        .unwrap();
+    let hash = declared("cap-hash");
+    let one_buffer = isize::try_from(hash.buffer_bytes + SMALL_BYTES).unwrap();
+
+    // The first is being closed, held there; the second and third wait
+    // behind it, each stopped as capture stops one: set aside first.
+    let ids = [
+        "20260305T192345.123Z-1a2b3c4d",
+        "20260305T192346.123Z-1a2b3c4e",
+        "20260305T192347.123Z-1a2b3c4f",
+    ];
+    for (n, id) in (0_u64..).zip(ids) {
+        let mut episode = start(&out.0, id);
+        write(&mut episode, n * 1_000);
+        assert!(HASHING.load(Ordering::Relaxed) <= hash.at_once);
+        // While it records, only its own `cap-hash` runs, holding one
+        // buffer: none for the episodes waiting.
+        wait_until("the waiting episodes' cap-hash ended", || {
+            HASHING.load(Ordering::Relaxed) == 1
+        });
+        let live = HASH_LIVE.load(Ordering::Relaxed);
+        assert!(live <= one_buffer, "{live} bytes held by cap-hash");
+        episode.hash.set_aside();
+        closings.send(episode).unwrap();
+    }
+    wait_until("every waiting episode's cap-hash ended", || {
+        HASHING.load(Ordering::Relaxed) == 0
+    });
+    let live = HASH_LIVE.load(Ordering::Relaxed);
+    assert!(
+        live <= 0,
+        "{live} bytes held by cap-hash, nothing recording"
+    );
+    for _ in ids {
+        go.send(()).unwrap();
+        assert!(done.recv().unwrap().join("_FINALISED").exists());
+    }
+    drop(closings);
+    finalise.join().unwrap();
+
+    let most = MOST_HASHING.load(Ordering::Relaxed);
+    assert!((1..=2).contains(&most), "{most} cap-hash at once");
+    assert!(most <= hash.at_once);
+    // The rest of each recording was read by `cap-finalise`, within what
+    // is declared for it.
     let finalise = declared("cap-finalise");
     let finalised = FINALISE_PEAK.load(Ordering::Relaxed);
     assert!(finalised >= finalise.buffer_bytes, "{finalised} bytes");

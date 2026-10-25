@@ -573,6 +573,11 @@ impl Station {
             self.session.clone(),
             self.preflight.clone(),
         );
+        // It may wait behind another episode being closed: its `cap-hash`
+        // ends meanwhile, holding no thread or buffer.
+        if let Some(hash) = &hash {
+            hash.set_aside();
+        }
         let sync_interval = self.writer.sync_interval;
         let describe: Describe = Box::new(move |clock, durability| {
             Episode::new(

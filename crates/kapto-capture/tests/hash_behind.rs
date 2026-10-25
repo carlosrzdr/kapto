@@ -192,6 +192,50 @@ fn a_recording_replaced_under_cap_hash_has_no_digest() {
 }
 
 #[test]
+fn a_recording_set_aside_is_read_on_from_where_cap_hash_stopped_and_its_digest_is_whole() {
+    let scratch = Scratch::new("aside");
+    let (written, hash) = started(&scratch, 300 * 1024);
+    wait_until("cap-hash read what was published", || {
+        hash.hashed() == 300 * 1024
+    });
+    hash.set_aside();
+    // Written after it stopped: read at closing, on the caller's thread.
+    let mut file = OpenOptions::new().append(true).open(&scratch.0).unwrap();
+    file.write_all(&noise(8, 500 * 1024)).unwrap();
+    written.publish(800 * 1024);
+    thread::sleep(Duration::from_millis(250));
+    assert_eq!(hash.hashed(), 300 * 1024, "nothing read once set aside");
+    written.finish(800 * 1024);
+    let hashed = hash.finish().unwrap();
+    assert_eq!(
+        (hashed.bytes, hashed.read_at_close),
+        (800 * 1024, 500 * 1024)
+    );
+    assert_eq!(hashed.sha256, sha256_of(&scratch.0));
+}
+
+#[test]
+fn a_recording_set_aside_and_then_replaced_or_not_finished_has_no_digest() {
+    let scratch = Scratch::new("aside-replaced");
+    let other = Scratch::new("aside-replacement");
+    let (written, hash) = started(&scratch, 1000);
+    wait_until("cap-hash read the file", || hash.hashed() == 1000);
+    hash.set_aside();
+    written.finish(1000);
+    fs::copy(&scratch.0, &other.0).unwrap();
+    fs::rename(&other.0, &scratch.0).unwrap();
+    let reason = hash.finish().unwrap_err();
+    assert_eq!(reason, "the recording is not the file cap-hash read");
+
+    let unfinished = Scratch::new("aside-unfinished");
+    let (written, hash) = started(&unfinished, 1000);
+    hash.set_aside();
+    drop(written);
+    let reason = hash.finish().unwrap_err();
+    assert_eq!(reason, "the recording wasn't finished");
+}
+
+#[test]
 fn a_recording_that_cant_be_opened_has_no_cap_hash() {
     let scratch = Scratch::new("missing");
     let error = HashBehind::start(&scratch.0, || {}).unwrap_err();

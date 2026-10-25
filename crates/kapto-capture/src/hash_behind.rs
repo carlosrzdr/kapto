@@ -9,8 +9,16 @@
 //! handle of its own and keeps the SHA-256 running. It never makes the
 //! writer wait: it looks again a little later, and may fall behind.
 //!
+//! Once the episode is stopped and waits to be closed, it is set aside
+//! ([`HashBehind::set_aside`]): `cap-hash` ends at its next read, freeing
+//! its stack and buffer, and keeps only what it read: the running digest,
+//! how far it read, and the open file, to tell at closing that it is the
+//! same file (device, inode and size). So episodes waiting behind the one
+//! being closed hold no thread and no buffer, however many there are.
+//!
 //! At closing, the writer gives the file's final size ([`Written::finish`])
-//! and [`HashBehind::finish`] waits for `cap-hash` to read the rest. The
+//! and [`HashBehind::finish`] has the rest read: by `cap-hash` if it still
+//! runs, otherwise on the calling thread, from where it stopped. The
 //! digest is given only if it covers exactly the file as it is: the same
 //! file, every byte to its end, and nothing after. Otherwise the caller
 //! hashes the whole file, as without `cap-hash`.
@@ -19,7 +27,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -29,8 +37,8 @@ use sha2::{Digest, Sha256};
 /// How often `cap-hash` looks again once it has caught up with the writer.
 const LOOK_AGAIN: Duration = Duration::from_millis(100);
 
-/// How much `cap-hash` reads at a time, into one buffer it holds for the
-/// episode.
+/// How much `cap-hash` reads at a time, into one buffer it holds while it
+/// runs; reading the rest at closing, once set aside, takes one as large.
 pub const CHUNK: usize = 256 * 1024;
 
 /// The writer is still writing.
@@ -50,6 +58,8 @@ struct Shared {
     hashed: AtomicU64,
     /// How far it had read when the file was complete.
     hashed_at_finish: AtomicU64,
+    /// The episode waits to be closed: `cap-hash` stops at its next read.
+    aside: AtomicBool,
 }
 
 /// The writer's side: says how far the file is final. Dropped without
@@ -91,13 +101,22 @@ impl Drop for Written {
     }
 }
 
-/// What `cap-hash` read: the digest, and the file it read, to check it is
-/// the one being listed.
+/// What `cap-hash` has read so far: the digest running, how far it is, and
+/// the file it read, to check it is the one being listed.
 #[derive(Debug)]
-struct ReadBack {
-    bytes: u64,
-    sha256: String,
+struct Progress {
+    digest: Sha256,
+    hashed: u64,
     file: File,
+}
+
+/// Where `cap-hash` stopped reading.
+#[derive(Debug)]
+enum Stopped {
+    /// At the file's end, every byte read.
+    Whole(Progress),
+    /// Set aside before the file was finished.
+    Aside(Progress),
 }
 
 /// The `cap-hash` thread hashing one recording.
@@ -105,7 +124,7 @@ struct ReadBack {
 pub struct HashBehind {
     shared: Arc<Shared>,
     path: PathBuf,
-    thread: Option<JoinHandle<Result<ReadBack, String>>>,
+    thread: Option<JoinHandle<Result<Stopped, String>>>,
 }
 
 /// The digest of the whole recording, hashed behind the writer.
@@ -150,7 +169,12 @@ impl HashBehind {
             let shared = Arc::clone(&shared);
             move || {
                 first();
-                hash(file, &shared)
+                let progress = Progress {
+                    digest: Sha256::new(),
+                    hashed: 0,
+                    file,
+                };
+                read_behind(progress, &shared, &mut vec![0; CHUNK], true)
             }
         })?;
         Ok((
@@ -171,9 +195,21 @@ impl HashBehind {
         self.shared.hashed.load(Ordering::Acquire)
     }
 
-    /// Waits for `cap-hash` to read the rest of the file, once the writer
-    /// has finished it, and returns its digest. The digest covers the file
-    /// now at `cap-hash`'s path, every byte of it, or there is none.
+    /// Sets the episode aside to wait for closing: `cap-hash` ends at its
+    /// next read, freeing its stack and buffer, and keeps what it read for
+    /// [`HashBehind::finish`]. Never waits for it.
+    pub fn set_aside(&self) {
+        self.shared.aside.store(true, Ordering::Release);
+        if let Some(thread) = &self.thread {
+            thread.thread().unpark();
+        }
+    }
+
+    /// Has the rest of the file read, once the writer has finished it, and
+    /// returns its digest: `cap-hash` reads it if it still runs, otherwise
+    /// it is read here, from where `cap-hash` stopped. The digest covers
+    /// the file now at `cap-hash`'s path, every byte of it, or there is
+    /// none.
     ///
     /// # Errors
     ///
@@ -183,19 +219,28 @@ impl HashBehind {
     pub fn finish(mut self) -> Result<Hashed, String> {
         let thread = self.thread.take().ok_or("cap-hash wasn't running")?;
         thread.thread().unpark();
-        let read = thread
+        let stopped = thread
             .join()
             .map_err(|_| "cap-hash stopped unexpectedly".to_owned())??;
+        let read = match stopped {
+            Stopped::Whole(read) => read,
+            Stopped::Aside(progress) => {
+                match read_behind(progress, &self.shared, &mut vec![0; CHUNK], false)? {
+                    Stopped::Whole(read) => read,
+                    Stopped::Aside(_) => return Err("cap-hash stopped unexpectedly".to_owned()),
+                }
+            }
+        };
         let unchanged = same_file(&read.file, &self.path)
             .map_err(|error| format!("couldn't look at the recording again: {error}"))?;
         if !unchanged {
             return Err("the recording is not the file cap-hash read".to_owned());
         }
         Ok(Hashed {
-            bytes: read.bytes,
-            sha256: read.sha256,
+            bytes: read.hashed,
+            sha256: kapto_core::hex(&read.digest.finalize()),
             read_at_close: read
-                .bytes
+                .hashed
                 .saturating_sub(self.shared.hashed_at_finish.load(Ordering::Relaxed)),
         })
     }
@@ -212,20 +257,29 @@ impl Drop for HashBehind {
 }
 
 /// `cap-hash`'s loop: reads up to the published offset, then looks again
-/// later, until the file is finished and read to its end, or abandoned.
-fn hash(mut file: File, shared: &Shared) -> Result<ReadBack, String> {
-    let mut digest = Sha256::new();
-    let mut buffer = vec![0; CHUNK];
-    let mut hashed = 0_u64;
+/// later, until the file is finished and read to its end, or abandoned,
+/// or, if `may_set_aside`, the episode is set aside.
+fn read_behind(
+    mut progress: Progress,
+    shared: &Shared,
+    buffer: &mut [u8],
+    may_set_aside: bool,
+) -> Result<Stopped, String> {
     loop {
         let state = shared.state.load(Ordering::Acquire);
         if state == ABANDONED {
             return Err("the recording wasn't finished".to_owned());
         }
         let settled = shared.settled.load(Ordering::Acquire);
+        let hashed = progress.hashed;
         if hashed < settled {
-            let wanted = usize::try_from(settled - hashed).map_or(CHUNK, |left| left.min(CHUNK));
-            let read = file
+            if may_set_aside && shared.aside.load(Ordering::Acquire) {
+                return Ok(Stopped::Aside(progress));
+            }
+            let wanted = usize::try_from(settled - hashed)
+                .map_or(buffer.len(), |left| left.min(buffer.len()));
+            let read = progress
+                .file
                 .read(&mut buffer[..wanted])
                 .map_err(|error| format!("couldn't read the recording: {error}"))?;
             if read == 0 {
@@ -233,12 +287,13 @@ fn hash(mut file: File, shared: &Shared) -> Result<ReadBack, String> {
                     "the recording ended at {hashed} bytes, before the {settled} written"
                 ));
             }
-            digest.update(&buffer[..read]);
-            hashed += read as u64;
-            shared.hashed.store(hashed, Ordering::Release);
+            progress.digest.update(&buffer[..read]);
+            progress.hashed += read as u64;
+            shared.hashed.store(progress.hashed, Ordering::Release);
         } else if state == FINISHED {
             // Nothing past the end the writer gave.
-            let past = file
+            let past = progress
+                .file
                 .read(&mut buffer[..1])
                 .map_err(|error| format!("couldn't read the recording: {error}"))?;
             if past != 0 {
@@ -246,11 +301,9 @@ fn hash(mut file: File, shared: &Shared) -> Result<ReadBack, String> {
                     "the recording is longer than the {settled} written"
                 ));
             }
-            return Ok(ReadBack {
-                bytes: hashed,
-                sha256: kapto_core::hex(&digest.finalize()),
-                file,
-            });
+            return Ok(Stopped::Whole(progress));
+        } else if may_set_aside && shared.aside.load(Ordering::Acquire) {
+            return Ok(Stopped::Aside(progress));
         } else {
             thread::park_timeout(LOOK_AGAIN);
         }

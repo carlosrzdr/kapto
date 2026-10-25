@@ -70,12 +70,14 @@ impl ThreadMemory {
     /// Capture's threads, with `receivers` receiver threads and the live
     /// view's `cap-tap` if it runs.
     ///
-    /// Two `cap-hash`: the episode being recorded and the one being
-    /// closed, while `cap-finalise` closes one episode at a time. Each
-    /// episode stopped meanwhile, waiting behind the one being closed,
-    /// keeps its `cap-hash` until its turn
-    /// ([`ThreadMemory::per_waiting_episode_bytes`]). Pre-flight's and
-    /// recovery's threads are counted though they run only for a while.
+    /// Two `cap-hash`: the episode being recorded, and the one just
+    /// stopped until it is set aside and ends at its next read
+    /// ([`crate::hash_behind`]). An episode waiting to be closed, behind
+    /// another or not, keeps no thread or buffer, only its digest and its
+    /// open file. `cap-finalise` closes one episode at a time, reading the
+    /// rest of its recording and then the manifest's other files with one
+    /// buffer each, one after the other. Pre-flight's and recovery's
+    /// threads are counted though they run only for a while.
     #[must_use]
     pub fn capture(receivers: usize, live_view: bool) -> Self {
         let one = one_of;
@@ -96,7 +98,10 @@ impl ThreadMemory {
                 at_once: 2,
                 buffer_bytes: crate::hash_behind::CHUNK,
             },
-            one("cap-finalise", kapto_store::manifest::HASH_BUFFER_BYTES),
+            one(
+                "cap-finalise",
+                crate::hash_behind::CHUNK.max(kapto_store::manifest::HASH_BUFFER_BYTES),
+            ),
         ];
         if live_view {
             threads.push(one("cap-tap", 0));
@@ -123,13 +128,6 @@ impl ThreadMemory {
     #[must_use]
     pub fn per_connection_bytes() -> usize {
         one_of("cap-control-conn", 0).each_bytes()
-    }
-
-    /// What each episode waiting to be closed behind another adds, in
-    /// bytes: its `cap-hash`.
-    #[must_use]
-    pub fn per_waiting_episode_bytes() -> usize {
-        one_of("cap-hash", crate::hash_behind::CHUNK).each_bytes()
     }
 }
 
@@ -170,10 +168,6 @@ mod tests {
             .find(|threads| threads.name == "cap-hash")
             .map(|threads| threads.at_once * threads.each_bytes());
         assert_eq!(hash, Some(2 * (STACK_BYTES + 256 * 1024 + SMALL_BYTES)));
-        assert_eq!(
-            ThreadMemory::per_waiting_episode_bytes(),
-            STACK_BYTES + 256 * 1024 + SMALL_BYTES
-        );
     }
 
     #[test]

@@ -100,12 +100,11 @@ fn threads_said(memory: &ThreadMemory) -> String {
     let mib = |bytes: usize| bytes as f64 / f64::from(1 << 20);
     format!(
         "Threads: {}, their stacks and own buffers {:.1} MiB, with an episode being closed \
-         while the next is recorded; each control connection adds {:.1} MiB, and each episode \
-         waiting to be closed behind another {:.1} MiB.",
+         while the next is recorded; each control connection adds {:.1} MiB, and an episode \
+         waiting to be closed keeps only its digest and its open file.",
         memory.count(),
         mib(memory.total_bytes()),
         mib(ThreadMemory::per_connection_bytes()),
-        mib(ThreadMemory::per_waiting_episode_bytes()),
     )
 }
 
@@ -736,8 +735,8 @@ mod tests {
         assert_eq!(
             threads_said(&ThreadMemory::capture(1, true)),
             "Threads: 11, their stacks and own buffers 24.4 MiB, with an episode being closed \
-             while the next is recorded; each control connection adds 2.1 MiB, and each \
-             episode waiting to be closed behind another 2.3 MiB."
+             while the next is recorded; each control connection adds 2.1 MiB, and an \
+             episode waiting to be closed keeps only its digest and its open file."
         );
     }
 
