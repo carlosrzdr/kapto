@@ -54,11 +54,12 @@
     TasksOverview,
     UploadsOverview,
   } from "./lib/api-types";
+  import CaptureState from "./lib/CaptureState.svelte";
   import EpisodeList from "./lib/EpisodeList.svelte";
   import LiveView from "./lib/LiveView.svelte";
   import Logo from "./lib/Logo.svelte";
   import PreflightPanel from "./lib/PreflightPanel.svelte";
-  import { duration, plain, rate, sentence, time } from "./lib/format";
+  import { plain, rate, sentence, time } from "./lib/format";
   import ProcessTable from "./lib/ProcessTable.svelte";
   import RecordButton from "./lib/RecordButton.svelte";
   import ReplayBar from "./lib/ReplayBar.svelte";
@@ -652,15 +653,7 @@
       <!-- Always here while the viewer isn't live, whatever the page shows. -->
       <button type="button" class="back" onclick={backToLive}>Back to live</button>
     {/if}
-    <span class="state" class:live={recording}>
-      {#if status === null}
-        {problem ? "Capture not reachable" : "Connecting…"}
-      {:else if recording}
-        Recording · {duration(status.capture.seconds)}
-      {:else}
-        Live, not recording
-      {/if}
-    </span>
+    <CaptureState {status} unreachable={problem !== null} />
     <SessionPicker
       {profiles}
       {tasks}
@@ -854,14 +847,6 @@
     color: var(--text);
     font: inherit;
     cursor: pointer;
-  }
-  .state {
-    margin-left: auto;
-    color: var(--muted);
-  }
-  .state.live {
-    color: var(--danger);
-    font-weight: 600;
   }
   main {
     display: grid;
