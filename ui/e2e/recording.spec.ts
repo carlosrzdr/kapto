@@ -58,9 +58,19 @@ test("the page shows the robot's stream, records an episode and lists it", async
   // roles; counters and clocks aren't plotted.
   const panels = page.getByRole("group", { name: "The view's panels" });
   const jointPlot = panels.getByRole("region", { name: /^Plot of role:joints\.joint_1\.position/ });
-  await expect(jointPlot.getByText("joints · position", { exact: true })).toBeVisible();
-  await expect(jointPlot.getByText("joint_1", { exact: true })).toBeVisible();
-  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+  // The stream and what the roles share said once, in the key, not again over the chart.
+  await expect(jointPlot.getByText("arm_joints · joints · position", { exact: true })).toBeVisible();
+  await expect(jointPlot.locator(".u-title")).toHaveCount(0);
+  // Too many values for every range to show: one shows its range once picked in the key.
+  const joint = jointPlot.getByRole("button", { name: "joint_1", exact: true });
+  await joint.click();
+  await expect(joint).toHaveAttribute("aria-pressed", "true");
+  await joint.click();
+  await expect(joint).toHaveAttribute("aria-pressed", "false");
+  // The gripper's one value shows its range anyway: nothing to pick.
+  const gripperPlot = panels.getByRole("region", { name: "Plot of role:gripper.opening" });
+  await expect(gripperPlot).toBeVisible();
+  await expect(gripperPlot.getByRole("button")).toHaveCount(0);
   await expect(panels.getByRole("region", { name: /sequence/ })).toHaveCount(0);
   // The streams' counts are beside the view, in the console, not in it.
   await expect(panels.getByRole("table")).toHaveCount(0);
