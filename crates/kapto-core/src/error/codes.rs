@@ -54,6 +54,13 @@ error_codes! {
         remedy: "Set capture.control_socket to a path of at most 107 bytes, in a folder Kapto may write, that isn't taken by another file.",
     }
 
+    /// The capture process found another one answering on its control
+    /// socket, so it didn't take the socket over.
+    CaptureAlreadyRunning = "capture.already_running" {
+        summary: "Another capture process answers on the control socket",
+        remedy: "Only one capture process runs per capture.control_socket. The message names the other one where it can: stop it (or the `kapto serve` it belongs to), or wait while it finalises the episode it records, then start this one again. A capture process that serve started ends by itself once serve is gone and no episode is recorded.",
+    }
+
     /// A control request couldn't be understood.
     CaptureControlInvalidRequest = "capture.control_invalid_request" {
         summary: "The control request couldn't be understood",

@@ -9,6 +9,10 @@ a specification: requests and answers only gain fields.
 - A Unix stream socket, `capture.control_socket` (by default `capture.sock`
   in the data directory). Anyone who may open the socket file may control
   capture, so keep it in a folder only Kapto's user can reach.
+- One capture process listens per socket. A socket file left by a process
+  that ended is replaced; one another process still answers on is left
+  alone, and the new capture process ends with `capture.already_running`,
+  naming the other process on Linux.
 - Each request and each answer is one line of JSON, ending with a newline.
   A request is at most 4096 bytes.
 - The first request on a connection is `hello` with the protocol version,

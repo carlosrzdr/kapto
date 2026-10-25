@@ -85,6 +85,10 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
     let (_, deployment) = crate::config::load(flags)?;
     let (declarations, plan) = load_plan(streams, &RecordSettings::of(&deployment))?;
     let shutdown = on_signals()?;
+    // Before the streams' inputs are opened: a capture process already
+    // running holds them, and is what to report.
+    let control =
+        ControlServer::listen(&deployment.control_socket.value).map_err(|error| vec![error])?;
     let mut station = Station::open(
         plan,
         &declarations,
@@ -95,8 +99,6 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
     (station.package, station.carried) =
         package_of(streams, mapping, deployment.attach_meshes.value);
     station.writer = writer_config(&deployment);
-    let control =
-        ControlServer::listen(&deployment.control_socket.value).map_err(|error| vec![error])?;
     recover_meanwhile(&control, deployment.data_dir.value.clone())?;
     let mut closer = Closer::start()?;
     let mut disk = DiskWatch::new(deployment.data_dir.value.clone(), disk_limits(&deployment));

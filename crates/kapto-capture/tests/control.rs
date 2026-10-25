@@ -544,7 +544,9 @@ fn the_socket_replaces_a_stale_one_but_not_another_file_and_is_removed_at_the_en
     let socket = folder.join("c.sock");
     drop(ControlServer::listen(&socket).unwrap());
     assert!(!socket.exists(), "removed when the server stops");
-    std::mem::forget(std::os::unix::net::UnixListener::bind(&socket).unwrap());
+    // Left by a process that ended: the file stays, nobody answers on it.
+    drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
+    assert!(socket.exists());
     assert!(
         ControlServer::listen(&socket).is_ok(),
         "a stale socket is replaced"
@@ -557,4 +559,30 @@ fn the_socket_replaces_a_stale_one_but_not_another_file_and_is_removed_at_the_en
     };
     assert_eq!(error.code(), ErrorCode::CaptureControlSocketFailed);
     assert_eq!(std::fs::read_to_string(&notes).unwrap(), "keep");
+}
+
+#[test]
+fn a_socket_another_process_answers_on_is_refused_naming_it_and_left_alone() {
+    let folder = scratch("taken");
+    let socket = folder.join("c.sock");
+    let first = ControlServer::listen(&socket).unwrap();
+    let Err(error) = ControlServer::listen(&socket) else {
+        panic!("took over a socket in use");
+    };
+    assert_eq!(error.code(), ErrorCode::CaptureAlreadyRunning);
+    let report = error.report();
+    assert!(report.contains("c.sock"), "{report}");
+    #[cfg(target_os = "linux")]
+    assert!(
+        report.contains(&format!("process {} answers on it", std::process::id())),
+        "{report}"
+    );
+    // The first still answers on it.
+    assert!(ControlClient::connect(&socket, TIMEOUT).is_ok());
+
+    drop(first);
+    assert!(
+        ControlServer::listen(&socket).is_ok(),
+        "free again once the first has gone"
+    );
 }

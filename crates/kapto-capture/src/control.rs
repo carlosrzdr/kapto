@@ -456,10 +456,13 @@ impl Drop for Supervising {
 }
 
 impl ControlServer {
-    /// Listens on `path`, replacing a socket left there by an earlier run.
+    /// Listens on `path`, replacing a socket left there by an earlier run
+    /// that ended. A socket another process still answers on is left alone:
+    /// replacing it would leave that process recording unreachable.
     ///
     /// # Errors
     ///
+    /// `capture.already_running` if a process answers on `path`;
     /// `capture.control_socket_failed` if the path is too long for a Unix
     /// socket, is taken by a file that isn't a socket, or can't be bound.
     pub fn listen(path: &Path) -> Result<Self, KaptoError> {
@@ -476,6 +479,9 @@ impl ControlServer {
         }
         match std::fs::symlink_metadata(path) {
             Ok(metadata) if metadata.file_type().is_socket() => {
+                if let Ok(live) = UnixStream::connect(path) {
+                    return Err(already_running(path, &live));
+                }
                 std::fs::remove_file(path).map_err(|error| failed(error.to_string()))?;
             }
             Ok(_) => return Err(failed("a file that isn't a socket is in the way".into())),
@@ -700,6 +706,32 @@ fn close_after_refusal(reader: &mut BufReader<UnixStream>, writer: &UnixStream) 
     let _ = writer.shutdown(std::net::Shutdown::Write);
     let _ = writer.set_read_timeout(Some(Duration::from_millis(100)));
     let _ = io::copy(&mut Read::take(reader, LIMIT), &mut io::sink());
+}
+
+/// What says another process answers on `path`, naming it where the
+/// operating system tells who is at the other end of `live`.
+fn already_running(path: &Path, live: &UnixStream) -> KaptoError {
+    let detail = peer(live).map_or_else(
+        || "another process answers on it".to_owned(),
+        |pid| format!("process {pid} answers on it"),
+    );
+    KaptoError::new(ErrorCode::CaptureAlreadyRunning)
+        .detail(detail)
+        .context("socket", path.display().to_string())
+}
+
+/// The process at the other end of `connection`.
+#[cfg(target_os = "linux")]
+fn peer(connection: &UnixStream) -> Option<u32> {
+    rustix::net::sockopt::socket_peercred(connection)
+        .ok()
+        .map(|credentials| credentials.pid.as_raw_nonzero().get().cast_unsigned())
+}
+
+/// Elsewhere the other end isn't asked: the message names no process.
+#[cfg(not(target_os = "linux"))]
+fn peer(_: &UnixStream) -> Option<u32> {
+    None
 }
 
 fn hello() -> Response {
