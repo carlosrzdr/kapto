@@ -15,7 +15,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use kapto_capture::HashBehind;
+use kapto_capture::{
+    Batch, ChannelSpec, Compression, HashBehind, LossCounters, Recording, WriterConfig,
+};
+use kapto_core::{ClockMap, ClockSample, RecvTime};
 use sha2::{Digest, Sha256};
 
 /// A file path unique to this test, removed when dropped.
@@ -59,6 +62,53 @@ fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
         assert!(start.elapsed() < Duration::from_secs(30), "{what}");
         thread::sleep(Duration::from_millis(5));
     }
+}
+
+#[test]
+fn a_recording_hashed_behind_the_writer_has_the_digest_of_the_whole_file_read_apart() {
+    let scratch = Scratch::new("recording");
+    let clock = ClockMap::new(ClockSample::now());
+    let streams = [(0, "camera".parse().unwrap())].map(ChannelSpec::from);
+    let config = WriterConfig {
+        compression: Compression::None,
+        ..WriterConfig::default()
+    };
+    let mut recording = Recording::create(&scratch.0, &streams, &clock, &config).unwrap();
+    let (written, hash) = HashBehind::start(&scratch.0, || {}).unwrap();
+    recording.set_hash_behind(written);
+    let counters = LossCounters::new(1);
+    let mut batch = Batch::new(4, 64 * 1024);
+    let mut sync = 0;
+    for round in 0..64_u64 {
+        batch.clear();
+        for n in 0..4 {
+            batch.push(0, &noise(round * 4 + n, 64 * 1024));
+        }
+        batch.set_recv_time(RecvTime::from_nanos(round * 1_000_000));
+        recording.write(&batch, &counters).unwrap();
+        if round % 8 == 7 {
+            sync += 1;
+            // Past the interval each time, so each one syncs.
+            let due = RecvTime::from_nanos(u64::MAX / 128 * sync);
+            assert!(recording.sync_if_due(due).unwrap());
+        }
+    }
+    // Every byte synced is hashed before the file is finished.
+    let synced = fs::metadata(&scratch.0).unwrap().len();
+    wait_until("cap-hash caught up with the writer", || {
+        hash.hashed() == synced
+    });
+    recording.finish(&clock).unwrap();
+    let hashed = hash.finish().unwrap();
+
+    let size = fs::metadata(&scratch.0).unwrap().len();
+    assert!(size > 16 * 1024 * 1024, "{size} bytes");
+    assert_eq!(hashed.bytes, size);
+    assert_eq!(hashed.sha256, sha256_of(&scratch.0));
+    // Closing read only what was written after the last sync: the summary
+    // and index, far less than the file.
+    assert_eq!(hashed.read_at_close, size - synced);
+    assert!(hashed.read_at_close < 64 * 1024, "{}", hashed.read_at_close);
 }
 
 #[test]
@@ -146,4 +196,46 @@ fn a_recording_that_cant_be_opened_has_no_cap_hash() {
     let scratch = Scratch::new("missing");
     let error = HashBehind::start(&scratch.0, || {}).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
+fn an_episode_finalised_with_the_digest_has_the_manifest_hashing_every_file_gives() {
+    use kapto_capture::finalise::{RECORDING_FILE, Staged};
+    use kapto_store::manifest::Manifest;
+
+    let out = std::env::temp_dir().join(format!("kapto-{}-hash-episode", std::process::id()));
+    let _ = fs::remove_dir_all(&out);
+    let episode = "20260305T192345.123Z-1a2b3c4d".parse().unwrap();
+    let staged = Staged::create(&out, &episode).unwrap();
+    let clock = ClockMap::new(ClockSample::now());
+    let streams = [(0, "arm".parse().unwrap())].map(ChannelSpec::from);
+    let path = staged.recording_path();
+    let mut recording =
+        Recording::create(&path, &streams, &clock, &WriterConfig::default()).unwrap();
+    let (written, hash) = HashBehind::start(&path, || {}).unwrap();
+    recording.set_hash_behind(written);
+    let mut batch = Batch::new(8, 1024);
+    for n in 0..8 {
+        batch.push(0, &noise(n, 1024));
+    }
+    recording.write(&batch, &LossCounters::new(1)).unwrap();
+    assert!(
+        recording
+            .sync_if_due(RecvTime::from_nanos(u64::MAX))
+            .unwrap()
+    );
+    recording.finish(&clock).unwrap();
+    fs::write(staged.dir().join("episode.json"), b"{}\n").unwrap();
+    let hashed = hash.finish().unwrap();
+
+    let finalised = staged
+        .finalise_with(&[hashed.entry(RECORDING_FILE)])
+        .unwrap();
+    let listed = Manifest::read(finalised.dir()).unwrap();
+    assert_eq!(
+        listed,
+        Manifest::of_directory(finalised.dir(), &episode).unwrap()
+    );
+    kapto_store::verify_episode(finalised.dir()).unwrap();
+    fs::remove_dir_all(&out).unwrap();
 }

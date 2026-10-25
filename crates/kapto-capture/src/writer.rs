@@ -34,6 +34,7 @@ use serde::Serialize;
 
 use crate::batch::{Batch, StreamIndex};
 use crate::durability::{DurabilityStats, DurabilityTracker};
+use crate::hash_behind::Written;
 use crate::kept::Kept;
 use crate::loss::LossCounters;
 use crate::post_roll::PostRoll;
@@ -262,6 +263,8 @@ pub struct Recording {
     /// When the episode was stopped, after which each stream's messages
     /// past its post-roll are left out.
     post_roll: PostRoll,
+    /// Where how far the file is final is published, for `cap-hash`.
+    hash_behind: Option<Written>,
     /// Where each batch's newest messages are offered for the viewer.
     #[cfg(unix)]
     tap: Option<crate::tap::TapFeed>,
@@ -386,6 +389,7 @@ impl Recording {
             durability: DurabilityTracker::new(config.sync_interval, monotonic_now()),
             idle_wait: config.idle_wait,
             post_roll: PostRoll::default(),
+            hash_behind: None,
             #[cfg(unix)]
             tap: None,
         })
@@ -696,7 +700,27 @@ impl Recording {
             .sync_data()
             .map_err(|error| self.fail(McapError::Io(error)))?;
         self.durability.synced(now, monotonic_now());
+        self.publish_settled();
         Ok(true)
+    }
+
+    /// Publishes how far the file is final to `written`, each time the file
+    /// is put on disk, for `cap-hash` to read up to (see
+    /// [`crate::hash_behind`]).
+    pub fn set_hash_behind(&mut self, written: Written) {
+        self.hash_behind = Some(written);
+    }
+
+    /// Once a sync has flushed every chunk, the file's size is where it is
+    /// final: a chunk's header is rewritten when the chunk is done, so
+    /// nothing before a closed chunk's end changes again. One system call
+    /// a sync, beside the sync itself.
+    fn publish_settled(&self) {
+        if let Some(written) = &self.hash_behind
+            && let Ok(metadata) = self.file.metadata()
+        {
+            written.publish(metadata.len());
+        }
     }
 
     /// Offers each written batch's newest message per stream to `feed`, for
@@ -848,6 +872,13 @@ impl Recording {
             .sync_data()
             .map_err(|error| failed(McapError::Io(error)))?;
         self.durability.synced(started, monotonic_now());
+        // Without its size the file's end isn't known: `cap-hash` is told
+        // the file wasn't finished, and closing hashes it whole.
+        if let Some(written) = self.hash_behind.take()
+            && let Ok(metadata) = self.file.metadata()
+        {
+            written.finish(metadata.len());
+        }
         Ok(self.durability.stats())
     }
 

@@ -458,3 +458,19 @@ fn holding_a_pre_roll_through_many_turns_of_its_ring_never_allocates() {
     let end = RecvTime::from_nanos(2_000);
     assert!(pre_roll.messages(end, end).count() > 0);
 }
+
+#[test]
+fn publishing_how_far_the_recording_is_written_for_cap_hash_never_allocates() {
+    let path = std::env::temp_dir().join(format!("kapto-{}-alloc-hash", std::process::id()));
+    std::fs::write(&path, [7_u8; 4096]).unwrap();
+    let (written, hash) = kapto_capture::HashBehind::start(&path, || {}).unwrap();
+    let before = allocations();
+    for bytes in 0..=4096 {
+        written.publish(bytes);
+    }
+    let allocations = allocations() - before;
+    written.finish(4096);
+    assert_eq!(hash.finish().unwrap().bytes, 4096);
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(allocations, 0);
+}
