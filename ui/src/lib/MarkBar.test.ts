@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ApiFailure } from "./api";
 import type { EventSent, SendEvent, VocabularyKind } from "./api-types";
+import { choose, offered, openList } from "./controls/testing";
 import MarkBar from "./MarkBar.svelte";
 
 const kinds: VocabularyKind[] = [
@@ -21,11 +22,7 @@ describe("MarkBar", () => {
   it("offers each kind, numbered for its key, and marks a moment of the one picked", async () => {
     const send = sender();
     render(MarkBar, { kinds, send });
-    const picker = screen.getByRole("combobox", { name: "Kind of event" });
-    expect([...picker.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
-      "1 · Note",
-      "2 · Intervention",
-    ]);
+    expect(offered(await openList("Kind of event")).map(([label]) => label)).toEqual(["1 · Note", "2 · Intervention"]);
     await fireEvent.click(screen.getByRole("button", { name: "Mark Note" }));
     expect(send).toHaveBeenCalledWith({ kind: "note", source: "page" });
     expect(await screen.findByText("Marked the Note")).toBeTruthy();
@@ -34,7 +31,7 @@ describe("MarkBar", () => {
   it("begins a stretch, then ends the same one, pressing twice", async () => {
     const send = sender();
     render(MarkBar, { kinds, send });
-    await fireEvent.change(screen.getByRole("combobox", { name: "Kind of event" }), { target: { value: "intervention" } });
+    await choose("Kind of event", "Intervention");
     await fireEvent.click(screen.getByRole("button", { name: "Begin Intervention" }));
     const begun = send.mock.calls[0]?.[0];
     expect(begun).toMatchObject({ kind: "intervention", phase: "begin", source: "page" });

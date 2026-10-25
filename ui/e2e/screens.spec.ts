@@ -39,10 +39,11 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   const jointPlot = page.getByRole("region", { name: /^Plot of role:joints\.joint_1\.position/ });
   await jointPlot.hover();
   await jointPlot.getByRole("button", { name: "Values shown" }).click();
-  await jointPlot.getByRole("menuitemcheckbox", { name: "joint_2" }).click();
+  // Drawn over the page, outside the plot's panel.
+  await page.getByRole("menuitemcheckbox", { name: "joint_2" }).click();
   await page.waitForTimeout(500);
   await shot(page, "live-plot-menu");
-  await jointPlot.getByRole("menuitem", { name: "Show all" }).click();
+  await page.getByRole("menuitem", { name: "Show all" }).click();
   await page.keyboard.press("Escape");
   // On a wider screen its key fits: one value picked in it shows alone, with its band.
   await page.setViewportSize({ width: 2200, height: VIEWPORT.height });
@@ -172,7 +173,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   // What happened on the timeline: a stretch begun from the page, a note
   // sent through the API.
   const marks = page.getByRole("group", { name: "Mark what happened" });
-  await marks.getByRole("combobox", { name: "Kind of event" }).selectOption("intervention");
+  await choose(page, "Kind of event", /Intervention/);
   await marks.getByRole("button", { name: "Begin Intervention" }).click();
   await page.waitForTimeout(2_000);
   await page.request.post("/api/episodes/events", {

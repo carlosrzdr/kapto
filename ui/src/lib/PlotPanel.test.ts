@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -139,14 +139,17 @@ describe("PlotPanel", () => {
     vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) {
       return Math.floor(Array.prototype.indexOf.call(this.parentElement?.children ?? [], this) / perLine) * 24;
     });
+    // Each observer told something was resized, with an empty list of what,
+    // as a browser always gives one (the menu's placement reads it).
     const watched: (() => void)[] = [];
     vi.stubGlobal(
       "ResizeObserver",
       class {
-        constructor(seen: () => void) {
-          watched.push(seen);
+        constructor(seen: (entries: ResizeObserverEntry[]) => void) {
+          watched.push(() => seen([]));
         }
         observe() {}
+        unobserve() {}
         disconnect() {}
       },
     );
@@ -159,23 +162,26 @@ describe("PlotPanel", () => {
     expect(document.querySelector("ul.labels")?.getAttribute("aria-hidden")).toBe("true");
     const opener = screen.getByRole("button", { name: "Values shown" });
     expect(opener.getAttribute("aria-expanded")).toBe("false");
-    await fireEvent.click(opener);
+    // Opened from the keyboard, it takes the focus to its first value.
+    await fireEvent.keyDown(opener, { key: "Enter" });
     expect(opener.getAttribute("aria-expanded")).toBe("true");
-    const items = screen.getAllByRole("menuitemcheckbox");
+    const items = await screen.findAllByRole("menuitemcheckbox");
     expect(items.map((item) => item.textContent)).toEqual(["joint_positions[0]", "joint_positions[1]", "gripper"]);
-    expect(document.activeElement).toBe(items[0]);
+    await waitFor(() => expect(document.activeElement).toBe(items[0]));
     // Picking takes a value away from those shown, then adds it back.
     await fireEvent.click(items[1]!);
     expect(items[1]!.getAttribute("aria-checked")).toBe("false");
     expect(items[0]!.getAttribute("aria-checked")).toBe("true");
     await fireEvent.click(items[0]!);
     expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual(["false", "false", "true"]);
-    await fireEvent.click(screen.getByRole("menuitem", { name: "Show all" }));
+    const showAll = screen.getByText("Show all");
+    expect(showAll.getAttribute("role")).toBe("menuitem");
+    await fireEvent.click(showAll);
     expect(items.map((item) => item.getAttribute("aria-checked"))).toEqual(["true", "true", "true"]);
-    // Escape closes it, back on its button.
+    // Escape closes it; the focus going back to its button is checked in a
+    // browser (e2e/recording.spec.ts), as jsdom moves focus differently.
     await fireEvent.keyDown(items[0]!, { key: "Escape" });
-    expect(screen.queryByRole("menu")).toBeNull();
-    expect(document.activeElement).toBe(opener);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     // Wide again: the key is back, and the menu gone.
     perLine = 10;
     watched.forEach((seen) => seen());

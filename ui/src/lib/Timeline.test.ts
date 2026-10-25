@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 
+import { choose } from "./controls/testing";
 import Timeline from "./Timeline.svelte";
 
 function props(overrides: Record<string, unknown> = {}) {
@@ -41,7 +42,7 @@ describe("Timeline", () => {
     render(Timeline, shown);
     await fireEvent.input(screen.getByRole("slider", { name: "Moment shown" }), { target: { value: "1300000" } });
     expect(shown.onseek).toHaveBeenCalledWith(1_300_000);
-    await fireEvent.change(screen.getByRole("combobox", { name: "Span" }), { target: { value: "120000" } });
+    await choose("Span", "2 min");
     expect(shown.onspan).toHaveBeenCalledWith(120_000);
   });
 
@@ -127,7 +128,7 @@ describe("Timeline's playback", () => {
     const { unmount } = render(Timeline, props({ paused: true, cursorMs: 1_580_000, onplay, onspeed }));
     await fireEvent.click(screen.getByRole("button", { name: "Play" }));
     expect(onplay).toHaveBeenCalledOnce();
-    await fireEvent.change(screen.getByRole("combobox", { name: "Speed" }), { target: { value: "2" } });
+    await choose("Speed", "2×");
     expect(onspeed).toHaveBeenCalledWith(2);
     unmount();
     const onhold = vi.fn();

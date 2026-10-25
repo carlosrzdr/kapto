@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Choice from "./controls/Choice.svelte";
   import Icon from "./Icon.svelte";
   import { duration } from "./format";
   import TimelineMarks from "./TimelineMarks.svelte";
@@ -92,11 +93,14 @@
     {:else}
       <button type="button" title="Play back from here (Space)" onclick={onplay}><Icon name="play" /> Play</button>
     {/if}
-    <select aria-label="Speed" value={speed} onchange={(event) => onspeed(Number(event.currentTarget.value))}>
-      {#each SPEEDS as each (each)}
-        <option value={each}>{each}×</option>
-      {/each}
-    </select>
+    <Choice
+      label="Speed"
+      showLabel={false}
+      width="compact"
+      value={String(speed)}
+      options={SPEEDS.map((each) => ({ value: String(each), label: `${each}×` }))}
+      onchange={(value) => onspeed(Number(value))}
+    />
     <button type="button" title={replaying ? "Back to the live robot (Esc)" : "Back to now (Esc)"} onclick={onlive}
       >{replaying ? "Back to live" : "Back to now"}</button
     >
@@ -125,11 +129,14 @@
   {#if kept !== null}
     <span class="kept" title={limit}>{paused ? `of ${kept}` : `${kept} kept`}</span>
   {/if}
-  <select aria-label="Span" value={spanMs} onchange={(event) => onspan(Number(event.currentTarget.value))}>
-    {#each SPANS as span (span.ms)}
-      <option value={span.ms}>{span.label}</option>
-    {/each}
-  </select>
+  <Choice
+    label="Span"
+    showLabel={false}
+    width="compact"
+    value={String(spanMs)}
+    options={SPANS.map((span) => ({ value: String(span.ms), label: span.label }))}
+    onchange={(value) => onspan(Number(value))}
+  />
 </div>
 
 <style>
@@ -218,14 +225,5 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     cursor: help;
-  }
-  select {
-    padding: 0.15rem 0.3rem;
-    border: 1px solid var(--control-line);
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text);
-    font: inherit;
-    font-size: var(--text-sm);
   }
 </style>

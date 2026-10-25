@@ -98,7 +98,8 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await jointPlot.hover();
   await expect(corner).toHaveCSS("opacity", "1");
   await opener.click();
-  const menu = jointPlot.getByRole("menu");
+  // Drawn over the page, so no panel's edge cuts it off.
+  const menu = page.getByRole("menu", { name: /joint/ });
   await menu.getByRole("menuitemcheckbox", { name: "joint_3" }).click();
   await expect(menu.getByRole("menuitemcheckbox", { name: "joint_3" })).toHaveAttribute("aria-checked", "false");
   await expect(jointPlot).toHaveAttribute("data-look", /^ll-l+$/);
@@ -585,7 +586,7 @@ test("the live view pauses, looks back over the last minutes, and returns to now
   await page.waitForTimeout(500);
   await expect(live).toHaveAttribute("data-showing", stopped ?? "");
   // Faster, it catches up with now and is live again.
-  await page.getByRole("combobox", { name: "Speed" }).selectOption("4");
+  await choose(page, "Speed", "4×");
   await page.getByRole("button", { name: "Play" }).click();
   await expect(live).toHaveAttribute("data-showing", "live", { timeout: 15_000 });
   await expect(live).toHaveAttribute("data-playing", "no");
@@ -598,7 +599,7 @@ test("the live view pauses, looks back over the last minutes, and returns to now
 
   // Two minutes is more than the page keeps of its own: drawn live from
   // the bridge's last minutes.
-  await page.getByRole("combobox", { name: "Span" }).selectOption("120000");
+  await choose(page, "Span", "2 min");
   await expect(live).toHaveAttribute("data-looked-back", "yes");
   await expect(live).toHaveAttribute("data-showing", "live");
   expect(elsewhere).toEqual([]);
@@ -617,7 +618,7 @@ test("events marked from the page and sent through the API show on the timeline,
   await page.getByRole("button", { name: "Record", exact: true }).click();
   await expect(page.getByText(/^Recording ·/)).toBeVisible();
   // A stretch begun and ended from the page, pressing twice.
-  await marks.getByRole("combobox", { name: "Kind of event" }).selectOption("intervention");
+  await choose(page, "Kind of event", /Intervention/);
   await marks.getByRole("button", { name: "Begin Intervention" }).click();
   await expect(marks.getByText("Marked the beginning of Intervention")).toBeVisible();
   // A moment from another program, through the API.

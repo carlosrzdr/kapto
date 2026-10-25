@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { DropdownMenu } from "bits-ui";
 
   import Icon from "./Icon.svelte";
   import type { SeriesStyle } from "./theme";
@@ -20,87 +20,32 @@
   let { heading, entries, shown, toggle, showAll }: Props = $props();
 
   let open = $state(false);
-  let opener = $state<HTMLButtonElement | null>(null);
-  let menu = $state<HTMLElement | null>(null);
-  const id = $props.id();
-  const items = () => Array.from(menu?.querySelectorAll<HTMLElement>("[role^='menuitem']") ?? []);
-
-  async function openMenu() {
-    open = true;
-    await tick();
-    // No taller than the panel below its button, as the panel cuts off what goes past it.
-    const panel = opener?.closest("section");
-    if (menu && panel && opener) {
-      const room = panel.getBoundingClientRect().bottom - opener.getBoundingClientRect().bottom - 8;
-      menu.style.maxHeight = `${Math.min(Math.max(room, 64), 256)}px`;
-    }
-    items()[0]?.focus();
-  }
-
-  function close(refocus: boolean) {
-    open = false;
-    if (refocus) {
-      opener?.focus();
-    }
-  }
-
-  /** Arrows, Home and End move between the items; Escape closes the menu. */
-  function key(event: KeyboardEvent) {
-    const all = items();
-    const at = all.indexOf(document.activeElement as HTMLElement);
-    const to: Record<string, number> = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 };
-    if (event.key === "Escape") {
-      // Closes the menu only, not anything the page does on Escape.
-      event.stopPropagation();
-      close(true);
-    } else if (event.key === "Tab") {
-      // From its button, so the focus moves on from there rather than from an item taken away.
-      close(true);
-    } else if (event.key in to) {
-      event.preventDefault();
-      all[((to[event.key] ?? 0) + all.length) % all.length]?.focus();
-    }
-  }
-
-  /** Closes the menu once something outside it is pressed. */
-  function pressedSomewhere(event: PointerEvent) {
-    if (open && !(event.target instanceof Node && (menu?.contains(event.target) || opener?.contains(event.target)))) {
-      close(false);
-    }
-  }
 </script>
 
-<svelte:window onpointerdown={pressedSomewhere} />
-
 <div class={["values", { open }]}>
-  <button
-    type="button"
-    class="opener"
-    aria-label="Values shown"
-    aria-haspopup="menu"
-    aria-expanded={open}
-    aria-controls={id}
-    bind:this={opener}
-    onclick={() => (open ? close(false) : openMenu())}><Icon name="list" /></button
-  >
-  {#if open}
-    <div class="menu" {id} role="menu" aria-label={heading || "Values shown"} tabindex="-1" bind:this={menu} onkeydown={key}>
-      {#if heading}
-        <p class="heading">{heading}</p>
-      {/if}
-      {#each entries as entry, index (index)}
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          aria-checked={shown[index]}
-          tabindex="-1"
-          class={`swatch series-${entry.style.hue} dash-${entry.style.pattern}`}
-          onclick={() => toggle(index)}><span class="check" aria-hidden="true"></span>{entry.label}</button
-        >
-      {/each}
-      <button type="button" role="menuitem" tabindex="-1" class="all" onclick={showAll}>Show all</button>
-    </div>
-  {/if}
+  <DropdownMenu.Root bind:open>
+    <DropdownMenu.Trigger class="opener" aria-label="Values shown"><Icon name="list" /></DropdownMenu.Trigger>
+    <DropdownMenu.Portal>
+      <!-- Drawn over the page, so the panel's edge never cuts it off. -->
+      <DropdownMenu.Content class="values-menu" aria-label={heading || "Values shown"} side="left" align="start" sideOffset={4}>
+        {#if heading}
+          <DropdownMenu.Group aria-label={heading}>
+            <DropdownMenu.GroupHeading class="heading">{heading}</DropdownMenu.GroupHeading>
+          </DropdownMenu.Group>
+        {/if}
+        {#each entries as entry, index (index)}
+          <!-- Stays open, so several can be shown or hidden in turn. -->
+          <DropdownMenu.CheckboxItem
+            class={`item swatch series-${entry.style.hue} dash-${entry.style.pattern}`}
+            checked={shown[index]}
+            closeOnSelect={false}
+            onCheckedChange={() => toggle(index)}><span class="check" aria-hidden="true"></span>{entry.label}</DropdownMenu.CheckboxItem
+          >
+        {/each}
+        <DropdownMenu.Item class="item all" onSelect={showAll}>Show all</DropdownMenu.Item>
+      </DropdownMenu.Content>
+    </DropdownMenu.Portal>
+  </DropdownMenu.Root>
 </div>
 
 <style>
@@ -123,7 +68,7 @@
       opacity: 1;
     }
   }
-  .opener {
+  .values :global(.opener) {
     display: grid;
     place-items: center;
     width: var(--control-height);
@@ -135,30 +80,33 @@
     color: var(--text);
     font-size: var(--text-md);
   }
-  .opener:hover,
-  .open .opener {
+  .values :global(.opener:hover),
+  .values.open :global(.opener),
+  .values :global(.opener:focus-visible) {
     border-color: var(--text);
   }
-  .menu {
-    position: absolute;
-    top: calc(100% + var(--space-1));
-    right: 0;
+  :global(.values-menu) {
+    z-index: 40;
     display: flex;
     flex-direction: column;
     min-width: 10rem;
+    max-height: min(16rem, var(--bits-dropdown-menu-content-available-height));
     overflow-y: auto;
     padding: var(--space-1);
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font-ui);
     font-size: var(--text-xs);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 50%);
   }
-  .heading {
+  :global(.values-menu .heading) {
     margin: 0;
     padding: var(--space-1) var(--space-2);
     color: var(--muted);
   }
-  .menu button {
+  :global(.values-menu .item) {
     display: flex;
     flex: none;
     align-items: center;
@@ -171,25 +119,26 @@
     color: var(--text);
     font: inherit;
     text-align: left;
+    cursor: pointer;
   }
-  .menu button:hover,
-  .menu button:focus-visible {
+  :global(.values-menu .item[data-highlighted]) {
     background: var(--raised);
+    outline: none;
   }
-  .check {
+  :global(.values-menu .check) {
     flex: none;
     width: 0.9rem;
     height: 0.9rem;
     border: 1px solid var(--control-line);
     border-radius: var(--radius);
   }
-  [aria-checked="true"] .check {
+  :global(.values-menu [aria-checked="true"] .check) {
     border-color: var(--accent);
     background: var(--accent);
     box-shadow: inset 0 0 0 2px var(--panel);
   }
   /* Each value's line as the chart draws it, after its box: its colour and its pattern. */
-  .swatch::after {
+  :global(.values-menu .swatch::after) {
     content: "";
     flex: none;
     order: -1;
@@ -197,31 +146,31 @@
     height: 2px;
     background: var(--swatch);
   }
-  .swatch .check {
+  :global(.values-menu .swatch .check) {
     order: -2;
   }
-  .dash-1::after {
+  :global(.values-menu .dash-1::after) {
     background: repeating-linear-gradient(to right, var(--swatch) 0 6px, transparent 6px 10px);
   }
-  .dash-2::after {
+  :global(.values-menu .dash-2::after) {
     background: repeating-linear-gradient(to right, var(--swatch) 0 2px, transparent 2px 5px);
   }
-  .dash-3::after {
+  :global(.values-menu .dash-3::after) {
     background: repeating-linear-gradient(to right, var(--swatch) 0 10px, transparent 10px 13px, var(--swatch) 13px 15px, transparent 15px 18px);
   }
-  .series-0 {
+  :global(.values-menu .series-0) {
     --swatch: var(--series-0);
   }
-  .series-1 {
+  :global(.values-menu .series-1) {
     --swatch: var(--series-1);
   }
-  .series-2 {
+  :global(.values-menu .series-2) {
     --swatch: var(--series-2);
   }
-  .series-3 {
+  :global(.values-menu .series-3) {
     --swatch: var(--series-3);
   }
-  .menu .all {
+  :global(.values-menu .all) {
     margin-top: var(--space-1);
     border-top: 1px solid var(--line);
     border-radius: 0;

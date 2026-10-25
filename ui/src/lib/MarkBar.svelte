@@ -1,7 +1,9 @@
 <script lang="ts">
+  import Choice from "./controls/Choice.svelte";
   import { onMount } from "svelte";
 
   import { ApiFailure, getEventKinds, sendEvent } from "./api";
+  import { TYPING } from "./keys";
   import type { EventSent, SendEvent, VocabularyKind } from "./api-types";
   import { sentence } from "./format";
 
@@ -67,7 +69,7 @@
 
   /** Keys 1 to 9 send the first nine kinds, unless typing somewhere. */
   function key(event: KeyboardEvent) {
-    const typing = event.target instanceof Element && event.target.closest("input, select, textarea") !== null;
+    const typing = event.target instanceof Element && event.target.closest(TYPING) !== null;
     if (event.altKey || event.ctrlKey || event.metaKey || typing) {
       return;
     }
@@ -105,11 +107,18 @@
 <svelte:window onkeydown={key} />
 
 <div class="marks" role="group" aria-label="Mark what happened">
-  <select aria-label="Kind of event" bind:value={chosen} disabled={known.length === 0}>
-    {#each known as each, index (each.kind)}
-      <option value={each.kind}>{index < 9 ? `${index + 1} · ` : ""}{each.name}{begun[each.kind] ? " (begun)" : ""}</option>
-    {/each}
-  </select>
+  <Choice
+    label="Kind of event"
+    showLabel={false}
+    value={chosen}
+    disabled={known.length === 0}
+    options={known.map((each, index) => ({
+      value: each.kind,
+      label: `${index < 9 ? `${index + 1} · ` : ""}${each.name}`,
+      detail: begun[each.kind] ? "begun" : undefined,
+    }))}
+    onchange={(value) => (chosen = value)}
+  />
   <button type="button" disabled={kind === undefined || sending} onclick={() => kind && mark(kind)}>{action}</button>
   {#if said}
     <span class="said" class:failed role="status">{said}</span>
@@ -123,14 +132,6 @@
     gap: 0.6rem;
     padding: 0.4rem 0.2rem 0;
     font-size: var(--text-sm);
-  }
-  select {
-    padding: 0.15rem 0.3rem;
-    border: 1px solid var(--control-line);
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text);
-    font: inherit;
   }
   button {
     min-width: 6.5rem;
