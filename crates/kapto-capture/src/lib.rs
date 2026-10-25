@@ -9,6 +9,7 @@ pub mod control;
 pub mod disk;
 pub mod durability;
 pub mod finalise;
+pub mod hash_behind;
 pub mod kept;
 pub mod loss;
 pub mod post_roll;
@@ -25,6 +26,7 @@ pub mod writer;
 
 pub use batch::{Batch, Gap, Publication, StreamIndex};
 pub use durability::DurabilityStats;
+pub use hash_behind::{HashBehind, Hashed, Written};
 pub use kept::{Kept, KeptHeld, KeptStream};
 pub use loss::{Accounting, LossCounters, LossDetection, StreamTotals};
 pub use post_roll::PostRoll;
