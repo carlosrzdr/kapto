@@ -69,11 +69,14 @@ batch until the batch is full or its first message has waited a couple of
 milliseconds, counts it, and sends it to the writer. Each ring is sized to
 absorb a two-second writer stall in batches handed over, not only in
 messages: a stream slower than a batch waits sends nearly every message in
-a batch of its own, so its ring gets a batch per message. If the writer
-still fills three quarters of a ring, or anything is dropped, the next
-phase's ring for that input is twice as large, up to sixteen times its
-planned size, and capture says so. Receiving, counting and sending allocate
-no memory once running.
+a batch of its own, so its ring gets a batch per message. Every ring is
+made once, when capture starts, and kept for every phase, idle or
+recording, its counts cleared as each begins. If the writer still fills
+three quarters of a ring, or anything is dropped, that input's ring is
+replaced by one twice as large for the next phase, up to sixteen times its
+planned size, and capture says so; this is the only time a ring is made
+after startup. Receiving, counting and sending allocate no memory once
+running.
 
 ```
 UDP ports ──▶ receiver thread                              writer thread
@@ -562,8 +565,8 @@ the [capture control protocol](../reference/capture-control.md);
 episode is ended like a stopped one and then deleted from staging, so
 nothing of it is kept. Between episodes,
 the writer thread only offers each batch to the live view and discards it.
-Each episode gets fresh rings and counters, so its counts cover exactly
-the messages it holds. When an episode starts, the writer thread stops
+Each episode keeps the rings set aside at startup, its counts cleared and
+its counters fresh, so its counts cover exactly the messages it holds. When an episode starts, the writer thread stops
 taking batches at once and hands the idle rings over with what is left in
 them: the episode starts with those batches, counted as its own, so
 nothing that arrived while the threads changed over is lost. Loss

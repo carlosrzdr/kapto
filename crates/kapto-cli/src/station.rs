@@ -3,9 +3,10 @@
 //! What a capture process keeps between episodes, and how it runs one.
 //!
 //! The inputs (UDP sockets, TCP connections) and the live view stay open for
-//! as long as the process runs. Each phase, idle or recording, gets fresh
-//! rings, counters and loss tracking, so an episode's counts describe that
-//! episode only. Between phases no thread reads the inputs for a few
+//! as long as the process runs, and so do the rings, made when it opens.
+//! Each phase, idle or recording, reuses the rings with their counts
+//! cleared, and gets fresh counters and loss tracking, so an episode's
+//! counts describe that episode only. Between phases no thread reads the inputs for a few
 //! milliseconds; the operating system's socket buffers hold what arrives
 //! meanwhile.
 //!
@@ -35,9 +36,9 @@ use kapto_capture::tap::frames::{FrameStats, FrameTotals};
 use kapto_capture::tap::{LatestValues, TapFeed, TapStats};
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
-    Accounting, ChannelSpec, Drainer, HandedOver, Kept, KeptHeld, LossCounters, LossDetection,
-    PostRoll, PreRoll, Recording, RingStats, StreamIndex, StreamTotals, Waiting, WriterConfig,
-    discard, ring,
+    Accounting, ChannelSpec, Drainer, Filler, HandedOver, Kept, KeptHeld, LossCounters,
+    LossDetection, PostRoll, PreRoll, Recording, RingConfig, RingStats, StreamIndex, StreamTotals,
+    Waiting, WriterConfig, discard_keeping_rings, ring,
 };
 use kapto_config::{MAX_DATAGRAM_BYTES, StreamDeclaration};
 use kapto_core::clock::monotonic_now;
@@ -91,6 +92,9 @@ pub(crate) struct Station {
     pub(crate) preflight: Option<Preflight>,
     /// How each episode's recording is written (`capture.compression`).
     pub(crate) writer: WriterConfig,
+    /// Each input's ring, in plan order, made when the station opens and
+    /// kept for every phase.
+    rings: Vec<KeptRing>,
     /// The rings of the phase that ended last, in plan order: how full the
     /// writer let them get sizes the next phase's.
     last_rings: Vec<Arc<RingStats>>,
@@ -101,7 +105,7 @@ pub(crate) struct Station {
     /// far.
     pre_roll: PreRoll,
     /// The rings the last idle phase handed over as it ended, for the
-    /// episode starting.
+    /// episode starting; the next phase takes them back.
     handed: Vec<HandedOver>,
     /// The last idle phase's loss detection, per input, to go on into the
     /// episode starting.
@@ -307,6 +311,11 @@ impl Station {
             None => (None, None, None, None, None),
         };
         Ok(Self {
+            rings: plan
+                .inputs
+                .iter()
+                .map(|input| KeptRing::new(&input.ring))
+                .collect(),
             kept: Kept::new(&plan.kept),
             pre_roll: PreRoll::new(&plan.pre_roll),
             handed: Vec::new(),
@@ -602,12 +611,11 @@ impl Station {
         (clock, asked, begun): (&ClockMap, RecvTime, RecvTime),
         counters: &Arc<LossCounters>,
     ) -> Result<(i64, BTreeMap<StreamIndex, u64>), KaptoError> {
-        let handed = std::mem::take(&mut self.handed);
         let first = self
             .pre_roll
             .earliest(asked, begun)
             .into_iter()
-            .chain(handed.iter().filter_map(HandedOver::earliest))
+            .chain(self.handed.iter().filter_map(HandedOver::earliest))
             .fold(begun, RecvTime::min);
         let started_utc_ns = clock.to_utc_ns(first);
         self.pre_roll.waiting().set(None);
@@ -619,8 +627,9 @@ impl Station {
         self.write_start_records(recording, episode, started_utc_ns)?;
         let carried = self.write_kept(recording, started_utc_ns)?;
         recording.write_pre_roll(&self.pre_roll, (asked, begun, first), counters)?;
+        // The rings stay with the station, for the episode's phase.
         recording.write_handed_over(
-            (handed, first),
+            (&mut self.handed, first),
             counters,
             (&mut self.kept, &mut self.pre_roll),
         )?;
@@ -659,9 +668,10 @@ impl Station {
         Ok(counts)
     }
 
-    /// Runs one phase: receivers into fresh rings, the writer doing `job`,
-    /// until `keep_going` says to stop or a receiver stops. Every input is
-    /// put back for the next phase.
+    /// Runs one phase: receivers into the rings kept from the last, their
+    /// counts cleared, the writer doing `job`, until `keep_going` says to
+    /// stop or a receiver stops. Every input and ring is put back for the
+    /// next phase.
     fn run(
         &mut self,
         job: Job,
@@ -675,17 +685,19 @@ impl Station {
             )]);
         }
         self.grow_rings();
+        self.take_back_handed();
         let accounting = self.accounting(matches!(job, Job::Write(_)), counters);
         let mut receivers = Vec::new();
         let mut drainers = Vec::new();
         let mut rings = Vec::new();
         let mut transport_stats = Vec::new();
         let inputs = self.plan.inputs.iter().zip(accounting);
-        for ((input, accounting), transport) in inputs.zip(self.transports.drain(..)) {
+        let ends = inputs.zip(self.transports.drain(..)).zip(&mut self.rings);
+        for (((input, accounting), transport), kept_ring) in ends {
             // Each phase counts from zero; no receiver runs right now.
             transport.stats().reset();
             transport_stats.push(Arc::clone(transport.stats()));
-            let (filler, drainer, ring_stats) = ring(&input.ring);
+            let (filler, drainer, ring_stats) = kept_ring.reopen(&input.ring);
             rings.push(Arc::clone(&ring_stats));
             drainers.push(drainer);
             receivers.push((
@@ -721,7 +733,7 @@ impl Station {
             post_roll: self.post_roll.clone(),
         };
         let tap = self.tap.take();
-        let (inputs, receiver_outcome, (writer_outcome, handed), tap) = run_threads(
+        let (inputs, receiver_outcome, (writer_outcome, handed, drainers), tap) = run_threads(
             receivers,
             (
                 job,
@@ -735,8 +747,7 @@ impl Station {
             &live,
             keep_going,
         )?;
-        let (transports, accounting): (Vec<_>, Vec<_>) = inputs.into_iter().unzip();
-        self.transports = transports;
+        let accounting = self.put_back(inputs, drainers);
         self.tap = tap;
         if self.transports.len() != self.plan.inputs.len() {
             return Err(vec![thread_failed(
@@ -792,6 +803,45 @@ impl Station {
             .collect()
     }
 
+    /// Puts back what a phase's threads gave back: each input, and each
+    /// ring's ends, unless a thread stopped without giving its own back:
+    /// then nothing says which ring is whose. Returns each input's loss
+    /// detection, if its receiver handed it over.
+    fn put_back(
+        &mut self,
+        inputs: Vec<GivenBack>,
+        drainers: Vec<Drainer>,
+    ) -> Vec<Option<Accounting>> {
+        let given_back = inputs.len() == self.rings.len();
+        let mut accounting = Vec::new();
+        self.transports.clear();
+        for ((transport, detection, filler), kept_ring) in inputs.into_iter().zip(&mut self.rings) {
+            self.transports.push(transport);
+            accounting.push(detection);
+            if given_back {
+                kept_ring.filler = Some(filler);
+            }
+        }
+        if drainers.len() == self.rings.len() {
+            for (kept_ring, drainer) in self.rings.iter_mut().zip(drainers) {
+                kept_ring.drainer = Some(drainer);
+            }
+        }
+        accounting
+    }
+
+    /// Takes back the rings the last idle phase handed over, written into the
+    /// episode that followed or not: what is left in them belongs to no
+    /// episode, and reopening them discards it.
+    fn take_back_handed(&mut self) {
+        let handed = std::mem::take(&mut self.handed);
+        if handed.len() == self.rings.len() {
+            for (kept_ring, handed) in self.rings.iter_mut().zip(handed) {
+                kept_ring.drainer = Some(handed.into_drainer());
+            }
+        }
+    }
+
     /// Gives each input whose ring the writer let fill up in the last phase
     /// a larger one for this phase, and says so: a writer held up that long
     /// once is likely to be again, by the same disk or the same load.
@@ -821,6 +871,41 @@ impl Station {
             }
         }
         self.last_rings.clear();
+    }
+}
+
+/// One input's ring, kept for every phase: both ends while no phase runs,
+/// neither while one does.
+struct KeptRing {
+    filler: Option<Filler>,
+    drainer: Option<Drainer>,
+    stats: Arc<RingStats>,
+}
+
+impl KeptRing {
+    fn new(config: &RingConfig) -> Self {
+        let (filler, drainer, stats) = ring(config);
+        Self {
+            filler: Some(filler),
+            drainer: Some(drainer),
+            stats,
+        }
+    }
+
+    /// The ring's ends for a phase with `config`, its counts cleared. A new
+    /// ring takes its place only if it grew, or if an end wasn't given back
+    /// because a thread stopped unexpectedly.
+    fn reopen(&mut self, config: &RingConfig) -> (Filler, Drainer, Arc<RingStats>) {
+        if let (Some(mut filler), Some(mut drainer)) = (self.filler.take(), self.drainer.take())
+            && self.stats.batches() == config.batches.max(2)
+            && drainer.reopen(&mut filler)
+        {
+            return (filler, drainer, Arc::clone(&self.stats));
+        }
+        // The old ring's batches are gone before the new one's are made.
+        let (filler, drainer, stats) = ring(config);
+        self.stats = Arc::clone(&stats);
+        (filler, drainer, stats)
     }
 }
 
@@ -867,10 +952,14 @@ struct PhaseEnd {
     accounting: Vec<Accounting>,
 }
 
+/// What a receiver thread gives back as it ends: its input, its loss
+/// detection if it handed it over, and its ring's end.
+type GivenBack = (Box<dyn Transport>, Option<Accounting>, Filler);
+
 type Threads = (
-    Vec<(Box<dyn Transport>, Option<Accounting>)>,
+    Vec<GivenBack>,
     Outcome<()>,
-    (Outcome<Option<Recording>>, Vec<HandedOver>),
+    (Outcome<Option<Recording>>, Vec<HandedOver>, Vec<Drainer>),
     Option<TapFeed>,
 );
 
@@ -898,19 +987,10 @@ fn run_threads(
     let hand_over = matches!(job, Job::Discard);
     thread::scope(|scope| {
         let mut receiving = Vec::new();
-        for (name, mut receiver) in receivers {
-            let spawned =
-                thread::Builder::new()
-                    .name(name.clone())
-                    .spawn_scoped(scope, move || {
-                        let result = receiver.run(stop);
-                        if hand_over {
-                            let (transport, accounting) = receiver.hand_over();
-                            (result, (transport, Some(accounting)))
-                        } else {
-                            (result, (receiver.finish(), None))
-                        }
-                    });
+        for (name, receiver) in receivers {
+            let spawned = thread::Builder::new()
+                .name(name.clone())
+                .spawn_scoped(scope, move || receive(receiver, stop, hand_over));
             match spawned {
                 Ok(handle) => receiving.push((name, handle)),
                 Err(error) => {
@@ -935,17 +1015,20 @@ fn run_threads(
                         pre_roll,
                     );
                     let tap = recording.take_tap();
-                    ((result.map(|()| Some(*recording)), Vec::new()), tap)
+                    (
+                        (result.map(|()| Some(*recording)), Vec::new(), drainers),
+                        tap,
+                    )
                 }
                 Job::Discard => {
-                    let handed = discard(
+                    let handed = discard_keeping_rings(
                         drainers,
                         tap.as_mut(),
                         (kept, pre_roll),
                         stop,
                         WriterConfig::default().idle_wait,
                     );
-                    ((Ok(None), handed), tap)
+                    ((Ok(None), handed, Vec::new()), tap)
                 }
             });
         let writing = match writing {
@@ -983,10 +1066,13 @@ fn run_threads(
             Err(errors)
         };
         let (writer, tap) = match writing.join() {
-            Ok(((result, handed), tap)) => ((result.map_err(|error| vec![error]), handed), tap),
+            Ok(((result, handed, drainers), tap)) => {
+                ((result.map_err(|error| vec![error]), handed, drainers), tap)
+            }
             Err(_) => (
                 (
                     Err(vec![thread_failed("cap-writer", "it stopped unexpectedly")]),
+                    Vec::new(),
                     Vec::new(),
                 ),
                 None,
@@ -994,6 +1080,24 @@ fn run_threads(
         };
         Ok((transports, receivers, writer, tap))
     })
+}
+
+/// What a receiver thread does: receives until `stop`, then ends, handing
+/// its loss detection over if `hand_over`, and gives back its input and its
+/// ring's end.
+fn receive(
+    mut receiver: Receiver<Box<dyn Transport>>,
+    stop: &AtomicBool,
+    hand_over: bool,
+) -> (Result<(), KaptoError>, GivenBack) {
+    let result = receiver.run(stop);
+    if hand_over {
+        let (transport, accounting, filler) = receiver.hand_over_keeping_ring();
+        (result, (transport, Some(accounting), filler))
+    } else {
+        let (transport, filler) = receiver.finish_keeping_ring();
+        (result, (transport, None, filler))
+    }
 }
 
 impl Live<'_> {
@@ -1253,7 +1357,105 @@ pub(crate) fn one(error: KaptoError) -> Vec<KaptoError> {
 
 #[cfg(test)]
 mod tests {
+    use std::net::UdpSocket;
+
+    use kapto_config::{ConfigFile, parse_streams};
+    use kapto_testkit::TempDir;
+
     use super::*;
+    use crate::record::{RecordSettings, plan};
+
+    /// A station receiving one UDP stream on `port`, without a live view.
+    fn station(folder: &Path, port: u16) -> Station {
+        let file = ConfigFile {
+            path: PathBuf::from("streams.toml"),
+            contents: format!(
+                "[streams.joints]\nrate_hz = 100\nmax_message_bytes = 8\n\
+                 udp = {{ bind = \"127.0.0.1:{port}\" }}\n"
+            ),
+        };
+        let declarations = parse_streams(&file).unwrap();
+        let plan = plan(
+            &declarations,
+            Path::new("streams.toml"),
+            &RecordSettings::default(),
+        )
+        .unwrap();
+        let nowhere = folder.join("missing").join("live.sock");
+        Station::open(
+            plan,
+            &declarations,
+            (&nowhere, &nowhere, 30),
+            folder.join("data"),
+            UdpOptions::default(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn every_episode_receives_into_the_rings_made_at_startup_its_counts_starting_clean() {
+        let folder = TempDir::new("station-rings");
+        let port = UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut station = station(&folder.0, port);
+        let made = Arc::clone(&station.rings[0].stats);
+        let robot = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let mut rings = Vec::new();
+        let mut at_start = Vec::new();
+        station.idle(&mut |_, _| false).unwrap();
+        for _ in 0..2 {
+            let mut first = true;
+            let recorded = station
+                .record(monotonic_now(), &mut |_, _| {}, &mut |live, elapsed| {
+                    if first {
+                        let ring = &live.rings[0];
+                        at_start.push((ring.max_queued(), ring.dropped_batches()));
+                        robot.send_to(&[7; 8], ("127.0.0.1", port)).unwrap();
+                        first = false;
+                    }
+                    let received = live.counters.totals(0).received;
+                    if received > 0 || elapsed > Duration::from_secs(20) {
+                        Next::Discard
+                    } else {
+                        Next::Record
+                    }
+                })
+                .unwrap();
+            assert!(recorded.receivers.is_ok());
+            rings.push(Arc::clone(&station.last_rings[0]));
+            // The writer took the message: the ring held a batch.
+            assert!(station.last_rings[0].max_queued() > 0);
+            station.idle(&mut |_, _| false).unwrap();
+        }
+        assert!(Arc::ptr_eq(&made, &rings[0]), "the ring made at startup");
+        assert!(Arc::ptr_eq(&made, &rings[1]), "and again the next episode");
+        assert_eq!(at_start, [(0, 0), (0, 0)], "each episode counts from zero");
+    }
+
+    #[test]
+    fn a_kept_ring_is_replaced_only_when_it_grew() {
+        let config = RingConfig {
+            batches: 4,
+            batch_capacity: 2,
+            max_message_len: 8,
+            streams: 1,
+        };
+        let mut kept = KeptRing::new(&config);
+        let made = Arc::clone(&kept.stats);
+        let (filler, drainer, stats) = kept.reopen(&config);
+        assert!(Arc::ptr_eq(&made, &stats));
+        (kept.filler, kept.drainer) = (Some(filler), Some(drainer));
+        let grown = RingConfig {
+            batches: 8,
+            ..config
+        };
+        let (_, _, stats) = kept.reopen(&grown);
+        assert_eq!(stats.batches(), 8);
+        assert!(!Arc::ptr_eq(&made, &stats));
+    }
 
     #[test]
     fn a_ring_the_writer_let_fill_up_doubles_for_the_next_phase_up_to_its_limit() {
