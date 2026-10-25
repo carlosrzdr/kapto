@@ -189,22 +189,22 @@ impl DeploymentConfig {
             server_bind: take(&mut values, "server.bind", |value| match value {
                 Value::IpAddress(address) => Some(address),
                 _ => None,
-            }),
+            })?,
             server_port: take(&mut values, "server.port", |value| match value {
                 Value::Port(port) => Some(port),
                 _ => None,
-            }),
+            })?,
             viewer_stream_port: take(&mut values, "viewer.stream_port", |value| match value {
                 Value::Port(port) => Some(port),
                 _ => None,
-            }),
-            viewer_display_rate: take(&mut values, "viewer.display_rate", hertz),
-            viewer_camera_max_fps: take(&mut values, "viewer.camera_max_fps", hertz),
-            viewer_page_pictures: take(&mut values, "viewer.page_pictures", hertz),
-            viewer_history_mib: take(&mut values, "viewer.history", mebibytes),
-            viewer_history_age: take(&mut values, "viewer.history_age", seconds),
-            viewer_camera_history_mib: take(&mut values, "viewer.camera_history", mebibytes),
-            viewer_camera_history_fps: take(&mut values, "viewer.camera_history_fps", hertz),
+            })?,
+            viewer_display_rate: take(&mut values, "viewer.display_rate", hertz)?,
+            viewer_camera_max_fps: take(&mut values, "viewer.camera_max_fps", hertz)?,
+            viewer_page_pictures: take(&mut values, "viewer.page_pictures", hertz)?,
+            viewer_history_mib: take(&mut values, "viewer.history", mebibytes)?,
+            viewer_history_age: take(&mut values, "viewer.history_age", seconds)?,
+            viewer_camera_history_mib: take(&mut values, "viewer.camera_history", mebibytes)?,
+            viewer_camera_history_fps: take(&mut values, "viewer.camera_history_fps", hertz)?,
             viewer_camera_history_width: take(
                 &mut values,
                 "viewer.camera_history_width",
@@ -212,44 +212,48 @@ impl DeploymentConfig {
                     Value::Pixels(width) => Some(width),
                     _ => None,
                 },
-            ),
-            viewer_stop_grace: take(&mut values, "viewer.stop_grace", seconds),
-            replay_cache_size_mib: take(&mut values, "viewer.replay_cache_size", mebibytes),
-            replay_cache_age_days: take(&mut values, "viewer.replay_cache_age", days),
-            tap_socket: take(&mut values, "viewer.tap_socket", path),
-            frame_socket: take(&mut values, "viewer.frame_socket", path),
-            control_socket: take(&mut values, "capture.control_socket", path),
-            control_timeout: take(&mut values, "capture.control_timeout", seconds),
-            control_max_connections: take(&mut values, "capture.control_max_connections", count),
-            capture_stop_grace: take(&mut values, "capture.stop_grace", seconds),
-            disk_warn_below_mib: take(&mut values, "capture.disk_warn_below", mebibytes),
-            disk_stop_below_mib: take(&mut values, "capture.disk_stop_below", mebibytes),
-            pre_roll_max: take(&mut values, "capture.pre_roll_max", mebibytes),
-            udp_receive_buffer_mib: take(&mut values, "capture.udp_receive_buffer", mebibytes),
-            preflight_window: take(&mut values, "capture.preflight_window", seconds),
-            preflight_disk_time: take(&mut values, "capture.preflight_disk_time", seconds),
+            )?,
+            viewer_stop_grace: take(&mut values, "viewer.stop_grace", seconds)?,
+            replay_cache_size_mib: take(&mut values, "viewer.replay_cache_size", mebibytes)?,
+            replay_cache_age_days: take(&mut values, "viewer.replay_cache_age", days)?,
+            tap_socket: take(&mut values, "viewer.tap_socket", path)?,
+            frame_socket: take(&mut values, "viewer.frame_socket", path)?,
+            control_socket: take(&mut values, "capture.control_socket", path)?,
+            control_timeout: take(&mut values, "capture.control_timeout", seconds)?,
+            control_max_connections: take(&mut values, "capture.control_max_connections", count)?,
+            capture_stop_grace: take(&mut values, "capture.stop_grace", seconds)?,
+            disk_warn_below_mib: take(&mut values, "capture.disk_warn_below", mebibytes)?,
+            disk_stop_below_mib: take(&mut values, "capture.disk_stop_below", mebibytes)?,
+            pre_roll_max: take(&mut values, "capture.pre_roll_max", mebibytes)?,
+            udp_receive_buffer_mib: take(&mut values, "capture.udp_receive_buffer", mebibytes)?,
+            preflight_window: take(&mut values, "capture.preflight_window", seconds)?,
+            preflight_disk_time: take(&mut values, "capture.preflight_disk_time", seconds)?,
             preflight_failures: take(&mut values, "capture.preflight", |value| match value {
                 Value::PreflightFailures(failures) => Some(failures),
                 _ => None,
-            }),
+            })?,
             compression: take(&mut values, "capture.compression", |value| match value {
                 Value::Compression(compression) => Some(compression),
                 _ => None,
-            }),
-            attach_meshes: take(&mut values, "capture.attach_meshes", switch),
-            bin_keep_days: take(&mut values, "bin.keep_days", days),
-            restart_delay: take(&mut values, "supervisor.restart_delay", seconds),
-            restart_max_delay: take(&mut values, "supervisor.restart_max_delay", seconds),
-            stable_after: take(&mut values, "supervisor.stable_after", seconds),
+            })?,
+            attach_meshes: take(&mut values, "capture.attach_meshes", switch)?,
+            bin_keep_days: take(&mut values, "bin.keep_days", days)?,
+            restart_delay: take(&mut values, "supervisor.restart_delay", seconds)?,
+            restart_max_delay: take(&mut values, "supervisor.restart_max_delay", seconds)?,
+            stable_after: take(&mut values, "supervisor.stable_after", seconds)?,
             worker_max_attempts: take(&mut values, "worker.max_attempts", |value| match value {
                 Value::Count(count) => Some(count),
                 _ => None,
-            }),
-            worker_pause_while_recording: take(&mut values, "worker.pause_while_recording", switch),
-            upload: upload_settings(&mut values),
+            })?,
+            worker_pause_while_recording: take(
+                &mut values,
+                "worker.pause_while_recording",
+                switch,
+            )?,
+            upload: upload_settings(&mut values)?,
             upload_destinations,
-            data_dir: take(&mut values, "paths.data", path),
-            packages_dir: take(&mut values, "paths.packages", path),
+            data_dir: take(&mut values, "paths.data", path)?,
+            packages_dir: take(&mut values, "paths.packages", path)?,
         };
         Ok(config)
     }
@@ -259,7 +263,7 @@ impl DeploymentConfig {
     pub fn entries(&self) -> Vec<Entry> {
         DEPLOYMENT_KEYS
             .iter()
-            .map(|key| {
+            .filter_map(|key| {
                 let (value, source) = match key.path {
                     "server.bind" => text(&self.server_bind),
                     "server.port" => text(&self.server_port),
@@ -317,9 +321,10 @@ impl DeploymentConfig {
                     "upload.timeout_request" => seconds_text(&self.upload.timeout_request),
                     "paths.data" => display_path(&self.data_dir),
                     "paths.packages" => display_path(&self.packages_dir),
-                    other => unreachable!("{other} is listed but has no field"),
+                    // Ruled out by a test that every setting has an entry.
+                    _ => return None,
                 };
-                Entry { key, value, source }
+                Some(Entry { key, value, source })
             })
             .collect()
     }
@@ -379,7 +384,13 @@ fn destinations(
         .filter(|(key, _)| key.starts_with("upload."))
         .map(|(key, value)| (*key, value.clone()))
         .collect();
-    let base = upload_settings(&mut upload.clone());
+    let base = match upload_settings(&mut upload.clone()) {
+        Ok(base) => base,
+        Err(mismatched) => {
+            errors.extend(mismatched);
+            return Vec::new();
+        }
+    };
     let names: Vec<&str> = DEPLOYMENT_KEYS
         .iter()
         .filter(|key| key.section() == "upload")
@@ -387,7 +398,7 @@ fn destinations(
         .collect();
     let read = destination::read(file, entries, &base, &names, errors);
     read.into_iter()
-        .map(|entry| {
+        .filter_map(|entry| {
             let mut own = upload.clone();
             for (name, item, line) in entry.overrides {
                 let Some(key) = find(&format!("upload.{name}")) else {
@@ -411,46 +422,52 @@ fn destinations(
                 };
                 own.insert(key.path, Effective { value, source });
             }
-            UploadDestination {
-                settings: upload_settings(&mut own),
-                ..entry.destination
+            match upload_settings(&mut own) {
+                Ok(settings) => Some(UploadDestination {
+                    settings,
+                    ..entry.destination
+                }),
+                Err(mismatched) => {
+                    errors.extend(mismatched);
+                    None
+                }
             }
         })
         .collect()
 }
 
-fn upload_settings(values: &mut Values) -> UploadSettings {
-    UploadSettings {
+fn upload_settings(values: &mut Values) -> Result<UploadSettings, Vec<KaptoError>> {
+    Ok(UploadSettings {
         when: take(values, "upload.when", |value| match value {
             Value::UploadWhen(when) => Some(when),
             _ => None,
-        }),
-        pause_while_recording: take(values, "upload.pause_while_recording", switch),
+        })?,
+        pause_while_recording: take(values, "upload.pause_while_recording", switch)?,
         delete_local: take(values, "upload.delete_local", |value| match value {
             Value::DeleteLocal(delete) => Some(delete),
             _ => None,
-        }),
-        min_verified_destinations: take(values, "upload.min_verified_destinations", count),
+        })?,
+        min_verified_destinations: take(values, "upload.min_verified_destinations", count)?,
         verify: take(values, "upload.verify", |value| match value {
             Value::Verification(verify) => Some(verify),
             _ => None,
-        }),
-        marker: take(values, "upload.marker", switch),
-        part_size_mib: take(values, "upload.part_size", mebibytes),
-        parallel_parts: take(values, "upload.parallel_parts", count),
-        parallel_files: take(values, "upload.parallel_files", count),
-        max_in_flight: take(values, "upload.max_in_flight", count),
+        })?,
+        marker: take(values, "upload.marker", switch)?,
+        part_size_mib: take(values, "upload.part_size", mebibytes)?,
+        parallel_parts: take(values, "upload.parallel_parts", count)?,
+        parallel_files: take(values, "upload.parallel_files", count)?,
+        max_in_flight: take(values, "upload.max_in_flight", count)?,
         bandwidth_mib: take(values, "upload.bandwidth", |value| match value {
             Value::Bandwidth(rate) => Some(rate),
             _ => None,
-        }),
-        max_attempts: take(values, "upload.max_attempts", count),
-        retry_failed_after: take(values, "upload.retry_failed_after", seconds),
-        backoff_initial: take(values, "upload.backoff_initial", seconds),
-        backoff_max: take(values, "upload.backoff_max", seconds),
-        timeout_connect: take(values, "upload.timeout_connect", seconds),
-        timeout_request: take(values, "upload.timeout_request", seconds),
-    }
+        })?,
+        max_attempts: take(values, "upload.max_attempts", count)?,
+        retry_failed_after: take(values, "upload.retry_failed_after", seconds)?,
+        backoff_initial: take(values, "upload.backoff_initial", seconds)?,
+        backoff_max: take(values, "upload.backoff_max", seconds)?,
+        timeout_connect: take(values, "upload.timeout_connect", seconds)?,
+        timeout_request: take(values, "upload.timeout_request", seconds)?,
+    })
 }
 
 #[allow(
@@ -546,15 +563,27 @@ fn path(value: Value) -> Option<PathBuf> {
 
 /// Removes a resolved setting and converts it to its field type. Every
 /// setting is present after defaults are added, and was parsed with its own
-/// type, so neither can fail.
-fn take<T>(values: &mut Values, key: &str, convert: fn(Value) -> Option<T>) -> Effective<T> {
+/// type, so neither fails unless a setting is listed in [`DEPLOYMENT_KEYS`]
+/// differently from its field, which a test rules out.
+fn take<T>(
+    values: &mut Values,
+    key: &str,
+    convert: fn(Value) -> Option<T>,
+) -> Result<Effective<T>, Vec<KaptoError>> {
+    let mismatched = |detail: &str| {
+        vec![
+            KaptoError::new(ErrorCode::ConfigInvalidValue)
+                .detail(format!("{key} {detail}, unlike how it is listed"))
+                .context("setting", key.to_owned()),
+        ]
+    };
     let Some(Effective { value, source }) = values.remove(key) else {
-        unreachable!("{key} has a default, so it is always resolved");
+        return Err(mismatched("has no value, not even a default"));
     };
     let Some(value) = convert(value) else {
-        unreachable!("{key} is always parsed as its declared type");
+        return Err(mismatched("was read as another type"));
     };
-    Effective { value, source }
+    Ok(Effective { value, source })
 }
 
 fn read_file(
@@ -721,11 +750,10 @@ fn read_cli(
 fn add_defaults(env: &dyn Fn(&str) -> Option<String>, values: &mut Values) {
     for key in DEPLOYMENT_KEYS {
         if let DefaultValue::Fixed(text) = key.default {
+            // Valid, as a test checks; were it not, the setting is left
+            // without a value, which resolving it reports.
             let Some(value) = key.value_type.parse_text(text) else {
-                unreachable!(
-                    "the default of {} is a valid value; a test checks it",
-                    key.path
-                );
+                continue;
             };
             values.entry(key.path).or_insert(Effective {
                 value,
@@ -834,6 +862,31 @@ mod tests {
     }
 
     #[test]
+    fn a_setting_without_a_value_or_of_another_type_is_an_error_naming_it() {
+        let mut values = Values::new();
+        let missing = take(&mut values, "server.port", seconds).unwrap_err();
+        assert_eq!(missing[0].code(), ErrorCode::ConfigInvalidValue);
+        assert!(
+            missing[0].to_string().contains("server.port"),
+            "{}",
+            missing[0]
+        );
+        values.insert(
+            "server.port",
+            Effective {
+                value: Value::Port(7700),
+                source: Source::Default,
+            },
+        );
+        let other = take(&mut values, "server.port", seconds).unwrap_err();
+        assert!(
+            other[0].to_string().contains("another type"),
+            "{}",
+            other[0]
+        );
+    }
+
+    #[test]
     fn defaults_apply_when_nothing_is_configured() {
         let config = resolve(None, &env(&[("HOME", "/home/u")]), &[]).unwrap();
         assert_eq!(config.server_bind.value, IpAddr::V4(Ipv4Addr::LOCALHOST));
@@ -847,11 +900,18 @@ mod tests {
             config.packages_dir.value,
             Path::new("/home/u/.local/share/kapto/packages")
         );
-        assert!(
-            config
-                .entries()
+        let entries = config.entries();
+        assert!(entries.iter().all(|entry| entry.source == Source::Default));
+        assert_eq!(
+            entries
                 .iter()
-                .all(|entry| entry.source == Source::Default)
+                .map(|entry| entry.key.path)
+                .collect::<Vec<_>>(),
+            DEPLOYMENT_KEYS
+                .iter()
+                .map(|key| key.path)
+                .collect::<Vec<_>>(),
+            "every setting listed has an entry, in order"
         );
     }
 

@@ -95,13 +95,7 @@ pub(crate) fn episode(flags: &SettingFlags, command: &EpisodeCommand) -> ExitCod
             return ExitCode::FAILURE;
         }
     };
-    let done = match command {
-        EpisodeCommand::Delete { episode } | EpisodeCommand::Restore { episode } => {
-            bin(&deployment.data_dir.value, command, episode).map(|()| true)
-        }
-        _ => order(flags, &deployment, command),
-    };
-    match done {
+    match order(flags, &deployment, command) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
@@ -132,14 +126,14 @@ fn bin(
     Ok(())
 }
 
-/// Carries out `command`. Returns whether what it found is good: false
-/// only for a pre-flight with a failed check.
+/// Carries out `command`: the bin's through serve, the rest through
+/// capture. Returns whether what it found is good: false only for a
+/// pre-flight with a failed check.
 fn order(
     flags: &SettingFlags,
     deployment: &kapto_config::DeploymentConfig,
     command: &EpisodeCommand,
 ) -> Result<bool, KaptoError> {
-    let mut client = ControlClient::connect(&deployment.control_socket.value, ANSWER_TIMEOUT)?;
     let request = match command {
         EpisodeCommand::Start {
             duration,
@@ -159,8 +153,8 @@ fn order(
                 waive: waive.clone(),
             }
         }
-        EpisodeCommand::Delete { .. } | EpisodeCommand::Restore { .. } => {
-            unreachable!("asked of serve, not capture")
+        EpisodeCommand::Delete { episode } | EpisodeCommand::Restore { episode } => {
+            return bin(&deployment.data_dir.value, command, episode).map(|()| true);
         }
         EpisodeCommand::Stop => Request::Stop,
         EpisodeCommand::Abort => Request::Abort,
@@ -184,6 +178,7 @@ fn order(
             Request::Event(Box::new(event))
         }
     };
+    let mut client = ControlClient::connect(&deployment.control_socket.value, ANSWER_TIMEOUT)?;
     match client.ask(&request)? {
         Response::Started { episode } => outln!("Recording episode {episode}."),
         Response::Stopped { folder, .. } => outln!("Finalised {folder}"),
