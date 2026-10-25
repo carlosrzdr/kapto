@@ -3,8 +3,10 @@
 //! The spans of a `profiling` build written as a Chrome trace, for
 //! `cargo xtask profile trace` to merge and Perfetto to show: each process
 //! started with [`TRACE_DIR_VAR`] set writes `<command>-<pid>.json` there,
-//! each span a complete event on its thread, timed by the monotonic clock
-//! every process shares, so their traces line up.
+//! each span a complete event on its thread from when it is first entered
+//! until it closes, so work that waits, as a future polled many times, is
+//! one span; timed by the monotonic clock every process shares, so their
+//! traces line up.
 
 use std::fs::File;
 use std::io::{BufWriter, Write as _};
@@ -129,11 +131,11 @@ fn now_us() -> f64 {
     Duration::from_nanos(monotonic_now().as_nanos()).as_secs_f64() * 1e6
 }
 
-/// A span's fields and when it was entered, kept with it.
+/// A span's fields and when it was first entered, kept with it.
 #[derive(Default)]
 struct Fields {
     args: Map<String, Value>,
-    entered_us: f64,
+    entered_us: Option<f64>,
 }
 
 impl Visit for Fields {
@@ -163,7 +165,7 @@ impl Visit for Fields {
     }
 }
 
-/// Writes each span, when it is left, as a complete event.
+/// Writes each span, when it closes, as a complete event.
 struct Chrome {
     out: Arc<Mutex<Out>>,
 }
@@ -192,20 +194,24 @@ where
         if let Some(span) = context.span(id)
             && let Some(fields) = span.extensions_mut().get_mut::<Fields>()
         {
-            fields.entered_us = now_us();
+            fields.entered_us.get_or_insert_with(now_us);
         }
     }
 
-    fn on_exit(&self, id: &Id, context: Context<'_, S>) {
-        let Some(span) = context.span(id) else {
+    fn on_close(&self, id: Id, context: Context<'_, S>) {
+        let Some(span) = context.span(&id) else {
             return;
         };
         let extensions = span.extensions();
-        let Some(fields) = extensions.get::<Fields>() else {
+        // Never entered: nothing was done in it.
+        let Some((entered_us, args)) = extensions
+            .get::<Fields>()
+            .and_then(|fields| Some((fields.entered_us?, &fields.args)))
+        else {
             return;
         };
         let mut out = self.out.lock().unwrap_or_else(PoisonError::into_inner);
-        out.span(span.name(), fields.entered_us, &fields.args);
+        out.span(span.name(), entered_us, args);
     }
 }
 
@@ -251,5 +257,40 @@ mod tests {
         assert_eq!(write["args"]["stream"], "arm");
         assert!(write["dur"].as_f64().unwrap() >= 2_000.0, "{write}");
         assert_eq!(write["tid"], named("thread_name")["tid"]);
+    }
+
+    #[test]
+    fn a_future_polled_many_times_is_one_span_from_its_first_poll_to_its_end() {
+        let folder = kapto_testkit::scratch("trace-future");
+        let path = folder.join("worker-1.json");
+        let out = Arc::new(Mutex::new(Out::create(&path, "worker").unwrap()));
+        let subscriber = tracing_subscriber::registry().with(Chrome {
+            out: Arc::clone(&out),
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        tracing::subscriber::with_default(subscriber, || {
+            let part = async {
+                for _ in 0..3 {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            };
+            runtime.block_on(kapto_core::instrument!(part, "upload part", index = 3_u64));
+        });
+        drop(Guard { out });
+        let text = std::fs::read_to_string(&path).unwrap();
+        let parts: Vec<Value> = serde_json::from_str::<Vec<Value>>(&format!(
+            "{}]",
+            text.trim_end().trim_end_matches(',')
+        ))
+        .unwrap()
+        .into_iter()
+        .filter(|event| event["name"] == "upload part")
+        .collect();
+        assert_eq!(parts.len(), 1, "{text}");
+        assert_eq!(parts[0]["args"]["index"], 3);
+        assert!(parts[0]["dur"].as_f64().unwrap() >= 3_000.0, "{text}");
     }
 }

@@ -52,6 +52,17 @@ pub(crate) struct ScenarioArgs {
     keep_recordings: bool,
 }
 
+/// Arguments of `profile trace`.
+#[derive(Args, Clone, Copy, Debug)]
+pub(crate) struct TraceArgs {
+    #[command(flatten)]
+    scenario: ScenarioArgs,
+    /// Also upload the episode to the RustFS server of `compose.yaml`,
+    /// started for it in Docker, and say what that costs per GB.
+    #[arg(long)]
+    upload: bool,
+}
+
 /// The loads a profile is taken under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub(crate) enum Scenario {
@@ -110,7 +121,7 @@ pub(crate) fn record(root: &Path, args: ScenarioArgs) -> ExitCode {
 
 /// Records the scenario's load with a profiling build, has the worker do
 /// the episode's jobs, and writes their timeline and its report.
-pub(crate) fn trace(root: &Path, args: ScenarioArgs) -> ExitCode {
+pub(crate) fn trace(root: &Path, args: TraceArgs) -> ExitCode {
     match timeline::traced(root, args) {
         Ok((work, report)) => {
             println!("{report}");

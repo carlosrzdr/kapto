@@ -146,9 +146,9 @@ enum ProfileCommand {
     /// Record a scenario's load with a build with the `profiling` feature,
     /// then have the worker do the episode's jobs: every span written into
     /// one trace for Perfetto, each stage's cost per batch, how long
-    /// batches wait for the writer, and each job's cost per minute
-    /// recorded.
-    Trace(bench::profile::ScenarioArgs),
+    /// batches wait for the writer, each job's cost per minute recorded,
+    /// and checksums' and, with `--upload`, uploading's cost per GB.
+    Trace(bench::profile::TraceArgs),
 }
 
 fn main() -> ExitCode {

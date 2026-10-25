@@ -275,6 +275,10 @@ fn hash_file(
     path: &Path,
     between: &mut dyn FnMut() -> Result<(), KaptoError>,
 ) -> Result<(u64, String), Stopped> {
+    let _span = kapto_core::span!(
+        "checksum",
+        bytes = fs::metadata(path).map_or(0, |metadata| metadata.len())
+    );
     let mut file = File::open(path).map_err(Stopped::Read)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0; 256 * 1024];

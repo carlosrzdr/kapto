@@ -19,6 +19,9 @@ use std::time::{Duration, Instant};
 const ACCESS_KEY: &str = "kapto";
 const SECRET_KEY: &str = "kapto-storage";
 
+/// The server's access and secret keys.
+pub(crate) const CREDENTIALS: (&str, &str) = (ACCESS_KEY, SECRET_KEY);
+
 /// Every test that needs the server: each has `s3` in its name.
 const TESTS: [&str; 9] = [
     "nextest",

@@ -33,3 +33,27 @@ macro_rules! span {
         $crate::profiling::Off
     };
 }
+
+/// Marks `future`, from when it is first polled until it is dropped, as
+/// `name` with `tracing`'s fields: for work that waits, as an upload's
+/// parts do.
+#[cfg(feature = "profiling")]
+#[macro_export]
+macro_rules! instrument {
+    ($future:expr, $name:literal $(, $($fields:tt)*)?) => {
+        $crate::profiling::tracing::Instrument::instrument(
+            $future,
+            $crate::profiling::tracing::info_span!($name $(, $($fields)*)?),
+        )
+    };
+}
+
+/// Marks `future` as `name`; without the `profiling` feature, `future`
+/// itself, its fields not evaluated.
+#[cfg(not(feature = "profiling"))]
+#[macro_export]
+macro_rules! instrument {
+    ($future:expr, $name:literal $(, $($fields:tt)*)?) => {
+        $future
+    };
+}

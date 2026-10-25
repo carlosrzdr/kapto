@@ -238,7 +238,9 @@ pub async fn upload_episode(
         ) {
             between()?;
             let at = key.clone().join(file.path.as_str());
-            upload_file(store, folder, file, &at, &tries, progress, save).await?;
+            let uploading = upload_file(store, folder, file, &at, &tries, progress, save);
+            kapto_core::instrument!(uploading, "upload file", file = %file.path, bytes = file.bytes)
+                .await?;
             let e_tag = verify(store, file, &at, &tries).await?;
             progress
                 .files
@@ -396,7 +398,7 @@ async fn upload_file(
         .collect();
     let put = |index: u64| {
         let (read, upload_id) = (&read, &upload_id);
-        async move {
+        let putting = async move {
             let payload = PutPayload::from(read(index)?);
             tries.paced(bytes(payload.content_length())).await;
             let place = usize::try_from(index).unwrap_or(usize::MAX);
@@ -405,7 +407,8 @@ async fn upload_file(
                 .await
                 .map_err(|error| store_error(at, &error))?;
             Ok::<_, KaptoError>((index, id.content_id))
-        }
+        };
+        kapto_core::instrument!(putting, "upload part", file = %file.path, index, bytes = part)
     };
     let mut missing = missing.into_iter();
     let mut in_flight = FuturesUnordered::new();
