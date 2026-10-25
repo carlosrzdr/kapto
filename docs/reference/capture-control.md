@@ -13,6 +13,8 @@ a specification: requests and answers only gain fields.
   that ended is replaced; one another process still answers on is left
   alone, and the new capture process ends with `capture.already_running`,
   naming the other process on Linux.
+- A connection beyond `capture.control_max_connections` is answered with
+  one error line (`capture.control_busy`) and closed.
 - Each request and each answer is one line of JSON, ending with a newline.
   A request is at most 4096 bytes.
 - The first request on a connection is `hello` with the protocol version,

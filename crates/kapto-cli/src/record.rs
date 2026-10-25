@@ -1379,9 +1379,9 @@ mod tests {
         let buffers = plan.receiver_buffers();
         assert_eq!(buffers[0], 0, "UDP holds no buffer of its own");
         assert!(buffers[1] >= n, "{} bytes", buffers[1]);
-        let memory = kapto_capture::threads::ThreadMemory::capture(&buffers, false);
+        let memory = kapto_capture::threads::ThreadMemory::capture(&buffers, false, 16);
         assert_eq!(memory.receiver_buffer_bytes(), buffers[1]);
-        let without = kapto_capture::threads::ThreadMemory::capture(&[0, 0], false);
+        let without = kapto_capture::threads::ThreadMemory::capture(&[0, 0], false, 16);
         assert!(memory.total_bytes() - without.total_bytes() >= n);
     }
 

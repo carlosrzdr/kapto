@@ -223,6 +223,18 @@ How long, in seconds, the capture process keeps recording after `kapto serve` ha
 | Environment variable | `KAPTO_CAPTURE_CONTROL_TIMEOUT` |
 | Flag | `--capture-control-timeout` |
 
+## `capture.control_max_connections`
+
+The most control connections the capture process answers at once, each on a thread of its own. Only `kapto serve`, its worker and viewer bridge, and `kapto episode` connect, a few at a time; one more is answered with `capture.control_busy` and closed. The bound keeps the memory capture says its threads take finite.
+
+| | |
+|---|---|
+| Section and name | `[capture]` `control_max_connections` |
+| Accepts | a whole number from 1 to 100 |
+| Default | `16` |
+| Environment variable | `KAPTO_CAPTURE_CONTROL_MAX_CONNECTIONS` |
+| Flag | `--capture-control-max-connections` |
+
 ## `capture.stop_grace`
 
 How long, in seconds, the capture process may take to stop when `kapto serve` stops, before it is killed: long enough to finalise the episode being recorded.

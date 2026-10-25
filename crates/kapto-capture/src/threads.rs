@@ -63,8 +63,7 @@ impl Threads {
 }
 
 /// What `kapto capture`'s threads take at most at once, besides its main
-/// thread and those its control connections start: one each, never more
-/// than its clients hold open ([`ThreadMemory::per_connection_bytes`]).
+/// thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThreadMemory {
     /// Each name's threads.
@@ -74,7 +73,10 @@ pub struct ThreadMemory {
 impl ThreadMemory {
     /// Capture's threads, with a receiver thread for each of `receivers`,
     /// the buffer it holds for itself (a TCP input's framing buffer, 0 for
-    /// others), and the live view's `cap-tap` if it runs.
+    /// others), the live view's `cap-tap` if it runs, and a
+    /// `cap-control-conn` for each of the `control_connections` answered at
+    /// once (`capture.control_max_connections`), whether or not they are
+    /// open.
     ///
     /// Two `cap-hash`: the episode being recorded, and the one just
     /// stopped until it is set aside and ends at its next read
@@ -85,11 +87,16 @@ impl ThreadMemory {
     /// buffer each, one after the other. Pre-flight's and recovery's
     /// threads are counted though they run only for a while.
     #[must_use]
-    pub fn capture(receivers: &[usize], live_view: bool) -> Self {
+    pub fn capture(receivers: &[usize], live_view: bool, control_connections: usize) -> Self {
         let one = one_of;
         let mut threads = vec![
             one("cap-control", 0),
             one("cap-control-tell", 0),
+            Threads {
+                name: "cap-control-conn",
+                at_once: control_connections,
+                buffer_bytes: 0,
+            },
             one("cap-recover", 0),
             one("cap-preflight", crate::preflight::WRITE_BLOCK_BYTES),
             one("cap-preflight-router", 0),
@@ -139,10 +146,14 @@ impl ThreadMemory {
             .sum()
     }
 
-    /// What each control connection adds while it is open, in bytes.
+    /// How many control connections are counted.
     #[must_use]
-    pub fn per_connection_bytes() -> usize {
-        one_of("cap-control-conn", 0).each_bytes()
+    pub fn control_connections(&self) -> usize {
+        self.threads
+            .iter()
+            .filter(|threads| threads.name == "cap-control-conn")
+            .map(|threads| threads.at_once)
+            .sum()
     }
 }
 
@@ -161,7 +172,7 @@ mod tests {
 
     #[test]
     fn the_declared_total_is_each_threads_stack_and_buffers() {
-        let memory = ThreadMemory::capture(&[0; 3], true);
+        let memory = ThreadMemory::capture(&[0; 3], true, 0);
         // Control 2, recovery 1, pre-flight 2, receivers 3, the writer,
         // cap-hash twice, cap-finalise and the live view's tap.
         assert_eq!(memory.count(), 13);
@@ -176,7 +187,7 @@ mod tests {
 
     #[test]
     fn both_episodes_cap_hash_are_counted_with_their_buffers() {
-        let memory = ThreadMemory::capture(&[0], false);
+        let memory = ThreadMemory::capture(&[0], false, 16);
         let hash = memory
             .threads
             .iter()
@@ -187,9 +198,9 @@ mod tests {
 
     #[test]
     fn each_receivers_own_buffer_is_counted_once_with_its_thread() {
-        let udp_only = ThreadMemory::capture(&[0], false);
+        let udp_only = ThreadMemory::capture(&[0], false, 16);
         // UDP's thread and two TCP inputs, one of a 32 MiB camera.
-        let memory = ThreadMemory::capture(&[0, 4096, 32 << 20], false);
+        let memory = ThreadMemory::capture(&[0, 4096, 32 << 20], false, 16);
         assert_eq!(memory.count(), udp_only.count() + 2);
         assert_eq!(memory.receiver_buffer_bytes(), 4096 + (32 << 20));
         assert_eq!(
@@ -199,9 +210,21 @@ mod tests {
     }
 
     #[test]
+    fn the_control_connections_answered_at_once_are_counted_whether_open_or_not() {
+        let none = ThreadMemory::capture(&[0], false, 0);
+        let sixteen = ThreadMemory::capture(&[0], false, 16);
+        assert_eq!(sixteen.control_connections(), 16);
+        assert_eq!(sixteen.count(), none.count() + 16);
+        assert_eq!(
+            sixteen.total_bytes() - none.total_bytes(),
+            16 * (STACK_BYTES + SMALL_BYTES)
+        );
+    }
+
+    #[test]
     fn without_a_live_view_its_tap_thread_isnt_counted() {
-        let with = ThreadMemory::capture(&[0; 2], true);
-        let without = ThreadMemory::capture(&[0; 2], false);
+        let with = ThreadMemory::capture(&[0; 2], true, 16);
+        let without = ThreadMemory::capture(&[0; 2], false, 16);
         assert_eq!(with.count(), without.count() + 1);
         assert_eq!(
             with.total_bytes() - without.total_bytes(),

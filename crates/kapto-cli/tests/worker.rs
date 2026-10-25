@@ -222,7 +222,7 @@ fn the_worker_starts_no_job_while_capture_records_an_episode_unless_told_not_to_
     // the worker can't tell before then that an episode is being recorded,
     // so it waits for that answer.
     let socket = folder.join("capture.sock");
-    let capture = ControlServer::listen(&socket).unwrap();
+    let capture = ControlServer::listen(&socket, 16).unwrap();
     let recording = Arc::new(AtomicBool::new(true));
     let answering = Arc::new(AtomicBool::new(true));
     let stand_in = std::thread::spawn({

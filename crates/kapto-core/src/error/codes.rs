@@ -79,6 +79,13 @@ error_codes! {
         remedy: "Check that `kapto serve` (or a `kapto capture` of its own) is running and that both use the same capture.control_socket (by default `capture.sock` in the data directory).",
     }
 
+    /// The capture process already answers as many control connections as
+    /// it may at once.
+    CaptureControlBusy = "capture.control_busy" {
+        summary: "The capture process answers as many control connections as it may",
+        remedy: "Try again in a moment: only `kapto serve`, its worker and viewer bridge, and `kapto episode` connect, each for a short while or one connection each. If it lasts, something else holds connections to capture.control_socket open (`ss -xp` lists them); stop it, or raise capture.control_max_connections (16 by default).",
+    }
+
     /// The capture process answered, but not as this side expects: an
     /// answer of another kind, or an error it doesn't know.
     CaptureControlUnexpectedAnswer = "capture.control_unexpected_answer" {

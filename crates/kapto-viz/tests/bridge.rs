@@ -323,7 +323,7 @@ fn noted(kind: &str, phase: Phase, id: Option<&str>) -> Announcement {
 fn what_capture_announces_is_told_to_every_page_and_kept_for_pages_connecting_later() {
     let folder = scratch("marks");
     let mut settings = settings(&folder);
-    let capture = ControlServer::listen(&folder.join("capture.sock")).unwrap();
+    let capture = ControlServer::listen(&folder.join("capture.sock"), 16).unwrap();
     settings.control_socket = Some(folder.join("capture.sock"));
     let (robot, live) = arm7();
     let _bridge = Bridge::start(&settings, &robot, live, &no_plots()).unwrap();

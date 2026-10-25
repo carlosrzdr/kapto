@@ -26,6 +26,11 @@
 //! that crashed closes its connection, one that hangs or is stopped falls
 //! silent, and both are missed alike.
 //!
+//! Each connection is answered on a thread of its own, at most
+//! `capture.control_max_connections` at once: only the server and the
+//! command line connect, and the bound keeps capture's declared memory
+//! finite. One more is answered with `capture.control_busy` and closed.
+//!
 //! ```text
 //! → {"command":"hello","version":1}
 //! ← {"hello":{"version":1,"kapto":"0.1.0"}}
@@ -38,7 +43,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -435,17 +440,29 @@ impl Drop for Supervising {
     }
 }
 
+/// Held by a connection being answered: its place among the
+/// `capture.control_max_connections`, given back however it ends.
+struct Place(Arc<AtomicUsize>);
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 impl ControlServer {
     /// Listens on `path`, replacing a socket left there by an earlier run
     /// that ended. A socket another process still answers on is left alone:
-    /// replacing it would leave that process recording unreachable.
+    /// replacing it would leave that process recording unreachable. At
+    /// most `max_connections` are answered at once, each on a thread of its
+    /// own; one more is answered with `capture.control_busy` and closed.
     ///
     /// # Errors
     ///
     /// `capture.already_running` if a process answers on `path`;
     /// `capture.control_socket_failed` if the path is too long for a Unix
     /// socket, is taken by a file that isn't a socket, or can't be bound.
-    pub fn listen(path: &Path) -> Result<Self, KaptoError> {
+    pub fn listen(path: &Path, max_connections: usize) -> Result<Self, KaptoError> {
         let failed = |detail: String| {
             KaptoError::new(ErrorCode::CaptureControlSocketFailed)
                 .detail(detail)
@@ -486,7 +503,10 @@ impl ControlServer {
         crate::threads::named("cap-control")
             .spawn({
                 let supervision = Arc::clone(&supervision);
-                move || accept(&listener, &sender, &supervision, &watchers)
+                move || {
+                    let connections = (max_connections, &sender, &supervision, &watchers);
+                    accept(&listener, connections);
+                }
             })
             .map_err(|error| failed(error.to_string()))?;
         Ok(Self {
@@ -540,23 +560,54 @@ impl Drop for ControlServer {
     }
 }
 
-fn accept(
-    listener: &UnixListener,
-    requests: &Sender<Pending>,
-    supervision: &Arc<Supervision>,
-    watchers: &Arc<Watchers>,
-) {
+/// What `accept` answers connections with: how many at most, where their
+/// requests go, the supervision and the watchers.
+type Connections<'a> = (
+    usize,
+    &'a Sender<Pending>,
+    &'a Arc<Supervision>,
+    &'a Arc<Watchers>,
+);
+
+fn accept(listener: &UnixListener, (max, requests, supervision, watchers): Connections<'_>) {
+    let open = Arc::new(AtomicUsize::new(0));
     for connection in listener.incoming() {
         let Ok(connection) = connection else {
             continue;
         };
+        // Only this thread adds, so a place counted free is still free.
+        if open.load(Ordering::Acquire) >= max {
+            refuse_busy(connection, max);
+            continue;
+        }
+        open.fetch_add(1, Ordering::AcqRel);
+        let place = Place(Arc::clone(&open));
         let requests = requests.clone();
         let supervision = Arc::clone(supervision);
         let watchers = Arc::clone(watchers);
         // A thread per connection, so a slow client never holds up another.
+        // Not started, the place is given back as the closure is dropped.
         let _ = crate::threads::named("cap-control-conn").spawn(move || {
+            let _place = place;
             let _ = converse(connection, &requests, &supervision, &watchers);
         });
+    }
+}
+
+/// Answers a connection beyond the `max` with `capture.control_busy` and
+/// closes it, without a thread of its own: whatever the client sent is
+/// read and discarded first, so it reads the error, not a reset.
+fn refuse_busy(connection: UnixStream, max: usize) {
+    let error = KaptoError::new(ErrorCode::CaptureControlBusy).detail(format!(
+        "{max} control connections are open, the most capture.control_max_connections allows"
+    ));
+    let mut writer = connection;
+    let _ = writer.set_write_timeout(Some(Duration::from_millis(100)));
+    if send(&mut writer, &Response::error(&error)).is_err() {
+        return;
+    }
+    if let Ok(reader) = writer.try_clone() {
+        close_after_refusal(&mut BufReader::new(reader), &writer);
     }
 }
 

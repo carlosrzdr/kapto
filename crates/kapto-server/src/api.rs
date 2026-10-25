@@ -430,9 +430,9 @@ struct Failure(StatusCode, KaptoError);
 impl From<KaptoError> for Failure {
     fn from(error: KaptoError) -> Self {
         let status = match error.code() {
-            ErrorCode::CaptureControlUnreachable | ErrorCode::CaptureControlVersionMismatch => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
+            ErrorCode::CaptureControlUnreachable
+            | ErrorCode::CaptureControlVersionMismatch
+            | ErrorCode::CaptureControlBusy => StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::ApiInvalidRequest | ErrorCode::CaptureEventInvalid => {
                 StatusCode::BAD_REQUEST
             }

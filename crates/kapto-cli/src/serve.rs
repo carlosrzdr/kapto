@@ -452,7 +452,13 @@ fn greet_capture(socket: &Path, shutdown: &AtomicBool) -> Result<(), KaptoError>
     loop {
         match ControlClient::connect(socket, CAPTURE_HELLO_TIMEOUT) {
             Ok(_) => return Ok(()),
-            Err(error) if error.code() == ErrorCode::CaptureControlUnreachable => {
+            // Busy, it answers others: soon this one too.
+            Err(error)
+                if matches!(
+                    error.code(),
+                    ErrorCode::CaptureControlUnreachable | ErrorCode::CaptureControlBusy
+                ) =>
+            {
                 if Instant::now() >= deadline || shutdown.load(Ordering::Relaxed) {
                     return Err(KaptoError::new(ErrorCode::ServerChildFailed)
                         .detail(format!(

@@ -63,7 +63,7 @@ pub(crate) struct FakeCapture {
 
 impl FakeCapture {
     pub(crate) fn start(socket: &Path, answer: fn(&Request) -> Response) -> Self {
-        let server = ControlServer::listen(socket).unwrap();
+        let server = ControlServer::listen(socket, 16).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let thread = thread::spawn({
             let stop = Arc::clone(&stop);

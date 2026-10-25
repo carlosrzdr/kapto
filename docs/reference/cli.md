@@ -23,6 +23,7 @@
 | `--viewer-replay-cache-size <MIB>` | MiB replays of recorded episodes may take in the cache (`viewer.replay_cache_size`) |
 | `--viewer-replay-cache-age <DAYS>` | Days unopened after which a replay leaves the cache (`viewer.replay_cache_age`) |
 | `--capture-control-timeout <SECONDS>` | Seconds capture keeps recording after serve has gone (`capture.control_timeout`) |
+| `--capture-control-max-connections <COUNT>` | The most control connections capture answers at once (`capture.control_max_connections`) |
 | `--capture-stop-grace <SECONDS>` | Seconds the capture process may take to stop before it is killed (`capture.stop_grace`) |
 | `--capture-disk-warn-below <MIB>` | MiB free below which Kapto warns the disk is running low (`capture.disk_warn_below`) |
 | `--capture-disk-stop-below <MIB>` | MiB free below which recording stops and none starts (`capture.disk_stop_below`) |

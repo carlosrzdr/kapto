@@ -11,7 +11,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -172,7 +172,7 @@ fn requests_and_answers_are_one_line_of_json_each_as_documented() {
 fn hello_is_answered_by_the_connection_itself_with_both_versions() {
     let folder = scratch("hello");
     let socket = folder.join("c.sock");
-    let _server = ControlServer::listen(&socket).unwrap();
+    let _server = ControlServer::listen(&socket, 16).unwrap();
     let answers = raw(&socket, &["{\"command\":\"hello\",\"version\":1}\n"]);
     assert_eq!(
         answers,
@@ -187,7 +187,7 @@ fn hello_is_answered_by_the_connection_itself_with_both_versions() {
 fn a_client_of_another_protocol_version_is_refused_and_disconnected() {
     let folder = scratch("version");
     let socket = folder.join("c.sock");
-    let _server = ControlServer::listen(&socket).unwrap();
+    let _server = ControlServer::listen(&socket, 16).unwrap();
     let answers = raw(
         &socket,
         &[
@@ -207,7 +207,7 @@ fn a_client_of_another_protocol_version_is_refused_and_disconnected() {
 fn a_refused_client_reads_the_refusal_then_the_end_whatever_else_it_sent() {
     let folder = scratch("refused-end");
     let socket = folder.join("c.sock");
-    let _server = ControlServer::listen(&socket).unwrap();
+    let _server = ControlServer::listen(&socket, 16).unwrap();
     let mut stream = UnixStream::connect(&socket).unwrap();
     stream.set_read_timeout(Some(TIMEOUT)).unwrap();
     // More than the server reads before refusing, so some is never read.
@@ -233,7 +233,7 @@ fn a_refused_client_reads_the_refusal_then_the_end_whatever_else_it_sent() {
 fn requests_before_hello_and_requests_that_arent_json_are_refused() {
     let folder = scratch("refused");
     let socket = folder.join("c.sock");
-    let _server = ControlServer::listen(&socket).unwrap();
+    let _server = ControlServer::listen(&socket, 16).unwrap();
     for lines in [
         vec!["{\"command\":\"start\"}\n"],
         vec!["{\"command\":\"hello\",\"version\":1}\n", "start please\n"],
@@ -255,7 +255,7 @@ fn requests_before_hello_and_requests_that_arent_json_are_refused() {
 fn a_request_longer_than_the_limit_is_refused() {
     let folder = scratch("long");
     let socket = folder.join("c.sock");
-    let _server = ControlServer::listen(&socket).unwrap();
+    let _server = ControlServer::listen(&socket, 16).unwrap();
     // One byte over: the server stops reading there, so nothing is left
     // unread to reset the connection before the answer is read.
     let long = "x".repeat(4097);
@@ -267,7 +267,7 @@ fn a_request_longer_than_the_limit_is_refused() {
 fn a_clients_requests_reach_the_owner_and_its_answers_and_refusals_come_back() {
     let folder = scratch("ask");
     let socket = folder.join("c.sock");
-    let server = ControlServer::listen(&socket).unwrap();
+    let server = ControlServer::listen(&socket, 16).unwrap();
     let client = thread::spawn({
         let socket = socket.clone();
         move || {
@@ -307,7 +307,7 @@ fn a_clients_requests_reach_the_owner_and_its_answers_and_refusals_come_back() {
 fn an_error_this_side_doesnt_know_is_an_unexpected_answer_not_capture_gone() {
     let folder = scratch("unknown-error");
     let socket = folder.join("c.sock");
-    let server = ControlServer::listen(&socket).unwrap();
+    let server = ControlServer::listen(&socket, 16).unwrap();
     let client = thread::spawn({
         let socket = socket.clone();
         move || {
@@ -350,7 +350,7 @@ fn missed_around_a_sign(
 fn a_supervisor_is_missed_from_its_last_sign_of_life_whether_it_closed_or_fell_silent() {
     let folder = scratch("supervise");
     let socket = folder.join("c.sock");
-    let server = ControlServer::listen(&socket).unwrap();
+    let server = ControlServer::listen(&socket, 16).unwrap();
     // Run by hand, nobody supervises and nobody is missed.
     let client = ControlClient::connect(&socket, TIMEOUT).unwrap();
     assert_eq!(server.unsupervised_for(), None);
@@ -391,7 +391,7 @@ fn a_supervisor_is_missed_from_its_last_sign_of_life_whether_it_closed_or_fell_s
 fn every_watcher_is_told_each_episode_starting_and_ending_as_it_happens() {
     let folder = scratch("watch");
     let socket = folder.join("c.sock");
-    let server = ControlServer::listen(&socket).unwrap();
+    let server = ControlServer::listen(&socket, 16).unwrap();
     // Nobody watching yet: told to nobody, and nothing waits. So many that
     // the announcing thread is still telling them when the watchers come,
     // which must still hear only what is announced after they watch.
@@ -437,7 +437,7 @@ fn every_watcher_is_told_each_episode_starting_and_ending_as_it_happens() {
 fn an_episode_recovered_is_told_to_every_watcher_those_connecting_later_first() {
     let folder = scratch("watch-recovered");
     let socket = folder.join("c.sock");
-    let server = ControlServer::listen(&socket).unwrap();
+    let server = ControlServer::listen(&socket, 16).unwrap();
     let watch = || {
         ControlClient::connect(&socket, TIMEOUT)
             .unwrap()
@@ -480,7 +480,7 @@ fn an_episode_recovered_is_told_to_every_watcher_those_connecting_later_first() 
 fn an_episode_recovered_still_being_told_reaches_a_watcher_connecting_meanwhile_once() {
     let folder = scratch("watch-recovered-queued");
     let socket = folder.join("c.sock");
-    let server = ControlServer::listen(&socket).unwrap();
+    let server = ControlServer::listen(&socket, 16).unwrap();
     for _ in 0..QUEUED {
         server.announce(Announcement::EpisodeStarted {
             episode: "before".into(),
@@ -506,7 +506,7 @@ fn an_episode_recovered_still_being_told_reaches_a_watcher_connecting_meanwhile_
 fn a_watch_is_one_line_answer_then_one_line_per_announcement_as_documented() {
     let folder = scratch("watch-raw");
     let socket = folder.join("c.sock");
-    let server = ControlServer::listen(&socket).unwrap();
+    let server = ControlServer::listen(&socket, 16).unwrap();
     let mut stream = UnixStream::connect(&socket).unwrap();
     stream.set_read_timeout(Some(TIMEOUT)).unwrap();
     stream
@@ -547,19 +547,19 @@ fn nothing_listening_is_reported_as_unreachable_naming_the_socket() {
 fn the_socket_replaces_a_stale_one_but_not_another_file_and_is_removed_at_the_end() {
     let folder = scratch("files");
     let socket = folder.join("c.sock");
-    drop(ControlServer::listen(&socket).unwrap());
+    drop(ControlServer::listen(&socket, 16).unwrap());
     assert!(!socket.exists(), "removed when the server stops");
     // Left by a process that ended: the file stays, nobody answers on it.
     drop(std::os::unix::net::UnixListener::bind(&socket).unwrap());
     assert!(socket.exists());
     assert!(
-        ControlServer::listen(&socket).is_ok(),
+        ControlServer::listen(&socket, 16).is_ok(),
         "a stale socket is replaced"
     );
 
     let notes = folder.join("notes.txt");
     std::fs::write(&notes, "keep").unwrap();
-    let Err(error) = ControlServer::listen(&notes) else {
+    let Err(error) = ControlServer::listen(&notes, 16) else {
         panic!("replaced a file");
     };
     assert_eq!(error.code(), ErrorCode::CaptureControlSocketFailed);
@@ -570,8 +570,8 @@ fn the_socket_replaces_a_stale_one_but_not_another_file_and_is_removed_at_the_en
 fn a_socket_another_process_answers_on_is_refused_naming_it_and_left_alone() {
     let folder = scratch("taken");
     let socket = folder.join("c.sock");
-    let first = ControlServer::listen(&socket).unwrap();
-    let Err(error) = ControlServer::listen(&socket) else {
+    let first = ControlServer::listen(&socket, 16).unwrap();
+    let Err(error) = ControlServer::listen(&socket, 16) else {
         panic!("took over a socket in use");
     };
     assert_eq!(error.code(), ErrorCode::CaptureAlreadyRunning);
@@ -587,7 +587,79 @@ fn a_socket_another_process_answers_on_is_refused_naming_it_and_left_alone() {
 
     drop(first);
     assert!(
-        ControlServer::listen(&socket).is_ok(),
+        ControlServer::listen(&socket, 16).is_ok(),
         "free again once the first has gone"
+    );
+}
+
+/// Whether capture answers one more connection now: connects, says hello,
+/// and closes it.
+fn one_more_answered(socket: &Path) -> Result<(), KaptoError> {
+    ControlClient::connect(socket, TIMEOUT).map(drop)
+}
+
+#[test]
+fn beyond_16_connections_one_more_is_refused_busy_and_closed_while_the_16_stay_answered() {
+    let folder = scratch("busy");
+    let socket = folder.join("c.sock");
+    let _server = ControlServer::listen(&socket, 16).unwrap();
+    let mut open: Vec<ControlClient> = (0..16)
+        .map(|_| ControlClient::connect(&socket, TIMEOUT).unwrap())
+        .collect();
+
+    let error = one_more_answered(&socket).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::CaptureControlBusy);
+    assert!(
+        error.message().contains("16 control connections"),
+        "{error}"
+    );
+    // One error line, then the end of the connection, never a reset.
+    let answers = raw(&socket, &["{\"command\":\"hello\",\"version\":1}\n"]);
+    assert_eq!(answers.len(), 1, "{answers:?}");
+    assert!(
+        answers[0].starts_with(r#"{"error":{"code":"capture.control_busy","#),
+        "{}",
+        answers[0]
+    );
+    // The 16 are still answered.
+    for client in &mut open {
+        let hello = Request::Hello {
+            version: PROTOCOL_VERSION,
+        };
+        assert!(matches!(client.ask(&hello), Ok(Response::Hello { .. })));
+    }
+}
+
+#[test]
+fn a_control_connection_closed_frees_its_place_for_another() {
+    let folder = scratch("busy-freed");
+    let socket = folder.join("c.sock");
+    let _server = ControlServer::listen(&socket, 16).unwrap();
+    let mut open: Vec<ControlClient> = (0..16)
+        .map(|_| ControlClient::connect(&socket, TIMEOUT).unwrap())
+        .collect();
+    assert_eq!(
+        one_more_answered(&socket).unwrap_err().code(),
+        ErrorCode::CaptureControlBusy
+    );
+
+    drop(open.pop());
+    // Its thread sees the end of the connection and gives its place back.
+    let deadline = Instant::now() + TIMEOUT;
+    let another = loop {
+        match ControlClient::connect(&socket, TIMEOUT) {
+            Ok(client) => break client,
+            Err(error) if error.code() == ErrorCode::CaptureControlBusy => {
+                assert!(Instant::now() < deadline, "no place was freed");
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("{error}"),
+        }
+    };
+    open.push(another);
+    // Taken again: the next is refused.
+    assert_eq!(
+        one_more_answered(&socket).unwrap_err().code(),
+        ErrorCode::CaptureControlBusy
     );
 }

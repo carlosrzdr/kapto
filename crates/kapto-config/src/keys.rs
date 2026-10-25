@@ -167,6 +167,12 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         default: DefaultValue::Fixed("60"),
     },
     Key {
+        path: "capture.control_max_connections",
+        value_type: ValueType::Count,
+        help: "The most control connections the capture process answers at once, each on a thread of its own. Only `kapto serve`, its worker and viewer bridge, and `kapto episode` connect, a few at a time; one more is answered with `capture.control_busy` and closed. The bound keeps the memory capture says its threads take finite.",
+        default: DefaultValue::Fixed("16"),
+    },
+    Key {
         path: "capture.stop_grace",
         value_type: ValueType::Seconds,
         help: "How long, in seconds, the capture process may take to stop when `kapto serve` stops, before it is killed: long enough to finalise the episode being recorded.",

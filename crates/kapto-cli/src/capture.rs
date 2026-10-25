@@ -88,7 +88,16 @@ fn say_receiving(station: &Station, deployment: &DeploymentConfig) {
     if let Some(pre_roll) = station.pre_roll_said() {
         say!("{pre_roll}");
     }
-    say!("{}", threads_said(&station.threads()));
+    say!(
+        "{}",
+        threads_said(&station.threads(control_connections(deployment)))
+    );
+}
+
+/// The most control connections capture answers at once
+/// (`capture.control_max_connections`).
+fn control_connections(deployment: &DeploymentConfig) -> usize {
+    usize::try_from(deployment.control_max_connections.value).unwrap_or(usize::MAX)
 }
 
 /// What capture's threads take at most, said when it starts.
@@ -104,11 +113,12 @@ fn threads_said(memory: &ThreadMemory) -> String {
     };
     format!(
         "Threads: {}, their stacks and own buffers {:.1} MiB{framing}, with an episode being \
-         closed while the next is recorded; each control connection adds {:.1} MiB, and an \
-         episode waiting to be closed keeps only its digest and its open file.",
+         closed while the next is recorded and {} control connections open, the most \
+         answered at once; an episode waiting to be closed keeps only its digest and its open \
+         file.",
         memory.count(),
         mib(memory.total_bytes()),
-        mib(ThreadMemory::per_connection_bytes()),
+        memory.control_connections(),
     )
 }
 
@@ -123,8 +133,11 @@ fn serve(
     let shutdown = on_signals()?;
     // Before the streams' inputs are opened: a capture process already
     // running holds them, and is what to report.
-    let control =
-        ControlServer::listen(&deployment.control_socket.value).map_err(|error| vec![error])?;
+    let control = ControlServer::listen(
+        &deployment.control_socket.value,
+        control_connections(&deployment),
+    )
+    .map_err(|error| vec![error])?;
     let mut station = open_station(&deployment, (streams, mapping), plan, &declarations)?;
     recover_meanwhile(&control, deployment.data_dir.value.clone())?;
     let mut closer = Closer::start()?;
@@ -737,18 +750,22 @@ mod tests {
         // buffers of pre-flight (1 MiB), two cap-hash and cap-finalise
         // (256 KiB each).
         assert_eq!(
-            threads_said(&ThreadMemory::capture(&[0], true)),
-            "Threads: 11, their stacks and own buffers 24.4 MiB, with an episode being \
-             closed while the next is recorded; each control connection adds 2.1 MiB, and an \
-             episode waiting to be closed keeps only its digest and its open file."
+            threads_said(&ThreadMemory::capture(&[0], true, 16)),
+            "Threads: 27, their stacks and own buffers 57.4 MiB, with an episode being closed \
+             while the next is recorded and 16 control connections open, the most answered at \
+             once; an episode waiting to be closed keeps only its digest and its open file."
         );
         // A TCP camera of 32 MiB frames, read 64 KiB at a time.
         assert_eq!(
-            threads_said(&ThreadMemory::capture(&[0, (32 << 20) + (64 << 10)], true)),
-            "Threads: 12, their stacks and own buffers 58.6 MiB (the TCP inputs' framing \
-             buffers 32.1 MiB), with an episode being closed while the next is recorded; each \
-             control connection adds 2.1 MiB, and an episode waiting to be closed keeps only \
-             its digest and its open file."
+            threads_said(&ThreadMemory::capture(
+                &[0, (32 << 20) + (64 << 10)],
+                true,
+                16
+            )),
+            "Threads: 28, their stacks and own buffers 91.6 MiB (the TCP inputs' framing \
+             buffers 32.1 MiB), with an episode being closed while the next is recorded and 16 \
+             control connections open, the most answered at once; an episode waiting to be \
+             closed keeps only its digest and its open file."
         );
     }
 

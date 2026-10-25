@@ -137,6 +137,13 @@ struct SettingFlags {
         value_name = "SECONDS"
     )]
     control_timeout: Option<String>,
+    /// The most control connections capture answers at once (`capture.control_max_connections`).
+    #[arg(
+        long = "capture-control-max-connections",
+        global = true,
+        value_name = "COUNT"
+    )]
+    control_max_connections: Option<String>,
     /// Seconds the capture process may take to stop before it is killed (`capture.stop_grace`).
     #[arg(long, global = true, value_name = "SECONDS")]
     capture_stop_grace: Option<String>,
@@ -296,6 +303,10 @@ pub const SETTING_FLAGS: &[(&str, &str)] = &[
     ("viewer.replay_cache_size", "--viewer-replay-cache-size"),
     ("viewer.replay_cache_age", "--viewer-replay-cache-age"),
     ("capture.control_timeout", "--capture-control-timeout"),
+    (
+        "capture.control_max_connections",
+        "--capture-control-max-connections",
+    ),
     ("capture.stop_grace", "--capture-stop-grace"),
     ("capture.disk_warn_below", "--capture-disk-warn-below"),
     ("capture.disk_stop_below", "--capture-disk-stop-below"),
@@ -389,6 +400,7 @@ impl SettingFlags {
             &self.replay_cache_size,
             &self.replay_cache_age,
             &self.control_timeout,
+            &self.control_max_connections,
             &self.capture_stop_grace,
             &self.disk_warn_below,
             &self.disk_stop_below,
@@ -804,6 +816,7 @@ mod tests {
             replay_cache_size: Some("viewer-replay-cache-size".into()),
             replay_cache_age: Some("viewer-replay-cache-age".into()),
             control_timeout: Some("capture-control-timeout".into()),
+            control_max_connections: Some("capture-control-max-connections".into()),
             capture_stop_grace: Some("capture-stop-grace".into()),
             disk_warn_below: Some("capture-disk-warn-below".into()),
             disk_stop_below: Some("capture-disk-stop-below".into()),
@@ -895,6 +908,7 @@ mod tests {
             replay_cache_size: Some(String::new()),
             replay_cache_age: Some(String::new()),
             control_timeout: Some(String::new()),
+            control_max_connections: Some(String::new()),
             capture_stop_grace: Some(String::new()),
             disk_warn_below: Some(String::new()),
             disk_stop_below: Some(String::new()),

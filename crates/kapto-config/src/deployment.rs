@@ -93,6 +93,8 @@ pub struct DeploymentConfig {
     pub control_socket: Effective<PathBuf>,
     /// How long capture keeps recording after `kapto serve` has gone.
     pub control_timeout: Effective<Duration>,
+    /// The most control connections capture answers at once.
+    pub control_max_connections: Effective<u32>,
     /// How long the capture process may take to stop.
     pub capture_stop_grace: Effective<Duration>,
     /// Below how much free space, in MiB, Kapto warns.
@@ -218,6 +220,7 @@ impl DeploymentConfig {
             frame_socket: take(&mut values, "viewer.frame_socket", path),
             control_socket: take(&mut values, "capture.control_socket", path),
             control_timeout: take(&mut values, "capture.control_timeout", seconds),
+            control_max_connections: take(&mut values, "capture.control_max_connections", count),
             capture_stop_grace: take(&mut values, "capture.stop_grace", seconds),
             disk_warn_below_mib: take(&mut values, "capture.disk_warn_below", mebibytes),
             disk_stop_below_mib: take(&mut values, "capture.disk_stop_below", mebibytes),
@@ -276,6 +279,7 @@ impl DeploymentConfig {
                     "viewer.frame_socket" => display_path(&self.frame_socket),
                     "capture.control_socket" => display_path(&self.control_socket),
                     "capture.control_timeout" => seconds_text(&self.control_timeout),
+                    "capture.control_max_connections" => text(&self.control_max_connections),
                     "capture.stop_grace" => seconds_text(&self.capture_stop_grace),
                     "capture.disk_warn_below" => text(&self.disk_warn_below_mib),
                     "capture.disk_stop_below" => text(&self.disk_stop_below_mib),
@@ -984,6 +988,37 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         let errors =
             resolve(None, &env(&[("KAPTO_CAPTURE_COMPRESSION", "gzip")]), &[]).unwrap_err();
         assert_eq!(codes(&errors), [ErrorCode::ConfigInvalidEnvVar]);
+    }
+
+    #[test]
+    fn capture_answers_16_control_connections_at_once_unless_set_by_file_env_or_flag() {
+        let config = resolve(None, &env(&[]), &[]).unwrap();
+        assert_eq!(config.control_max_connections.value, 16);
+        assert_eq!(config.control_max_connections.source, Source::Default);
+        let toml = file("[capture]\ncontrol_max_connections = 8\n");
+        let config = resolve(Some(&toml), &env(&[]), &[]).unwrap();
+        assert_eq!(config.control_max_connections.value, 8);
+        assert_eq!(config.control_max_connections.source, line_source(2));
+        let vars = env(&[("KAPTO_CAPTURE_CONTROL_MAX_CONNECTIONS", "24")]);
+        let config = resolve(Some(&toml), &vars, &[]).unwrap();
+        assert_eq!(config.control_max_connections.value, 24);
+        let flags = [cli(
+            "capture.control_max_connections",
+            "32",
+            "--capture-control-max-connections",
+        )];
+        let config = resolve(Some(&toml), &vars, &flags).unwrap();
+        assert_eq!(config.control_max_connections.value, 32);
+        assert_eq!(
+            config.control_max_connections.source,
+            Source::Cli {
+                flag: "--capture-control-max-connections".into()
+            }
+        );
+        // None at all would leave capture unreachable.
+        let none = file("[capture]\ncontrol_max_connections = 0\n");
+        let errors = resolve(Some(&none), &env(&[]), &[]).unwrap_err();
+        assert_eq!(codes(&errors), [ErrorCode::ConfigInvalidValue]);
     }
 
     #[test]

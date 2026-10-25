@@ -280,6 +280,7 @@ viewer.tap_socket                 /home/u/.local/share/kapto/tap.sock      defau
 viewer.frame_socket               /home/u/.local/share/kapto/frames.sock   default
 capture.control_socket            /home/u/.local/share/kapto/capture.sock  default
 capture.control_timeout           60                                       default
+capture.control_max_connections   16                                       default
 capture.stop_grace                30                                       default
 capture.disk_warn_below           10240                                    default
 capture.disk_stop_below           2048                                     default
