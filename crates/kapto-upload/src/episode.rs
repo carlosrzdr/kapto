@@ -517,22 +517,27 @@ async fn put_whole(
         let sent: Result<Result<(), KaptoError>, Error> = async {
             let mut upload = store.put_multipart(at).await?;
             let mut reading = reading.clone();
-            for index in 0..file.bytes.div_ceil(reading.part) {
-                let data = match reading.part(index) {
-                    Ok(data) => data,
-                    Err(error) => {
-                        upload.abort().await.ok();
-                        return Ok(Err(error));
-                    }
-                };
-                tries.paced(bytes(data.len())).await;
-                upload.put_part(PutPayload::from(data)).await?;
+            let sent: Result<Result<(), KaptoError>, Error> = async {
+                for index in 0..file.bytes.div_ceil(reading.part) {
+                    let data = match reading.part(index) {
+                        Ok(data) => data,
+                        Err(error) => return Ok(Err(error)),
+                    };
+                    tries.paced(bytes(data.len())).await;
+                    upload.put_part(PutPayload::from(data)).await?;
+                }
+                if let Err(error) = reading.check() {
+                    return Ok(Err(error));
+                }
+                upload.complete().await.map(|_| Ok(()))
             }
-            if let Err(error) = reading.check() {
+            .await;
+            // Not completed, whatever stopped it: the store needn't keep its
+            // parts, and the next try starts an upload of its own.
+            if !matches!(sent, Ok(Ok(()))) {
                 upload.abort().await.ok();
-                return Ok(Err(error));
             }
-            upload.complete().await.map(|_| Ok(()))
+            sent
         }
         .await;
         match sent {
@@ -1030,6 +1035,41 @@ mod tests {
         let (outcome, _, waits) = upload(store, &folder, &POLICY, &mut Progress::default()).await;
         assert_eq!(outcome.unwrap_err().code(), ErrorCode::UploadDenied);
         assert_eq!(waits, []);
+    }
+
+    #[tokio::test]
+    async fn a_part_the_store_fails_has_its_upload_aborted_before_the_file_is_tried_again() {
+        // A store without parts carried over: each try is an upload of its own.
+        let folder = episode("upload-part-fails");
+        let faulty = Faulty::new(InMemory::new());
+        let store = Store {
+            objects: &faulty,
+            multipart: None,
+        };
+        faulty.fail_next_part(unreachable());
+        let (outcome, _, waits) = upload(store, &folder, &POLICY, &mut Progress::default()).await;
+        assert!(matches!(outcome, Ok(Uploaded::Now(_))), "{outcome:?}");
+        assert_eq!(waits.len(), 1, "tried again once");
+        assert_eq!(
+            faulty.aborted(),
+            1,
+            "the failed upload left nothing behind at the store"
+        );
+
+        // Failing every try, it is given up with its cause, every try's
+        // upload aborted.
+        let folder = episode("upload-parts-keep-failing");
+        let faulty = Faulty::new(InMemory::new());
+        let store = Store {
+            objects: &faulty,
+            multipart: None,
+        };
+        for _ in 0..POLICY.max_attempts {
+            faulty.fail_next_part(unreachable());
+        }
+        let (outcome, _, _) = upload(store, &folder, &POLICY, &mut Progress::default()).await;
+        assert_eq!(outcome.unwrap_err().code(), ErrorCode::UploadUnreachable);
+        assert_eq!(faulty.aborted(), POLICY.max_attempts as usize);
     }
 
     #[tokio::test]

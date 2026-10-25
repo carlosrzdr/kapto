@@ -10,10 +10,12 @@
 
 use std::collections::VecDeque;
 use std::fmt;
-use std::sync::{Mutex, PoisonError};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
+use object_store::UploadPart;
 use object_store::multipart::{MultipartStore, PartId};
 use object_store::path::Path;
 use object_store::{
@@ -27,6 +29,10 @@ use object_store::{
 pub struct Faulty<S> {
     store: S,
     faults: Mutex<VecDeque<Error>>,
+    /// What the multipart uploads it hands out fail with, part or completion.
+    part_faults: Arc<Mutex<VecDeque<Error>>>,
+    /// How many multipart uploads were aborted.
+    aborted: Arc<AtomicUsize>,
     /// Where what is put is stored with its first byte changed.
     corrupted: Mutex<Vec<Path>>,
     /// Each location read, once per read, to show what was read back.
@@ -39,6 +45,8 @@ impl<S> Faulty<S> {
         Self {
             store,
             faults: Mutex::new(VecDeque::new()),
+            part_faults: Arc::new(Mutex::new(VecDeque::new())),
+            aborted: Arc::new(AtomicUsize::new(0)),
             corrupted: Mutex::new(Vec::new()),
             reads: Mutex::new(Vec::new()),
         }
@@ -66,16 +74,60 @@ impl<S> Faulty<S> {
 
     /// Makes the next call fail with `error`, after those queued before.
     pub fn fail_next(&self, error: Error) {
-        self.lock().push_back(error);
+        lock(&self.faults).push_back(error);
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, VecDeque<Error>> {
-        self.faults.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Makes the next part put, or completion, of a multipart upload it
+    /// handed out fail with `error`, after those queued before.
+    pub fn fail_next_part(&self, error: Error) {
+        lock(&self.part_faults).push_back(error);
+    }
+
+    /// How many multipart uploads it handed out were aborted.
+    pub fn aborted(&self) -> usize {
+        self.aborted.load(Ordering::Relaxed)
     }
 
     /// The error queued for this call, if any.
     fn fault(&self) -> Result<()> {
-        self.lock().pop_front().map_or(Ok(()), Err)
+        fault(&self.faults)
+    }
+}
+
+fn lock(faults: &Mutex<VecDeque<Error>>) -> std::sync::MutexGuard<'_, VecDeque<Error>> {
+    faults.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn fault(faults: &Mutex<VecDeque<Error>>) -> Result<()> {
+    lock(faults).pop_front().map_or(Ok(()), Err)
+}
+
+/// A multipart upload of the store's, failing its next part or completion
+/// with the errors queued, and counting its abort.
+#[derive(Debug)]
+struct FaultyUpload {
+    upload: Box<dyn MultipartUpload>,
+    faults: Arc<Mutex<VecDeque<Error>>>,
+    aborted: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl MultipartUpload for FaultyUpload {
+    fn put_part(&mut self, data: PutPayload) -> UploadPart {
+        match fault(&self.faults) {
+            Ok(()) => self.upload.put_part(data),
+            Err(error) => Box::pin(async move { Err(error) }),
+        }
+    }
+
+    async fn complete(&mut self) -> Result<PutResult> {
+        fault(&self.faults)?;
+        self.upload.complete().await
+    }
+
+    async fn abort(&mut self) -> Result<()> {
+        self.aborted.fetch_add(1, Ordering::Relaxed);
+        self.upload.abort().await
     }
 }
 
@@ -115,7 +167,12 @@ impl<S: ObjectStore> ObjectStore for Faulty<S> {
         options: PutMultipartOptions,
     ) -> Result<Box<dyn MultipartUpload>> {
         self.fault()?;
-        self.store.put_multipart_opts(location, options).await
+        let upload = self.store.put_multipart_opts(location, options).await?;
+        Ok(Box::new(FaultyUpload {
+            upload,
+            faults: Arc::clone(&self.part_faults),
+            aborted: Arc::clone(&self.aborted),
+        }))
     }
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
