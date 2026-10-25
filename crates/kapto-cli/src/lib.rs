@@ -438,10 +438,13 @@ enum Command {
     /// Inspect Kapto's configuration.
     #[command(subcommand)]
     Config(ConfigCommand),
-    /// Record one episode from the UDP streams declared in a streams.toml,
-    /// for a fixed time, into the data directory.
+    /// Record one episode from the streams in a streams.toml, for a set time.
+    ///
+    /// Each stream may come over UDP, TCP or ROS 2, as the streams.toml
+    /// declares it; the episode is written into the data directory.
     Record {
-        /// The streams.toml declaring each stream's UDP port and rate.
+        /// The streams.toml declaring each stream's input (a UDP port, a TCP
+        /// address or a ROS 2 topic) and rate.
         #[arg(long, value_name = "FILE")]
         streams: PathBuf,
         /// The mapping.toml saying which decoded value drives which joint,
@@ -453,10 +456,13 @@ enum Command {
         #[arg(long, value_name = "SECONDS", value_parser = clap::value_parser!(u32).range(1..=604_800))]
         duration: u32,
     },
-    /// Receive every stream declared in a streams.toml for as long as it
-    /// runs, feeding the live view, and record episodes when told to over
+    /// Receive the streams and record episodes on command; serve starts it.
+    ///
+    /// Receives every stream declared in a streams.toml for as long as it
+    /// runs, feeding the live view, and records episodes when told to over
     /// the control socket; SIGINT or SIGTERM finalises the episode being
     /// recorded and stops.
+    #[command(hide = true)]
     Capture {
         /// The streams.toml declaring each stream's input and rate.
         #[arg(long, value_name = "FILE")]
@@ -467,56 +473,83 @@ enum Command {
         #[arg(long, value_name = "FILE")]
         mapping: Option<PathBuf>,
     },
-    /// Start and stop episodes of a running `kapto capture`, or show what it
-    /// is doing.
+    /// Start, stop, mark or delete the episodes of a running `kapto serve`.
+    ///
+    /// Talks to the capture process `kapto serve` started (or a `kapto
+    /// capture` of its own): starts and stops episodes, marks events in
+    /// them, runs its pre-flight checks or shows what it is doing; and puts
+    /// episodes in the bin or back from it.
     #[command(subcommand)]
     Episode(episode::EpisodeCommand),
-    /// List the robot packages Kapto finds, or show one: what identifies
-    /// it and its files.
+    /// List, show, check or import robot packages.
+    ///
+    /// Lists the robot packages Kapto finds, shows one (what identifies it
+    /// and its files), checks one for problems, or makes one from a robot
+    /// description found elsewhere.
     #[command(subcommand)]
     Package(package::PackageCommand),
-    /// List the session profiles in the configuration folder, or show one:
-    /// with which robot, by whom, where and how episodes are recorded.
+    /// List the session profiles in the configuration folder, or show one.
+    ///
+    /// A profile says with which robot, by whom, where and how episodes are
+    /// recorded.
     #[command(subcommand)]
     Profile(session::ProfileCommand),
-    /// List the tasks in the configuration folder, or show one: what the
-    /// robot is asked to do.
+    /// List the tasks in the configuration folder, or show one.
+    ///
+    /// A task says what the robot is asked to do.
     #[command(subcommand)]
     Task(session::TaskCommand),
-    /// Show a recording's messages as named values, decoded with the layouts
-    /// stored in it; streams without one are shown as raw bytes. With --pcap
-    /// and --package, decode a packet capture with a package's streams.
+    /// Show a recording's or a packet capture's messages as named values.
+    ///
+    /// A recording is decoded with the layouts stored in it; streams without
+    /// one are shown as raw bytes. With --pcap and --package, a packet
+    /// capture is decoded with a package's streams.
     Decode(decode::DecodeArgs),
-    /// Try Kapto without a robot: run it with the built-in sample arm and a
-    /// synthetic robot sending its joint states, then open the address it
-    /// prints.
+    /// Try Kapto without a robot: a sample arm and a synthetic robot.
+    ///
+    /// Runs Kapto with the built-in sample arm and a synthetic robot sending
+    /// its joint states; open the address it prints.
     Demo(demo::DemoArgs),
-    /// Show Kapto to people in one command: the demo, narrated step by step,
-    /// recording ordinary episodes and then one in which the robot
-    /// misbehaves, and saying what Kapto found and where to watch it.
+    /// Show Kapto to people: the demo, narrated step by step.
+    ///
+    /// Records ordinary episodes and then one in which the robot misbehaves,
+    /// and says what Kapto found and where to watch it.
     Showcase(showcase::ShowcaseArgs),
-    /// Run Kapto: start the capture process, the viewer bridge and the
-    /// worker, keep them running, serve the API, and stop everything on
+    /// Run Kapto: recording, the live view, the worker, the API and web UI.
+    ///
+    /// Starts the capture process, the viewer bridge and the worker, keeps
+    /// them running, serves the API and web UI, and stops everything on
     /// SIGINT or SIGTERM.
     Serve(serve::ServeArgs),
-    /// Stream the robot moving live to the web UI's live view, from the
-    /// samples a running capture process or recording sends; runs until
+    /// Stream the robot moving live to the web UI; serve starts it.
+    ///
+    /// Streams the robot moving to the web UI's live view, from the samples
+    /// a running capture process or recording sends; runs until
     /// interrupted.
+    #[command(hide = true)]
     VizBridge(viz_bridge::VizBridgeArgs),
-    /// Do the jobs `kapto serve` queues, such as checking each finalised
-    /// episode's files against its manifest, one at a time; runs until
-    /// SIGINT or SIGTERM. Serve starts it.
+    /// Do the jobs `kapto serve` queues; serve starts it.
+    ///
+    /// Jobs such as checking each finalised episode's files against its
+    /// manifest, one at a time; runs until SIGINT or SIGTERM.
+    #[command(hide = true)]
     Worker(worker::WorkerArgs),
-    /// List the ROS 2 topics this machine's ROS 2 network has, with their
-    /// message types, for declaring a ROS 2 robot's streams. Only the Kapto
-    /// of the `kapto-ros2` image is built with ROS 2.
+    /// List the ROS 2 topics on this machine's network, with their types.
+    ///
+    /// For declaring a ROS 2 robot's streams. Only the Kapto of the
+    /// `kapto-ros2` image is built with ROS 2.
     Topics(topics::TopicsArgs),
-    /// Write an episode in another tool's format: its ROS 2 topics as a
-    /// rosbag2 bag that `ros2 bag play` plays back on the robot's topics.
+    /// Write an episode in another tool's format, such as a rosbag2 bag.
+    ///
+    /// An episode's ROS 2 topics as a rosbag2 bag that `ros2 bag play` plays
+    /// back on the robot's topics.
     #[command(subcommand)]
     Export(export::ExportCommand),
-    /// Work with the upload destinations in `[[upload.destination]]`:
-    /// test that each can be written to as an upload would.
+    /// Test the upload destinations, see where uploads are, or retry them.
+    ///
+    /// Tests that each destination in `[[upload.destination]]` can be written
+    /// to as an upload would, shows where uploads are, or tries an episode's
+    /// failed uploads again.
     #[command(subcommand)]
     Upload(upload::UploadCommand),
 }
@@ -529,25 +562,48 @@ enum ConfigCommand {
     Show,
 }
 
+/// The setting flags every help shows; the others only in `--help`.
+const SHOWN_SETTINGS: &[&str] = &["config", "bind", "port", "data_dir", "packages_dir"];
+
+/// The heading the setting flags are listed under, after each command's own.
+const SETTINGS_HEADING: &str = "Settings";
+
 /// The full command-line definition: commands, flags and help texts.
 #[must_use]
 pub fn command() -> clap::Command {
-    Cli::command()
+    // Every setting has a flag, but most are set once in kapto.toml: listed
+    // in every `-h`, they would bury each command's own options.
+    with_footers(Cli::command().mut_args(|arg| {
+        let shown = SHOWN_SETTINGS.contains(&arg.get_id().as_str());
+        arg.hide_short_help(!shown).help_heading(SETTINGS_HEADING)
+    }))
+}
+
+const SHORT_HELP_FOOTER: &str =
+    "More settings: --help lists a flag for each; `kapto config show` shows their values.";
+
+const LONG_HELP_FOOTER: &str = "Each setting can also be set in kapto.toml or a KAPTO_<SECTION>_<NAME> \
+     environment variable; `kapto config show` shows their values and \
+     docs/reference/configuration.md describes them.";
+
+/// `command` and each of its subcommands, with where to find the settings.
+fn with_footers(command: clap::Command) -> clap::Command {
+    command
+        .after_help(SHORT_HELP_FOOTER)
+        .after_long_help(LONG_HELP_FOOTER)
+        .mut_subcommands(with_footers)
 }
 
 /// Parses the process arguments and runs the chosen command.
 #[cfg(feature = "run")]
 #[must_use]
 pub fn run() -> ExitCode {
-    let cli = Cli::parse();
+    use clap::FromArgMatches as _;
+    let matches = command().get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     // Each process's spans, named for its command, in a profiling build.
     #[cfg(feature = "profiling")]
-    let _trace = {
-        use clap::CommandFactory as _;
-        let matches = Cli::command().try_get_matches().ok();
-        let command = matches.as_ref().and_then(clap::ArgMatches::subcommand_name);
-        trace::start(command.unwrap_or("kapto"))
-    };
+    let _trace = trace::start(matches.subcommand_name().unwrap_or("kapto"));
     match cli.command {
         Command::Config(ConfigCommand::Validate) => config::validate(&cli.settings),
         Command::Config(ConfigCommand::Show) => config::show(&cli.settings),
@@ -589,6 +645,85 @@ mod tests {
     #[test]
     fn command_line_definition_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    /// The help `kapto <subcommand> -h` (or `--help`, if `long`) prints.
+    fn help_of(subcommand: &str, long: bool) -> String {
+        let mut root = command();
+        root.build();
+        let Some(sub) = root.find_subcommand_mut(subcommand) else {
+            panic!("no subcommand {subcommand}");
+        };
+        let help = if long {
+            sub.render_long_help()
+        } else {
+            sub.render_help()
+        };
+        help.to_string()
+    }
+
+    #[test]
+    fn short_help_lists_the_command_and_a_few_settings_but_not_every_setting() {
+        let help = help_of("record", false);
+        for shown in [
+            "--streams",
+            "--duration",
+            "--config",
+            "--data-dir",
+            "--port",
+        ] {
+            assert!(help.contains(shown), "{shown} missing from:\n{help}");
+        }
+        assert!(!help.contains("--upload-part-size"), "{help}");
+        let own = help.find("--streams");
+        assert!(own < help.find(SETTINGS_HEADING), "{help}");
+        assert!(
+            help.find(SETTINGS_HEADING) < help.find("--config"),
+            "{help}"
+        );
+        assert!(help.contains("--help lists a flag for each"), "{help}");
+    }
+
+    #[test]
+    fn long_help_lists_every_setting_under_its_own_heading() {
+        let help = help_of("record", true);
+        let heading = help.find(SETTINGS_HEADING);
+        let flag = help.find("--upload-part-size");
+        assert!(heading.is_some() && flag > heading, "{help}");
+        for (_, flag) in SETTING_FLAGS {
+            assert!(help.contains(flag), "{flag} missing from:\n{help}");
+        }
+        assert!(help.contains("docs/reference/configuration.md"), "{help}");
+    }
+
+    #[test]
+    fn the_processes_serve_starts_are_left_out_of_the_command_list() {
+        let help = command().render_help().to_string();
+        for hidden in ["capture", "viz-bridge", "worker"] {
+            assert!(
+                !help
+                    .lines()
+                    .any(|line| line.trim_start().starts_with(hidden)),
+                "{hidden} listed in:\n{help}"
+            );
+        }
+        assert!(
+            help.lines()
+                .any(|line| line.trim_start().starts_with("serve"))
+        );
+    }
+
+    #[test]
+    fn each_command_is_summed_up_in_one_short_line() {
+        for sub in command().get_subcommands() {
+            let about = sub.get_about().map(ToString::to_string).unwrap_or_default();
+            assert!(
+                !about.is_empty() && about.len() <= 72,
+                "{}: {about:?} ({} chars)",
+                sub.get_name(),
+                about.len()
+            );
+        }
     }
 
     #[test]

@@ -143,8 +143,18 @@ fn cli() -> String {
 fn subcommands(page: &mut String, command: &Command, path: &str) {
     for sub in command.get_subcommands() {
         let path = format!("{path} {}", sub.get_name());
-        let about = sub.get_about().map(ToString::to_string).unwrap_or_default();
-        let _ = writeln!(page, "\n## `{path}`\n\n{about}.");
+        // The whole description, as `--help` shows it, when there is more
+        // than the one line `-h` shows.
+        let about = sub.get_long_about().map_or_else(
+            || {
+                format!(
+                    "{}.",
+                    sub.get_about().map(ToString::to_string).unwrap_or_default()
+                )
+            },
+            ToString::to_string,
+        );
+        let _ = writeln!(page, "\n## `{path}`\n\n{about}");
         let own: Vec<_> = sub
             .get_arguments()
             .filter(|arg| !arg.is_global_set())

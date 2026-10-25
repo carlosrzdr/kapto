@@ -78,17 +78,21 @@ Show every setting with its value and where the value came from.
 
 ## `kapto record`
 
-Record one episode from the UDP streams declared in a streams.toml, for a fixed time, into the data directory.
+Record one episode from the streams in a streams.toml, for a set time.
+
+Each stream may come over UDP, TCP or ROS 2, as the streams.toml declares it; the episode is written into the data directory.
 
 | Option | Description |
 |---|---|
-| `--streams <FILE>` | The streams.toml declaring each stream's UDP port and rate |
+| `--streams <FILE>` | The streams.toml declaring each stream's input (a UDP port, a TCP address or a ROS 2 topic) and rate |
 | `--mapping <FILE>` | The mapping.toml saying which decoded value drives which joint, carried by each recording when the streams aren't declared in a robot package, so its quality checks know the joints |
 | `--duration <SECONDS>` | How long to record, in seconds |
 
 ## `kapto capture`
 
-Receive every stream declared in a streams.toml for as long as it runs, feeding the live view, and record episodes when told to over the control socket; SIGINT or SIGTERM finalises the episode being recorded and stops.
+Receive the streams and record episodes on command; serve starts it.
+
+Receives every stream declared in a streams.toml for as long as it runs, feeding the live view, and records episodes when told to over the control socket; SIGINT or SIGTERM finalises the episode being recorded and stops.
 
 | Option | Description |
 |---|---|
@@ -97,7 +101,9 @@ Receive every stream declared in a streams.toml for as long as it runs, feeding 
 
 ## `kapto episode`
 
-Start and stop episodes of a running `kapto capture`, or show what it is doing.
+Start, stop, mark or delete the episodes of a running `kapto serve`.
+
+Talks to the capture process `kapto serve` started (or a `kapto capture` of its own): starts and stops episodes, marks events in them, runs its pre-flight checks or shows what it is doing; and puts episodes in the bin or back from it.
 
 ## `kapto episode start`
 
@@ -156,7 +162,9 @@ Put an episode deleted by hand back from the bin, as it was. Needs `kapto serve`
 
 ## `kapto package`
 
-List the robot packages Kapto finds, or show one: what identifies it and its files.
+List, show, check or import robot packages.
+
+Lists the robot packages Kapto finds, shows one (what identifies it and its files), checks one for problems, or makes one from a robot description found elsewhere.
 
 ## `kapto package list`
 
@@ -192,7 +200,9 @@ Check a robot package: its files, the robot description and meshes, the streams 
 
 ## `kapto profile`
 
-List the session profiles in the configuration folder, or show one: with which robot, by whom, where and how episodes are recorded.
+List the session profiles in the configuration folder, or show one.
+
+A profile says with which robot, by whom, where and how episodes are recorded.
 
 ## `kapto profile list`
 
@@ -208,7 +218,9 @@ Show one profile: everything it says.
 
 ## `kapto task`
 
-List the tasks in the configuration folder, or show one: what the robot is asked to do.
+List the tasks in the configuration folder, or show one.
+
+A task says what the robot is asked to do.
 
 ## `kapto task list`
 
@@ -224,7 +236,9 @@ Show one task: everything it says.
 
 ## `kapto decode`
 
-Show a recording's messages as named values, decoded with the layouts stored in it; streams without one are shown as raw bytes. With --pcap and --package, decode a packet capture with a package's streams.
+Show a recording's or a packet capture's messages as named values.
+
+A recording is decoded with the layouts stored in it; streams without one are shown as raw bytes. With --pcap and --package, a packet capture is decoded with a package's streams.
 
 | Option | Description |
 |---|---|
@@ -237,7 +251,9 @@ Show a recording's messages as named values, decoded with the layouts stored in 
 
 ## `kapto demo`
 
-Try Kapto without a robot: run it with the built-in sample arm and a synthetic robot sending its joint states, then open the address it prints.
+Try Kapto without a robot: a sample arm and a synthetic robot.
+
+Runs Kapto with the built-in sample arm and a synthetic robot sending its joint states; open the address it prints.
 
 | Option | Description |
 |---|---|
@@ -247,7 +263,9 @@ Try Kapto without a robot: run it with the built-in sample arm and a synthetic r
 
 ## `kapto showcase`
 
-Show Kapto to people in one command: the demo, narrated step by step, recording ordinary episodes and then one in which the robot misbehaves, and saying what Kapto found and where to watch it.
+Show Kapto to people: the demo, narrated step by step.
+
+Records ordinary episodes and then one in which the robot misbehaves, and says what Kapto found and where to watch it.
 
 | Option | Description |
 |---|---|
@@ -258,7 +276,9 @@ Show Kapto to people in one command: the demo, narrated step by step, recording 
 
 ## `kapto serve`
 
-Run Kapto: start the capture process, the viewer bridge and the worker, keep them running, serve the API, and stop everything on SIGINT or SIGTERM.
+Run Kapto: recording, the live view, the worker, the API and web UI.
+
+Starts the capture process, the viewer bridge and the worker, keeps them running, serves the API and web UI, and stops everything on SIGINT or SIGTERM.
 
 | Option | Description |
 |---|---|
@@ -268,7 +288,9 @@ Run Kapto: start the capture process, the viewer bridge and the worker, keep the
 
 ## `kapto viz-bridge`
 
-Stream the robot moving live to the web UI's live view, from the samples a running capture process or recording sends; runs until interrupted.
+Stream the robot moving live to the web UI; serve starts it.
+
+Streams the robot moving to the web UI's live view, from the samples a running capture process or recording sends; runs until interrupted.
 
 | Option | Description |
 |---|---|
@@ -280,7 +302,9 @@ Stream the robot moving live to the web UI's live view, from the samples a runni
 
 ## `kapto worker`
 
-Do the jobs `kapto serve` queues, such as checking each finalised episode's files against its manifest, one at a time; runs until SIGINT or SIGTERM. Serve starts it.
+Do the jobs `kapto serve` queues; serve starts it.
+
+Jobs such as checking each finalised episode's files against its manifest, one at a time; runs until SIGINT or SIGTERM.
 
 | Option | Description |
 |---|---|
@@ -288,7 +312,9 @@ Do the jobs `kapto serve` queues, such as checking each finalised episode's file
 
 ## `kapto topics`
 
-List the ROS 2 topics this machine's ROS 2 network has, with their message types, for declaring a ROS 2 robot's streams. Only the Kapto of the `kapto-ros2` image is built with ROS 2.
+List the ROS 2 topics on this machine's network, with their types.
+
+For declaring a ROS 2 robot's streams. Only the Kapto of the `kapto-ros2` image is built with ROS 2.
 
 | Option | Description |
 |---|---|
@@ -297,7 +323,9 @@ List the ROS 2 topics this machine's ROS 2 network has, with their message types
 
 ## `kapto export`
 
-Write an episode in another tool's format: its ROS 2 topics as a rosbag2 bag that `ros2 bag play` plays back on the robot's topics.
+Write an episode in another tool's format, such as a rosbag2 bag.
+
+An episode's ROS 2 topics as a rosbag2 bag that `ros2 bag play` plays back on the robot's topics.
 
 ## `kapto export rosbag2`
 
@@ -310,7 +338,9 @@ Write the episode's ROS 2 topics as a rosbag2 bag (one MCAP file), each on the t
 
 ## `kapto upload`
 
-Work with the upload destinations in `[[upload.destination]]`: test that each can be written to as an upload would.
+Test the upload destinations, see where uploads are, or retry them.
+
+Tests that each destination in `[[upload.destination]]` can be written to as an upload would, shows where uploads are, or tries an episode's failed uploads again.
 
 ## `kapto upload check`
 
