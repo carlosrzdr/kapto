@@ -10,6 +10,9 @@ export default defineConfig({
     assetsDir: "assets",
     // Kapto's page policy allows no inline scripts or styles.
     assetsInlineLimit: 0,
+    // `cargo xtask profile page` builds it unminified, so the main thread's
+    // profile names the UI's own functions.
+    minify: process.env.KAPTO_UI_MINIFY !== "false",
   },
   server: {
     proxy: { "/api": "http://127.0.0.1:7700" },

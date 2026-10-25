@@ -208,7 +208,7 @@ fn measure(root: &Path, args: &BrowserArgs) -> Result<BrowserReport, String> {
         decoded: true,
     };
     let environment = [("KAPTO_WATCH_SECONDS", (args.minutes * 60).to_string())];
-    watch(root, &spec, "live-load.spec.ts", &work, &environment)?;
+    watch(root, &spec, "live-load.spec.ts", &work, &environment, false)?;
 
     let path = work.join("live-load.json");
     let watched: Watched = std::fs::read_to_string(&path)
@@ -227,13 +227,16 @@ fn measure(root: &Path, args: &BrowserArgs) -> Result<BrowserReport, String> {
 /// streams, and the load generator sending them and its cameras, while the
 /// Playwright spec `spec_file` watches the page in Chromium drawing with
 /// the graphics card, `environment` set for it and `work` its results
-/// folder, `/results`. The UI and the release build are made first.
+/// folder, `/results`. The UI and the release build are made first, the UI
+/// unminified if `readable_names`, so a profile of the page names its
+/// functions.
 pub(super) fn watch(
     root: &Path,
     spec: &Spec,
     spec_file: &str,
     work: &Path,
     environment: &[(&str, String)],
+    readable_names: bool,
 ) -> Result<(), String> {
     let render_node = Path::new("/dev/dri/renderD128");
     let render_group = std::fs::metadata(render_node)
@@ -245,7 +248,12 @@ pub(super) fn watch(
         })?
         .gid();
     // The UI first, so the release build embeds it.
-    if crate::ui::run(root, crate::ui::Task::Build) != ExitCode::SUCCESS {
+    let unminified: &[&str] = if readable_names {
+        &["KAPTO_UI_MINIFY=false"]
+    } else {
+        &[]
+    };
+    if crate::ui::run_with(root, crate::ui::Task::Build, unminified) != ExitCode::SUCCESS {
         return Err("the UI didn't build".to_owned());
     }
     build(root, Place::Native)?;

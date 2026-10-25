@@ -56,6 +56,13 @@ impl Task {
 }
 
 pub(crate) fn run(root: &Path, task: Task) -> ExitCode {
+    run_with(root, task, &[])
+}
+
+/// Runs `task` as [`run`] does, with `environment` set in the Node
+/// container, e.g. `KAPTO_UI_MINIFY=false` for a build whose functions keep
+/// their names.
+pub(crate) fn run_with(root: &Path, task: Task, environment: &[&str]) -> ExitCode {
     match task {
         Task::E2e => return e2e::run(root, e2e::Run::Flows),
         Task::Screenshots => return e2e::run(root, e2e::Run::Screenshots),
@@ -73,6 +80,7 @@ pub(crate) fn run(root: &Path, task: Task) -> ExitCode {
     let status = Command::new("docker")
         .args(["run", "--rm", "--user", &user(), "-e", "HOME=/tmp"])
         .args(["-e", "npm_config_cache=/ui/.npm-cache", "-e", "CI=1"])
+        .args(environment.iter().flat_map(|variable| ["-e", variable]))
         .arg("-v")
         .arg(format!("{}:/ui", ui.display()))
         .args(["-w", "/ui", &image, "sh", "-c", task.script()])

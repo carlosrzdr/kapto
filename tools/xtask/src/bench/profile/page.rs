@@ -254,7 +254,14 @@ pub(super) fn profiled_page(
         ("KAPTO_WATCH_SECONDS", (args.minutes * 60).to_string()),
         ("KAPTO_PROFILE_SECONDS", args.profile_seconds.to_string()),
     ];
-    watch(root, &spec, "page-profile.spec.ts", &work, &environment)?;
+    watch(
+        root,
+        &spec,
+        "page-profile.spec.ts",
+        &work,
+        &environment,
+        true,
+    )?;
     let read = |name: &str| {
         std::fs::read_to_string(work.join(name))
             .map_err(|error| format!("can't read {name}: {error}"))
