@@ -354,7 +354,22 @@ pub(crate) fn plan(
         large_topics,
         &ring,
     ));
+    kept_as_rings_are(&mut plan);
     Ok(plan)
+}
+
+/// Gives each kept stream's slots the size of its ring's, taken from the
+/// ring rather than sized again: a message received whole is kept whole.
+fn kept_as_rings_are(plan: &mut Plan) {
+    for kept in &mut plan.kept {
+        if let Some(input) = plan
+            .inputs
+            .iter()
+            .find(|input| input.source.streams().contains(&kept.stream))
+        {
+            kept.max_message_len = input.ring.max_message_len;
+        }
+    }
 }
 
 /// A large ROS 2 topic: its stream, name, declaration, rate and slot size.
@@ -412,33 +427,21 @@ fn batch_capacity(rate: u64, slot: u32, batch_wait: Duration, capacity: usize) -
 }
 
 /// The streams whose newest messages start every episode, each kept as
-/// many deep as its subscription keeps, in slots as large as those of the
-/// ring it goes through, so a message is kept whole whenever it was
-/// received whole.
+/// many deep as its subscription keeps; [`plan`] gives each the slots of the
+/// ring it goes through, once its inputs are planned.
 fn kept_streams(declarations: &[StreamDeclaration], settings: &RecordSettings) -> Vec<KeptStream> {
-    let size = |declaration: &StreamDeclaration| {
-        declaration
-            .max_message_bytes
-            .unwrap_or(settings.default_max_message_bytes)
-    };
-    let small = declarations
-        .iter()
-        .filter(|declaration| declaration.ros2.is_some())
-        .map(size)
-        .filter(|&bytes| bytes <= MAX_DATAGRAM_BYTES)
-        .max()
-        .unwrap_or(settings.default_max_message_bytes);
     (0..=StreamIndex::MAX)
         .zip(declarations)
         .filter(|(_, declaration)| declaration.kept_for_late_subscribers())
         .filter_map(|(stream, declaration)| {
             let topic = declaration.ros2.as_ref()?;
-            let own = size(declaration);
-            let slot = if own > MAX_DATAGRAM_BYTES { own } else { small };
+            let declared = declaration
+                .max_message_bytes
+                .unwrap_or(settings.default_max_message_bytes);
             Some(KeptStream {
                 stream,
                 depth: usize::try_from(topic.qos.depth).unwrap_or(usize::MAX),
-                max_message_len: usize::try_from(slot).unwrap_or(usize::MAX),
+                max_message_len: usize::try_from(declared).unwrap_or(usize::MAX),
             })
         })
         .collect()
@@ -1082,6 +1085,33 @@ mod tests {
         assert_eq!(topics[0].topic, "/camera/image_raw");
         // The fixed transforms are kept in the small topics' slots.
         assert_eq!(plan.kept[0].max_message_len, 1472);
+    }
+
+    #[test]
+    fn a_kept_stream_has_the_slots_of_the_ring_it_goes_through_whatever_it_declares() {
+        // A small kept topic sharing the small topics' ring with one that
+        // declares larger messages: a message received whole in that ring
+        // is kept whole, however small its own stream says they are.
+        let file = ConfigFile {
+            path: PathBuf::from("streams.toml"),
+            contents: "[streams.tf_static]\nmax_message_bytes = 100\n\
+             ros2 = { topic = \"/tf_static\", type = \"tf2_msgs/msg/TFMessage\", \
+             qos = { reliability = \"reliable\", durability = \"transient_local\", depth = 4 } }\n\
+             [streams.joints]\nrate_hz = 100\nmax_message_bytes = 1400\n\
+             ros2 = { topic = \"/joint_states\", type = \"sensor_msgs/msg/JointState\" }\n"
+                .to_owned(),
+        };
+        let streams =
+            parse_streams_with(&file, &mut |_, _| Some("float64 data\n".to_owned())).unwrap();
+        let plan = plan(
+            &streams,
+            Path::new("streams.toml"),
+            &RecordSettings::default(),
+        )
+        .unwrap();
+        let ring = plan.inputs[0].ring.max_message_len;
+        assert_eq!(ring, 1400);
+        assert_eq!(plan.kept[0].max_message_len, ring);
     }
 
     proptest::proptest! {

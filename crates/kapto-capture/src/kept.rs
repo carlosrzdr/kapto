@@ -144,6 +144,12 @@ impl Kept {
             };
             let slots = &mut self.streams[*place];
             let message = &mut slots.messages[slots.next];
+            // Its slots are those of the ring its stream goes through, so a
+            // message in a batch always fits; never written past them.
+            debug_assert!(
+                payload.len() <= message.data.len(),
+                "a kept slot smaller than its ring's"
+            );
             let len = payload.len().min(message.data.len());
             message.data[..len].copy_from_slice(&payload[..len]);
             message.len = len;
