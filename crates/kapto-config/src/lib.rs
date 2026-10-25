@@ -41,9 +41,10 @@ pub use destination::{Credentials, DEFAULT_LAYOUT, PLACEHOLDERS, SCHEMES, Upload
 pub use file::{ConfigFile, default_config_path, read_config_file};
 pub use keys::{DEPLOYMENT_KEYS, DefaultValue, Key};
 pub use layout::{
-    Column, LAYOUT_COLUMN_KEYS, LAYOUT_EXAMPLE, LAYOUT_FILE, LAYOUT_PANEL_KEYS, LAYOUTS_FOLDER,
-    Layout, MAX_PANELS, MAX_PLOT_FIELDS, Panel, PanelKind, PlotField, default_layout_path,
-    parse_layout,
+    Column, LAYOUT_COLUMN_KEYS, LAYOUT_EXAMPLE, LAYOUT_FILE, LAYOUT_KEYS, LAYOUT_PANEL_KEYS,
+    LAYOUTS_FOLDER, Layout, MAX_LAYOUT_NAME, MAX_PANELS, MAX_PLOT_FIELDS, Panel, PanelKind,
+    PlotField, check_layout_name, default_layout_path, layout_file_stem, parse_layout,
+    parse_named_layout, renamed_layout,
 };
 pub use mapping::{
     FieldReference, JOINT_ROLES, JointMapping, MappingDeclaration, RoleMapping, joint_role,

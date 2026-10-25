@@ -108,7 +108,10 @@ pub fn made_layout(declared: &Declared) -> Layout {
         width: 2,
         panels: side,
     });
-    Layout { columns }
+    Layout {
+        name: None,
+        columns,
+    }
 }
 
 fn panel(kind: PanelKind) -> Panel {

@@ -261,7 +261,7 @@ error_codes! {
     /// panel's.
     LayoutUnknownKey = "layout.unknown_key" {
         summary: "Unknown key in a layout",
-        remedy: "Remove the key or correct its spelling. A layout holds `[[columns]]` tables, each with `width` and `panels`; a panel has `kind`, `height`, and `stream` for a camera or `fields` for a plot. The robot package format reference (docs/reference/package.md) describes them.",
+        remedy: "Remove the key or correct its spelling. A layout holds its `name` and `[[columns]]` tables, each with `width` and `panels`; a panel has `kind`, `height`, and `stream` for a camera or `fields` for a plot. The robot package format reference (docs/reference/package.md) describes them.",
     }
 
     /// A layout was to be saved as a package's default, but Kapto runs no
@@ -276,6 +276,18 @@ error_codes! {
     LayoutWriteFailed = "layout.write_failed" {
         summary: "The default layout couldn't be saved",
         remedy: "Check that the configuration folder exists and that Kapto may write in its `layouts` folder; the message says which file and why.",
+    }
+
+    /// A layout's name has no letter or digit to name its file from.
+    LayoutNameEmpty = "layout.name_empty" {
+        summary: "The layout has no name",
+        remedy: "Give the layout a name with at least one letter or digit, e.g. `Wrist view`: its file is named from them.",
+    }
+
+    /// A layout's name is longer than a list of layouts can show.
+    LayoutNameTooLong = "layout.name_too_long" {
+        summary: "The layout's name is too long",
+        remedy: "Shorten the name to 64 characters or fewer.",
     }
 
     /// A robot package's `qa.toml` has a key that isn't a setting.

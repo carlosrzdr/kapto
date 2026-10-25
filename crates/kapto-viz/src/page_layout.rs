@@ -150,7 +150,11 @@ impl LayoutInput {
         }
         // Written out and read back, so a layout saved is held to every rule
         // a layout.toml is.
-        let text = Layout { columns }.to_toml();
+        let text = Layout {
+            name: None,
+            columns,
+        }
+        .to_toml();
         kapto_config::parse_layout(&kapto_config::ConfigFile {
             path: file.to_owned(),
             contents: text,

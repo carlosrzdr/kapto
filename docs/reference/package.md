@@ -154,6 +154,13 @@ panels = [
 ]
 ```
 
+The file:
+
+| Key | Required | Meaning |
+|---|---|---|
+| `name` | no | Its name, first in the file, at most 64 characters with a letter or digit. Optional in a package's own; a named layout in the configuration folder needs it, unique among the package's, and is saved in the file named from it. |
+| `columns` | yes | Its columns from left to right, each a `[[columns]]` table. |
+
 Each `[[columns]]` table:
 
 | Key | Required | Meaning |

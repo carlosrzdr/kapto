@@ -43,6 +43,79 @@ pub fn default_layout_path(config_folder: &std::path::Path, id: &str) -> std::pa
         .join(format!("{id}.toml"))
 }
 
+/// The longest name a named layout may have, in characters: it is shown in
+/// a list and its file is named from it.
+pub const MAX_LAYOUT_NAME: usize = 64;
+
+/// The file stem a layout named `name` is saved as: its letters and digits
+/// in lower case, every run of anything else one `-`, so `Wrist view` is
+/// `wrist-view.toml` and two names told apart only by case or spacing
+/// can't share a file. Empty for a name without a letter or digit.
+#[must_use]
+pub fn layout_file_stem(name: &str) -> String {
+    let mut stem = String::new();
+    for c in name.chars() {
+        if c.is_alphanumeric() {
+            stem.extend(c.to_lowercase());
+        } else if !stem.is_empty() && !stem.ends_with('-') {
+            stem.push('-');
+        }
+    }
+    stem.trim_end_matches('-').to_owned()
+}
+
+/// `name` checked as a named layout's.
+///
+/// # Errors
+///
+/// `layout.name_empty` without a letter or digit to name its file from,
+/// `layout.name_too_long` past [`MAX_LAYOUT_NAME`] characters.
+pub fn check_layout_name(name: &str) -> Result<(), KaptoError> {
+    let length = name.trim().chars().count();
+    if layout_file_stem(name).is_empty() {
+        Err(KaptoError::new(ErrorCode::LayoutNameEmpty).detail(format!(
+            "`{name}` has no letter or digit to name its file from"
+        )))
+    } else if length > MAX_LAYOUT_NAME {
+        Err(
+            KaptoError::new(ErrorCode::LayoutNameTooLong).detail(format!(
+                "the name has {length} characters, more than {MAX_LAYOUT_NAME}"
+            )),
+        )
+    } else {
+        Ok(())
+    }
+}
+
+/// `text`, a layout's file, with its `name` replaced by `name` and the rest
+/// as it was written, comments included; `None` if it has no `name` or
+/// isn't TOML.
+#[must_use]
+pub fn renamed_layout(text: &str, name: &str) -> Option<String> {
+    let document = Document::parse(text).ok()?;
+    let span = document.as_table().get("name")?.span()?;
+    let mut renamed = text.to_owned();
+    renamed.replace_range(span, &quoted(name));
+    Some(renamed)
+}
+
+/// `text` as a TOML basic string.
+fn quoted(text: &str) -> String {
+    let mut quoted = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            c if c.is_control() => {
+                let _ = write!(quoted, "\\u{:04X}", u32::from(c));
+            }
+            c => quoted.push(c),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
 /// The most panels a layout may have: beyond, the page can't keep its frame
 /// rate.
 pub const MAX_PANELS: usize = 24;
@@ -69,6 +142,21 @@ panels = [
   { kind = \"health\" },
 ]
 ";
+
+/// Every key of a layout's file outside its columns, in the order they are
+/// documented.
+pub const LAYOUT_KEYS: [FileKey; 2] = [
+    FileKey {
+        name: "name",
+        required: false,
+        help: "Its name, first in the file, at most 64 characters with a letter or digit. Optional in a package's own; a named layout in the configuration folder needs it, unique among the package's, and is saved in the file named from it.",
+    },
+    FileKey {
+        name: "columns",
+        required: true,
+        help: "Its columns from left to right, each a `[[columns]]` table.",
+    },
+];
 
 /// Every key of a column, in the order they are documented.
 pub const LAYOUT_COLUMN_KEYS: [FileKey; 2] = [
@@ -111,6 +199,9 @@ pub const LAYOUT_PANEL_KEYS: [FileKey; 4] = [
 /// A whole layout.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Layout {
+    /// Its name: a named layout's in the configuration folder, optional in
+    /// a package's own.
+    pub name: Option<String>,
     /// Its columns, left to right.
     pub columns: Vec<Column>,
 }
@@ -177,6 +268,9 @@ impl Layout {
     #[must_use]
     pub fn to_toml(&self) -> String {
         let mut text = String::new();
+        if let Some(name) = &self.name {
+            let _ = writeln!(text, "name = {}\n", quoted(name));
+        }
         for (index, column) in self.columns.iter().enumerate() {
             if index > 0 {
                 text.push('\n');
@@ -222,21 +316,35 @@ impl FromStr for PlotField {
 ///
 /// Every problem found, each with the file and line: invalid TOML
 /// (`config.invalid_syntax`), unknown keys (`layout.unknown_key`), and
-/// missing, invalid or too many values (`config.invalid_value`).
+/// missing, invalid or too many values (`config.invalid_value`), a name
+/// without a letter or digit (`layout.name_empty`) or too long
+/// (`layout.name_too_long`).
 pub fn parse_layout(file: &ConfigFile) -> Result<Layout, Vec<KaptoError>> {
+    read_layout(file, &LAYOUT_KEYS, &format!("`{LAYOUT_FILE}`"))
+}
+
+/// Reads the named layout in `file`, one of a package's in the
+/// configuration folder: as [`parse_layout`], and it needs its `name`.
+///
+/// # Errors
+///
+/// As [`parse_layout`].
+pub fn parse_named_layout(file: &ConfigFile) -> Result<Layout, Vec<KaptoError>> {
+    let mut keys = LAYOUT_KEYS;
+    keys[0].required = true;
+    read_layout(file, &keys, "a named layout")
+}
+
+fn read_layout(file: &ConfigFile, keys: &[FileKey], what: &str) -> Result<Layout, Vec<KaptoError>> {
     let document = Document::parse(file.contents.as_str())
         .map_err(|error| vec![syntax_error(file, &error)])?;
     let root = document.as_table();
     let mut top = Reader::new(file, root);
-    top.check_keys(
-        &[FileKey {
-            name: "columns",
-            required: true,
-            help: "",
-        }],
-        ErrorCode::LayoutUnknownKey,
-        &format!("`{LAYOUT_FILE}`"),
-    );
+    top.check_keys(keys, ErrorCode::LayoutUnknownKey, what);
+    let name = top.text("name", "a text", |_| true);
+    if let Some(Err(error)) = name.as_deref().map(check_layout_name) {
+        top.located(error, "name");
+    }
     let mut errors = top.errors;
     let tables = root.get("columns").map(|item| item.as_array_of_tables());
     let columns = match tables {
@@ -252,7 +360,7 @@ pub fn parse_layout(file: &ConfigFile) -> Result<Layout, Vec<KaptoError>> {
         }
         None => Vec::new(),
     };
-    let layout = Layout { columns };
+    let layout = Layout { name, columns };
     let panels: usize = layout.columns.iter().map(|each| each.panels.len()).sum();
     if panels > MAX_PANELS {
         let error = KaptoError::new(ErrorCode::ConfigInvalidValue).detail(format!(
@@ -514,6 +622,67 @@ panels = [
     fn a_layout_written_out_reads_back_the_same() {
         let layout = parse_layout(&file(LAYOUT_EXAMPLE)).unwrap();
         assert_eq!(parse_layout(&file(&layout.to_toml())).unwrap(), layout);
+        let named = Layout {
+            name: Some("Wrist \"close\" \\ up".to_owned()),
+            ..layout
+        };
+        let text = named.to_toml();
+        assert!(
+            text.starts_with("name = \"Wrist \\\"close\\\" \\\\ up\"\n"),
+            "{text}"
+        );
+        assert_eq!(parse_named_layout(&file(&text)).unwrap(), named);
+    }
+
+    #[test]
+    fn a_name_is_optional_in_a_packages_layout_and_needed_in_a_named_one() {
+        let text = format!("name = \"Arm\"\n{LAYOUT_EXAMPLE}");
+        assert_eq!(
+            parse_layout(&file(&text)).unwrap().name.as_deref(),
+            Some("Arm")
+        );
+        assert_eq!(parse_layout(&file(LAYOUT_EXAMPLE)).unwrap().name, None);
+        let errors = parse_named_layout(&file(LAYOUT_EXAMPLE)).unwrap_err();
+        assert!(
+            errors[0].message().contains("a named layout needs `name`"),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_name_without_a_letter_or_too_long_is_refused_at_its_line() {
+        let long = "x".repeat(MAX_LAYOUT_NAME + 1);
+        assert_eq!(
+            problems(&format!("name = \"{long}\"\n{LAYOUT_EXAMPLE}")),
+            ["layout.name_too_long 1: the name has 65 characters, more than 64"]
+        );
+        assert_eq!(
+            problems(&format!("name = \" -- \"\n{LAYOUT_EXAMPLE}")),
+            ["layout.name_empty 1: ` -- ` has no letter or digit to name its file from"]
+        );
+        assert!(check_layout_name(&"é".repeat(MAX_LAYOUT_NAME)).is_ok());
+    }
+
+    #[test]
+    fn a_layouts_file_is_named_from_its_letters_and_digits() {
+        assert_eq!(layout_file_stem("Default"), "default");
+        assert_eq!(
+            layout_file_stem("  Wrist view: close-up! "),
+            "wrist-view-close-up"
+        );
+        assert_eq!(layout_file_stem("Ärm 2"), "ärm-2");
+        assert_eq!(layout_file_stem("../.."), "");
+    }
+
+    #[test]
+    fn a_layout_renamed_keeps_the_rest_as_written() {
+        let text = format!("# kept\nname = \"Arm\" # the old one\n{LAYOUT_EXAMPLE}");
+        let renamed = renamed_layout(&text, "Arm \"two\"").unwrap();
+        assert_eq!(
+            renamed,
+            format!("# kept\nname = \"Arm \\\"two\\\"\" # the old one\n{LAYOUT_EXAMPLE}")
+        );
+        assert_eq!(renamed_layout(LAYOUT_EXAMPLE, "Arm"), None);
     }
 
     #[test]

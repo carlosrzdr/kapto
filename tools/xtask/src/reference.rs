@@ -1021,8 +1021,8 @@ fn profiles() -> String {
 /// The package page's section on `layout.toml`.
 fn layout_section() -> String {
     use kapto_config::{
-        LAYOUT_COLUMN_KEYS, LAYOUT_EXAMPLE, LAYOUT_FILE, LAYOUT_PANEL_KEYS, LAYOUTS_FOLDER,
-        MAX_PANELS,
+        LAYOUT_COLUMN_KEYS, LAYOUT_EXAMPLE, LAYOUT_FILE, LAYOUT_KEYS, LAYOUT_PANEL_KEYS,
+        LAYOUTS_FOLDER, MAX_PANELS,
     };
     let mut page = String::new();
     let _ = write!(
@@ -1043,9 +1043,14 @@ fn layout_section() -> String {
          configuration folder (`PUT /api/layout`), comes before the package's own,\n\
          in every browser, until it is removed (`DELETE /api/layout`).\n\n\
          ```toml\n{LAYOUT_EXAMPLE}```\n\n\
-         Each `[[columns]]` table:\n\n\
+         The file:\n\n\
          | Key | Required | Meaning |\n|---|---|---|\n"
     );
+    for key in LAYOUT_KEYS {
+        let required = if key.required { "yes" } else { "no" };
+        let _ = writeln!(page, "| `{}` | {required} | {} |", key.name, cell(key.help));
+    }
+    page.push_str("\nEach `[[columns]]` table:\n\n| Key | Required | Meaning |\n|---|---|---|\n");
     for key in LAYOUT_COLUMN_KEYS {
         let required = if key.required { "yes" } else { "no" };
         let _ = writeln!(page, "| `{}` | {required} | {} |", key.name, cell(key.help));
