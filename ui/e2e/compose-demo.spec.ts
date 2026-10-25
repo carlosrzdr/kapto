@@ -12,7 +12,7 @@ test("the demo started by Compose shows the arm, records an episode and uploads 
   await expect(page.getByText("Live, not recording")).toBeVisible({ timeout: 60_000 });
   // The arm, moving: its frames keep coming.
   const live = page.getByTitle("Live view of the robot");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 60_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 60_000 });
   const seen = Number(await live.getAttribute("data-frames"));
   await expect.poll(async () => Number(await live.getAttribute("data-frames"))).toBeGreaterThan(seen + 10);
 

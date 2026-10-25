@@ -141,8 +141,9 @@ JPEG, and sends it to each page over the live view's WebSocket.**
 - An operator sees each camera live beside the robot, at up to
   `viewer.camera_max_fps`, fewer the more cameras a page shows (up to
   `viewer.page_pictures` a second for all of them), on any page, with the
-  delay from its arrival shown as for the robot, which stays within the
-  live view's budget however many cameras there are.
+  delay from its arrival on hover, and in its caption once it is long, as
+  for the robot, which stays within the live view's budget however many
+  cameras there are.
 - A new deployment setting, `viewer.page_pictures`, and a count per camera
   of pictures thinned for a page, beside those dropped.
 - Capture holds three frames of each camera's size beside its rings, counted

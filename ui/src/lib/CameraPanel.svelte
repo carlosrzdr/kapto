@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { clock } from "./format";
-  import type { Shown } from "./viewer/cameras";
+  import type { LiveViewCounts } from "./api-types";
+  import { clock, count } from "./format";
+  import { LATE_MS, notShown, type Shown, tallied } from "./viewer/cameras";
 
   interface Props {
     /** Each camera with its newest picture. */
@@ -9,9 +10,11 @@
     onstep?: (stream: number, step: number) => void;
     /** Told how wide camera `stream`'s picture is shown, in device pixels, as that changes. */
     onwidth?: (stream: number, pixels: number) => void;
+    /** Live, what became of each camera's frames on their way to the view, by camera name. */
+    tallies?: Record<string, LiveViewCounts | null | undefined>;
   }
 
-  let { cameras, onstep, onwidth }: Props = $props();
+  let { cameras, onstep, onwidth, tallies = {} }: Props = $props();
 
   /**
    * Draws `bitmap` on the canvas, sized to it, and again as it changes.
@@ -45,7 +48,14 @@
 
 <section class="cameras" aria-label="Cameras">
   {#each cameras as camera (camera.stream)}
-    <figure data-pictures={camera.pictures}>
+    {@const delay = camera.delayMs !== null && !camera.unshown ? Math.max(0, Math.round(camera.delayMs)) : null}
+    {@const tally = tallies[camera.name] ?? null}
+    {@const missed = tally ? notShown(tally) : null}
+    {@const said = [
+      delay === null ? null : `${delay} ms from Kapto receiving the frame to this page receiving its picture, on this computer's clock`,
+      tally ? tallied(tally) : null,
+    ].filter((line) => line !== null)}
+    <figure data-pictures={camera.pictures} data-delay-ms={delay ?? ""}>
       {#if camera.unshown}
         <p class="unshown" role="status">{camera.unshown}</p>
       {:else if camera.bitmap}
@@ -70,20 +80,19 @@
           <button type="button" title="The frame after" aria-label={`${camera.name}: the frame after`} onclick={() => onstep(camera.stream, 1)}>›</button>
         </div>
       {/if}
-      <figcaption>
+      <figcaption title={said.length > 0 ? said.join("\n") : undefined}>
         <span class="name">{camera.name}</span>
+        {#if missed !== null}
+          <span class="missed">{count(missed)} not shown</span>
+        {/if}
         {#if camera.frame}
           <span class="delay">frame {camera.frame.n + 1} of {camera.frame.of}</span>
         {/if}
         {#if camera.keptAtMs}
           <span class="delay" title="A picture the live view kept of this camera, the nearest to the moment shown">at {clock(camera.keptAtMs)}</span>
         {/if}
-        {#if camera.delayMs !== null && !camera.unshown}
-          <span
-            class="delay"
-            title="From Kapto receiving the frame to this page receiving its picture, on this computer's clock"
-            >{Math.max(0, Math.round(camera.delayMs))} ms</span
-          >
+        {#if delay !== null && delay > LATE_MS}
+          <span class="late">{delay} ms</span>
         {/if}
       </figcaption>
     </figure>
@@ -145,6 +154,13 @@
   }
   .delay {
     color: var(--muted);
+  }
+  .late {
+    color: var(--warning);
+  }
+  /* The view fell behind: frames the page missed, not the recording. */
+  .missed {
+    color: var(--warning);
   }
   /* At the top, clear of the caption however narrow the camera is. */
   .steps {

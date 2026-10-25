@@ -77,7 +77,7 @@ test("the live view under a scenario's load, profiled", async ({ page }) => {
   });
   await page.goto("/");
   const live = page.getByTitle("Live view of the robot");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 30_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 30_000 });
 
   const renderer = await page.evaluate(() => {
     const gl = document.createElement("canvas").getContext("webgl");

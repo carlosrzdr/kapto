@@ -49,7 +49,8 @@ test("the page shows the robot's stream, records an episode and lists it", async
   // The robot, live in the page: its frames keep coming, and it says how
   // far behind Kapto it is.
   const live = page.getByTitle("Live view of the robot");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
+  await expect(live).toHaveAttribute("data-delay-ms", /^\d+$/);
   const seen = Number(await live.getAttribute("data-frames"));
   await expect.poll(async () => Number(await live.getAttribute("data-frames"))).toBeGreaterThan(seen + 10);
   // Beside it, arranged by the layout made from the package: the camera,
@@ -325,7 +326,7 @@ test("a moment a check found opens the episode's replay just before it, and anot
   await expect(view).toHaveAttribute("data-replay", "");
   // The robot Kapto runs, drawn again.
   await expect(view).toHaveAttribute("data-robot", "live");
-  await expect(view.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(view.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
   expect(elsewhere).toEqual([]);
 });
 
@@ -472,7 +473,7 @@ test("the live view pauses, looks back over the last minutes, and returns to now
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
   const live = page.getByTitle("Live view of the robot");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
   // A few seconds kept to look back over.
   await page.waitForTimeout(5_000);
 
@@ -514,7 +515,7 @@ test("the live view pauses, looks back over the last minutes, and returns to now
   await page.getByRole("button", { name: "Back to now" }).click();
   await expect(live).toHaveAttribute("data-showing", "live");
   await expect(live).toHaveAttribute("data-looked-back", "no");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible();
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible();
 
   // Two minutes is more than the page keeps of its own: drawn live from
   // the bridge's last minutes.
@@ -530,7 +531,7 @@ test("events marked from the page and sent through the API show on the timeline,
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
   const live = page.getByTitle("Live view of the robot");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
   const marks = page.getByRole("group", { name: "Mark what happened" });
   const timeline = page.getByRole("group", { name: "What happened" });
 
@@ -621,7 +622,7 @@ test("an environment is placed around the robot, kept in the browser after a rel
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
   const live = page.getByTitle("Live view of the robot");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: "Environment" }).click();
   const environment = page.getByRole("region", { name: "Environment" });
 
@@ -647,7 +648,7 @@ test("an environment is placed around the robot, kept in the browser after a rel
 
   // Kept in this browser.
   await page.reload();
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
   await expect(live).toHaveAttribute("data-environment", "2");
   await page.getByRole("button", { name: "Environment (2)" }).click();
   await environment.getByRole("button", { name: "Table" }).click();
@@ -666,7 +667,7 @@ test("the robot is framed by its whole reach, and framed again as it stands from
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
   const live = page.getByTitle("Live view of the robot");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
   // Framed once, from the reach the scene gives, before any pose.
   await expect(live).toHaveAttribute("data-framings", "1");
   const scene = await (await page.request.get("/api/robot/scene")).json();
@@ -696,7 +697,7 @@ test("an operator records, looks back and comes back to now from the keyboard, a
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
   const live = page.getByTitle("Live view of the robot");
-  await expect(live.getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
   await page.waitForTimeout(3_000);
 
   // The keys, listed on ? and hidden on Esc.
@@ -807,7 +808,7 @@ test("a package's own layout arranges the view, a panel naming what the package 
   );
   await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
   // The robot, moved to the second column, still moves.
-  await expect(panels.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible({ timeout: 20_000 });
+  await expect(panels.getByTitle("Live view of the robot").getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
   await expect(panels.getByRole("region", { name: "What happened" })).toBeVisible();
   // Nothing the layout leaves out is shown: not the demo's wrist camera.
   await expect(panels.getByRole("region", { name: "Cameras" })).toHaveCount(0);
@@ -1053,12 +1054,43 @@ test("the demo's wrist camera is shown live beside the arm", async ({ page }) =>
   await expect.poll(async () => Number(await figure.getAttribute("data-pictures"))).toBeGreaterThan(seen + 10);
   const shownWidth = await picture.evaluate((element) => Math.ceil(element.clientWidth * window.devicePixelRatio));
   await expect.poll(() => picture.locator("canvas").evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBe(Math.min(shownWidth, 640));
-  await expect(figure.getByText(/^\d+ ms$/)).toBeVisible();
+  // How far behind it is, kept for whoever asks: said only once it is long.
+  await expect(figure).toHaveAttribute("data-delay-ms", /^\d+$/);
   // Beside the robot, which still moves.
-  await expect(page.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible();
-  // Its stream says what became of its frames on their way to the page.
-  await expect(page.locator("aside").getByText(/^Live view: .+ of .+ frames sent/)).toBeVisible();
+  await expect(page.getByTitle("Live view of the robot").getByText(/^Live( · \d+ ms)?$/)).toBeVisible();
+  // Its caption says on hover what became of its frames on their way to
+  // the page; the side panel's loss table doesn't.
+  await expect(figure.locator("figcaption")).toHaveAttribute("title", /Live view: .+ of .+ frames sent/);
+  await expect(page.locator("aside").getByText(/^Live view:/)).toHaveCount(0);
   expect(elsewhere).toEqual([]);
+});
+
+test("a live view far behind Kapto says by how much, and a camera whose frames the view skipped says how many", async ({
+  page,
+}) => {
+  // This page's clock a second ahead of Kapto's: every message a second late.
+  await page.addInitScript(() => {
+    const now = Date.now.bind(Date);
+    Date.now = () => now() + 1000;
+  });
+  // The viewer slow: most of the camera's frames replaced on the way.
+  await page.route("**/api/status", async (route) => {
+    const status = await (await route.fetch()).json();
+    for (const stream of status.capture?.streams ?? []) {
+      if (stream.live_view) {
+        stream.live_view = { offered: 800, sent: 500, superseded: 280, skipped: 20, not_sent: 0 };
+      }
+    }
+    await route.fulfill({ json: status });
+  });
+  await page.goto("/");
+  const live = page.getByTitle("Live view of the robot");
+  const late = live.locator(".said .late");
+  await expect(late).toHaveText(/^ · \d{4} ms$/, { timeout: 20_000 });
+  expect(Number(await live.getAttribute("data-delay-ms"))).toBeGreaterThan(150);
+  const figure = page.getByRole("region", { name: "Cameras" }).locator("figure").first();
+  await expect(figure.getByText(/^\d{4} ms$/)).toBeVisible();
+  await expect(figure.getByText("300 not shown")).toBeVisible();
 });
 
 test("paused, the demo's camera shows the picture kept nearest the moment, and its newest again back at now", async ({ page }) => {
@@ -1103,7 +1135,7 @@ test("a camera whose pictures can't be shown says why instead", async ({ page })
   await expect(cameras.getByRole("status")).toHaveText(why, { timeout: 20_000 });
   await expect(cameras.getByRole("img")).toHaveCount(0);
   // The robot is shown all the same.
-  await expect(page.getByTitle("Live view of the robot").getByText(/^Live · \d+ ms$/)).toBeVisible();
+  await expect(page.getByTitle("Live view of the robot").getByText(/^Live( · \d+ ms)?$/)).toBeVisible();
 });
 
 test("a replayed camera steps through every frame recorded, and says why one can't be shown", async ({ page }) => {

@@ -727,6 +727,7 @@
           health={streamTable}
           packageId={robot?.package ?? null}
           recordedOnly={(robot?.streams ?? []).filter((each) => !each.decoder).map((each) => each.name)}
+          tallies={Object.fromEntries((status?.capture.streams ?? []).map((each) => [each.stream, each.live_view]))}
         />
       {:else}
         <!-- Where the robot would be: what keeps it away and what to do. -->

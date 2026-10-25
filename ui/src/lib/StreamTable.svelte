@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { LiveViewCounts, StreamCounts } from "./api-types";
+  import type { StreamCounts } from "./api-types";
   import { count } from "./format";
 
   interface Props {
@@ -35,21 +35,6 @@
     }
     const expected = declared[stream.stream];
     return expected && rate < expected * SLOW ? "slow" : "ok";
-  }
-
-  /** What became of a camera's frames on their way to the live view, in words; only what happened. */
-  function toLiveView(camera: LiveViewCounts): string {
-    const parts = [`${count(camera.sent)} of ${count(camera.offered)} frames sent`];
-    if (camera.superseded > 0) {
-      parts.push(`${count(camera.superseded)} replaced by newer ones while the viewer was slow`);
-    }
-    if (camera.skipped > 0) {
-      parts.push(`${count(camera.skipped)} skipped`);
-    }
-    if (camera.not_sent > 0) {
-      parts.push(`${count(camera.not_sent)} while no viewer listened`);
-    }
-    return `Live view: ${parts.join(" · ")}`;
   }
 
   /** A stream's name in the pieces a line may break between: after each `_`. */
@@ -114,11 +99,6 @@
         {@render loss(stream.dropped_by_us)}
         {@render loss(stream.lost_upstream)}
       </tr>
-      {#if stream.live_view}
-        <tr class="camera">
-          <td colspan="6">{toLiveView(stream.live_view)}</td>
-        </tr>
-      {/if}
     {:else}
       <tr>
         <td colspan="6" class="none">
@@ -133,16 +113,6 @@
   .none {
     color: var(--muted);
     text-align: left;
-  }
-  .camera td {
-    padding-top: 0;
-    color: var(--muted);
-    font-size: var(--text-xs);
-    text-align: left;
-  }
-  /* The camera's line belongs to the row above it. */
-  tr:has(+ .camera) > * {
-    border-bottom: none;
   }
   table {
     width: 100%;

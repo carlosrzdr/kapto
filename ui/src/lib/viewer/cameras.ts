@@ -1,7 +1,44 @@
 // The live view's cameras: each camera named by the stream's opening, with
 // its newest picture, decoded, and what the bridge says of it.
 
+import type { LiveViewCounts } from "../api-types";
+import { count } from "../format";
 import type { CameraSaid, Opening, Picture } from "./stream";
+
+/**
+ * Above this delay, in milliseconds, from Kapto receiving a message to the
+ * page receiving it, the live view says how far behind it is; below it,
+ * only on hover.
+ */
+export const LATE_MS = 150;
+
+/**
+ * Above this share of a camera's frames offered to the live view, those
+ * skipped or replaced on the way (a slow page or link, never a loss to the
+ * recording) are said in its caption; below it, only on hover.
+ */
+export const NOT_SHOWN_HINT = 0.1;
+
+/** What became of a camera's frames on their way to the live view, in words; only what happened. */
+export function tallied(camera: LiveViewCounts): string {
+  const parts = [`${count(camera.sent)} of ${count(camera.offered)} frames sent`];
+  if (camera.superseded > 0) {
+    parts.push(`${count(camera.superseded)} replaced by newer ones while the viewer was slow`);
+  }
+  if (camera.skipped > 0) {
+    parts.push(`${count(camera.skipped)} skipped`);
+  }
+  if (camera.not_sent > 0) {
+    parts.push(`${count(camera.not_sent)} while no viewer listened`);
+  }
+  return `Live view: ${parts.join(" · ")}`;
+}
+
+/** How many of a camera's frames the live view didn't show, once that is worth saying; `null` until then. */
+export function notShown(camera: LiveViewCounts): number | null {
+  const missed = camera.superseded + camera.skipped;
+  return camera.offered > 0 && missed / camera.offered > NOT_SHOWN_HINT ? missed : null;
+}
 
 /** One camera, as the camera panel shows it. */
 export interface Shown {

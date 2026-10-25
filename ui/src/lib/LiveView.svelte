@@ -17,14 +17,14 @@
     removeDefaultLayout,
     saveDefaultLayout,
   } from "./api";
-  import type { LayoutInput, RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
+  import type { LayoutInput, LiveViewCounts, RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
   import CameraPanel from "./CameraPanel.svelte";
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
   import LayoutEditor from "./LayoutEditor.svelte";
   import MarkBar from "./MarkBar.svelte";
   import PlotPanel from "./PlotPanel.svelte";
   import Timeline from "./Timeline.svelte";
-  import { camerasOf, Decoder, type Shown, withPicture, withSaid } from "./viewer/cameras";
+  import { camerasOf, Decoder, LATE_MS, type Shown, withPicture, withSaid } from "./viewer/cameras";
   import { type Item, MarkLog } from "./viewer/marks";
   import { OffThreadDecoder } from "./viewer/pictures-off-thread";
   import { frameAt, replayCamera, type ReplayCamera, steppedTo } from "./viewer/replay-cameras";
@@ -70,6 +70,8 @@
     recordedOnly?: string[];
     /** Where this browser keeps its own layouts. */
     layouts?: LayoutStore;
+    /** What became of each camera's frames on their way to the live view, by stream name. */
+    tallies?: Record<string, LiveViewCounts | null | undefined>;
   }
 
   let {
@@ -83,6 +85,7 @@
     packageId = null,
     recordedOnly = [],
     layouts = browserLayouts(),
+    tallies = {},
   }: Props = $props();
 
   /** The robot alone, until the layout is known. */
@@ -134,8 +137,11 @@
 
   let container = $state<HTMLDivElement | null>(null);
   let canvas = $state<HTMLCanvasElement | null>(null);
-  /** What the overlay says: the delay once frames arrive, or why there are none. */
+  /** What the overlay says: "Live" once frames arrive, or why there are none. */
   let said = $state("Loading the robot…");
+  /** Live, the median delay to the page, in milliseconds; said beside "Live" only above `LATE_MS`. */
+  let delayMs = $state<number | null>(null);
+  const late = $derived(said === "Live" && delayMs !== null && delayMs > LATE_MS);
   /** Frames received, for the page's tests. */
   let frames = $state(0);
   /** Each stream's plots, made from the stream's opening message. */
@@ -963,6 +969,7 @@
     // Shown four times a second: more would be unreadable.
     const shown = setInterval(() => {
       if (replay) {
+        delayMs = null;
         said = withoutRobot
           ? "Replay · recorded without a robot: its values only"
           : playing
@@ -975,11 +982,8 @@
       }
       const sorted = [...delays].sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-      said = paused
-        ? playing
-          ? `Playing back · ${speed}×`
-          : "Paused · looking back"
-        : `Live · ${Math.max(0, Math.round(median))} ms`;
+      delayMs = paused ? null : Math.max(0, Math.round(median));
+      said = paused ? (playing ? `Playing back · ${speed}×` : "Paused · looking back") : "Live";
     }, 250);
 
     watched = watchStream(port, {
@@ -1068,6 +1072,7 @@
   data-framings={framings}
   data-replay={replay?.id ?? ""}
   data-robot={robotOf}
+  data-delay-ms={delayMs ?? ""}
 >
   <canvas bind:this={canvas}></canvas>
   <div class="tools">
@@ -1085,9 +1090,9 @@
   {/if}
   <p
     class="said"
-    title="From Kapto receiving a message to this page receiving it, on this computer's clock: on another computer, any difference between the two clocks is in it too"
+    title="{delayMs === null ? 'From' : `${delayMs} ms from`} Kapto receiving a message to this page receiving it, on this computer's clock: on another computer, any difference between the two clocks is in it too"
   >
-    {said}
+    {said}{#if late}<span class="late">{` · ${delayMs} ms`}</span>{/if}
   </p>
 </div>
 </div>
@@ -1114,6 +1119,7 @@
                 cameras={shown}
                 onstep={replay === null ? undefined : stepCamera}
                 onwidth={(stream, pixels) => shownWidths.set(stream, pixels)}
+                tallies={replay === null ? tallies : {}}
               />
             {:else}
               <p class="waiting">Waiting for {panel.stream}</p>
@@ -1375,6 +1381,9 @@
     display: block;
     width: 100%;
     height: 100%;
+  }
+  .said .late {
+    color: var(--warning);
   }
   .said {
     position: absolute;
