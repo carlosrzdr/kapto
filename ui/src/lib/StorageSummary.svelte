@@ -13,6 +13,17 @@
   // As capture judges it: low below `capture.disk_warn_below`, and no
   // recording below `capture.disk_stop_below`.
   const low = $derived(storage !== null && storage.free_bytes < storage.warn_below_bytes);
+  /**
+   * Whether what takes the room is shown: as opened or closed by hand,
+   * opened when the disk runs low. Kept here rather than given to the
+   * element each time, as that would undo a hand's choice at every refresh.
+   */
+  let opened = $state(false);
+  $effect.pre(() => {
+    if (low) {
+      opened = true;
+    }
+  });
   /** Seconds until recording stops for lack of room, at the current rate. */
   const left = $derived(
     storage !== null && writing !== null && writing > 0
@@ -40,7 +51,7 @@
     {/if}
   </dl>
   <!-- What takes the room and where: wanted when it runs short, so open then. -->
-  <details open={low}>
+  <details bind:open={opened}>
     <summary>Episodes and folder</summary>
     <dl>
       <dt>Episodes</dt>

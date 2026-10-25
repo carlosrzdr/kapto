@@ -156,6 +156,24 @@
   const streamTrouble = $derived(dropped + lostUpstream + undecoded + refused > 0);
   /** Statistics carry no verdict of their own: they are opened to explain a failed check. */
   const checkFailed = $derived(quality?.checks.some((check) => check.verdict === "failed") ?? false);
+  /**
+   * Whether the streams' table and the statistics are shown: as opened or
+   * closed by hand, opened when trouble appears. Kept here rather than given
+   * to the elements each time, as that would undo a hand's choice whenever
+   * the episode is refreshed.
+   */
+  let streamsOpen = $state(false);
+  let statisticsOpen = $state(false);
+  $effect.pre(() => {
+    if (streamTrouble) {
+      streamsOpen = true;
+    }
+  });
+  $effect.pre(() => {
+    if (checkFailed) {
+      statisticsOpen = true;
+    }
+  });
 
   const failedUploads = $derived(uploads?.uploads.filter((upload) => upload.state === "failed") ?? []);
   /** Retrying, or why the retry was refused. */
@@ -393,7 +411,7 @@
     <EpisodeUploadsList {uploads} {destinations} />
   {/if}
 
-  <details class="fold" open={streamTrouble}>
+  <details class="fold" bind:open={streamsOpen}>
     <summary>
       <Icon name="chevron" />
       <h3>Streams</h3>
@@ -433,7 +451,7 @@
   </details>
 
   {#if statistics && statistics.statistics.length > 0}
-    <details class="fold" open={checkFailed}>
+    <details class="fold" bind:open={statisticsOpen}>
       <summary>
         <Icon name="chevron" />
         <h3>Statistics</h3>

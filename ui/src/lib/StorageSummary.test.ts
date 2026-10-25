@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it } from "vitest";
 
 import type { Storage } from "./api-types";
@@ -47,6 +47,24 @@ describe("StorageSummary", () => {
     render(StorageSummary, { storage: { ...storage, free_bytes: 11 * GiB }, writing: null });
     expect(screen.getByText("11 GiB free of 400 GiB").classList.contains("problem")).toBe(false);
     expect(screen.queryByText(/Recording stops/)).toBeNull();
+  });
+
+  it("stays as it was opened or closed by hand as the storage is refreshed", async () => {
+    const { rerender } = render(StorageSummary, { storage, writing: null });
+    const details = screen.getByText("Episodes and folder").closest("details")!;
+    details.open = true;
+    await fireEvent(details, new Event("toggle"));
+    await rerender({ storage: { ...storage, free_bytes: 119 * GiB }, writing: null });
+    expect(screen.getByText("119 GiB free of 400 GiB")).toBeTruthy();
+    expect(details.open).toBe(true);
+
+    // Opened when the disk runs low, and, closed by hand then, kept closed.
+    await rerender({ storage: { ...storage, free_bytes: 9 * GiB }, writing: null });
+    details.open = false;
+    await fireEvent(details, new Event("toggle"));
+    await rerender({ storage: { ...storage, free_bytes: 8 * GiB }, writing: null });
+    expect(screen.getByText("8.0 GiB free of 400 GiB")).toBeTruthy();
+    expect(details.open).toBe(false);
   });
 
   it("says so while the storage isn't known", () => {

@@ -412,6 +412,25 @@ describe("EpisodeList's open episode, folded", () => {
     expect(recording()?.open).toBe(false);
   });
 
+  it("keeps its folds as opened or closed by hand as the episode is refreshed", async () => {
+    const props = { episodes: [summary], quality: accepted, statistics, onselect: vi.fn() };
+    const { rerender } = render(EpisodeList, { ...props, open: clean });
+    const streams = fold("Streams")!;
+    streams.open = true;
+    await fireEvent(streams, new Event("toggle"));
+    await rerender({ ...props, open: { ...clean } });
+    expect(fold("Streams")?.open).toBe(true);
+
+    // Opened when a check fails, and, closed by hand then, kept closed.
+    await rerender({ ...props, open: clean, quality: failed });
+    const statisticsFold = fold("Statistics")!;
+    expect(statisticsFold.open).toBe(true);
+    statisticsFold.open = false;
+    await fireEvent(statisticsFold, new Event("toggle"));
+    await rerender({ ...props, open: { ...clean }, quality: { ...failed } });
+    expect(fold("Statistics")?.open).toBe(false);
+  });
+
   it("tries its failed uploads again from its summary, and says why when refused", async () => {
     const onretry = vi.fn(() => Promise.resolve());
     const props = { episodes: [summary], open: clean, uploads: { stored_here: true, uploads: [upload] }, onselect: vi.fn() };
