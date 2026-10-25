@@ -71,6 +71,31 @@ export class SampleBuffer {
     this.count = Math.min(this.count + 1, this.capacity);
   }
 
+  /**
+   * Adds a live sample received at `timeMs` to a stretch merged into parts
+   * `partMs` long from the bridge: into the newest part if it falls in it,
+   * each value's extremes widened, so the part looks as the bridge would
+   * merge it; as a part of its own if it is newer. One the stretch already
+   * holds is left out.
+   */
+  pushInto(timeMs: number, extremes: Float64Array, partMs: number): void {
+    const newest = this.newestMs;
+    if (newest !== null && timeMs <= newest) {
+      return;
+    }
+    if (newest === null || Math.floor(timeMs / partMs) !== Math.floor(newest / partMs)) {
+      this.push(timeMs, extremes);
+      return;
+    }
+    const at = (this.next - 1 + this.capacity) % this.capacity;
+    this.times[at] = timeMs;
+    for (let index = 0; index < this.values; index++) {
+      const base = (at * this.values + index) * 2;
+      this.extremes[base] = Math.min(this.extremes[base] ?? NaN, extremes[index * 2] ?? NaN);
+      this.extremes[base + 1] = Math.max(this.extremes[base + 1] ?? NaN, extremes[index * 2 + 1] ?? NaN);
+    }
+  }
+
   /** Forgets every sample, e.g. when the stream starts again. */
   clear() {
     this.next = 0;
@@ -79,16 +104,19 @@ export class SampleBuffer {
 
   /**
    * The samples from `fromMs` on, oldest first, as uPlot takes them: times
-   * in seconds, then, for each of `values`, its minima and its maxima. The
-   * arrays are views of the buffer's own, valid until the next call.
+   * in seconds, then, for each of `values`, its minima and its maxima; with
+   * `before`, the one just before `fromMs` too, so a line drawn from them
+   * runs to a chart's edge there. The arrays are views of the buffer's own,
+   * valid until the next call.
    */
-  stretch(fromMs: number, values: number[]): Float64Array[] {
+  stretch(fromMs: number, values: number[], before = false): Float64Array[] {
     let shown = 0;
     const oldest = (this.next - this.count + this.capacity) % this.capacity;
     for (let index = 0; index < this.count; index++) {
       const at = (oldest + index) % this.capacity;
       const time = this.times[at] ?? 0;
-      if (time < fromMs) {
+      const nextTime = index + 1 < this.count ? (this.times[(at + 1) % this.capacity] ?? 0) : time;
+      if (time < fromMs && !(before && nextTime >= fromMs)) {
         continue;
       }
       this.shownTimes[shown] = time / 1000;
@@ -111,7 +139,7 @@ export class SampleBuffer {
 
 /** What a chart was last drawn with. */
 export interface Drawn {
-  /** The end of the stretch shown, snapped to a whole pixel, UTC milliseconds. */
+  /** The end of the stretch shown, UTC milliseconds. */
   toMs: number;
   widthPx: number;
   spanMs: number;
@@ -126,19 +154,28 @@ export interface Drawn {
 /** However little changes, a chart is drawn again this often. */
 export const DRAWN_AT_LEAST_EVERY_MS = 500;
 
+/** How far, in pixels, a chart's stretch moves before it is drawn again: too little to see. */
+export const MOVED_PX = 0.25;
+
 /**
  * Whether a chart drawn as `last` has to be drawn again to look as `next`:
- * when its stretch has moved by a pixel, its size or stream has changed, or
- * a sample has arrived inside the stretch shown. A sample after its end is
- * off the chart until the stretch moves, so drawing again for it would draw
- * the same picture. Drawn again anyway every [`DRAWN_AT_LEAST_EVERY_MS`],
- * for anything else that changed it.
+ * when its end or its start has moved by [`MOVED_PX`], its size or stream
+ * has changed, or a sample has arrived inside the stretch shown. A sample
+ * after its end is off the chart until the stretch moves, so drawing again
+ * for it would draw the same picture. Drawn again anyway every
+ * [`DRAWN_AT_LEAST_EVERY_MS`], for anything else that changed it.
  */
 export function drawAgain(last: Drawn | undefined, next: Drawn): boolean {
   if (!last) {
     return true;
   }
-  if (next.toMs !== last.toMs || next.widthPx !== last.widthPx || next.spanMs !== last.spanMs || next.stream !== last.stream) {
+  if (next.widthPx !== last.widthPx || next.stream !== last.stream) {
+    return true;
+  }
+  const msPerPixel = next.spanMs / Math.max(next.widthPx, 1);
+  const endMoved = Math.abs(next.toMs - last.toMs);
+  const startMoved = Math.abs(next.toMs - next.spanMs - (last.toMs - last.spanMs));
+  if (Math.max(endMoved, startMoved) >= MOVED_PX * msPerPixel) {
     return true;
   }
   if (next.newestMs !== last.newestMs && (last.newestMs ?? Number.NEGATIVE_INFINITY) < next.toMs) {
@@ -190,18 +227,6 @@ export function valuesAt(
   };
 }
 
-/**
- * The stretch a plot of `widthPx` shows, `spanMs` long and ending at
- * `endMs`, in seconds as uPlot takes them. Its end is moved back to a whole
- * pixel, so that, drawn again as samples arrive, the curve moves by whole
- * pixels and keeps its shape rather than shimmering.
- */
-export function shownStretch(endMs: number, spanMs: number, widthPx: number): [number, number] {
-  const msPerPixel = spanMs / widthPx;
-  const end = widthPx > 0 ? Math.floor(endMs / msPerPixel) * msPerPixel : endMs;
-  return [(end - spanMs) / 1000, end / 1000];
-}
-
 /** How long a stretch a plot just opened is filled from its left before it zooms out. */
 export const FILLED_FIRST_MS = 5000;
 
@@ -235,6 +260,59 @@ export function stretchShown(spanMs: number, endMs: number, oldestMs: number | n
     return { endMs: firstMs + filled, spanMs: filled };
   }
   return { endMs, spanMs: Math.min(kept, spanMs) };
+}
+
+/** How far behind its newest sample a plot following now draws, in milliseconds. */
+export const BEHIND_MS = 250;
+
+/** How a plot following now keeps its time: Kapto's clock against the page's. */
+export interface Following {
+  /** Kapto's time less the page's, as the soonest sample to arrive said. */
+  offsetMs: number;
+  /** The newest sample when it was last told. */
+  newestMs: number;
+}
+
+/**
+ * Where a plot following now ends at the page's moment `now`, given its
+ * newest sample `newestMs`: [`BEHIND_MS`] behind Kapto's time as the
+ * soonest sample to arrive gives it, moving on with every frame drawn
+ * rather than as samples arrive, so the newest come in just past the
+ * plot's right edge, out of sight, and slide into it; but never past the
+ * newest sample, so a stream that stops isn't drawn on into nothing.
+ */
+export function follow(last: Following | undefined, newestMs: number, now: number): { following: Following; endMs: number } {
+  const arrived = newestMs - now;
+  // A new start, or a stream going back in time, as when a look back ends:
+  // the clock is taken again.
+  const fresh = !last || newestMs < last.newestMs;
+  const offsetMs = fresh ? arrived : newestMs === last.newestMs ? last.offsetMs : Math.max(arrived, last.offsetMs);
+  return { following: { offsetMs, newestMs }, endMs: Math.min(now + offsetMs - BEHIND_MS, newestMs) };
+}
+
+/** How long each part of a stretch from the bridge may be, in milliseconds. */
+const PART_STEPS_MS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 30_000, 60_000];
+
+/** A stretch to ask the bridge for: its parts all `partMs` long. */
+export interface Asked {
+  fromMs: number;
+  toMs: number;
+  points: number;
+  partMs: number;
+}
+
+/**
+ * The stretch to ask the bridge for, to show `fromMs` to `toMs` in about
+ * `points` parts: parts of a round length, starting on whole multiples of
+ * it, so that each time it is asked again, a second later, what it held
+ * already is merged the same, rather than every peak moving a little.
+ */
+export function asked(fromMs: number, toMs: number, points: number): Asked {
+  const wanted = Math.max(toMs - fromMs, 0) / Math.max(points, 1);
+  const partMs = PART_STEPS_MS.find((step) => step >= wanted) ?? PART_STEPS_MS.at(-1)!;
+  const from = Math.floor(fromMs / partMs) * partMs;
+  const to = Math.ceil(toMs / partMs) * partMs;
+  return { fromMs: from, toMs: to, points: Math.max(Math.round((to - from) / partMs), 1), partMs };
 }
 
 /** The most values a plot draws each with the band from its minimum to its maximum. */

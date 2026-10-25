@@ -2,18 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import {
   ALL_MS,
+  asked,
   banded,
+  BEHIND_MS,
   choose,
   type Drawn,
   drawAgain,
   FILLED_FIRST_MS,
+  follow,
   plotColumns,
   type PlotStream,
   plotStreams,
   resolvePlot,
   SampleBuffer,
   shortLabels,
-  shownStretch,
   stretchShown,
   valuesAt,
 } from "./plots";
@@ -36,6 +38,31 @@ describe("SampleBuffer", () => {
     expect(Array.from(firstLow!)).toEqual([5.5, 6.5, 7.5, 8.5]);
     expect(Array.from(firstHigh!)).toEqual([6.5, 7.5, 8.5, 9.5]);
     expect(Array.from(second!)).toEqual([12, 14, 16, 18]);
+  });
+
+  it("merges a live sample into the part of a stretch it falls in, and leaves out one it holds already", () => {
+    const buffer = new SampleBuffer(2, 8);
+    buffer.pushInto(1_010, sample(1), 100);
+    buffer.pushInto(1_050, sample(3), 100);
+    buffer.pushInto(1_040, sample(9), 100);
+    buffer.pushInto(1_120, sample(2), 100);
+    expect(buffer.size).toBe(2);
+    expect(buffer.newestMs).toBe(1_120);
+    const [times, firstLow, firstHigh, second] = buffer.stretch(0, [0, 1]);
+    expect(Array.from(times!)).toEqual([1.05, 1.12]);
+    // The first part: 1 and 3 merged, each value's lowest and highest.
+    expect(Array.from(firstLow!)).toEqual([0.5, 1.5]);
+    expect(Array.from(firstHigh!)).toEqual([3.5, 2.5]);
+    expect(Array.from(second!)).toEqual([2, 4]);
+  });
+
+  it("hands out the sample just before the stretch too when asked, for a line to run to the edge", () => {
+    const buffer = new SampleBuffer(2, 8);
+    [1000, 2000, 3000].forEach((time, index) => buffer.push(time, sample(index)));
+    expect(Array.from(buffer.stretch(2500, [0], true)[0]!)).toEqual([2, 3]);
+    expect(Array.from(buffer.stretch(2000, [0], true)[0]!)).toEqual([1, 2, 3]);
+    expect(Array.from(buffer.stretch(500, [0], true)[0]!)).toEqual([1, 2, 3]);
+    expect(Array.from(buffer.stretch(2500, [0])[0]!)).toEqual([3]);
   });
 
   it("hands out only the stretch asked for, and only the values asked for", () => {
@@ -168,7 +195,6 @@ describe("stretchShown", () => {
   it("with all there is asked for, zooms out over everything kept, however long", () => {
     expect(stretchShown(ALL_MS, 102_000, 100_000)).toEqual({ endMs: 105_000, spanMs: FILLED_FIRST_MS });
     expect(stretchShown(ALL_MS, 700_000, 100_000)).toEqual({ endMs: 700_000, spanMs: 600_000 });
-    expect(stretchShown(ALL_MS, 100_000, null)).toEqual({ endMs: 100_000, spanMs: FILLED_FIRST_MS });
   });
 
   it("shows nothing before an episode's start while it is recorded, filling from there", () => {
@@ -183,7 +209,67 @@ describe("stretchShown", () => {
   it("shows the whole span to the end when nothing is kept, or what is kept starts after the end", () => {
     expect(stretchShown(30_000, 100_000, null)).toEqual({ endMs: 100_000, spanMs: 30_000 });
     expect(stretchShown(30_000, 100_000, 120_000)).toEqual({ endMs: 100_000, spanMs: 30_000 });
-    expect(stretchShown(ALL_MS, 100_000, 120_000)).toEqual({ endMs: 100_000, spanMs: FILLED_FIRST_MS });
+    expect(stretchShown(ALL_MS, 100_000, null)).toEqual({ endMs: 100_000, spanMs: FILLED_FIRST_MS });
+  });
+});
+
+describe("follow", () => {
+  /** How far Kapto's clock is ahead of the page's. */
+  const KAPTO = 1_000_000;
+
+  it("trails the newest sample, moving on with every frame drawn rather than as samples arrive", () => {
+    let { following, endMs } = follow(undefined, KAPTO + 1_000, 1_000);
+    expect(endMs).toBe(KAPTO + 1_000 - BEHIND_MS);
+    // Frames drawn between samples: the end moves on by the time between them.
+    const ends = [1_005, 1_010, 1_015].map((now) => {
+      ({ following, endMs } = follow(following, KAPTO + 1_000, now));
+      return endMs - (KAPTO + 1_000 - BEHIND_MS);
+    });
+    expect(ends).toEqual([5, 10, 15]);
+  });
+
+  it("keeps time by the soonest sample to arrive, so a late one doesn't hold it back", () => {
+    let { following } = follow(undefined, KAPTO + 1_000, 1_000);
+    // Arriving 40 ms late: Kapto's clock is still taken as it was.
+    ({ following } = follow(following, KAPTO + 1_016, 1_056));
+    expect(following.offsetMs).toBe(KAPTO);
+    // Arriving sooner than any before: taken from it.
+    ({ following } = follow(following, KAPTO + 1_100, 1_090));
+    expect(following.offsetMs).toBe(KAPTO + 10);
+  });
+
+  it("never ends past the newest sample, so a stream that stops isn't drawn on into nothing", () => {
+    const { following } = follow(undefined, KAPTO + 1_000, 1_000);
+    expect(follow(following, KAPTO + 1_000, 1_000 + BEHIND_MS + 5_000).endMs).toBe(KAPTO + 1_000);
+  });
+
+  it("takes the clock again when the newest sample goes back in time, as when a stream starts again", () => {
+    const { following } = follow(undefined, KAPTO + 5_000, 1_000);
+    const again = follow(following, KAPTO + 2_000, 1_100);
+    expect(again.following.offsetMs).toBe(KAPTO + 900);
+    expect(again.endMs).toBe(KAPTO + 2_000 - BEHIND_MS);
+  });
+});
+
+describe("asked", () => {
+  it("asks for parts of a round length starting on its multiples, so asking again a second later merges the same", () => {
+    const first = asked(1_000_013, 1_600_013, 880);
+    expect(first.partMs).toBe(1_000);
+    expect(first.fromMs % first.partMs).toBe(0);
+    expect(first.toMs % first.partMs).toBe(0);
+    expect(first.fromMs).toBeLessThanOrEqual(1_000_013);
+    expect(first.toMs).toBeGreaterThanOrEqual(1_600_013);
+    expect(first.points).toBe((first.toMs - first.fromMs) / first.partMs);
+    // A second later, the parts it shares with the first start at the same moments.
+    const next = asked(1_001_013, 1_601_013, 880);
+    expect(next.partMs).toBe(first.partMs);
+    expect((next.fromMs - first.fromMs) % first.partMs).toBe(0);
+  });
+
+  it("takes the shortest round length giving no more parts than asked for", () => {
+    expect(asked(0, 30_000, 880).partMs).toBe(50);
+    expect(asked(0, 600_000, 880).partMs).toBe(1_000);
+    expect(asked(0, 100_000_000, 880).partMs).toBe(60_000);
   });
 });
 
@@ -251,32 +337,6 @@ describe("plotColumns", () => {
   });
 });
 
-describe("shownStretch", () => {
-  // 30 s across 600 pixels: 50 ms a pixel.
-  it("shows the span, ending within a pixel of the newest sample", () => {
-    const [from, to] = shownStretch(1_000_037, 30_000, 600);
-    expect(to - from).toBeCloseTo(30);
-    expect(to).toBe(1000);
-    expect(1_000_037 - to * 1000).toBeLessThan(50);
-  });
-
-  it("stays put while samples arrive within the same pixel", () => {
-    expect(shownStretch(1_000_001, 30_000, 600)).toEqual(shownStretch(1_000_049, 30_000, 600));
-  });
-
-  it("moves by whole pixels as samples arrive", () => {
-    const [, before] = shownStretch(1_000_049, 30_000, 600);
-    const [, after] = shownStretch(1_000_149, 30_000, 600);
-    expect((after - before) * 1000).toBeCloseTo(100);
-  });
-
-  it("ends at the newest sample before the plot has a width", () => {
-    const [from, to] = shownStretch(1_000_037, 30_000, 0);
-    expect(from).toBeCloseTo(970.037);
-    expect(to).toBeCloseTo(1000.037);
-  });
-});
-
 describe("valuesAt", () => {
   // Two samples of two values: each a minimum and a maximum.
   const at = new Date(2026, 2, 10, 14, 46, 5, 250).getTime() / 1000;
@@ -319,6 +379,14 @@ describe("valuesAt", () => {
 describe("drawAgain", () => {
   const stream = {};
   const last: Drawn = { toMs: 1_000_000, widthPx: 600, spanMs: 30_000, stream, newestMs: 1_000_030, atMs: 0 };
+
+  it("doesn't draw for a move too small to see, and draws once the moves add up to it", () => {
+    // 30 s across 600 pixels: 50 ms a pixel, so a quarter pixel is 12.5 ms.
+    expect(drawAgain(last, { ...last, toMs: 1_000_010, atMs: 16 })).toBe(false);
+    expect(drawAgain(last, { ...last, toMs: 1_000_013, atMs: 33 })).toBe(true);
+    // Zooming out moves the start alone.
+    expect(drawAgain(last, { ...last, spanMs: 30_013, atMs: 33 })).toBe(true);
+  });
 
   it("draws the first time, and when the stretch moves a pixel or the chart changes", () => {
     expect(drawAgain(undefined, last)).toBe(true);

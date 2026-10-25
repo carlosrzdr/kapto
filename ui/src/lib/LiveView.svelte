@@ -39,7 +39,7 @@
   } from "./viewer/environment";
   import { browserLayouts, editable, laidOut, type LayoutStore, type Offered } from "./viewer/layouts";
   import { decodeMesh } from "./viewer/mesh";
-  import { ALL_MS, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
+  import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
   import { applyPoses, buildRobot, type Robot, viewingDistance } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
@@ -507,6 +507,13 @@
   const PAGE_KEEPS_MS = 60_000;
   /** How many parts a stretch is merged into: about one per pixel of a plot. */
   const POINTS = 800;
+  /**
+   * The live samples a stretch from the bridge takes after its own while it
+   * is followed, until the next is asked for a second later: ten seconds'.
+   */
+  const FOLLOWED = 600;
+  /** How long each part of the stretch shown from the bridge is, to merge live samples into. */
+  let partMs = 1;
 
   /** Whether a question is on its way, and the one to ask once it is answered. */
   let asking = false;
@@ -534,15 +541,18 @@
 
   /** Fills the plots, and while paused the robot, from the stretch ending at `endMs`. */
   function lookBack(endMs: number) {
-    wanted = [spanMs === ALL_MS ? Math.max(keptMs?.[0] ?? 0, fromMs ?? 0) : endMs - spanMs, endMs];
+    const start = spanMs === ALL_MS ? Math.max(keptMs?.[0] ?? 0, fromMs ?? 0) : endMs - spanMs;
+    // A tenth more before what is shown, so what slides in from the left
+    // as the plot moves on was loaded already.
+    wanted = [start - (endMs - start) / 10, endMs];
     if (asking || !(replay || watched)) {
       return;
     }
-    const [from, to] = wanted;
+    const question = asked(wanted[0], wanted[1], POINTS * 1.1);
     wanted = null;
     asking = true;
-    ask(from, to, POINTS)
-      .then((stretch) => show(stretch))
+    ask(question.fromMs, question.toMs, question.points)
+      .then((stretch) => show(stretch, question.partMs))
       .catch(() => {
         // Shown as it was; the next question may be answered.
       })
@@ -583,13 +593,15 @@
       });
   }
 
-  function show(stretch: Stretch) {
+  function show(stretch: Stretch, parts: number) {
     if (stretch.keptMs && !replay) {
       keptMs = stretch.keptMs;
     }
+    partMs = parts;
     lookedBack = (replay ? replayPlots : plots).map((stream) => {
-      const samples = new SampleBuffer(stream.samples.values, POINTS + 1);
-      for (const part of stretch.streams.find((each) => each.stream === stream.index)?.parts ?? []) {
+      const kept = stretch.streams.find((each) => each.stream === stream.index)?.parts ?? [];
+      const samples = new SampleBuffer(stream.samples.values, kept.length + 1 + FOLLOWED);
+      for (const part of kept) {
         samples.push(part.newestMs, part.extremes);
       }
       return { ...stream, samples };
@@ -1027,8 +1039,13 @@
       },
       onframe: (received) => {
         frames += 1;
+        // Following now with a stretch from the bridge, it takes them too,
+        // merged into its parts as the bridge merges them, so its end moves
+        // with every frame and looks the same once asked for again.
+        const followed = !paused && !replay ? lookedBack : null;
         for (const sample of received.samples) {
           plots.find((stream) => stream.index === sample.stream)?.samples.push(sample.newestMs, sample.extremes);
+          followed?.find((stream) => stream.index === sample.stream)?.samples.pushInto(sample.newestMs, sample.extremes, partMs);
         }
         if (received.poses) {
           pending = received.poses;

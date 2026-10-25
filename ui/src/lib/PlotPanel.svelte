@@ -10,12 +10,13 @@
     type Drawn,
     drawAgain,
     FILLED_FIRST_MS,
+    follow,
+    type Following,
     type PlotPart,
     plotColumns,
     type PlotStream,
     resolvePlot,
     shortLabels,
-    shownStretch,
     stretchShown,
     type ValuesAt,
     valuesAt,
@@ -136,6 +137,8 @@
       /** The middles of the values drawn as one line, made once. */
       middles: Float64Array[];
       drawn?: Drawn;
+      /** Kapto's clock, while it follows now. */
+      following?: Following;
       stretch: [number, number];
       data: Float64Array[];
       points: number;
@@ -198,6 +201,23 @@
      * Shows what `plot` has under the pointer, beside it, and again as new
      * samples move the chart under a pointer that stays.
      */
+    /**
+     * The sample nearest `index` inside the stretch shown: the samples past
+     * its edges, drawn only to run the lines to them, aren't pointed at.
+     */
+    const inside = (chart: Drawing, index: number) => {
+      const [times] = chart.data;
+      const [from, to] = chart.stretch;
+      let at = index;
+      while (at + 1 < (times?.length ?? 0) && (times?.[at] ?? 0) < from) {
+        at++;
+      }
+      while (at > 0 && (times?.[at] ?? 0) > to) {
+        at--;
+      }
+      return at;
+    };
+
     const point = (plot: uPlot, chart: Drawing) => {
       const { part } = chart;
       const index = plot.cursor.idx;
@@ -211,7 +231,7 @@
       }
       pointedAt = plot;
       const spread = (low: number, high: number) => Math.abs(plot.valToPos(high, "y") - plot.valToPos(low, "y"));
-      const at = valuesAt(chart.data, index, shortLabels(part.labels).labels, spread);
+      const at = valuesAt(chart.data, inside(chart, index), shortLabels(part.labels).labels, spread);
       // Only the values shown, each drawn as its line is.
       const values = at.values.map((value, place) => ({ ...value, place: chart.first + place })).filter(({ place }) => shown[place]);
       hovered = { stream: part.stream.name, time: at.time, values };
@@ -382,13 +402,23 @@
         if (sight && !inSight.has(chart.element)) {
           continue;
         }
-        const end = endMs ?? part.stream.samples.newestMs;
-        if (end === null) {
+        const newest = part.stream.samples.newestMs;
+        if (newest === null && endMs === null) {
           continue;
+        }
+        // Following now, a little behind the newest sample, moving on with
+        // every frame, so samples come in out of sight and slide into view.
+        let end: number;
+        if (endMs !== null) {
+          end = endMs;
+        } else {
+          const followed = follow(chart.following, newest ?? 0, now);
+          chart.following = followed.following;
+          end = followed.endMs;
         }
         // From the oldest sample kept while they are fewer than the span, so a chart just opened fills from its left.
         const stretch = stretchShown(spanMs, end, part.stream.samples.oldestMs, fromMs);
-        const [from, to] = shownStretch(stretch.endMs, stretch.spanMs, plot.bbox.width);
+        const [from, to] = [(stretch.endMs - stretch.spanMs) / 1000, stretch.endMs / 1000];
         const next: Drawn = {
           toMs: to * 1000,
           widthPx: plot.bbox.width,
@@ -404,11 +434,17 @@
         }
         chart.drawn = next;
         chart.stretch = [from, to];
-        const data = part.stream.samples.stretch(from * 1000, part.values);
-        // Only up to the end shown: while looking back, nothing after it.
+        // One sample past each edge, so the lines run to the edges, cut off
+        // there, rather than a sample at an edge coming and going; but none
+        // after the end while looking back, nor more than one while arriving.
+        const data = part.stream.samples.stretch(from * 1000, part.values, true);
         const [times] = data;
+        const until = Math.min(end, to * 1000);
         let last = times?.length ?? 0;
-        while (last > 0 && (times?.[last - 1] ?? 0) * 1000 > end) {
+        while (last > 1 && (times?.[last - 2] ?? 0) * 1000 > until) {
+          last--;
+        }
+        if (endMs !== null && last > 0 && (times?.[last - 1] ?? 0) * 1000 > until) {
           last--;
         }
         chart.data = data.map((column) => column.subarray(0, last));
