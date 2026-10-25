@@ -82,11 +82,12 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   rather than shown.
 - **A raw frame is encoded only when its picture is wanted.** Encoding is
   the bridge's one costly step, about 17 ms a 1080p picture, so a raw
-  frame is encoded only if a page's share of its camera would take a
-  picture by the time the camera's next frame comes, or the camera's
-  thinned history is due one; others are counted as not encoded. With no
-  page open, only the history's pictures are encoded, and a page
-  connecting is sent the newest of them first. One thread encodes for
+  frame is encoded whole only if a page's share of its camera would take
+  a picture by the time the camera's next frame comes. If the camera's
+  thinned history is due one, it is made from the frame's pixels, small
+  first (below); a frame neither wants is counted as not encoded. With no
+  page open, only the history's small pictures are made, and a page
+  connecting is sent its first picture from the next frame. One thread encodes for
   every camera, as it reads: while it does, capture keeps only each
   camera's newest frame waiting, so the pictures shown stay current. A
   compressed picture costs nothing to pass on, and is passed on as it is
@@ -118,11 +119,13 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   every stream's.
 - **The bridge keeps a thinned history of each camera.** Of the pictures
   it sends, it keeps one every `1 / viewer.camera_history_fps` seconds (5
-  a second by default) per camera, made smaller: decoded at a fraction of
-  its size by the JPEG decoder's own scaling (a half, a quarter or an
-  eighth, which costs a fraction of a full decode) to no wider than
-  `viewer.camera_history_width` (640 pixels by default), then encoded as
-  JPEG again. It keeps them for `viewer.history_age`, within
+  a second by default) per camera, made no wider than
+  `viewer.camera_history_width` (640 pixels by default): a raw picture by
+  keeping one pixel in so many across and down (three for 1080p), then
+  encoding that, a ninth of the whole picture's cost; a compressed one by
+  decoding it at a fraction of its size with the JPEG decoder's own
+  scaling (a half, a quarter or an eighth, which costs a fraction of a
+  full decode), then encoding it as JPEG again. It keeps them for `viewer.history_age`, within
   `viewer.camera_history` MiB for every camera together (128 by default),
   the oldest going first, so a budget too small for the whole window keeps
   a shorter one. A PNG picture isn't kept.
@@ -169,9 +172,14 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   shows. Two 1080p cameras at the defaults keep about 30 KB a picture, 10
   pictures a second: 180 MB for ten minutes, so the default budget keeps
   about seven of them.
-- The bridge decodes and encodes 5 pictures a second per camera, at a
-  quarter of a 1080p picture's pixels: a few milliseconds each, off the
-  recording path, and depends on a JPEG decoder as well as its encoder.
+- The bridge makes 5 small pictures a second per camera for looking back,
+  a few milliseconds each, off the recording path, and depends on a JPEG
+  decoder as well as its encoder for compressed cameras. A raw picture
+  made small by leaving pixels out, without blending, can show jagged
+  edges; it is for finding a moment, which a replay shows whole. Five raw
+  1080p cameras with no page open take the bridge 0.20 cores, reading
+  their frames and making these, where encoding each whole first took
+  0.85.
 - The viewer stream gains a question and its answer; a page that doesn't
   ask is sent nothing more.
 

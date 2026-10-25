@@ -183,12 +183,7 @@ impl Reader {
             let read = self.fill(&mut connection, &mut buffer);
             if read {
                 self.stats.frames.fetch_add(1, Ordering::Relaxed);
-                let recv_time_ns = frame.recv_time.as_nanos();
-                if self.wanted(frame.stream, kind, recv_time_ns) {
-                    self.show(frame.stream, kind, recv_time_ns, &buffer);
-                } else {
-                    self.stats.not_encoded.fetch_add(1, Ordering::Relaxed);
-                }
+                self.hand(frame.stream, kind, frame.recv_time.as_nanos(), &buffer);
             }
             self.buffer = buffer;
             if !read {
@@ -197,13 +192,14 @@ impl Reader {
         }
     }
 
-    /// Whether camera `stream`'s frame received at `recv_time_ns` is to be
-    /// shown: a compressed one always, as passing it on costs nothing; a
-    /// raw one only if a page or the camera's history wants its picture,
-    /// as encoding it is costly.
-    fn wanted(&mut self, stream: u16, kind: CameraKind, recv_time_ns: u64) -> bool {
+    /// Shows camera `stream`'s frame received at `recv_time_ns`: a
+    /// compressed one always, as passing it on costs nothing; a raw one only
+    /// if a page's share wants its picture, as encoding it is costly, and
+    /// for looking back, if one is due, made small from its pixels.
+    fn hand(&mut self, stream: u16, kind: CameraKind, recv_time_ns: u64, frame: &[u8]) {
         if !matches!(kind, CameraKind::Raw { .. } | CameraKind::Image) {
-            return true;
+            self.show(stream, kind, recv_time_ns, frame);
+            return;
         }
         // Its next frame is expected as long after as this one came after
         // the last.
@@ -214,7 +210,26 @@ impl Reader {
         let received = i64::try_from(recv_time_ns)
             .unwrap_or(i64::MAX)
             .saturating_add(self.clock.offset_ns());
-        self.photographer.wants(stream, received, ahead)
+        let page = self.photographer.page_wants(stream, ahead);
+        let look_back = self.photographer.look_back_due(stream, received);
+        if page {
+            self.show(stream, kind, recv_time_ns, frame);
+        }
+        let Some(width) = look_back else {
+            if !page {
+                self.stats.not_encoded.fetch_add(1, Ordering::Relaxed);
+            }
+            return;
+        };
+        match self.pictures.small(&kind, frame, width) {
+            Ok(Some(small)) => self.photographer.keep(stream, received, &small),
+            Err(why) if !page => {
+                self.photographer.unshown(stream, Some(&why.to_string()));
+                self.stats.unshown.fetch_add(1, Ordering::Relaxed);
+            }
+            // Told already, as a page wanted it.
+            Ok(None) | Err(_) => {}
+        }
     }
 
     /// Fills `into` from `connection`, waiting as long as it takes unless
@@ -262,9 +277,9 @@ impl Reader {
                 let sent = utc(monotonic_now().as_nanos());
                 let message = picture_message(stream, &picture, utc(recv_time_ns), sent);
                 self.photographer.picture(stream, &message);
-                // A PNG isn't kept: cameras send JPEG, or raw pictures
-                // the bridge made JPEG of.
-                if picture.format == PictureFormat::Jpeg {
+                // A PNG isn't kept: cameras send JPEG. A raw picture is
+                // kept made small from its pixels instead.
+                if picture.format == PictureFormat::Jpeg && picture.size.is_none() {
                     self.photographer
                         .remember(stream, utc(recv_time_ns), picture.bytes);
                 }

@@ -25,7 +25,7 @@ use kapto_testkit::scratch;
 use kapto_viz::camera_history::CameraHistorySettings;
 use kapto_viz::page_pictures::PageShare;
 use kapto_viz::picture::CameraKind;
-use kapto_viz::stream::{PICTURE_HEADER, PICTURE_MAGIC, STREAM_VERSION};
+use kapto_viz::stream::{LOOKED_BACK_MAGIC, PICTURE_HEADER, PICTURE_MAGIC, STREAM_VERSION};
 use kapto_viz::{Bridge, BridgeSettings, LiveRobot, Plots};
 use serde_json::Value;
 use tungstenite::stream::MaybeTlsStream;
@@ -376,15 +376,6 @@ fn a_raw_frame(shade: u8) -> Vec<u8> {
     image(16, 8, "mono8", &[shade; 16 * 8])
 }
 
-/// Waits until the bridge has shown `shown` pictures.
-fn until_shown(bridge: &Bridge, shown: u64) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while bridge.camera_totals().unwrap().shown < shown {
-        assert!(Instant::now() < deadline, "{:?}", bridge.camera_totals());
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
 /// Waits until the bridge has read `frames` frames.
 fn until_read(bridge: &Bridge, frames: u64) {
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -394,26 +385,47 @@ fn until_read(bridge: &Bridge, frames: u64) {
     }
 }
 
+/// A raw picture 1280 pixels wide, twice what the look-back keeps.
+fn a_wide_raw_frame(shade: u8) -> Vec<u8> {
+    image(1280, 8, "mono8", &[shade; 1280 * 8])
+}
+
+/// Asks, as a page looking back, for camera `stream`'s picture kept
+/// nearest `at`, returning its width and height.
+fn looked_back(page: &mut Page, stream: u16, at: i64) -> (u32, u32) {
+    page.send(Message::text(format!(
+        r#"{{"picture":{{"id":1,"stream":{stream},"at":{at}}}}}"#
+    )))
+    .unwrap();
+    loop {
+        if let Message::Binary(answer) = page.read().unwrap()
+            && answer.starts_with(LOOKED_BACK_MAGIC)
+        {
+            let u32_at = |at: usize| u32::from_le_bytes(answer[at..at + 4].try_into().unwrap());
+            return (u32_at(12), u32_at(16));
+        }
+    }
+}
+
 #[test]
-fn a_raw_cameras_frames_are_not_encoded_while_no_page_nor_its_history_wants_them() {
+fn with_no_page_open_a_raw_camera_is_only_made_small_for_looking_back() {
     let folder = scratch("bridge-pictures-unwanted");
-    // The history keeps a picture an hour: only the first is due.
+    // The look-back keeps a picture an hour: only the first is due.
     let hour = Duration::from_secs(3_600);
     let (bridge, settings, mut capture) = bridge_keeping(&folder, PageShare::default(), hour);
-    capture.send(2, &a_raw_frame(1));
-    until_shown(&bridge, 1);
-    for shade in 2..=5 {
-        capture.send(2, &a_raw_frame(shade));
+    for shade in 1..=5 {
+        capture.send(2, &a_wide_raw_frame(shade));
     }
     until_read(&bridge, 5);
     let totals = bridge.camera_totals().unwrap();
-    assert_eq!((totals.shown, totals.not_encoded), (1, 4), "{totals:?}");
-    // A page connecting is shown the newest encoded, then wants the next.
+    assert_eq!((totals.shown, totals.not_encoded), (0, 4), "{totals:?}");
+    // The first was made small from its pixels, as the look-back keeps it.
     let (mut page, _) = watch(settings.stream_port);
+    assert_eq!(looked_back(&mut page, 2, 0), (640, 4));
+    // A page open wants the next whole.
+    capture.send(2, &a_wide_raw_frame(6));
     let picture = next_picture(&mut page);
-    assert_eq!((picture.stream, picture.size), (2, (16, 8)));
-    capture.send(2, &a_raw_frame(6));
-    until_shown(&bridge, 2);
+    assert_eq!((picture.stream, picture.size), (2, (1280, 8)));
     drop(bridge);
     std::fs::remove_dir_all(folder).unwrap();
 }

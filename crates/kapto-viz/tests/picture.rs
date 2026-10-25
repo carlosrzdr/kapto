@@ -222,6 +222,63 @@ fn a_depth_picture_is_shown_in_grey_its_nearest_white_and_no_reading_black() {
 }
 
 #[test]
+fn a_raw_picture_is_made_small_for_looking_back_from_its_pixels() {
+    let mut pictures = Pictures::default();
+    // 1920 wide, at most 640: one pixel in three across and down, its
+    // colours as they were.
+    let rgb = [200_u8, 40, 30].repeat(1920 * 1080);
+    let frame = image(1920, 1080, "rgb8", 1920 * 3, &rgb);
+    let small = pictures
+        .small(&CameraKind::Image, &frame, 640)
+        .unwrap()
+        .unwrap();
+    assert_eq!(small.size, Some((640, 360)));
+    let (pixels, size) = decoded(small.bytes);
+    assert_eq!(size, (640, 360));
+    assert!(
+        pixels[0].abs_diff(200) < 12 && pixels[1].abs_diff(40) < 12,
+        "{:?}",
+        &pixels[..3]
+    );
+    // Rows padded, and sides that don't divide: rounded up.
+    let padded: Vec<u8> = (0..10)
+        .flat_map(|_| [vec![90_u8; 25], vec![0; 7]].concat())
+        .collect();
+    let frame = image(25, 10, "mono8", 32, &padded);
+    let small = pictures
+        .small(&CameraKind::Image, &frame, 8)
+        .unwrap()
+        .unwrap();
+    assert_eq!(small.size, Some((7, 3)));
+    assert_eq!(decoded(small.bytes).1, (7, 3));
+    // Depth, in grey as shown live.
+    let depth: Vec<u8> = (0..16 * 16).flat_map(|_| 700_u16.to_le_bytes()).collect();
+    let frame = image(16, 16, "16UC1", 32, &depth);
+    let small = pictures
+        .small(&CameraKind::Image, &frame, 8)
+        .unwrap()
+        .unwrap();
+    assert_eq!(small.size, Some((8, 8)));
+    // Narrow enough already: whole.
+    let frame = image(16, 16, "mono8", 16, &[50; 256]);
+    let small = pictures
+        .small(&CameraKind::Image, &frame, 640)
+        .unwrap()
+        .unwrap();
+    assert_eq!(small.size, Some((16, 16)));
+    // A compressed picture isn't made small here.
+    let compressed = Cdr::new()
+        .header()
+        .string("jpeg")
+        .bytes(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10])
+        .0;
+    assert_eq!(
+        pictures.small(&CameraKind::CompressedImage, &compressed, 640),
+        Ok(None)
+    );
+}
+
+#[test]
 fn rows_padded_past_their_pixels_are_encoded_without_the_padding() {
     let mut pictures = Pictures::default();
     // 10 grey pixels a row, padded to 16 bytes with white the encoder must

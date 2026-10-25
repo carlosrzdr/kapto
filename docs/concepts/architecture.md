@@ -387,7 +387,8 @@ out (a `CompressedImage`'s, an `Image`'s, a TCP camera's as declared),
 encodes a raw one as JPEG there, never in capture, and sends it to each
 page as a message of its own beside the frames, with each camera's newest
 kept for a page that connects. A raw frame is encoded only when a page's
-share of its camera or the camera's thinned history wants its picture. Each page gets at most
+share of its camera wants its picture; one the camera's thinned history
+is due is made small from its pixels first. Each page gets at most
 `viewer.page_pictures` pictures a second (60 by default) across its
 cameras, each an even share no more than `viewer.camera_max_fps`: until a
 camera's share allows its next, only its newest waits, so with more

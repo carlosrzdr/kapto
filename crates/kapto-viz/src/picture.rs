@@ -99,6 +99,8 @@ pub struct Pictures {
     jpeg: Vec<u8>,
     /// The newest raw picture's rows without their padding.
     rows: Vec<u8>,
+    /// The newest raw picture made smaller, pixels left out.
+    scaled: Vec<u8>,
 }
 
 impl Pictures {
@@ -125,18 +127,52 @@ impl Pictures {
                 step,
                 encoding,
                 big_endian,
-            } => self.encode(data, (width, height, step), (encoding, big_endian)),
+            } => self.encode(data, (width, height, step), (encoding, big_endian), 1),
+        }
+    }
+
+    /// The raw picture in `frame`, made no wider than `max_width` by
+    /// keeping every so many pixels across and down, then encoded as JPEG:
+    /// for looking back, at a fraction of encoding the whole picture.
+    /// `None` for a compressed picture, which is made smaller from its own
+    /// encoding instead.
+    ///
+    /// # Errors
+    ///
+    /// Why it can't be shown.
+    pub fn small<'a>(
+        &'a mut self,
+        kind: &CameraKind,
+        frame_bytes: &'a [u8],
+        max_width: u32,
+    ) -> Result<Option<Picture<'a>>, Unshown> {
+        match frame(kind, frame_bytes)? {
+            Frame::Compressed { .. } => Ok(None),
+            Frame::Raw {
+                data,
+                width,
+                height,
+                step,
+                encoding,
+                big_endian,
+            } => {
+                let every = width.div_ceil(max_width.max(1)).max(1);
+                self.encode(data, (width, height, step), (encoding, big_endian), every)
+                    .map(Some)
+            }
         }
     }
 
     /// Encodes the raw picture in `data`, `height` rows of `step` bytes
-    /// each starting with `width` pixels in `encoding`, as JPEG. A depth
-    /// picture is shown in grey, nearest white.
+    /// each starting with `width` pixels in `encoding`, as JPEG, keeping
+    /// one pixel in `every` across and down. A depth picture is shown in
+    /// grey, nearest white.
     fn encode(
         &mut self,
         data: &[u8],
         (width, height, step): (u32, u32, u64),
         (encoding, big_endian): (&str, bool),
+        every: u32,
     ) -> Result<Picture<'_>, Unshown> {
         let (color, pixel_bytes, depth) = match encoding {
             "rgb8" => (ColorType::Rgb, 3, None),
@@ -185,13 +221,27 @@ impl Pictures {
             }
             &self.rows
         };
+        let (pixels, jpeg_width, jpeg_height) = if every > 1 {
+            let packed_bytes = if depth.is_some() { 1 } else { pixel_bytes };
+            keep_every(
+                pixels,
+                (usize::from(jpeg_width), usize::from(jpeg_height)),
+                (to_usize(packed_bytes), to_usize(u64::from(every))),
+                &mut self.scaled,
+            );
+            let smaller =
+                |side: u16| u16::try_from(u32::from(side).div_ceil(every)).unwrap_or(side);
+            (&self.scaled[..], smaller(jpeg_width), smaller(jpeg_height))
+        } else {
+            (pixels, jpeg_width, jpeg_height)
+        };
         self.jpeg.clear();
         Encoder::new(&mut self.jpeg, QUALITY)
             .encode(pixels, jpeg_width, jpeg_height, color)
             .map_err(|_| Unshown::TooLarge(width, height))?;
         Ok(Picture {
             format: PictureFormat::Jpeg,
-            size: Some((width, height)),
+            size: Some((u32::from(jpeg_width), u32::from(jpeg_height))),
             bytes: &self.jpeg,
         })
     }
@@ -255,6 +305,27 @@ fn grey(
                 let shade = shade.round().clamp(1.0, 255.0) as u8;
                 shade
             }));
+        }
+    }
+}
+
+/// Of `pixels`, `width` × `height` packed pixels of `pixel_bytes` each,
+/// keeps the first of every `every` across and down, into `into`: a
+/// smaller picture, without blending, at the cost of copying what is kept.
+fn keep_every(
+    pixels: &[u8],
+    (width, height): (usize, usize),
+    (pixel_bytes, every): (usize, usize),
+    into: &mut Vec<u8>,
+) {
+    into.clear();
+    let row = width * pixel_bytes;
+    for line in (0..height).step_by(every) {
+        let Some(row) = pixels.get(line * row..(line + 1) * row) else {
+            return;
+        };
+        for pixel in row.chunks_exact(pixel_bytes).step_by(every) {
+            into.extend_from_slice(pixel);
         }
     }
 }

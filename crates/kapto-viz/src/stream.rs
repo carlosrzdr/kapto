@@ -463,20 +463,39 @@ impl Photographer {
         }
     }
 
-    /// Whether a picture of camera `stream`'s frame received at
-    /// `received_utc_ns` is wanted: a page's share of the camera takes one
-    /// within `ahead`, when its next frame is expected, or the camera's
-    /// history is due one. Making a raw frame's picture is costly, and
-    /// isn't worth it otherwise.
+    /// Whether a page's share of camera `stream` takes a picture within
+    /// `ahead`, when its next frame is expected. Making a raw frame's
+    /// picture is costly, and isn't worth it otherwise.
     #[must_use]
-    pub fn wants(&self, stream: u16, received_utc_ns: i64, ahead: Duration) -> bool {
-        if lock(&self.shared.camera_history).due(stream, received_utc_ns) {
-            return true;
-        }
+    pub fn page_wants(&self, stream: u16, ahead: Duration) -> bool {
         let by = Instant::now() + ahead;
         lock(&self.shared.pages)
             .iter()
             .any(|page| lock(&page.pictures).wants(stream, by))
+    }
+
+    /// How wide, at most, camera `stream`'s picture of a frame received at
+    /// `received_utc_ns` is kept for pages looking back, if one is due.
+    #[must_use]
+    pub fn look_back_due(&self, stream: u16, received_utc_ns: i64) -> Option<u32> {
+        let history = lock(&self.shared.camera_history);
+        history
+            .due(stream, received_utc_ns)
+            .then(|| history.settings().width)
+    }
+
+    /// Keeps `small`, camera `stream`'s picture already made no wider than
+    /// [`Photographer::look_back_due`] says, whose frame Kapto received at
+    /// `received_utc_ns`, for pages looking back.
+    pub fn keep(&self, stream: u16, received_utc_ns: i64, small: &Picture<'_>) {
+        let (width, height) = small.size.unwrap_or((0, 0));
+        lock(&self.shared.camera_history).keep(Kept {
+            stream,
+            received_utc_ns,
+            width,
+            height,
+            jpeg: Bytes::copy_from_slice(small.bytes),
+        });
     }
 
     /// Keeps camera `stream`'s picture `jpeg`, whose frame Kapto received
