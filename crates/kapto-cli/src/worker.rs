@@ -8,12 +8,17 @@
 //! does it, both at low priority (see `priority`). While capture records an
 //! episode (`worker.pause_while_recording`), `wrk-watch` sees it and the
 //! worker waits: no job is started, and a job being done waits at its next
-//! step. Serve starts the worker and starts it again if it exits. Stopped
-//! with SIGINT or SIGTERM, it stops a job at its next step and gives it back
-//! to the queue, to be done again without counting as an attempt; a job it
-//! was doing when it died is queued again when serve next starts.
+//! step. It waits too until capture first answers, for
+//! `capture.control_timeout` at most; a capture that isn't there answers
+//! at once that it isn't recording. Serve starts the worker and starts it
+//! again if it exits. Stopped with SIGINT or SIGTERM, it stops a job at its
+//! next step and gives it back to the queue, to be done again without
+//! counting as an attempt; a job it was doing when it died is queued again
+//! when serve next starts.
 
 use std::any::Any;
+use std::io;
+use std::os::unix::net::UnixStream;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::process::ExitCode;
@@ -333,7 +338,7 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     let (_, deployment) = crate::config::load(flags)?;
     let jobs = jobs(&deployment);
     let cache = cache_limits(&deployment);
-    let data_dir = deployment.data_dir.value;
+    let data_dir = deployment.data_dir.value.clone();
     let shutdown = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, Arc::clone(&shutdown)).map_err(|error| {
@@ -353,21 +358,8 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     if let Err(error) = priority::lower() {
         eprintln!("[worker] runs at normal priority: can't lower it: {error}");
     }
-    let recording = Arc::new(Recording::new());
     let upload_pauses = deployment.upload.pause_while_recording.value;
-    if deployment.worker_pause_while_recording.value
-        || (upload_pauses && !deployment.upload_destinations.is_empty())
-    {
-        thread::Builder::new()
-            .name("wrk-watch".into())
-            .spawn({
-                let (socket, recording) = (deployment.control_socket.value, Arc::clone(&recording));
-                let shutdown = Arc::clone(&shutdown);
-                let quiet = deployment.restart_max_delay.value;
-                move || watch(&socket, &recording, &shutdown, quiet)
-            })
-            .map_err(|error| vec![thread_failed(&error.to_string())])?;
-    }
+    let recording = watched(&deployment, &shutdown)?;
     let lane_ended = Arc::new(AtomicBool::new(false));
     let lane = if deployment.upload_destinations.is_empty() {
         None
@@ -437,6 +429,33 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     Ok(())
 }
 
+/// Whether capture is recording, watched by `wrk-watch` if anything pauses
+/// while it is.
+fn watched(deployment: &DeploymentConfig, shutdown: &Arc<AtomicBool>) -> Outcome<Arc<Recording>> {
+    let watching = deployment.worker_pause_while_recording.value
+        || (deployment.upload.pause_while_recording.value
+            && !deployment.upload_destinations.is_empty());
+    if !watching {
+        return Ok(Arc::new(Recording::new()));
+    }
+    let recording = Arc::new(Recording::until_capture_answers(
+        deployment.control_timeout.value,
+    ));
+    thread::Builder::new()
+        .name("wrk-watch".into())
+        .spawn({
+            let (socket, recording) = (
+                deployment.control_socket.value.clone(),
+                Arc::clone(&recording),
+            );
+            let shutdown = Arc::clone(shutdown);
+            let quiet = deployment.restart_max_delay.value;
+            move || watch(&socket, &recording, &shutdown, quiet)
+        })
+        .map_err(|error| vec![thread_failed(&error.to_string())])?;
+    Ok(recording)
+}
+
 /// Starts `wrk-upload`, which ends the worker if it ends by itself.
 fn upload_lane(
     data_dir: &Path,
@@ -482,10 +501,17 @@ const FRESH: Duration = Duration::from_secs(3);
 
 /// Whether capture is recording an episode, as `wrk-watch` last heard it:
 /// what the worker pauses for while it is so, and for [`FRESH`] at most
-/// after the last answer saying so.
+/// after the last answer saying so. Until capture first answers, the
+/// worker can't tell whether an episode is being recorded, so it waits
+/// then too, for `first_answer` at most, should capture take the
+/// connection but never answer.
 #[derive(Debug)]
 pub(crate) struct Recording {
     since: Instant,
+    /// How long after `since` the worker waits for capture's first answer.
+    first_answer: Duration,
+    /// Whether capture has answered yet.
+    answered: AtomicBool,
     /// What capture last answered.
     said: AtomicBool,
     /// When it was last heard, in milliseconds after `since`.
@@ -493,87 +519,101 @@ pub(crate) struct Recording {
 }
 
 impl Recording {
+    /// Never waits until capture says it is recording.
     pub(crate) fn new() -> Self {
+        Self::until_capture_answers(Duration::ZERO)
+    }
+
+    /// Waits from now until capture first answers, for `timeout` at most.
+    pub(crate) fn until_capture_answers(timeout: Duration) -> Self {
         Self {
             since: Instant::now(),
+            first_answer: timeout,
+            answered: AtomicBool::new(false),
             said: AtomicBool::new(false),
             heard_ms: AtomicU64::new(0),
         }
     }
 
-    /// Capture just answered `recording`; returns what it answered before.
-    pub(crate) fn heard(&self, recording: bool) -> bool {
-        self.heard_at(self.since.elapsed(), recording)
-    }
-
+    /// Capture answered `recording` at `at`; returns what it answered
+    /// before.
     fn heard_at(&self, at: Duration, recording: bool) -> bool {
         self.heard_ms.store(
             u64::try_from(at.as_millis()).unwrap_or(u64::MAX),
             Ordering::Relaxed,
         );
+        self.answered.store(true, Ordering::Relaxed);
         self.said.swap(recording, Ordering::Relaxed)
     }
 
-    /// Whether the worker waits now: capture said it is recording, less
+    /// What `wrk-watch` was told: whether capture records, or `None` if
+    /// asking it got no answer, which counts as not recording but not as
+    /// an answer. Returns what capture answered before.
+    pub(crate) fn told(&self, recording: Option<bool>) -> bool {
+        self.told_at(self.since.elapsed(), recording)
+    }
+
+    fn told_at(&self, at: Duration, recording: Option<bool>) -> bool {
+        match recording {
+            Some(recording) => self.heard_at(at, recording),
+            None => self.said.swap(false, Ordering::Relaxed),
+        }
+    }
+
+    /// Whether the worker waits now: capture hasn't answered yet and was
+    /// given less than `first_answer` to, or it said it is recording less
     /// than [`FRESH`] ago.
     pub(crate) fn now(&self) -> bool {
         self.now_at(self.since.elapsed())
     }
 
     fn now_at(&self, at: Duration) -> bool {
+        if !self.answered.load(Ordering::Relaxed) {
+            return at < self.first_answer;
+        }
         let heard = Duration::from_millis(self.heard_ms.load(Ordering::Relaxed));
         self.said.load(Ordering::Relaxed) && at.saturating_sub(heard) < FRESH
     }
 }
 
 /// `wrk-watch`: asks capture once a second whether it is recording an
-/// episode, and says so to `recording`. Capture not answering counts as
-/// not recording: the worker doesn't wait on a capture process that isn't
-/// there. The first failure after answers is logged with why; capture
-/// unreachable only once it has been for longer than `quiet`, the longest
-/// serve waits to start it again, so a capture still starting or
+/// episode, and says so to `recording`. A capture that isn't there, its
+/// socket missing or refusing the connection, can't be recording: that is
+/// an answer too, so the worker doesn't wait on a capture process that
+/// isn't there. Asking without an answer counts as not recording once
+/// capture has answered before, or once `recording` stops waiting for its
+/// first answer. The first failure after answers is logged with why;
+/// capture unreachable only once it has been for longer than `quiet`, the
+/// longest serve waits to start it again, so a capture still starting or
 /// restarting isn't reported.
 fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool, quiet: Duration) {
     let mut capture: Option<ControlClient> = None;
     let mut failing = false;
     let mut unreachable = Unreachable::default();
     while !shutdown.load(Ordering::Relaxed) {
-        let answer = match capture.take() {
-            Some(client) => Ok(client),
-            None => ControlClient::connect(socket, WAIT),
-        }
-        .and_then(|mut client| {
-            let answer = client.ask(&Request::Status);
-            capture = Some(client);
-            answer
-        });
-        let now = match answer {
-            Ok(Response::Status(status)) => {
+        let said = ask(socket, &mut capture);
+        match &said {
+            Said::Status(_) => {
                 failing = false;
                 unreachable = Unreachable::default();
-                status.episode.is_some()
             }
-            Ok(other) => {
-                capture = None;
+            Said::Unexpected(other) => {
                 if !failing {
-                    eprintln!("[worker] capture answered its status with {other:?}");
+                    eprintln!("[worker] capture answered its status with {other}");
                 }
                 failing = true;
-                false
             }
-            Err(error) => {
-                capture = None;
+            Said::Absent(why) | Said::Silent(why) => {
                 if !failing && unreachable.for_longer_than(quiet, Instant::now()) {
-                    eprintln!(
-                        "[worker] can't ask capture whether it records: {}",
-                        error.message()
-                    );
+                    eprintln!("[worker] can't ask capture whether it records: {why}");
                     failing = true;
                 }
-                false
             }
-        };
-        if now != recording.heard(now) {
+        }
+        let now = said.recording();
+        let before = recording.told(now);
+        let now = now.unwrap_or(false);
+        if now != before {
             if now {
                 eprintln!("[worker] waiting while an episode is recorded");
             } else {
@@ -581,6 +621,61 @@ fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool, quiet: Dur
             }
         }
         wait(WAIT, shutdown);
+    }
+}
+
+/// What asking capture whether it records came to.
+#[derive(Debug)]
+enum Said {
+    /// It answered, recording or not.
+    Status(bool),
+    /// Nothing listens on its socket: no capture is there, and why.
+    Absent(String),
+    /// It didn't answer, and why.
+    Silent(String),
+    /// It answered something else.
+    Unexpected(String),
+}
+
+impl Said {
+    /// Whether capture records, or `None` if that wasn't answered.
+    fn recording(&self) -> Option<bool> {
+        match self {
+            Self::Status(recording) => Some(*recording),
+            Self::Absent(_) => Some(false),
+            Self::Silent(_) | Self::Unexpected(_) => None,
+        }
+    }
+}
+
+/// Asks capture on `socket` whether it records, over `capture` if it is
+/// connected; `capture` is left connected after an answer only.
+fn ask(socket: &Path, capture: &mut Option<ControlClient>) -> Said {
+    let mut client = match capture.take() {
+        Some(client) => client,
+        None => match UnixStream::connect(socket) {
+            Ok(stream) => match ControlClient::greet(stream, WAIT) {
+                Ok(client) => client,
+                Err(error) => return Said::Silent(error.message().clone()),
+            },
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                ) =>
+            {
+                return Said::Absent(error.to_string());
+            }
+            Err(error) => return Said::Silent(error.to_string()),
+        },
+    };
+    match client.ask(&Request::Status) {
+        Ok(Response::Status(status)) => {
+            *capture = Some(client);
+            Said::Status(status.episode.is_some())
+        }
+        Ok(other) => Said::Unexpected(format!("{other:?}")),
+        Err(error) => Said::Silent(error.message().clone()),
     }
 }
 
@@ -604,7 +699,7 @@ impl Unreachable {
 /// # Errors
 ///
 /// The operating system's reason if either couldn't be set.
-pub(crate) fn lower_priority() -> std::io::Result<()> {
+pub(crate) fn lower_priority() -> io::Result<()> {
     priority::lower()
 }
 
@@ -860,10 +955,66 @@ mod tests {
         let (recording, shutdown) = (Recording::new(), AtomicBool::new(false));
         assert!(step(&recording, &shutdown).is_ok());
         // Stopping wins over waiting: a paused job is given back too.
-        recording.heard(true);
+        recording.told(Some(true));
         shutdown.store(true, Ordering::Relaxed);
         let stopped = step(&recording, &shutdown).unwrap_err();
         assert_eq!(stopped.code(), ErrorCode::WorkerJobStopped);
+    }
+
+    #[test]
+    fn the_worker_waits_for_capture_to_first_answer_but_not_past_its_timeout() {
+        let timeout = Duration::from_secs(60);
+        let recording = Recording::until_capture_answers(timeout);
+        assert!(recording.now_at(Duration::ZERO), "nothing heard yet");
+        // Capture not answering isn't an answer.
+        recording.told_at(Duration::from_secs(1), None);
+        assert!(recording.now_at(Duration::from_secs(59)));
+        // Never heard by the timeout: a worker without capture still works.
+        assert!(!recording.now_at(timeout));
+        let recording = Recording::until_capture_answers(timeout);
+        recording.heard_at(Duration::from_secs(1), false);
+        assert!(
+            !recording.now_at(Duration::from_secs(1)),
+            "heard not recording"
+        );
+        let recording = Recording::until_capture_answers(timeout);
+        recording.heard_at(Duration::from_secs(1), true);
+        assert!(recording.now_at(Duration::from_secs(2)), "heard recording");
+    }
+
+    #[test]
+    fn a_capture_that_isnt_there_answers_not_recording_but_one_that_doesnt_answer_doesnt() {
+        use std::os::unix::net::UnixListener;
+
+        let folder = kapto_testkit::scratch("worker-asks-capture");
+        let socket = folder.join("capture.sock");
+        let timeout = Duration::from_secs(60);
+        let mut capture = None;
+
+        // No socket: nothing can be recording, so the worker runs at once.
+        let said = ask(&socket, &mut capture);
+        assert!(matches!(said, Said::Absent(_)), "{said:?}");
+        let recording = Recording::until_capture_answers(timeout);
+        recording.told_at(Duration::ZERO, said.recording());
+        assert!(!recording.now_at(Duration::ZERO));
+
+        // A socket left by a capture that has gone refuses the connection.
+        drop(UnixListener::bind(&socket).unwrap());
+        let said = ask(&socket, &mut capture);
+        assert!(matches!(said, Said::Absent(_)), "{said:?}");
+        let recording = Recording::until_capture_answers(timeout);
+        recording.told_at(Duration::ZERO, said.recording());
+        assert!(!recording.now_at(Duration::ZERO));
+
+        // Accepted but never answered: the worker goes on waiting.
+        std::fs::remove_file(&socket).unwrap();
+        let _listening = UnixListener::bind(&socket).unwrap();
+        let said = ask(&socket, &mut capture);
+        assert!(matches!(said, Said::Silent(_)), "{said:?}");
+        assert!(capture.is_none());
+        let recording = Recording::until_capture_answers(timeout);
+        recording.told_at(Duration::from_secs(1), said.recording());
+        assert!(recording.now_at(Duration::from_secs(1)));
     }
 
     #[test]

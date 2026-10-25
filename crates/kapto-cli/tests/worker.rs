@@ -216,7 +216,11 @@ fn the_worker_starts_no_job_while_capture_records_an_episode_unless_told_not_to_
     store.enqueue(VERIFY, id).unwrap();
     let _serve = JobServer::listen(&data.join(JOB_SOCKET), store.clone()).unwrap();
 
-    // A stand-in for capture, recording until told otherwise.
+    // A stand-in for capture, recording until told otherwise. It accepts
+    // the worker's connection but first answers a second and a half after
+    // it starts, long after the worker has first asked serve for a job:
+    // the worker can't tell before then that an episode is being recorded,
+    // so it waits for that answer.
     let socket = folder.join("capture.sock");
     let capture = ControlServer::listen(&socket).unwrap();
     let recording = Arc::new(AtomicBool::new(true));
@@ -224,7 +228,12 @@ fn the_worker_starts_no_job_while_capture_records_an_episode_unless_told_not_to_
     let stand_in = std::thread::spawn({
         let (recording, answering) = (Arc::clone(&recording), Arc::clone(&answering));
         move || {
+            let first_answer = Instant::now() + Duration::from_millis(1500);
             while answering.load(Ordering::Relaxed) {
+                if Instant::now() < first_answer {
+                    std::thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
                 for pending in capture.pending() {
                     let episode = recording.load(Ordering::Relaxed).then(|| id.to_owned());
                     pending.answer(Response::Status(Status {

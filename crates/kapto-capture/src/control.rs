@@ -756,12 +756,29 @@ impl ControlClient {
     /// answer; `capture.control_version_mismatch` if it speaks another
     /// protocol version.
     pub fn connect(path: &Path, timeout: Duration) -> Result<Self, KaptoError> {
-        let unreachable = |error: io::Error| {
+        let stream = UnixStream::connect(path).map_err(|error| {
             KaptoError::new(ErrorCode::CaptureControlUnreachable)
                 .detail(error.to_string())
                 .context("socket", path.display().to_string())
+        })?;
+        Self::greet(stream, timeout)
+    }
+
+    /// Says hello over `stream`, connected to a capture process by the
+    /// caller, so it can tell from the connection's own error whether
+    /// anything listens there. Each request is written, and each answer
+    /// waited for, within `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// `capture.control_unreachable` if it doesn't answer;
+    /// `capture.control_version_mismatch` if it speaks another protocol
+    /// version.
+    pub fn greet(stream: UnixStream, timeout: Duration) -> Result<Self, KaptoError> {
+        let unreachable = |error: io::Error| {
+            KaptoError::new(ErrorCode::CaptureControlUnreachable).detail(error.to_string())
         };
-        let writer = UnixStream::connect(path).map_err(unreachable)?;
+        let writer = stream;
         writer
             .set_read_timeout(Some(timeout))
             .and_then(|()| writer.set_write_timeout(Some(timeout)))

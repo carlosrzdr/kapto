@@ -163,7 +163,7 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
     Key {
         path: "capture.control_timeout",
         value_type: ValueType::Seconds,
-        help: "How long, in seconds, the capture process keeps recording after `kapto serve` has gone or stopped answering, for example because it crashed or hung, before it finalises the episode. Long enough for serve to be started again and carry on with the episode. A capture process serve started then ends, as it does whenever serve has gone and no episode is recorded.",
+        help: "How long, in seconds, the capture process keeps recording after `kapto serve` has gone or stopped answering, for example because it crashed or hung, before it finalises the episode. Long enough for serve to be started again and carry on with the episode. A capture process serve started then ends, as it does whenever serve has gone and no episode is recorded. The worker also waits this long at most for capture's first answer before it starts a job, since until then it can't tell whether an episode is being recorded; a capture that isn't there, its socket missing or refusing the connection, counts as an answer that it isn't.",
         default: DefaultValue::Fixed("60"),
     },
     Key {
