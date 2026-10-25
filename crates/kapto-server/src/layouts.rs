@@ -146,17 +146,13 @@ fn without_package() -> KaptoError {
         .detail("serve's streams aren't a robot package's".to_owned())
 }
 
-/// Writes `text` to `file` whole: beside it first, then renamed over it.
+/// Writes `text` to `file` whole, as episodes' own files are written: a
+/// crash while saving leaves the layout as it was or as saved, never cut.
 fn write(file: &Path, text: &str) -> Result<(), KaptoError> {
-    let partial = file.with_extension("toml.partial");
     file.parent()
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(&partial, text))
-        .and_then(|()| std::fs::rename(&partial, file))
-        .map_err(|error| {
-            let _ = std::fs::remove_file(&partial);
-            write_failed(file, &error)
-        })
+        .and_then(|()| kapto_store::write_whole(file, text.as_bytes()))
+        .map_err(|error| write_failed(file, &error))
 }
 
 fn write_failed(file: &Path, error: &std::io::Error) -> KaptoError {

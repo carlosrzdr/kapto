@@ -15,6 +15,8 @@ pub mod qa;
 pub mod records;
 pub mod replay_view;
 mod sidecar;
+
+pub use sidecar::write_whole;
 pub mod upload_marker;
 mod uploads;
 

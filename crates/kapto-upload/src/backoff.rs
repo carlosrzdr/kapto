@@ -51,7 +51,7 @@ impl Backoff {
     /// The wait before try `retry`: a random time up to [`Backoff::cap`].
     pub fn wait(&mut self, retry: u32) -> Duration {
         let cap = self.cap(retry);
-        let nanos = u64::try_from(cap.as_nanos()).unwrap_or(u64::MAX);
+        let nanos = kapto_core::nanos(cap);
         Duration::from_nanos(self.next() % nanos.saturating_add(1))
     }
 

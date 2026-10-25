@@ -236,7 +236,7 @@ impl PreRoll {
         begun: RecvTime,
     ) -> impl Iterator<Item = HeldMessage<'_>> {
         self.rings.iter().flat_map(move |ring| {
-            let seconds = u64::try_from(ring.seconds.as_nanos()).unwrap_or(u64::MAX);
+            let seconds = kapto_core::nanos(ring.seconds);
             let from = asked.as_nanos().saturating_sub(seconds);
             (0..ring.count)
                 .map(|offset| ring.index[(ring.oldest + offset) % ring.index.len()])

@@ -40,7 +40,6 @@
 
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -52,7 +51,7 @@ use kapto_core::{ErrorCode, KaptoError};
 use kapto_store::{Event, Phase, Preflight, SessionProfile, SessionTask};
 use serde::{Deserialize, Serialize};
 
-use crate::tap::MAX_PATH_BYTES;
+use crate::tap::prepare_socket_path;
 
 /// The protocol version this code speaks.
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -468,26 +467,13 @@ impl ControlServer {
                 .detail(detail)
                 .context("socket", path.display().to_string())
         };
-        let length = path.as_os_str().len();
-        if length > MAX_PATH_BYTES {
-            return Err(failed(format!(
-                "the path is {length} bytes long, but a Unix socket path can have at most {MAX_PATH_BYTES}"
-            )));
+        // Asked before the socket is cleared away: one answering is no
+        // leftover, but another capture still running.
+        if let Ok(live) = UnixStream::connect(path) {
+            return Err(already_running(path, &live));
         }
-        match std::fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_socket() => {
-                if let Ok(live) = UnixStream::connect(path) {
-                    return Err(already_running(path, &live));
-                }
-                std::fs::remove_file(path).map_err(|error| failed(error.to_string()))?;
-            }
-            Ok(_) => return Err(failed("a file that isn't a socket is in the way".into())),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(failed(error.to_string())),
-        }
-        if let Some(folder) = path.parent().filter(|f| !f.as_os_str().is_empty()) {
-            std::fs::create_dir_all(folder).map_err(|error| failed(error.to_string()))?;
-        }
+        prepare_socket_path(path, "capture.control_socket")
+            .map_err(|error| failed(error.to_string()))?;
         let listener = UnixListener::bind(path).map_err(|error| failed(error.to_string()))?;
         let (sender, requests) = mpsc::channel();
         let supervision = Arc::new(Supervision::default());

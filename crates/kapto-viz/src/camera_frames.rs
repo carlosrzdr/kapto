@@ -35,7 +35,7 @@ use kapto_core::clock::monotonic_now;
 
 use crate::picture::{CameraKind, PictureFormat, Pictures};
 use crate::stream::{Photographer, picture_message};
-use crate::tap_reader::prepare_socket_path;
+use kapto_capture::tap::prepare_socket_path;
 
 /// How often the thread looks whether the bridge is stopping, while it
 /// waits for capture to connect or to send.

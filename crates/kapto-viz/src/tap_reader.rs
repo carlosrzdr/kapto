@@ -4,12 +4,11 @@
 //! stream's newest values to.
 
 use std::io;
-use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use kapto_capture::tap::MAX_PATH_BYTES;
+use kapto_capture::tap::prepare_socket_path;
 use kapto_capture::tap::wire::{self, TapSample, WireError};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::io::Errno;
@@ -135,40 +134,6 @@ impl TapReader {
     pub fn path(&self) -> &Path {
         &self.path
     }
-}
-
-/// Makes `path` ready to bind a Unix socket to: short enough, its folder
-/// made, and a socket file left there by an earlier run removed. Any other
-/// file there is kept, and refused. `setting` names where the path comes
-/// from, for the error.
-pub(crate) fn prepare_socket_path(path: &Path, setting: &str) -> io::Result<()> {
-    let length = path.as_os_str().len();
-    if length > MAX_PATH_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "the path is {length} bytes long, but a Unix socket path can have at most {MAX_PATH_BYTES}; set {setting} to a shorter path"
-            ),
-        ));
-    }
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_socket() => std::fs::remove_file(path)?,
-        Ok(_) => {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                "a file that isn't a socket is in the way",
-            ));
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    if let Some(folder) = path
-        .parent()
-        .filter(|folder| !folder.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(folder)?;
-    }
-    Ok(())
 }
 
 impl Drop for TapReader {

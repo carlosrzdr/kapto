@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use kapto_core::RecvTime;
+use kapto_core::{RecvTime, nanos};
 use kapto_store::DurabilitySummary;
 
 /// The resolution of the waits.
@@ -148,10 +148,6 @@ impl DurabilityTracker {
 
 fn buckets(duration: Duration) -> usize {
     usize::try_from(duration.as_nanos() / BUCKET.as_nanos()).unwrap_or(usize::MAX)
-}
-
-fn nanos(duration: Duration) -> u64 {
-    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

@@ -53,7 +53,7 @@ impl Backoff {
 fn random_fraction(range: Duration) -> Duration {
     // `RandomState` is seeded from the operating system's randomness.
     let random = RandomState::new().hash_one(());
-    let nanos = u64::try_from(range.as_nanos()).unwrap_or(u64::MAX);
+    let nanos = kapto_core::nanos(range);
     if nanos == 0 {
         return Duration::ZERO;
     }

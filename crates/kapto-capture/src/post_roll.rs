@@ -45,7 +45,7 @@ impl PostRoll {
     pub fn new(post_rolls: &[Duration]) -> Self {
         let nanos = post_rolls
             .iter()
-            .map(|post_roll| u64::try_from(post_roll.as_nanos()).unwrap_or(u64::MAX))
+            .map(|post_roll| kapto_core::nanos(*post_roll))
             .collect();
         Self(Arc::new(Shared {
             stopped: AtomicU64::new(NOT_STOPPED),

@@ -20,7 +20,6 @@
 //! when a lane next asks for an upload.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -29,6 +28,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use kapto_capture::tap::prepare_socket_path;
 use kapto_config::UploadWhen;
 use kapto_core::clock::utc_now_ns;
 use kapto_core::{EpisodeId, ErrorCode, KaptoError};
@@ -379,14 +379,7 @@ impl JobServer {
                 .detail(detail)
                 .context("socket", path.display().to_string())
         };
-        match std::fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_socket() => {
-                std::fs::remove_file(path).map_err(|error| failed(error.to_string()))?;
-            }
-            Ok(_) => return Err(failed("a file that isn't a socket is in the way".into())),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(failed(error.to_string())),
-        }
+        prepare_socket_path(path, "paths.data").map_err(|error| failed(error.to_string()))?;
         let listener = UnixListener::bind(path)
             .and_then(|listener| listener.set_nonblocking(true).map(|()| listener))
             .map_err(|error| failed(error.to_string()))?;

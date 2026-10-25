@@ -20,4 +20,4 @@ pub use error::{ErrorCode, KaptoError, ResultExt};
 pub use hex::hex;
 pub use role::Role;
 pub use stream::StreamId;
-pub use time::{RecvTime, SourceTime, utc_iso8601};
+pub use time::{RecvTime, SourceTime, nanos, utc_iso8601};

@@ -67,6 +67,13 @@ pub enum SourceTime {
     },
 }
 
+/// `duration` in nanoseconds, as many as a `u64` holds: about 584 years,
+/// past which every duration Kapto handles is "for ever" anyway.
+#[must_use]
+pub fn nanos(duration: Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+}
+
 /// A UTC time in nanoseconds since the Unix epoch as ISO 8601, e.g.
 /// `2026-03-09T14:33:31.637123456Z`. Times before 1970 are shown as their
 /// number of nanoseconds, since recordings never have them.

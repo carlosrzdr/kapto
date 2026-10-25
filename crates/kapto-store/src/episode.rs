@@ -408,7 +408,7 @@ impl ClockSummary {
             samples: samples.len() as u64,
             max_uncertainty_ns: samples
                 .iter()
-                .map(|sample| u64::try_from(sample.uncertainty.as_nanos()).unwrap_or(u64::MAX))
+                .map(|sample| kapto_core::nanos(sample.uncertainty))
                 .max()
                 .unwrap_or(0),
             steps: clock

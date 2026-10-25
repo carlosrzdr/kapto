@@ -31,7 +31,7 @@ use crate::batch::{Batch, StreamIndex};
 
 pub use decimate::Decimator;
 pub use latest::{Latest, LatestValues};
-pub use socket::{MAX_PATH_BYTES, TapSocket};
+pub use socket::{MAX_PATH_BYTES, TapSocket, prepare_socket_path};
 
 /// How the tap's slots are sized.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

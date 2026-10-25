@@ -142,7 +142,7 @@ pub fn frames(config: &FrameConfig, socket: &Path) -> (FrameFeed, FrameSender, A
         .iter()
         .map(|(stream, _)| usize::from(*stream) + 1);
     let mut camera_of = vec![usize::MAX; streams.max().unwrap_or(0)];
-    let cap = u64::try_from(config.min_interval.as_nanos()).unwrap_or(u64::MAX);
+    let cap = kapto_core::nanos(config.min_interval);
     let intervals: Arc<[AtomicU64]> = config.cameras.iter().map(|_| AtomicU64::new(cap)).collect();
     let mut feeds = Vec::with_capacity(config.cameras.len());
     let mut sends = Vec::with_capacity(config.cameras.len());
@@ -460,7 +460,7 @@ impl FrameSender {
             };
             let camera = self.stats.cameras.iter().position(|c| c.stream == stream);
             if let Some(wanted) = camera.and_then(|camera| self.intervals.get(camera)) {
-                let interval = u64::try_from(interval.as_nanos()).unwrap_or(u64::MAX);
+                let interval = kapto_core::nanos(interval);
                 wanted.store(interval.max(self.cap), Ordering::Relaxed);
             }
         }
@@ -656,7 +656,7 @@ pub fn wanted_record(stream: StreamIndex, interval: Duration) -> [u8; WANTED] {
     record[..4].copy_from_slice(&WANTED_MAGIC);
     record[4] = VERSION;
     record[6..8].copy_from_slice(&stream.to_le_bytes());
-    let interval = u64::try_from(interval.as_nanos()).unwrap_or(u64::MAX);
+    let interval = kapto_core::nanos(interval);
     record[8..].copy_from_slice(&interval.to_le_bytes());
     record
 }

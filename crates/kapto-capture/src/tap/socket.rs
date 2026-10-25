@@ -3,6 +3,7 @@
 //! Sending tap samples to the viewer's Unix datagram socket, never waiting.
 
 use std::io;
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,6 +14,45 @@ use super::wire::{self, Summary};
 
 /// The longest path a Unix socket can be bound to.
 pub const MAX_PATH_BYTES: usize = 107;
+
+/// Makes `path` ready to bind a Unix socket to: short enough, its folder
+/// made, and a socket file left there by an earlier run removed. Any other
+/// file there is kept, and refused. `setting` names where the path comes
+/// from, for the error.
+///
+/// # Errors
+///
+/// The path is too long, a file that isn't a socket is in the way, or the
+/// folder can't be made or the old socket removed.
+pub fn prepare_socket_path(path: &Path, setting: &str) -> io::Result<()> {
+    let length = path.as_os_str().len();
+    if length > MAX_PATH_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "the path is {length} bytes long, but a Unix socket path can have at most {MAX_PATH_BYTES}; set {setting} to a shorter path"
+            ),
+        ));
+    }
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_socket() => std::fs::remove_file(path)?,
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "a file that isn't a socket is in the way",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    if let Some(folder) = path
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(folder)?;
+    }
+    Ok(())
+}
 
 /// Sends samples to the socket a viewer listens on. A sample the viewer
 /// can't take right now, or that no viewer is there to take, is dropped

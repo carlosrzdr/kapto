@@ -14,8 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use kapto_capture::{Accounting, Filler, LossCounters, RingStats, StreamIndex};
-use kapto_core::KaptoError;
 use kapto_core::clock::monotonic_now;
+use kapto_core::{KaptoError, nanos};
 
 use crate::Transport;
 
@@ -168,8 +168,4 @@ impl<T: Transport> Receiver<T> {
 
 fn deadline_wait(deadline_ns: u64) -> Duration {
     Duration::from_nanos(deadline_ns.saturating_sub(monotonic_now().as_nanos()))
-}
-
-fn nanos(duration: Duration) -> u64 {
-    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
