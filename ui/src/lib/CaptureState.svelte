@@ -33,7 +33,7 @@
     Live, not recording
   {/if}
   {#if replay && replaying}
-    <span class="replaying">{recording ? `· replaying ${replay.label}` : `Replaying · ${replay.label}`}</span>
+    <span class="replaying" title={replay.label}>{recording ? `· replaying ${replay.label}` : `Replaying · ${replay.label}`}</span>
   {/if}
   {#if closing}
     <span
@@ -69,6 +69,22 @@
   .closing {
     color: var(--muted);
     font-weight: 400;
+  }
+  /* As on a tablet, beside the profile, the task and Record: one line, a
+     replay's name or finalising cut short when there is no room, and the
+     bar's colour saying recording or not. */
+  @media (max-width: 64rem) {
+    .state {
+      flex-wrap: nowrap;
+      min-width: 0;
+      white-space: nowrap;
+    }
+    .replaying,
+    .closing {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
   .back {
     height: var(--control-height);

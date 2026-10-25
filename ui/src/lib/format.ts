@@ -37,11 +37,14 @@ export function rate(before: number, after: number, seconds: number): number {
   return seconds > 0 && after >= before ? (after - before) / seconds : 0;
 }
 
-/** A UTC time in nanoseconds as local date and time, to the second. */
+/**
+ * A UTC time in nanoseconds as local date and time, to the second; joined
+ * by a space no line breaks at, so a narrow panel never splits one.
+ */
 export function time(utcNs: number): string {
   const date = new Date(utcNs / 1e6);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}\u00a0${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 /**
@@ -161,12 +164,15 @@ export function offset(seconds: number): string {
   return `${duration(whole)}.${String(Math.round((Math.max(0, seconds) - whole) * 1000) % 1000).padStart(3, "0")}`;
 }
 
-/** How long something lasted: `0.45` → `450 ms`, `2.4` → `2.4 s`, `75` → `1:15`. */
+/**
+ * How long something lasted: `0.45` → `450 ms`, `2.4` → `2.4 s`, `75` → `1:15`;
+ * the unit after a space no line breaks at, as with every figure here.
+ */
 export function lasting(seconds: number): string {
   if (seconds < 1) {
-    return `${Math.round(seconds * 1000)} ms`;
+    return `${Math.round(seconds * 1000)}\u00a0ms`;
   }
-  return seconds < 60 ? `${seconds.toFixed(1)} s` : duration(seconds);
+  return seconds < 60 ? `${seconds.toFixed(1)}\u00a0s` : duration(seconds);
 }
 
 /** A moment, UTC milliseconds, on the local clock to the millisecond: `14:46:05.250`. */
@@ -183,9 +189,9 @@ export function clock(ms: number): string {
 export function milliseconds(ns: number): string {
   const ms = ns / 1e6;
   if (ms >= 10_000) {
-    return `${(ms / 1000).toFixed(0)} s`;
+    return `${(ms / 1000).toFixed(0)}\u00a0s`;
   }
-  return ms >= 10 ? `${ms.toFixed(0)} ms` : `${ms.toFixed(1)} ms`;
+  return ms >= 10 ? `${ms.toFixed(0)}\u00a0ms` : `${ms.toFixed(1)}\u00a0ms`;
 }
 
 /**

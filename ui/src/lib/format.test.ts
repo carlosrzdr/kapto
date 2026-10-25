@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AXIS_TIME_STEPS, axisTimes, axisTimesStep,breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate, sentence } from "./format";
+import { AXIS_TIME_STEPS, axisTimes, axisTimesStep,breakable, bytes, cores, count, duration, figure, lasting, milliseconds, plain, rate, sentence, time } from "./format";
 
 describe("format", () => {
   it("shows durations as minutes and seconds, with hours only when needed", () => {
@@ -34,9 +34,16 @@ describe("format", () => {
   });
 
   it("shows short times in milliseconds and long ones in seconds", () => {
-    expect(milliseconds(520_000_000)).toBe("520 ms");
-    expect(milliseconds(1_500_000)).toBe("1.5 ms");
-    expect(milliseconds(12_000_000_000)).toBe("12 s");
+    expect(milliseconds(520_000_000)).toBe("520\u00a0ms");
+    expect(milliseconds(1_500_000)).toBe("1.5\u00a0ms");
+    expect(milliseconds(12_000_000_000)).toBe("12\u00a0s");
+  });
+
+  it("joins a time's date and clock, and a figure and its unit, by spaces no line breaks at", () => {
+    expect(time(Date.UTC(2026, 2, 25, 10) * 1e6)).toMatch(/^2026-03-25\u00a0\d{2}:00:00$/);
+    expect(lasting(0.45)).toBe("450\u00a0ms");
+    expect(lasting(2.4)).toBe("2.4\u00a0s");
+    expect(lasting(75)).toBe("1:15");
   });
 
   it("splits names and paths after each dot, underscore and slash, keeping every character", () => {

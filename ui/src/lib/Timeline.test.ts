@@ -117,7 +117,7 @@ describe("Timeline's marks", () => {
     await fireEvent.pointerEnter(mark);
     expect(tip.hidden).toBe(false);
     expect(tip.textContent).toContain("grasp (page)");
-    expect(tip.textContent).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3} · for 2\.4 s/);
+    expect(tip.textContent).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3} · for 2\.4\u00a0s/);
     expect(mark.getAttribute("aria-describedby")).toBe(tip.id);
     await fireEvent.pointerLeave(mark);
     expect(tip.hidden).toBe(true);

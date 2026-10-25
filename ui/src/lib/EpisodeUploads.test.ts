@@ -44,7 +44,7 @@ describe("EpisodeUploads", () => {
   it("shows where each upload went, and each object it holds there", () => {
     render(EpisodeUploads, { uploads: here, destinations });
     const archive = screen.getByRole("region", { name: "Upload to archive" });
-    expect(archive.textContent).toContain("uploaded 2026-03-25 10:00:00");
+    expect(archive.textContent).toContain("uploaded 2026-03-25\u00a010:00:00");
     expect(archive.textContent).toContain("s3://robot-data/fleet-a/arm7/2026-03-25/ep1");
     const objects = within(archive).getByRole("table", { name: "Objects at archive" });
     expect(within(objects).getByRole("row", { name: /recording\.mcap/ }).textContent).toContain("12 MiB");
@@ -119,7 +119,7 @@ describe("EpisodeUploads", () => {
       destinations,
     });
     expect(screen.getByText(/^Stored only remotely/).textContent).toMatch(
-      /deleted here 2026-03-25 11:00:00, the disk ran low, with verified copies at archive\./,
+      /deleted here 2026-03-25\u00a011:00:00, the disk ran low, with verified copies at archive\./,
     );
   });
 

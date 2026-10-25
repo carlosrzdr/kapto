@@ -93,7 +93,7 @@ describe("EpisodeList", () => {
     render(EpisodeList, { episodes: [summary], open: detail, onselect: vi.fn() });
     const details = screen.getByRole("region", { name: `Episode ${summary.id}` });
     expect(details.textContent).toContain("10 MiB in 2 files");
-    expect(details.textContent).toContain("99 % within 520 ms");
+    expect(details.textContent).toContain("99 % within 520\u00a0ms");
     expect(details.textContent).toContain("peak 55 of 1022 batches");
     expect(details.textContent).toContain("steady");
     // Datagrams from elsewhere, said beside the loss: they aren't the robot's.
@@ -385,7 +385,7 @@ describe("EpisodeList's open episode, folded", () => {
     expect(fold("Streams")?.open).toBe(false);
     expect(fold("Statistics")?.open).toBe(false);
     expect(recording()?.open).toBe(false);
-    expect(recording()?.textContent).toContain("99 % within 520 ms");
+    expect(recording()?.textContent).toContain("99 % within 520\u00a0ms");
     // Nothing wrong, so nothing said to be.
     expect(details.querySelector(".danger, .warning")).toBeNull();
   });

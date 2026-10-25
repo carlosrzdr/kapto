@@ -578,6 +578,28 @@
     gap: var(--space-2);
     margin: 0 0 0.4rem 0.5rem;
   }
+  /* As on a tablet, where the panel is narrow: the actions on a row of their
+     own under the episode's details, rather than beside them squeezing the
+     times onto more lines; deleting's question and the bin's note follow them. */
+  @media (max-width: 64rem) {
+    section {
+      display: flex;
+      flex-direction: column;
+    }
+    .actions {
+      order: 1;
+      float: none;
+      margin: 0 0 var(--space-2);
+    }
+    .bin {
+      order: 1;
+      margin-top: 0;
+    }
+    /* Everything after the summary, the parts other components draw too. */
+    .summary ~ :global(*) {
+      order: 2;
+    }
+  }
   .replay,
   .retry {
     height: var(--control-height);

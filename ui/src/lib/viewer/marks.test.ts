@@ -68,8 +68,8 @@ describe("markTip", () => {
 
   it("says how long a stretch lasted, or that it goes on", () => {
     const tip = (endMs: number | null) => markTip({ kind: "grasp", startMs: at, endMs, label: "grasp (api)" }).lasting;
-    expect(tip(at + 450)).toBe("for 450 ms");
-    expect(tip(at + 2_400)).toBe("for 2.4 s");
+    expect(tip(at + 450)).toBe("for 450\u00a0ms");
+    expect(tip(at + 2_400)).toBe("for 2.4\u00a0s");
     expect(tip(at + 75_000)).toBe("for 1:15");
     expect(tip(null)).toBe("still going");
   });

@@ -123,7 +123,7 @@ describe("UploadsPanel", () => {
     render(UploadsPanel, props({ onretry }));
     const row = screen.getByRole("listitem", { name: "ep_failed to nas" });
     // Without the operating system's error number, which stays in its tooltip.
-    expect(row.textContent).toContain("the store refused Kapto's credentials · 2026-03-25 10:00:00");
+    expect(row.textContent).toContain("the store refused Kapto's credentials · 2026-03-25\u00a010:00:00");
     expect(row.textContent).toContain("upload.denied");
     await fireEvent.click(within(row).getByRole("button", { name: "Retry now" }));
     expect(onretry).toHaveBeenCalledWith("ep_failed");

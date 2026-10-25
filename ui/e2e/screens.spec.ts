@@ -2,6 +2,7 @@ import { expect, test, type Route } from "@playwright/test";
 
 import { open, shot, shotWhole, tab, viewer, VIEWPORT } from "./screens";
 import { choose, pick } from "./controls";
+import { drawnShare } from "./drawn";
 
 // A route that fetches the real answer before changing it reads that answer
 // after the request is made: the page's polls keep coming until the test
@@ -619,20 +620,23 @@ test("a screenshot of the page Kapto can't show, built for another version of it
 });
 
 test("a screenshot of each tab at a tablet's width", async ({ page }) => {
-  test.setTimeout(180_000);
+  // Longer than the others take: the viewer stays shown in each, as the
+  // page beside each tab is what a tablet shows.
+  test.setTimeout(300_000);
   const nothingLeft = await open(page);
   await page.setViewportSize({ width: 1024, height: 768 });
   await tab(page, /^Live/);
   const stream = page.locator("aside").getByRole("row", { name: /arm_joints/ });
   await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(3_000);
+  const live = page.getByTitle("Live view of the robot");
+  await expect.poll(() => drawnShare(live), { message: "the robot drawn at a tablet's width", timeout: 30_000 }).toBeGreaterThan(0.02);
   await shot(page, "tablet-live");
   // Arranging at this width: the editor under its button, above the panels.
   await page.getByRole("button", { name: "Arrange" }).click();
   await page.waitForTimeout(500);
   await shot(page, "tablet-live-arrange");
   await page.getByRole("button", { name: "Arrange" }).click();
-  await viewer(page, false);
   await tab(page, /^Episodes/);
   const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await episode.getByTitle("Show this episode in full").click();
@@ -645,5 +649,11 @@ test("a screenshot of each tab at a tablet's width", async ({ page }) => {
   await tab(page, /^System/);
   await page.locator("details").filter({ hasText: /settings, / }).locator("summary").click();
   await shot(page, "tablet-system");
+  // Recording: the header's state on one line beside the profile, the task and Stop.
+  const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
+  expect((await page.request.post("/api/episodes/start", json)).status()).toBe(201);
+  await expect(page.getByRole("banner").getByText(/^Recording · /)).toBeVisible();
+  await shot(page.getByRole("banner"), "tablet-header-recording");
+  expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
   nothingLeft();
 });

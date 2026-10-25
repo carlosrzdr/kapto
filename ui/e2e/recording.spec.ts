@@ -1,5 +1,6 @@
 import { expect, type Locator, test, type Page, type Route } from "@playwright/test";
 
+import { drawnShare } from "./drawn";
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
 import { choose } from "./controls";
@@ -775,6 +776,20 @@ test("the robot is framed by its whole reach, and framed again as it stands from
   await page.getByRole("textbox", { name: "Name" }).press("f");
   await expect(live).toHaveAttribute("data-framings", "3");
   expect(elsewhere).toEqual([]);
+});
+
+test("the robot framed while its view has no size is drawn once the view is shown, at a tablet's width", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto("/");
+  const live = page.getByTitle("Live view of the robot");
+  await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
+  await expect.poll(() => drawnShare(live), { message: "the robot drawn as the page opens" }).toBeGreaterThan(0.02);
+  // Hidden, its size is none, and framing it then must not leave it out of sight once shown.
+  await live.evaluate((view) => ((view as HTMLElement).style.display = "none"));
+  await page.keyboard.press("f");
+  await expect(live).toHaveAttribute("data-framings", "2");
+  await live.evaluate((view) => ((view as HTMLElement).style.display = ""));
+  await expect.poll(() => drawnShare(live), { message: "the robot drawn again once shown" }).toBeGreaterThan(0.02);
 });
 
 test("an operator records, looks back and comes back to now from the keyboard, and finds the keys with ?", async ({

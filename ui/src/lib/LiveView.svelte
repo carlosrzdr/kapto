@@ -1101,8 +1101,14 @@
     const resize = () => {
       const { clientWidth: width, clientHeight: height } = container ?? { clientWidth: 1, clientHeight: 1 };
       renderer.setSize(width, height, false);
-      camera.aspect = width / Math.max(height, 1);
-      camera.updateProjectionMatrix();
+      // Hidden, or waiting unshown for its panel, the view has no size: an
+      // aspect of none would put the robot framed then (F, a replay's robot
+      // loading) infinitely far away, drawn empty once shown. The camera
+      // keeps the aspect it had until the view has a size again.
+      if (width > 0 && height > 0) {
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
       dirty = true;
     };
     const observer = new ResizeObserver(resize);
@@ -1473,6 +1479,7 @@
         {/if}
         <div
           class={`panel grow-${heightOf(place, at, panel.height)}`}
+          class:camera={panel.kind === "camera"}
           class:drop-before={dropsBefore(place, at)}
           class:carried={carried?.column === place && carried.at === at}
         >
@@ -1820,6 +1827,20 @@
       box-shadow: 0 3px 0 var(--accent);
     }
   }
+  /* As on a tablet, too narrow for a camera beside plots: each camera on a
+     row of its own at the column's full width, the plots on the row under
+     it, the column scrolling to them; each camera as tall as the least a
+     panel is, so its picture and caption show whole before any scrolling.
+     Not while arranging, whose dragging reads a column's panels as one row. */
+  @media (max-width: 64rem) {
+    .columns:not(.on-view) .column:has(> .camera) {
+      flex-wrap: wrap;
+    }
+    .columns:not(.on-view) .panel.camera {
+      flex-basis: 100%;
+      height: 12rem;
+    }
+  }
   .slot {
     display: flex;
   }
@@ -1958,7 +1979,12 @@
     border-radius: var(--radius);
     background: color-mix(in srgb, var(--background) 92%, transparent);
   }
+  /* Laid over the view rather than in its flow: a canvas is as tall as the
+     picture last drawn in it, which would hold its panel at the size it had
+     on a wider page wherever the panel's height comes from what it holds. */
   canvas {
+    position: absolute;
+    inset: 0;
     display: block;
     width: 100%;
     height: 100%;
