@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { axisTimes, axisTimesSpace, breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate, sentence } from "./format";
+import { AXIS_TIME_STEPS, axisTimes, axisTimesStep,breakable, bytes, cores, count, duration, figure, milliseconds, plain, rate, sentence } from "./format";
 
 describe("format", () => {
   it("shows durations as minutes and seconds, with hours only when needed", () => {
@@ -84,15 +84,60 @@ describe("axisTimes", () => {
   });
 });
 
+describe("axisTimesStep", () => {
+  // Seven pixels a character, as a monospace font of about 11px.
+  const measure = (text: string) => text.length * 7;
+  const gap = 12;
+  // A chart's choice, given the room asked: the smallest step at least that far apart.
+  const chosen = (min: number, max: number, dim: number) => {
+    const { space } = axisTimesStep(min, max, dim, measure, gap);
+    return AXIS_TIME_STEPS.find((step) => (dim * step) / (max - min) >= space);
+  };
+  const ticks = (min: number, max: number, step: number) => {
+    const all: number[] = [];
+    for (let at = Math.ceil(min / step) * step; at <= max; at += step) {
+      all.push(at);
+    }
+    return all;
+  };
+  const start = new Date(2026, 9, 26, 12, 32, 37, 400).getTime() / 1000;
 
-describe("axisTimesSpace", () => {
-  it("keeps ticks as far apart as the widest clock written, and a gap", () => {
-    // Seven pixels a character, as a monospace font of about 11px.
-    const measure = (text: string) => text.length * 7;
-    expect(axisTimesSpace(measure)).toBe(12 * 7 + 12);
-    for (const label of axisTimes([1_793_101_772.25, 1_793_101_772.5], 0.25)) {
-      for (const line of label.split("\n")) {
-        expect(measure(line)).toBeLessThan(axisTimesSpace(measure));
+  it("labels a narrow chart of a few seconds two to four times, in whole seconds", () => {
+    for (const seconds of [5, 8, 11, 13]) {
+      const step = chosen(start, start + seconds, 250) ?? 0;
+      expect(step, `${seconds} s`).toBeGreaterThan(0);
+      const labels = axisTimes(ticks(start, start + seconds, step), step);
+      expect(labels.length, `${seconds} s`).toBeGreaterThanOrEqual(2);
+      expect(labels.length, `${seconds} s`).toBeLessThanOrEqual(4);
+      expect(labels.every((label) => /^\d\d:\d\d:\d\d$/.test(label))).toBe(true);
+    }
+  });
+
+  it("takes fractions of a second only where their longer labels fit", () => {
+    expect(chosen(start, start + 1, 250)).toBe(0.5);
+    expect(chosen(start, start + 1, 2000)).toBe(0.05);
+    expect(chosen(start, start + 3_600, 250)).toBe(900);
+  });
+
+  it("never lets labels run into each other, at any width or range", () => {
+    for (const dim of [60, 120, 250, 400, 800, 1600]) {
+      for (const seconds of [0.05, 0.4, 1, 2.5, 5, 13, 30, 90, 600, 3_600, 21_600]) {
+        // Ending just after midnight too, so the dates are written under the ticks.
+        for (const end of [start + seconds, new Date(2026, 9, 27, 0, 0, 1).getTime() / 1000]) {
+          const min = end - seconds;
+          const step = chosen(min, end, dim);
+          if (step === undefined) {
+            // No step has room for its labels: none are written.
+            continue;
+          }
+          expect(step, `${seconds} s over ${dim}px`).toBe(axisTimesStep(min, end, dim, measure, gap).step);
+          const apart = (dim * step) / seconds;
+          for (const label of axisTimes(ticks(min, end, step), step)) {
+            for (const line of label.split("\n")) {
+              expect(measure(line) + gap, `${line} at ${step} s over ${dim}px`).toBeLessThanOrEqual(apart);
+            }
+          }
+        }
       }
     }
   });

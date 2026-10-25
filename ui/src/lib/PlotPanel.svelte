@@ -3,7 +3,7 @@
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
 
-  import { axisTimes, axisTimesSpace } from "./format";
+  import { AXIS_TIME_STEPS, axisTimes, axisTimesStep } from "./format";
   import {
     BANDED_AT_MOST,
     banded,
@@ -134,8 +134,18 @@
     if (measuring) {
       measuring.font = font;
     }
-    // Ticks no closer than their labels are wide, however narrow the panel.
-    const timeSpace = axisTimesSpace((text) => measuring?.measureText(text).width ?? text.length * 8);
+    // Each label measured once: the time axis asks for them as often as it is drawn.
+    const widths = new Map<string, number>();
+    const measure = (text: string) => {
+      let width = widths.get(text);
+      if (width === undefined) {
+        width = measuring?.measureText(text).width ?? text.length * 8;
+        widths.set(text, width);
+      }
+      return width;
+    };
+    // Room on the right for half the widest time label, centred on the last tick.
+    const timeOverhang = Math.ceil(measure("00:00:00.000") / 2) + 6;
 
     const size = () => ({
       width: holder?.clientWidth ?? 300,
@@ -232,8 +242,7 @@
             ...size(),
             series,
             bands: filled,
-            // Room on the right for half the time axis's last label, centred on its tick.
-            padding: [8, Math.ceil(timeSpace / 2), 0, 0],
+            padding: [8, timeOverhang, 0, 0],
             legend: { show: false },
             // A line at the time pointed at, whose values the tip says.
             cursor: { x: true, y: false, points: { show: false }, drag: { x: false, y: false } },
@@ -244,7 +253,11 @@
             axes: [
               {
                 ...axis,
-                space: timeSpace,
+                // Ticks as far apart as the labels written at their step
+                // are wide, however narrow the panel, so a few seconds
+                // without fractions still get more than one.
+                incrs: AXIS_TIME_STEPS,
+                space: (_, _axis, min, max, dim) => axisTimesStep(min, max, dim, measure).space,
                 values: (_, ticks, _axis, _space, step) => axisTimes(ticks, step),
                 // A line for the times, and one more only while the dates are written under them.
                 size: (_, values) => (values?.some((value) => value.includes("\n")) ? 48 : 32),

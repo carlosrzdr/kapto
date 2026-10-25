@@ -79,13 +79,48 @@ export function axisTimes(seconds: number[], step: number): string[] {
 }
 
 /**
- * How far apart a time axis's ticks must be, in pixels, for its labels not
- * to run into each other: the widest clock it writes (`00:00:00.000`),
- * as `measure` makes it in the axis's font, and a gap. The date under a
- * tick is no wider.
+ * The steps a time axis's ticks may be apart, in seconds: the clock's own
+ * divisions, so ticks fall on round times. Two seconds is among them, so a
+ * few seconds of history on a narrow chart still gets more than one label.
  */
-export function axisTimesSpace(measure: (text: string) => number, gap = 12): number {
-  return Math.ceil(measure("00:00:00.000")) + gap;
+export const AXIS_TIME_STEPS = [
+  0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1_800, 3_600, 7_200, 10_800,
+  21_600, 43_200, 86_400, 172_800, 604_800,
+];
+
+/**
+ * The step a time axis's ticks are apart over `min` to `max` (seconds since
+ * the Unix epoch) across `dim` pixels, and the room each tick then needs:
+ * the labels written at that step, as `measure` makes them in the axis's
+ * font, and a gap. Whole seconds (`12:32:40`) need less room than
+ * fractions of one (`12:32:40.25`), so ticks are only as far apart as the
+ * labels actually written; the date, when the ticks cross midnight, is
+ * measured too.
+ */
+export function axisTimesStep(
+  min: number,
+  max: number,
+  dim: number,
+  measure: (text: string) => number,
+  gap = 12,
+): { step: number; space: number } {
+  const dayOf = (at: number) => new Date(at * 1000).toDateString();
+  const crossing = dayOf(min) !== dayOf(max);
+  // Midnight writes every digit as a zero, as wide as any other time in a
+  // font whose digits share a width.
+  const midnight = new Date(2026, 0, 1).getTime() / 1000;
+  const rooms = AXIS_TIME_STEPS.map((step) => {
+    const lines = axisTimes(crossing ? [midnight - step, midnight] : [midnight], step).flatMap((label) => label.split("\n"));
+    return Math.ceil(Math.max(...lines.map(measure))) + gap;
+  });
+  const perSecond = max > min ? dim / (max - min) : 0;
+  const found = AXIS_TIME_STEPS.findIndex((step, place) => step * perSecond >= rooms[place]!);
+  const place = found === -1 ? AXIS_TIME_STEPS.length - 1 : found;
+  // A chart takes the smallest step at least `space` apart: asking a hair
+  // more than the step below is apart keeps it from taking that one, whose
+  // longer labels (`12:32:40.5` rather than `12:32:41`) wouldn't fit.
+  const below = place > 0 ? AXIS_TIME_STEPS[place - 1]! * perSecond * (1 + 1e-6) : 0;
+  return { step: AXIS_TIME_STEPS[place]!, space: Math.max(rooms[place]!, below) };
 }
 
 /** Bytes in binary units: `87203840` → `83 MiB`, `1610612736` → `1.5 GiB`. */
