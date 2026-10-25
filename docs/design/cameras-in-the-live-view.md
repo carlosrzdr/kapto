@@ -25,6 +25,11 @@ What has to hold:
   frame is drawn only once turned into pixels, and sent as it is it costs
   about 28 MB/s for one 640x480 camera at 30 fps, too much for a page on
   another machine.
+- **A page's link is shared.** A 1080p JPEG is about 360 KB: at 30 a
+  second, five cameras send a page about 54 MB/s on the WebSocket that also
+  carries the robot's frames, which then wait behind the pictures (564 ms
+  at the 95th percentile, measured on one machine, against 150 ms allowed).
+  More cameras must mean fewer pictures of each, not a later robot.
 - **A frame is stored as received**: a ROS 2 camera's frame is a whole
   `sensor_msgs/msg/CompressedImage` or `Image` message, not the picture
   alone. Capture never parses it.
@@ -71,6 +76,18 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   in the bridge, never in capture; another encoding, or a compressed
   format the browser can't draw, is counted and named in the live view
   rather than shown.
+- **A page's cameras share its pictures.** The bridge sends each page at
+  most `viewer.page_pictures` pictures a second across all its cameras (60
+  by default), each camera an even share, never more than
+  `viewer.camera_max_fps`: 30 each with two cameras, 12 each with five. A
+  camera's picture is sent to a page once its share's interval has passed
+  since that camera's last one to the page; until then only its newest
+  waits, newer ones replacing it, so a page always gets the newest picture
+  and never a backlog. Pictures held back this way are counted per camera
+  as thinned for the page, apart from those dropped because the page was
+  slow. The share is the bridge's, per page: capture's cap stays per
+  camera, as it bounds the copies on the recording path, and two pages
+  with different cameras open don't hold each other back.
 - **The page draws it.** Each picture goes to a page on the live view's
   WebSocket as a message of its own, beside the frames of poses and
   samples: the camera's position among the streams, when Kapto received
@@ -104,8 +121,12 @@ JPEG, and sends it to each page over the live view's WebSocket.**
 ## Consequences
 
 - An operator sees each camera live beside the robot, at up to
-  `viewer.camera_max_fps`, on any page, with the delay from its arrival
-  shown as for the robot.
+  `viewer.camera_max_fps`, fewer the more cameras a page shows (up to
+  `viewer.page_pictures` a second for all of them), on any page, with the
+  delay from its arrival shown as for the robot, which stays within the
+  live view's budget however many cameras there are.
+- A new deployment setting, `viewer.page_pictures`, and a count per camera
+  of pictures thinned for a page, beside those dropped.
 - Capture holds three frames of each camera's size beside its rings, counted
   in the memory it declares at start, and copies at most the cap's worth of
   frames a second, on the writer thread.
@@ -164,6 +185,26 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   frames are on disk, every one exact, and replay already reads them. But
   between episodes nothing is recorded, and looking back is mostly done
   then, to see what just happened.
+- **`viewer.camera_max_fps` as the total.** One setting fewer, but it
+  caps the copies capture's writer makes per camera, on the recording path;
+  as a total split among cameras, adding a camera would change what
+  capture does for the others, and the link that needs sharing is the
+  page's, not capture's.
+- **Pictures shrunk to the width each page shows.** The bridge decodes
+  each picture at a fraction of its size and encodes it again for each
+  page, as it already does for the history, sending 10 to 20 times fewer
+  bytes; but at 30 pictures a second per camera that is real CPU in the
+  bridge. Worth measuring once the shared rate is in place, not instead
+  of it.
+- **WebRTC for what the live view shows.** Each camera a video track
+  (about 4 to 10 Mbit/s for 1080p) with congestion control, the robot's
+  frames on an unordered data channel, lossy as every tap to the viewer is
+  while the recording keeps every frame as received; counts, status and
+  looking back staying on the WebSocket. It needs a video encoder in the
+  bridge (hardware, or a large dependency) and a WebRTC stack, and reaches
+  only pages on the robot's network, as Kapto makes no outbound connection
+  for STUN or TURN. Kept for when many cameras must be watched over slow
+  links.
 - **Kept as received, at a lower rate.** No decoding or encoding in the
   bridge, but a 1080p picture is about twelve times the size of one 640
   pixels wide, so the same budget would keep less than a minute.
