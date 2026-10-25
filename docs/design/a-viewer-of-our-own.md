@@ -32,6 +32,14 @@ replay.** Forward kinematics is Kapto's own and shared with the checks.
   like the rest of it; nothing is loaded from elsewhere. The view is a
   Svelte component, not an iframe, so live, replay and the rest of the page
   share one page and one policy.
+- **One scene, as many views of it as the layout asks.** The robot is
+  built once, into one three.js scene, and posed once a frame; each
+  `robot` panel is a camera onto it, from a viewpoint of its own, drawn by
+  one renderer into that panel's place, so its meshes are sent to the
+  graphics card once whatever the number of views. At most four, as each
+  is a draw of the whole scene a frame. While no panel shows the robot,
+  nothing of it is drawn: the poses are kept, so it is right the moment a
+  panel shows it again.
 - **The browser never reads robot files.** The server sends the robot as a
   scene: each link, its visual shapes (boxes, cylinders, spheres, meshes),
   their colours and where they sit, from the robot model Kapto already
@@ -117,6 +125,8 @@ replay.** Forward kinematics is Kapto's own and shared with the checks.
 - The live view moves soon after a message arrives, says by how much, and
   can be paused and rewound over the last minutes.
 - One viewer, in one page: no second port, no iframe, nothing to block.
+- The robot seen from two sides at once costs a second draw of the same
+  scene, not a second robot; a layout without it costs no drawing.
 - Kapto maintains a 3D view, plots and a replay player. Each is kept to
   what an operator needs; anything more is added deliberately, like any
   other feature.
@@ -136,6 +146,10 @@ replay.** Forward kinematics is Kapto's own and shared with the checks.
   three.js's loaders; the robot itself comes as triangles from the server.
 
 ## Alternatives considered
+
+- **A canvas and renderer per 3D view**: each panel independent, but each
+  is a graphics context of its own with the robot's meshes uploaded again,
+  and browsers allow only a handful of contexts per page.
 
 - **Rerun's web viewer, embedded in the page.** It draws meshes, plots and
   scrubs a timeline, and has a file format of its own. Measured on the

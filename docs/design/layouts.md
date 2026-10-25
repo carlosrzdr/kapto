@@ -41,12 +41,19 @@ declares.**
 
 - **The document.** Columns side by side, each with a relative width, each
   a stack of panels with relative heights. A panel is one of: `robot` (the
-  3D view), `camera` (one camera stream), `plot` (fields, by stream and
+  3D view, from the `view` it is given: `front`, `side`, `top` or, by
+  default, the angle that frames the robot, or the place an operator left
+  it while arranging, as `{ from = [x, y, z], at = [x, y, z] }` in the
+  robot's frame; up to four), `camera` (one camera stream), `plot` (fields, by stream and
   name or by role, each with its min/max band), `health` (the streams'
   counts), `events` (the timeline's marks as a list). Any panel may have a
   `title`, shown in place of the one made from what it shows. A layout
   saved by the UI starts with its `name`; a package's own needs none. The
-  timeline and the mark bar are always there, under everything.
+  timeline and the mark bar are always there, under everything. The side
+  panel (episodes, live, system, settings) folds to a strip of its tabs'
+  icons, by a button on its edge or a key, remembered per browser, so the
+  view takes the page's width; the header, with the health chip and
+  Record, stays.
 
   ```toml
   # layout.toml
