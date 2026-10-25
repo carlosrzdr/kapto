@@ -360,6 +360,7 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     }
     let upload_pauses = deployment.upload.pause_while_recording.value;
     let recording = watched(&deployment, &shutdown)?;
+    let jobs_wait = jobs_wait(deployment.worker_pause_while_recording.value, &recording);
     let lane_ended = Arc::new(AtomicBool::new(false));
     let lane = if deployment.upload_destinations.is_empty() {
         None
@@ -379,7 +380,7 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     thread::Builder::new()
         .name("wrk-cpu-0".into())
         .spawn({
-            let (data_dir, recording) = (data_dir.clone(), Arc::clone(&recording));
+            let (data_dir, recording) = (data_dir.clone(), Arc::clone(&jobs_wait));
             let (shutdown, cpu_ended) = (Arc::clone(&shutdown), Arc::clone(&cpu_ended));
             move || {
                 let _ends = EndsWorker {
@@ -399,7 +400,7 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
                     data_dir: &data_dir,
                     limits: cache,
                 };
-                schedule(&cache, (&shutdown, &recording), &orders, &results);
+                schedule(&cache, (&shutdown, &jobs_wait), &orders, &results);
             }
         })
         .map_err(|error| vec![thread_failed(&error.to_string())])?;
@@ -427,6 +428,17 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     }
     eprintln!("Worker stopped.");
     Ok(())
+}
+
+/// What jobs other than uploads wait on: capture recording, or nothing
+/// when `worker.pause_while_recording` is off, even though `wrk-watch` still
+/// watches capture for uploads that pause by their own setting.
+fn jobs_wait(pauses: bool, recording: &Arc<Recording>) -> Arc<Recording> {
+    if pauses {
+        Arc::clone(recording)
+    } else {
+        Arc::new(Recording::new())
+    }
 }
 
 /// Whether capture is recording, watched by `wrk-watch` if anything pauses
@@ -948,6 +960,16 @@ mod tests {
         // Answering in between starts the count again.
         let mut unreachable = Unreachable::default();
         assert!(!unreachable.for_longer_than(quiet, start + quiet * 3));
+    }
+
+    #[test]
+    fn jobs_go_on_while_recording_when_only_uploads_pause() {
+        let recording = Arc::new(Recording::new());
+        recording.told(Some(true));
+        assert!(jobs_wait(true, &recording).now());
+        // Uploads still see capture recording; other jobs don't wait for it.
+        assert!(!jobs_wait(false, &recording).now());
+        assert!(recording.now());
     }
 
     #[test]

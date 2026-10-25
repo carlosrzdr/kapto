@@ -285,6 +285,33 @@ fn the_worker_starts_no_job_while_capture_records_an_episode_unless_told_not_to_
     });
     let _ = worker.kill();
     let _ = worker.wait();
+
+    // Uploads pausing by their own setting don't hold other jobs back.
+    let config = folder.join("kapto.toml");
+    let site = folder.join("site");
+    std::fs::write(
+        &config,
+        format!(
+            "[[upload.destination]]\nname = \"site\"\nurl = \"file://{}\"\n",
+            site.display()
+        ),
+    )
+    .unwrap();
+    let last = "20260310T121000.000Z-00000003";
+    finalised(&data, last);
+    store.enqueue(VERIFY, last).unwrap();
+    let config = config.to_str().unwrap();
+    let mut worker = start_worker(&[
+        "--config",
+        config,
+        "--worker-pause-while-recording",
+        "false",
+    ]);
+    wait_until("the job to be done while uploads pause", || {
+        state() == JobState::Done
+    });
+    let _ = worker.kill();
+    let _ = worker.wait();
     answering.store(false, Ordering::Relaxed);
     stand_in.join().unwrap();
 }
