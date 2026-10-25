@@ -3,8 +3,11 @@
 //! `kapto topics`: the ROS 2 topics this machine's ROS 2 network has, and
 //! their message types, for declaring a ROS 2 robot's streams; with
 //! `--streams`, as `streams.toml` declarations to paste and complete, each
-//! topic's rate measured over the wait.
+//! topic's rate measured over the wait. A topic whose type's support library
+//! doesn't load here, so Kapto couldn't subscribe to it, is marked, and why
+//! is said with the remedy.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::process::ExitCode;
 
@@ -71,11 +74,15 @@ fn listed(args: &TopicsArgs) -> Result<String, KaptoError> {
         .into_iter()
         .map(|topic| (topic.name, topic.types))
         .collect();
+    let unloadable = unloadable(&topics, &kapto_transport::ros2::type_loads);
+    for error in unloadable.values() {
+        say!("{}", error.warning_report());
+    }
     if args.streams {
         let wait = std::time::Duration::from_secs(u64::from(args.wait));
         return Ok(declarations(&listened(&topics, wait)?, args.wait));
     }
-    Ok(table(&topics, args.wait))
+    Ok(table(&topics, args.wait, &unloadable))
 }
 
 /// Subscribes to each of `topics` but ROS 2's own, by its first type, and
@@ -172,6 +179,28 @@ fn listed(_args: &TopicsArgs) -> Result<String, KaptoError> {
     ))
 }
 
+/// The type each of `topics` is subscribed with (its first) that doesn't
+/// load here by `loads`, with why, each once.
+#[cfg_attr(
+    not(feature = "ros2"),
+    allow(dead_code, reason = "only a Kapto built with ROS 2 lists topics")
+)]
+fn unloadable(
+    topics: &[(String, Vec<String>)],
+    loads: &dyn Fn(&str) -> Result<(), KaptoError>,
+) -> BTreeMap<String, KaptoError> {
+    let mut unloadable = BTreeMap::new();
+    for (_, types) in topics {
+        if let Some(first) = types.first()
+            && !unloadable.contains_key(first)
+            && let Err(error) = loads(first)
+        {
+            unloadable.insert(first.clone(), error);
+        }
+    }
+    unloadable
+}
+
 /// `topic` as a stream's ID: lowercase letters, digits and underscores,
 /// starting with a letter.
 #[cfg_attr(
@@ -203,7 +232,7 @@ fn stream_id(topic: &str) -> String {
 )]
 fn declarations(heard: &[Heard], waited: u32) -> String {
     if heard.is_empty() {
-        return table(&[], waited);
+        return table(&[], waited, &BTreeMap::new());
     }
     let mut text = format!(
         "# The ROS 2 topics seen, as streams.toml declarations, rates measured over {waited} s.\n\
@@ -244,12 +273,17 @@ fn declarations(heard: &[Heard], waited: u32) -> String {
     text
 }
 
-/// Each topic and its types, aligned; or what to check if there are none.
+/// Each topic and its types, aligned, marked where the type it would be
+/// subscribed with is `unloadable`; or what to check if there are none.
 #[cfg_attr(
     not(feature = "ros2"),
     allow(dead_code, reason = "only a Kapto built with ROS 2 lists topics")
 )]
-fn table(topics: &[(String, Vec<String>)], waited: u32) -> String {
+fn table(
+    topics: &[(String, Vec<String>)],
+    waited: u32,
+    unloadable: &BTreeMap<String, KaptoError>,
+) -> String {
     if topics.is_empty() {
         return format!(
             "No ROS 2 topics seen in {waited} s. Check that the robot's nodes run on this \
@@ -260,7 +294,14 @@ fn table(topics: &[(String, Vec<String>)], waited: u32) -> String {
     let width = topics.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
     let mut text = String::new();
     for (name, types) in topics {
-        let _ = writeln!(text, "{name:width$}  {}", types.join(", "));
+        let _ = write!(text, "{name:width$}  {}", types.join(", "));
+        if types
+            .first()
+            .is_some_and(|first| unloadable.contains_key(first))
+        {
+            text.push_str("  (its type doesn't load here)");
+        }
+        text.push('\n');
     }
     text
 }
@@ -279,8 +320,52 @@ mod tests {
             ("/tf".to_owned(), vec!["tf2_msgs/msg/TFMessage".to_owned()]),
         ];
         assert_eq!(
-            table(&topics, 2),
+            table(&topics, 2, &BTreeMap::new()),
             "/joint_states  sensor_msgs/msg/JointState\n/tf            tf2_msgs/msg/TFMessage\n"
+        );
+    }
+
+    #[test]
+    fn a_topic_whose_type_doesnt_load_is_marked_and_said_why_once() {
+        let topic = |name: &str, kind: &str| (name.to_owned(), vec![kind.to_owned()]);
+        let topics = [
+            topic("/joint_states", "sensor_msgs/msg/JointState"),
+            topic("/left/gripper", "acme_msgs/msg/Gripper"),
+            topic("/right/gripper", "acme_msgs/msg/Gripper"),
+        ];
+        let mut asked = Vec::new();
+        let asked_for = std::cell::RefCell::new(&mut asked);
+        let unloadable = unloadable(&topics, &|kind: &str| {
+            asked_for.borrow_mut().push(kind.to_owned());
+            if kind.starts_with("acme_msgs/") {
+                Err(
+                    KaptoError::new(kapto_core::ErrorCode::TransportRos2TypeUnavailable)
+                        .detail("no library libacme_msgs__rosidl_typesupport_c.so")
+                        .context("type", kind),
+                )
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(
+            asked,
+            ["sensor_msgs/msg/JointState", "acme_msgs/msg/Gripper"]
+        );
+        assert_eq!(
+            unloadable.keys().collect::<Vec<_>>(),
+            ["acme_msgs/msg/Gripper"]
+        );
+        let warning = unloadable["acme_msgs/msg/Gripper"].warning_report();
+        assert!(
+            warning.starts_with("warning[transport.ros2.type_unavailable]"),
+            "{warning}"
+        );
+        assert!(warning.contains("/overlays/<name>"), "{warning}");
+        assert_eq!(
+            table(&topics, 2, &unloadable),
+            "/joint_states   sensor_msgs/msg/JointState\n\
+             /left/gripper   acme_msgs/msg/Gripper  (its type doesn't load here)\n\
+             /right/gripper  acme_msgs/msg/Gripper  (its type doesn't load here)\n"
         );
     }
 
@@ -338,6 +423,6 @@ mod tests {
 
     #[test]
     fn no_topics_says_what_to_check() {
-        assert!(table(&[], 5).starts_with("No ROS 2 topics seen in 5 s."));
+        assert!(table(&[], 5, &BTreeMap::new()).starts_with("No ROS 2 topics seen in 5 s."));
     }
 }

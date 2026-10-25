@@ -346,13 +346,49 @@ impl Drop for Node {
 /// library stays loaded: the middleware may keep the type registered for as
 /// long as the process lives.
 fn type_support(message_type: &str) -> Result<*const rosidl_message_type_support_t, KaptoError> {
-    let unavailable = |detail: String| {
-        KaptoError::new(ErrorCode::TransportRos2TypeUnavailable)
-            .detail(detail)
-            .context("type", message_type)
+    let function = support_function(message_type)?;
+    // SAFETY: rosidl generates this symbol for every message type as
+    // `const rosidl_message_type_support_t * f(void)`, which is what it is
+    // called as here; it returns a pointer to a static in the library.
+    let support = unsafe {
+        let get: unsafe extern "C" fn() -> *const rosidl_message_type_support_t =
+            std::mem::transmute(function);
+        get()
     };
+    if support.is_null() {
+        let name = message_type.rsplit('/').next().unwrap_or(message_type);
+        return Err(unavailable(
+            message_type,
+            format!("{name}'s support is missing"),
+        ));
+    }
+    Ok(support)
+}
+
+/// Whether `message_type` (`package/msg/Type`) can be subscribed to here:
+/// its package's support library loads and has the type, as subscribing to
+/// it needs. The library stays loaded, as for a subscription.
+///
+/// # Errors
+///
+/// `transport.ros2.type_unavailable`, with the loader's reason.
+pub fn type_loads(message_type: &str) -> Result<(), KaptoError> {
+    support_function(message_type).map(|_| ())
+}
+
+/// `transport.ros2.type_unavailable` for `message_type`, saying why.
+fn unavailable(message_type: &str, detail: String) -> KaptoError {
+    KaptoError::new(ErrorCode::TransportRos2TypeUnavailable)
+        .detail(detail)
+        .context("type", message_type)
+}
+
+/// The function giving `message_type`'s support, from its package's support
+/// library, which stays loaded.
+fn support_function(message_type: &str) -> Result<*mut c_void, KaptoError> {
     let [package, "msg", name] = message_type.split('/').collect::<Vec<_>>()[..] else {
         return Err(unavailable(
+            message_type,
             "not a message type, `<package>/msg/<Type>`".to_owned(),
         ));
     };
@@ -369,33 +405,24 @@ fn type_support(message_type: &str) -> Result<*const rosidl_message_type_support
     let function = unsafe {
         let handle = libc::dlopen(library.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
         if handle.is_null() {
-            return Err(unavailable(format!(
-                "no library {}: {}",
-                library.to_string_lossy(),
-                dl_error()
-            )));
+            return Err(unavailable(
+                message_type,
+                format!("no library {}: {}", library.to_string_lossy(), dl_error()),
+            ));
         }
         libc::dlsym(handle, symbol.as_ptr())
     };
     if function.is_null() {
-        return Err(unavailable(format!(
-            "{} has no {name}: {}",
-            library.to_string_lossy(),
-            dl_error()
-        )));
+        return Err(unavailable(
+            message_type,
+            format!(
+                "{} has no {name}: {}",
+                library.to_string_lossy(),
+                dl_error()
+            ),
+        ));
     }
-    // SAFETY: rosidl generates this symbol for every message type as
-    // `const rosidl_message_type_support_t * f(void)`, which is what it is
-    // called as here; it returns a pointer to a static in the library.
-    let support = unsafe {
-        let get: unsafe extern "C" fn() -> *const rosidl_message_type_support_t =
-            std::mem::transmute(function);
-        get()
-    };
-    if support.is_null() {
-        return Err(unavailable(format!("{name}'s support is missing")));
-    }
-    Ok(support)
+    Ok(function)
 }
 
 /// Why the last `dlopen` or `dlsym` on this thread failed.

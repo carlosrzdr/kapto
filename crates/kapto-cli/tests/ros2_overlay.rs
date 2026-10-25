@@ -185,3 +185,57 @@ fn the_same_topic_is_refused_without_the_overlays_support_library() {
     );
     let _ = std::fs::remove_dir_all(folder);
 }
+
+#[test]
+fn topics_says_which_types_load_here_with_the_remedy_for_one_that_doesnt() {
+    assert_overlay_sourced();
+    let topic = format!("/kapto_overlay_topics_{}", std::process::id());
+    let mut publisher = Command::new("ros2")
+        .args(["topic", "pub", "--rate", "5", &topic])
+        .args(["kapto_test_msgs/msg/Gripper", "{opening: 0.5}"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let topics = |env: &[(&str, OsString)]| {
+        Command::new(env!("CARGO_BIN_EXE_kapto"))
+            .args(["topics", "--wait", "4"])
+            .envs(env.iter().map(|(key, value)| (key, value)))
+            .output()
+            .unwrap()
+    };
+    let mounted = topics(&[]);
+    let unmounted = topics(&[without_overlay("LD_LIBRARY_PATH")]);
+    let _ = publisher.kill();
+    let _ = publisher.wait();
+    let line_of = |output: &Output| {
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(output.status.success(), "{stdout}");
+        stdout
+            .lines()
+            .find(|line| line.starts_with(&format!("{topic} ")))
+            .unwrap_or_else(|| panic!("{topic} not listed: {stdout}"))
+            .to_owned()
+    };
+
+    let line = line_of(&mounted);
+    assert!(line.ends_with(" kapto_test_msgs/msg/Gripper"), "{line}");
+    let stderr = String::from_utf8_lossy(&mounted.stderr);
+    assert!(!stderr.contains("kapto_test_msgs"), "{stderr}");
+
+    let line = line_of(&unmounted);
+    assert!(
+        line.ends_with(" kapto_test_msgs/msg/Gripper  (its type doesn't load here)"),
+        "{line}"
+    );
+    let stderr = String::from_utf8_lossy(&unmounted.stderr);
+    assert!(
+        stderr.contains("warning[transport.ros2.type_unavailable]"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("libkapto_test_msgs__rosidl_typesupport_c.so"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("/overlays/<name>"), "{stderr}");
+}

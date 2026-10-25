@@ -24,6 +24,8 @@ mod transport;
 use kapto_capture::StreamIndex;
 
 #[cfg(feature = "ros2")]
+pub use rcl::type_loads;
+#[cfg(feature = "ros2")]
 pub use transport::{Ros2Transport, topics};
 
 /// A topic published on the machine's ROS 2 network.

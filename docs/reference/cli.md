@@ -316,7 +316,7 @@ Jobs such as checking each finalised episode's files against its manifest, one a
 
 List the ROS 2 topics on this machine's network, with their types.
 
-For declaring a ROS 2 robot's streams. Only the Kapto of the `kapto-ros2` image is built with ROS 2.
+For declaring a ROS 2 robot's streams. A topic whose type's support library doesn't load here, so Kapto couldn't subscribe to it, is marked, with a warning saying why and what to install or mount. Only the Kapto of the `kapto-ros2` image is built with ROS 2.
 
 | Option | Description |
 |---|---|
