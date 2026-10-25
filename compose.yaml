@@ -12,6 +12,11 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       target: kapto
+    # Docker kills a container 10 s after SIGTERM by default, while serve
+    # may take capture.stop_grace (30 s by default) to finalise an episode,
+    # then a moment for the API: 45 s lets it finish. Raise it with
+    # capture.stop_grace.
+    stop_grace_period: 45s
 
   kapto-ros2:
     image: kapto-ros2:dev
@@ -19,6 +24,9 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       target: kapto-ros2
+    # Finalising the episode being recorded may outlast Docker's 10 s
+    # (see `kapto` above).
+    stop_grace_period: 45s
 
   # S3-compatible storage on this machine, to try uploads without a cloud
   # account (docs/guides/try-uploads.md); making the bucket starts both:
@@ -72,6 +80,9 @@ services:
       dockerfile: docker/Dockerfile
       target: kapto
     command: ["demo"]
+    # Finalising the episode being recorded may outlast Docker's 10 s
+    # (see `kapto` above).
+    stop_grace_period: 45s
     depends_on:
       rustfs-bucket:
         condition: service_completed_successfully
