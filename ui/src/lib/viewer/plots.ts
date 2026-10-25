@@ -58,6 +58,11 @@ export class SampleBuffer {
     return this.count === 0 ? null : (this.times[(this.next - 1 + this.capacity) % this.capacity] ?? null);
   }
 
+  /** When the oldest sample it holds was received, or `null` if there is none. */
+  get oldestMs(): number | null {
+    return this.count === 0 ? null : (this.times[(this.next - this.count + this.capacity) % this.capacity] ?? null);
+  }
+
   /** Adds a sample received at `timeMs`, each value's minimum then maximum; the oldest goes if it is full. */
   push(timeMs: number, extremes: Float64Array) {
     this.times[this.next] = timeMs;
@@ -195,6 +200,68 @@ export function shownStretch(endMs: number, spanMs: number, widthPx: number): [n
   const msPerPixel = spanMs / widthPx;
   const end = widthPx > 0 ? Math.floor(endMs / msPerPixel) * msPerPixel : endMs;
   return [(end - spanMs) / 1000, end / 1000];
+}
+
+/** The least a plot shows, however little it holds yet. */
+export const SHORTEST_SHOWN_MS = 1000;
+
+/**
+ * How long a stretch a plot shows, ending at `endMs`, of the `spanMs` asked
+ * for: all of it once the samples kept reach back that far, and until then
+ * only back to the oldest, `oldestMs`, so a chart just opened is filled
+ * rather than mostly empty. Rounded up to whole seconds, so that, as the
+ * samples kept grow, the curve keeps its scale for a second at a time and
+ * moves by whole pixels in between.
+ */
+export function shownSpan(spanMs: number, endMs: number, oldestMs: number | null): number {
+  if (oldestMs === null || oldestMs > endMs) {
+    return spanMs;
+  }
+  const kept = Math.ceil((endMs - oldestMs) / SHORTEST_SHOWN_MS) * SHORTEST_SHOWN_MS;
+  return Math.min(spanMs, Math.max(kept, SHORTEST_SHOWN_MS));
+}
+
+/** The most values a plot draws each with the band from its minimum to its maximum. */
+export const BANDED_AT_MOST = 2;
+
+/**
+ * Which of a plot's `count` values are drawn as a band from minimum to
+ * maximum, the rest as one line through the middle: every one in a plot
+ * of [`BANDED_AT_MOST`] or fewer, otherwise only those `shown` (the key's
+ * entries pointed at, focused or picked), as many bands over one another
+ * hide the lines they are about.
+ */
+export function banded(count: number, shown: ReadonlySet<number>): boolean[] {
+  return Array.from({ length: count }, (_, place) => count <= BANDED_AT_MOST || shown.has(place));
+}
+
+/**
+ * The columns a chart is given from `data`, [`SampleBuffer.stretch`]'s
+ * (times, then each value's minima and maxima): the times, then, for each
+ * value, its minima and maxima if it is `bands`'s, or else the middle of
+ * the two, written into `middles`, one array per value made once and
+ * reused, so drawing makes nothing new.
+ */
+export function plotColumns(data: Float64Array[], bands: boolean[], middles: Float64Array[]): Float64Array[] {
+  const times = data[0] ?? new Float64Array(0);
+  const columns = [times];
+  bands.forEach((band, place) => {
+    const low = data[1 + place * 2] ?? new Float64Array(0);
+    const high = data[2 + place * 2] ?? new Float64Array(0);
+    if (band) {
+      columns.push(low, high);
+      return;
+    }
+    const middle = middles[place];
+    if (!middle) {
+      return;
+    }
+    for (let index = 0; index < times.length; index++) {
+      middle[index] = ((low[index] ?? Number.NaN) + (high[index] ?? Number.NaN)) / 2;
+    }
+    columns.push(middle.subarray(0, times.length));
+  });
+  return columns;
 }
 
 /**

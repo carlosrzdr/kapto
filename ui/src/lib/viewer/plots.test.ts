@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { type Drawn, drawAgain, type PlotStream, plotStreams, resolvePlot, SampleBuffer, shortLabels, shownStretch, valuesAt } from "./plots";
+import {
+  banded,
+  type Drawn,
+  drawAgain,
+  plotColumns,
+  type PlotStream,
+  plotStreams,
+  resolvePlot,
+  SampleBuffer,
+  shortLabels,
+  shownSpan,
+  shownStretch,
+  valuesAt,
+} from "./plots";
 import type { Opening } from "./stream";
 
 /** A sample of two values: the first at `value`, the second at its double. */
@@ -14,6 +27,7 @@ describe("SampleBuffer", () => {
     }
     expect(buffer.size).toBe(4);
     expect(buffer.newestMs).toBe(9000);
+    expect(buffer.oldestMs).toBe(6000);
     const [times, firstLow, firstHigh, second] = buffer.stretch(0, [0, 1]);
     expect(Array.from(times!)).toEqual([6, 7, 8, 9]);
     expect(Array.from(firstLow!)).toEqual([5.5, 6.5, 7.5, 8.5]);
@@ -116,6 +130,53 @@ describe("shortLabels", () => {
     expect(shortLabels(["gripper.opening"])).toEqual({ heading: "", labels: ["gripper.opening"] });
     expect(shortLabels(["joint_positions[0]", "gripper"])).toEqual({ heading: "", labels: ["joint_positions[0]", "gripper"] });
     expect(shortLabels(["a.b", "a.b"])).toEqual({ heading: "a", labels: ["b", "b"] });
+  });
+});
+
+describe("shownSpan", () => {
+  it("shows the whole span once the samples kept reach back that far", () => {
+    expect(shownSpan(30_000, 100_000, 60_000)).toBe(30_000);
+    expect(shownSpan(30_000, 100_000, null)).toBe(30_000);
+  });
+
+  it("shows only back to the oldest sample kept, in whole seconds, while they are fewer", () => {
+    expect(shownSpan(30_000, 100_000, 95_500)).toBe(5_000);
+    expect(shownSpan(30_000, 100_000, 95_000)).toBe(5_000);
+    expect(shownSpan(30_000, 100_000, 99_990)).toBe(1_000);
+    expect(shownSpan(30_000, 100_000, 100_000)).toBe(1_000);
+  });
+
+  it("shows the whole span when what is kept starts after the end shown", () => {
+    expect(shownSpan(30_000, 100_000, 120_000)).toBe(30_000);
+  });
+});
+
+describe("banded", () => {
+  it("draws every value's band in a plot of two or fewer", () => {
+    expect(banded(1, new Set())).toEqual([true]);
+    expect(banded(2, new Set())).toEqual([true, true]);
+  });
+
+  it("draws only the bands asked for in a plot of more", () => {
+    expect(banded(4, new Set())).toEqual([false, false, false, false]);
+    expect(banded(4, new Set([2]))).toEqual([false, false, true, false]);
+  });
+});
+
+describe("plotColumns", () => {
+  it("gives a banded value's minima and maxima and another's middle, written into what it is given", () => {
+    const buffer = new SampleBuffer(2, 4);
+    buffer.push(1000, sample(1));
+    buffer.push(2000, sample(2));
+    const middles = [new Float64Array(4), new Float64Array(4)];
+    const columns = plotColumns(buffer.stretch(0, [0, 1]), [true, false], middles);
+    expect(columns.map((column) => Array.from(column))).toEqual([
+      [1, 2],
+      [0.5, 1.5],
+      [1.5, 2.5],
+      [2, 4],
+    ]);
+    expect(columns[3]!.buffer).toBe(middles[1]!.buffer);
   });
 });
 

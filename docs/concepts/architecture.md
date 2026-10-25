@@ -438,7 +438,11 @@ WebSocket on `viewer.stream_port`, to pages of the web UI only, each with
 room for a few frames and missing those it has no room for, so a slow page
 never holds the bridge up ([viewer stream](../reference/viewer-stream.md)).
 The page plots each decoded value with its minimum and maximum since the
-sample before, in a tab per stream beside the robot; a stream's sequence
+sample before, in a tab per stream beside the robot: as a band in a plot
+of one or two values, otherwise as a line through the middle, with the
+band of whichever value's entry in the key is pointed at or picked. A
+plot keeps its series' colours clear of the state colours and draws any
+past them dashed rather than in a colour again; a stream's sequence
 number and its clocks aren't plotted, as they only ever climb. The bridge
 also keeps what it streamed for the last ten minutes
 (`viewer.history_age`, within `viewer.history` MiB), in blocks of a

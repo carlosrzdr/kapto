@@ -47,17 +47,21 @@ export function time(utcNs: number): string {
 /**
  * A time axis's labels, written as the rest of the page writes times: each
  * tick at `seconds` (since the Unix epoch, local time) to the precision its
- * spacing `step` needs (`14:46:05`, `14:46`, `14:46:05.25`), with its date
- * (`2026-10-26`) under the first tick and under each where the date changes.
+ * spacing `step` needs (`14:46:05`, `14:46`, `14:46:05.25`). Only when the
+ * ticks cross midnight is the date (`2026-10-26`) written, under the first
+ * tick and under each where it changes: the day being today's goes without
+ * saying, on every chart.
  */
 export function axisTimes(seconds: number[], step: number): string[] {
   const pad = (n: number, width = 2) => String(n).padStart(width, "0");
   // As many decimals as the step has: 0.5 s needs one, 0.25 s two.
   const decimals = [0, 1, 2].find((places) => Math.abs(step * 10 ** places - Math.round(step * 10 ** places)) < 1e-6) ?? 3;
-  let lastDate = "";
+  const dayOf = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const days = new Set(seconds.map((at) => dayOf(new Date(at * 1000))));
+  let lastDate = days.size > 1 ? "" : ([...days][0] ?? "");
   return seconds.map((at) => {
     const date = new Date(at * 1000);
-    const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    const day = dayOf(date);
     let clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     if (step < 60) {
       clock += `:${pad(date.getSeconds())}`;

@@ -4,8 +4,22 @@
   import "uplot/dist/uPlot.min.css";
 
   import { axisTimes, axisTimesSpace } from "./format";
-  import { type Drawn, drawAgain, type PlotPart, type PlotStream, resolvePlot, shortLabels, shownStretch, type ValuesAt, valuesAt } from "./viewer/plots";
-  import { SERIES, token } from "./theme";
+  import {
+    BANDED_AT_MOST,
+    banded,
+    type Drawn,
+    drawAgain,
+    type PlotPart,
+    plotColumns,
+    type PlotStream,
+    resolvePlot,
+    shortLabels,
+    shownSpan,
+    shownStretch,
+    type ValuesAt,
+    valuesAt,
+  } from "./viewer/plots";
+  import { seriesStyle, token } from "./theme";
 
   interface Props {
     /** What it draws: `stream.field`, `stream.field[3]` or `role:gripper.opening`. */
@@ -25,27 +39,73 @@
   const DRAWS_PER_SECOND = 30;
 
   const parts = $derived(resolvePlot(fields, roles, streams));
-  /** The key: each value's label, short, with its colour's place in its stream's chart. */
+  /** Where each stream's values start among the panel's, so each is drawn its own way across its charts. */
+  const firsts = $derived(parts.map((_, index) => parts.slice(0, index).reduce((sum, part) => sum + part.labels.length, 0)));
+  const count = $derived(parts.reduce((sum, part) => sum + part.labels.length, 0));
+  /**
+   * The key: each value's label, short, drawn as its line is. Its heading
+   * says once what they share, and the stream when the panel draws only
+   * one, rather than again as a title over its chart.
+   */
   const key = $derived.by(() => {
     const short = shortLabels(parts.flatMap((part) => part.labels));
-    const places = parts.flatMap((part) => part.labels.map((_, place) => place % SERIES.length));
-    return { heading: short.heading, entries: short.labels.map((label, index) => ({ label, place: places[index] ?? 0 })) };
+    const heading = parts.length === 1 ? [parts[0]!.stream.name, short.heading].filter(Boolean).join(" · ") : short.heading;
+    return { heading, entries: short.labels.map((label, index) => ({ label, style: seriesStyle(index) })) };
   });
+  /** The key's entries picked to show their range, by place. */
+  let picked = $state(new Set<number>());
+  /** The key's entry pointed at or focused, whose range shows while it is. */
+  let pointedEntry = $state<number | null>(null);
+  /** Each value's place among the panel's: whether it is drawn as its band from minimum to maximum. */
+  const bands = $derived(banded(count, pointedEntry === null ? picked : new Set([...picked, pointedEntry])));
+  /** Whether the key's entries can be picked: not while every value shows its band anyway. */
+  const choosable = $derived(count > BANDED_AT_MOST);
+  function pick(place: number) {
+    const next = new Set(picked);
+    if (!next.delete(place)) {
+      next.add(place);
+    }
+    picked = next;
+  }
   /**
-   * What the charts are made for: each stream drawn, its values and their
-   * labels. New samples, as a replay or a look back sends them, leave it
-   * alone, so the charts are only given them rather than made again.
+   * What the charts are made for: each stream drawn, its values, their
+   * labels and which show their band. New samples, as a replay or a look
+   * back sends them, leave it alone, so the charts are only given them
+   * rather than made again.
    */
-  const shape = $derived(parts.map((part) => `${part.stream.name}:${part.values.join(",")}:${part.labels.join(",")}`).join("|"));
+  const shape = $derived(
+    `${parts.map((part) => `${part.stream.name}:${part.values.join(",")}:${part.labels.join(",")}`).join("|")}/${bands.map(Number).join("")}`,
+  );
   let holder = $state<HTMLDivElement | null>(null);
   let panel = $state<HTMLElement | null>(null);
   /** What the chart under the pointer says there, with its stream; none while it is elsewhere. */
-  let hovered = $state<(ValuesAt & { stream: string }) | null>(null);
+  let hovered = $state<(ValuesAt & { stream: string; first: number }) | null>(null);
   let tip = $state<HTMLElement | null>(null);
 
   onMount(() => {
-    /** Each chart, in the element it is drawn in, with what it was last drawn with and how many points that was. */
-    let charts: { plot: uPlot; part: PlotPart; element: HTMLElement; drawn?: Drawn; points: number }[] = [];
+    /**
+     * Each chart, in the element it is drawn in: its values' place among the
+     * panel's and which show their band, what it was last drawn with, the
+     * stretch shown (seconds), the samples it was given (as the stream keeps
+     * them, for the tip) and how many points that was.
+     */
+    interface Chart extends Drawing {
+      plot: uPlot;
+    }
+    /** What a chart's plot is made from and reads as it is drawn. */
+    interface Drawing {
+      part: PlotPart;
+      element: HTMLElement;
+      first: number;
+      bands: boolean[];
+      /** The middles of the values drawn as one line, made once. */
+      middles: Float64Array[];
+      drawn?: Drawn;
+      stretch: [number, number];
+      data: Float64Array[];
+      points: number;
+    }
+    let charts: Chart[] = [];
     /**
      * The charts at least partly on screen. Only those are drawn: with many
      * streams most are scrolled out of sight, and drawing them all took the
@@ -82,8 +142,6 @@
       height: Math.max(80, Math.floor((holder?.clientHeight ?? 160) / Math.max(charts.length, 1)) - 26),
     });
 
-    /** Where the stretch shown ends, UTC milliseconds, as last drawn. */
-    let ending = 0;
     /** The chart the pointer is over, whose values the tip shows. */
     let pointedAt: uPlot | null = null;
 
@@ -91,7 +149,8 @@
      * Shows what `plot` has under the pointer, beside it, and again as new
      * samples move the chart under a pointer that stays.
      */
-    const point = (plot: uPlot, part: PlotPart) => {
+    const point = (plot: uPlot, chart: Drawing) => {
+      const { part } = chart;
       const index = plot.cursor.idx;
       const left = plot.cursor.left ?? -1;
       if (index == null || left < 0) {
@@ -103,7 +162,7 @@
       }
       pointedAt = plot;
       const spread = (low: number, high: number) => Math.abs(plot.valToPos(high, "y") - plot.valToPos(low, "y"));
-      hovered = { stream: part.stream.name, ...valuesAt(plot.data, index, shortLabels(part.labels).labels, spread) };
+      hovered = { stream: part.stream.name, first: chart.first, ...valuesAt(chart.data, index, shortLabels(part.labels).labels, spread) };
       const over = plot.over.getBoundingClientRect();
       const top = plot.cursor.top ?? 0;
       // Placed once what it says is drawn, so its size is known.
@@ -128,7 +187,11 @@
       tip.style.translate = `${Math.max(0, across)}px ${Math.max(0, down)}px`;
     };
 
-    /** A chart per stream drawn, each of its values a band from its minimum to its maximum. */
+    /**
+     * A chart per stream drawn, each of its values a line, or a band from
+     * its minimum to its maximum where `bands` says so. Titled with its
+     * stream only beside others, as the key names a lone one.
+     */
     const build = (next: PlotPart[]) => {
       charts.forEach(({ plot }) => plot.destroy());
       sight?.disconnect();
@@ -137,46 +200,64 @@
       charts = [];
       built = shape;
       panel?.setAttribute("data-points", "0");
-      for (const part of next) {
+      next.forEach((part, index) => {
         const element = document.createElement("div");
         holder?.append(element);
+        const first = firsts[index] ?? 0;
+        const shown = part.labels.map((_, place) => bands[first + place] ?? true);
         const series: uPlot.Series[] = [{}];
-        const bands: uPlot.Band[] = [];
+        const filled: uPlot.Band[] = [];
         part.labels.forEach((label, place) => {
-          const color = SERIES[place % SERIES.length]!;
-          series.push({ label: `${label} min`, stroke: color, width: 1 }, { label: `${label} max`, stroke: color, width: 1 });
-          bands.push({ series: [series.length - 1, series.length - 2], fill: `${color}33` });
+          const { color, dash } = seriesStyle(first + place);
+          if (shown[place]) {
+            series.push({ label: `${label} min`, stroke: color, width: 1, dash }, { label: `${label} max`, stroke: color, width: 1, dash });
+            filled.push({ series: [series.length - 1, series.length - 2], fill: `${color}33` });
+          } else {
+            series.push({ label, stroke: color, width: 1.5, dash });
+          }
         });
+        const drawing: Drawing = {
+          part,
+          element,
+          first,
+          bands: shown,
+          middles: part.labels.map(() => new Float64Array(part.stream.samples.capacity)),
+          stretch: [0, spanMs / 1000],
+          data: [],
+          points: 0,
+        };
         const plot = new uPlot(
           {
-            title: part.stream.name,
+            ...(next.length > 1 ? { title: part.stream.name } : {}),
             ...size(),
             series,
-            bands,
+            bands: filled,
             // Room on the right for half the time axis's last label, centred on its tick.
             padding: [8, Math.ceil(timeSpace / 2), 0, 0],
             legend: { show: false },
             // A line at the time pointed at, whose values the tip says.
             cursor: { x: true, y: false, points: { show: false }, drag: { x: false, y: false } },
-            hooks: { setCursor: [(plot) => point(plot, part)] },
-            // The span shown, rather than the samples' own, so the time axis
-            // doesn't stretch and shrink as they arrive.
-            scales: { x: { time: true, range: (chart) => shownStretch(ending, spanMs, chart.bbox.width) } },
+            hooks: { setCursor: [(plot) => point(plot, drawing)] },
+            // The stretch shown, rather than the samples' own, so the time
+            // axis doesn't stretch and shrink with each sample.
+            scales: { x: { time: true, range: () => drawing.stretch } },
             axes: [
               {
                 ...axis,
                 space: timeSpace,
                 values: (_, ticks, _axis, _space, step) => axisTimes(ticks, step),
+                // A line for the times, and one more only while the dates are written under them.
+                size: (_, values) => (values?.some((value) => value.includes("\n")) ? 48 : 32),
               },
               { ...axis, size: 56 },
             ],
           },
-          [[], ...part.values.flatMap(() => [[], []])],
+          [[], ...series.slice(1).map(() => [])],
           element,
         );
         sight?.observe(element);
-        charts.push({ plot, part, element, points: 0 });
-      }
+        charts.push(Object.assign(drawing, { plot }));
+      });
       const { width, height } = size();
       charts.forEach(({ plot }) => plot.setSize({ width, height }));
     };
@@ -215,11 +296,13 @@
         if (end === null) {
           continue;
         }
-        const [from, to] = shownStretch(end, spanMs, plot.bbox.width);
+        // Only as far back as the samples kept reach, so a chart just opened is filled.
+        const shown = shownSpan(spanMs, end, part.stream.samples.oldestMs);
+        const [from, to] = shownStretch(end, shown, plot.bbox.width);
         const next: Drawn = {
           toMs: to * 1000,
           widthPx: plot.bbox.width,
-          spanMs,
+          spanMs: shown,
           stream: part.stream,
           newestMs: part.stream.samples.newestMs,
           atMs: now,
@@ -230,7 +313,7 @@
           continue;
         }
         chart.drawn = next;
-        ending = end;
+        chart.stretch = [from, to];
         const data = part.stream.samples.stretch(from * 1000, part.values);
         // Only up to the end shown: while looking back, nothing after it.
         const [times] = data;
@@ -238,7 +321,12 @@
         while (last > 0 && (times?.[last - 1] ?? 0) * 1000 > end) {
           last--;
         }
-        plot.setData(data.map((column) => column.subarray(0, last)) as uPlot.AlignedData);
+        chart.data = data.map((column) => column.subarray(0, last));
+        // A stream looked back at may keep more samples than the one the chart was made for.
+        if ((chart.middles[0]?.length ?? last) < last) {
+          chart.middles = chart.middles.map(() => new Float64Array(part.stream.samples.capacity));
+        }
+        plot.setData(plotColumns(chart.data, chart.bands, chart.middles) as uPlot.AlignedData);
         chart.points = last;
       }
       // For tests: whether the charts have something drawn.
@@ -261,7 +349,8 @@
       <p class="when">{hovered.stream} · {hovered.time}</p>
       <dl>
         {#each hovered.values as value, index (index)}
-          <dt class={`series-${index % SERIES.length}`}>{value.label}</dt>
+          {@const style = seriesStyle(hovered.first + index)}
+          <dt class={`swatch series-${style.hue} dash-${style.pattern}`}>{value.label}</dt>
           <dd>{value.value}</dd>
         {/each}
       </dl>
@@ -272,7 +361,25 @@
       <li class="heading">{key.heading}</li>
     {/if}
     {#each key.entries as entry, index (index)}
-      <li class={`series-${entry.place}`}>{entry.label}</li>
+      {@const swatch = `swatch series-${entry.style.hue} dash-${entry.style.pattern}`}
+      <li>
+        {#if choosable}
+          <!-- Pointed at or focused, its range shows; picked, it stays. -->
+          <button
+            type="button"
+            class={swatch}
+            aria-pressed={picked.has(index)}
+            title="Show its range, from minimum to maximum"
+            onclick={() => pick(index)}
+            onpointerenter={() => (pointedEntry = index)}
+            onpointerleave={() => (pointedEntry = pointedEntry === index ? null : pointedEntry)}
+            onfocus={() => (pointedEntry = index)}
+            onblur={() => (pointedEntry = pointedEntry === index ? null : pointedEntry)}>{entry.label}</button
+          >
+        {:else}
+          <span class={swatch}>{entry.label}</span>
+        {/if}
+      </li>
     {/each}
   </ul>
   {#if parts.length === 0}
@@ -303,21 +410,54 @@
     color: var(--muted);
     font-size: var(--text-xs);
     /* Two lines at most, the rest scrolled to, so the chart keeps the panel. */
-    max-height: 3.4em;
+    max-height: calc(2 * 1.5rem + 0.15rem);
     overflow-y: auto;
     flex: none;
+  }
+  .labels li {
+    display: flex;
+    align-items: center;
+    min-height: 1.5rem;
   }
   .labels .heading {
     color: var(--text);
   }
-  .labels li:not(.heading)::before {
+  /* An entry that shows its value's range while pointed at, focused or picked. */
+  .labels button {
+    min-height: 1.5rem;
+    padding: 0 var(--space-1);
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+  .labels button:hover {
+    color: var(--text);
+  }
+  .labels button[aria-pressed="true"] {
+    border-color: var(--control-line);
+    color: var(--text);
+  }
+  /* Each value's line as the chart draws it: its colour and its pattern. */
+  .swatch::before {
     content: "";
     display: inline-block;
-    width: 0.6rem;
+    flex: none;
+    width: 1.125rem;
     height: 2px;
     margin-right: 0.3rem;
     vertical-align: middle;
     background: var(--swatch);
+  }
+  .dash-1::before {
+    background: repeating-linear-gradient(to right, var(--swatch) 0 6px, transparent 6px 10px);
+  }
+  .dash-2::before {
+    background: repeating-linear-gradient(to right, var(--swatch) 0 2px, transparent 2px 5px);
+  }
+  .dash-3::before {
+    background: repeating-linear-gradient(to right, var(--swatch) 0 10px, transparent 10px 13px, var(--swatch) 13px 15px, transparent 15px 18px);
   }
   .series-0 {
     --swatch: var(--series-0);
@@ -330,18 +470,6 @@
   }
   .series-3 {
     --swatch: var(--series-3);
-  }
-  .series-4 {
-    --swatch: var(--series-4);
-  }
-  .series-5 {
-    --swatch: var(--series-5);
-  }
-  .series-6 {
-    --swatch: var(--series-6);
-  }
-  .series-7 {
-    --swatch: var(--series-7);
   }
   .waiting {
     margin: 0;
@@ -377,15 +505,6 @@
     grid-template-columns: auto auto;
     gap: 0 var(--space-3);
     margin: 0;
-  }
-  .tip dt::before {
-    content: "";
-    display: inline-block;
-    width: 0.6rem;
-    height: 2px;
-    margin-right: 0.3rem;
-    vertical-align: middle;
-    background: var(--swatch);
   }
   .tip dd {
     margin: 0;
