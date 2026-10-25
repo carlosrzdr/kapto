@@ -612,7 +612,11 @@ and never the only copy of anything about a recording: when serve starts it
 rebuilds the index from the episode folders, so episodes copied in or
 deleted while it was stopped are seen, and deleting `kapto.db` loses
 nothing. While it runs, `srv-index` adds each episode capture announces
-finalised, and rebuilds the index if it missed announcements. The
+finalised, and rebuilds the index if it missed announcements. Each time
+`srv-announce` begins watching capture again, after capture restarted or
+before serve first reached it, `srv-index` adds every finalised episode
+the index doesn't hold, with its jobs queued, as if announced: an episode
+finalised while nobody was listening is never left unlisted. The
 database also holds the **job queue**: work on an episode after it was
 recorded, done one job at a time and oldest first, each kind at most once
 per episode; a job that was running when Kapto stopped is queued again

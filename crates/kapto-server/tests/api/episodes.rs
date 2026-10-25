@@ -188,8 +188,11 @@ async fn an_episode_capture_announces_finalised_is_listed_at_once_and_one_added_
     let running = Arc::new(AtomicBool::new(true));
     let indexing = thread::spawn({
         let (store, data, running) = (serving.store.clone(), data.clone(), Arc::clone(&running));
-        let announced = serving.announcements.subscribe();
-        move || index::keep_up_to_date(&store, &data, announced, &running)
+        let (announced, listening) = (
+            serving.announcements.subscribe(),
+            serving.announcements.listening(),
+        );
+        move || index::keep_up_to_date(&store, &data, announced, &listening, &running)
     });
 
     let id = "20260310T120000.000Z-00000001";
@@ -240,8 +243,11 @@ async fn an_episode_capture_announces_recovered_is_listed_and_queued_to_be_check
     let running = Arc::new(AtomicBool::new(true));
     let indexing = thread::spawn({
         let (store, data, running) = (serving.store.clone(), data.clone(), Arc::clone(&running));
-        let announced = serving.announcements.subscribe();
-        move || index::keep_up_to_date(&store, &data, announced, &running)
+        let (announced, listening) = (
+            serving.announcements.subscribe(),
+            serving.announcements.listening(),
+        );
+        move || index::keep_up_to_date(&store, &data, announced, &listening, &running)
     });
 
     let id = "20260310T120000.000Z-00000001";
@@ -263,6 +269,62 @@ async fn an_episode_capture_announces_recovered_is_listed_and_queued_to_be_check
         [("qa", id), ("events", id), ("verify", id)]
     );
 
+    running.store(false, Ordering::Relaxed);
+    indexing.join().unwrap();
+}
+
+#[tokio::test]
+async fn an_episode_finalised_while_serve_wasnt_listening_to_capture_is_listed_and_queued_once_it_listens_again()
+ {
+    let folder = scratch("unannounced-listed");
+    let data = folder.join("data");
+    let serving = state(&folder);
+    let running = Arc::new(AtomicBool::new(true));
+    // Already listed when serve started: neither added again nor queued.
+    let known = "20260310T115500.000Z-00000000";
+    finalised_episode(&data, known, 0);
+    serving.store.rebuild(&data).unwrap();
+    thread::spawn({
+        let (announcements, socket) = (
+            serving.announcements.clone(),
+            serving.control_socket.clone(),
+        );
+        let running = Arc::clone(&running);
+        move || announcements.relay_while(&socket, &running)
+    });
+    let indexing = thread::spawn({
+        let (store, data, running) = (serving.store.clone(), data.clone(), Arc::clone(&running));
+        let (announced, listening) = (
+            serving.announcements.subscribe(),
+            serving.announcements.listening(),
+        );
+        move || index::keep_up_to_date(&store, &data, announced, &listening, &running)
+    });
+
+    // Finalised while capture can't be reached, as while it restarts: its
+    // announcement is never heard.
+    let id = "20260310T120000.000Z-00000001";
+    finalised_episode(&data, id, 300);
+    thread::sleep(Duration::from_millis(200));
+    assert_eq!(listed(serving.clone()).await, [known]);
+
+    let _capture = FakeCapture::start(&serving.control_socket, recording);
+    let mut tries = 0;
+    while listed(serving.clone()).await.len() < 2 && tries < 200 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        tries += 1;
+    }
+    assert_eq!(listed(serving.clone()).await, [id, known]);
+    let jobs = serving.store.reader().unwrap().jobs(10).unwrap();
+    assert_eq!(
+        jobs.iter()
+            .map(|job| (job.kind.as_str(), job.episode.as_str()))
+            .collect::<Vec<_>>(),
+        [("qa", id), ("events", id), ("verify", id)]
+    );
+
+    // The relay is left listening to the connection it holds, which ends
+    // with the test.
     running.store(false, Ordering::Relaxed);
     indexing.join().unwrap();
 }

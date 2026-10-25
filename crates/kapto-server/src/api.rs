@@ -25,7 +25,7 @@ mod uploads;
 
 pub use capture::{AbortRequest, Aborted, StartRequest, Started, StopRequest, Stopped};
 pub use episodes::{BinnedEpisode, CLIENT_HEADER, EmptiedBin, EpisodeSummary, EpisodesQuery};
-pub use events::{CaptureAnnouncements, Event, EventKind};
+pub use events::{CaptureAnnouncements, Event, EventKind, Listening};
 pub use replay::{ReplayRequest, WindowQuery};
 pub use status::{
     CaptureStatus, LiveViewCounts, Status, StreamCounts, StreamValues, Version, Viewer,

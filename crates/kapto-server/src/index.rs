@@ -4,9 +4,13 @@
 //! rebuilt from the episode folders when serve starts, since episodes may
 //! have been recorded, copied in or deleted meanwhile, and each episode is
 //! added as soon as capture announces it finalised or recovered, with a job
-//! queued to check its files. If announcements were missed, the index is
+//! queued to check its files. Each time serve begins listening to capture
+//! again, the episodes finalised while it wasn't, whose announcements it
+//! never heard, are found on disk and added as if announced. If
+//! announcements were missed otherwise, the same is done and the index is
 //! rebuilt again.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -19,6 +23,7 @@ use kapto_store::{Episode, Writer, episode_folder};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::TryRecvError;
 
+use crate::api::Listening;
 use crate::jobs::{EVENTS, QA, VERIFY};
 
 /// How long to wait before looking for announcements again.
@@ -43,17 +48,27 @@ pub fn open(data_dir: &Path) -> Result<Writer, KaptoError> {
 }
 
 /// Adds each episode capture announces finalised or recovered to the
-/// index, while `running` is set. `announced` is taken before capture can
-/// announce anything (`CaptureAnnouncements::subscribe`), so no episode is
-/// missed.
+/// index, while `running` is set, and those finalised while serve wasn't
+/// listening each time `listening` says it began again. `announced` is
+/// taken before capture can announce anything
+/// (`CaptureAnnouncements::subscribe`), so no episode is missed.
 /// Blocks: run it on a thread.
 pub fn keep_up_to_date(
     store: &Writer,
     data_dir: &Path,
     mut announced: Receiver<Announcement>,
+    listening: &Listening,
     running: &AtomicBool,
 ) {
+    let mut caught_up = 0;
     while running.load(Ordering::Relaxed) {
+        let began = listening.count();
+        if began != caught_up {
+            caught_up = began;
+            if let Err(error) = catch_up(store, data_dir) {
+                eprintln!("[serve] the episode index wasn't caught up: {error}");
+            }
+        }
         let done = match announced.try_recv() {
             Ok(
                 Announcement::EpisodeEnded {
@@ -63,7 +78,9 @@ pub fn keep_up_to_date(
                 | Announcement::EpisodeRecovered { episode },
             ) => add(store, data_dir, &episode),
             Ok(_) => Ok(()),
-            Err(TryRecvError::Lagged(_)) => rebuild(store, data_dir),
+            Err(TryRecvError::Lagged(_)) => {
+                catch_up(store, data_dir).and_then(|()| rebuild(store, data_dir))
+            }
             Err(TryRecvError::Empty) => {
                 thread::sleep(WAIT);
                 Ok(())
@@ -98,6 +115,36 @@ pub fn add(store: &Writer, data_dir: &Path, episode: &str) -> Result<(), KaptoEr
     store.enqueue(VERIFY, episode)?;
     store.enqueue(EVENTS, episode)?;
     store.enqueue(QA, episode).map(drop)
+}
+
+/// Adds every finalised episode in `data_dir` the index doesn't hold, as
+/// [`add`] does one capture announced: those whose announcements weren't
+/// heard. Episodes in the bin are left as they are.
+///
+/// # Errors
+///
+/// What reading the index reports; an episode that can't be added is
+/// reported and left for the next rebuild.
+fn catch_up(store: &Writer, data_dir: &Path) -> Result<(), KaptoError> {
+    let indexed: HashSet<String> = store
+        .reader()?
+        .episodes(usize::MAX)?
+        .into_iter()
+        .map(|episode| episode.id)
+        .collect();
+    for folder in finalised_folders(data_dir) {
+        let Some(episode) = folder.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if folder.parent() != Some(data_dir) || indexed.contains(episode) {
+            continue;
+        }
+        match add(store, data_dir, episode) {
+            Ok(()) => eprintln!("[serve] {episode} finalised unannounced: listed and queued"),
+            Err(error) => eprintln!("[serve] {} isn't listed: {error}", folder.display()),
+        }
+    }
+    Ok(())
 }
 
 /// Makes the index hold the episodes in `data_dir`, and queues reading the

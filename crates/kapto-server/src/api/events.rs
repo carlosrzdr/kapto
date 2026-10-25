@@ -9,13 +9,16 @@
 //! whoever started it (`kapto episode`, another client). Each stream also
 //! asks the capture process for its status four times a second and sends
 //! it at least once a second, which is also how an episode is seen if an
-//! announcement was missed, e.g. while capture restarted. Browsers don't
+//! announcement was missed, e.g. while capture restarted. Each time serve
+//! begins listening again, what capture finalised meanwhile is found on
+//! disk instead ([`Listening`]), so the episode index misses nothing.
+//! Browsers don't
 //! hold `WebSocket`s to the same-origin rule, so a page from another site
 //! is refused by its `Origin` header.
 
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -49,11 +52,32 @@ const LISTEN_AGAIN: Duration = Duration::from_secs(1);
 /// Lossy: a stream that falls behind misses announcements, and its status
 /// polling still sees the episodes.
 #[derive(Clone, Debug)]
-pub struct CaptureAnnouncements(broadcast::Sender<Announcement>);
+pub struct CaptureAnnouncements {
+    sent: broadcast::Sender<Announcement>,
+    listening: Listening,
+}
 
 impl Default for CaptureAnnouncements {
     fn default() -> Self {
-        Self(broadcast::channel(64).0)
+        Self {
+            sent: broadcast::channel(64).0,
+            listening: Listening::default(),
+        }
+    }
+}
+
+/// How many times serve has begun listening to the capture process. What
+/// capture announced while serve wasn't listening, as while it restarted
+/// or before serve first reached it, was never passed on: whatever keeps
+/// up with announcements catches up from disk each time this changes.
+#[derive(Clone, Debug, Default)]
+pub struct Listening(Arc<AtomicU64>);
+
+impl Listening {
+    /// How many times so far.
+    #[must_use]
+    pub fn count(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
     }
 }
 
@@ -66,9 +90,12 @@ impl CaptureAnnouncements {
             let watching =
                 ControlClient::connect(socket, LISTEN_AGAIN).and_then(ControlClient::watch);
             if let Ok(announcements) = watching {
+                // Once capture tells everything announced from now on, so
+                // what is caught up with doesn't miss what comes next.
+                self.listening.0.fetch_add(1, Ordering::AcqRel);
                 for announcement in announcements {
                     // Nobody listening is fine: nothing to tell.
-                    let _ = self.0.send(announcement);
+                    let _ = self.sent.send(announcement);
                 }
             }
             let again = Instant::now() + LISTEN_AGAIN;
@@ -80,13 +107,19 @@ impl CaptureAnnouncements {
 
     /// Passes on `announcement` as if the capture process had made it.
     pub fn announce(&self, announcement: Announcement) {
-        let _ = self.0.send(announcement);
+        let _ = self.sent.send(announcement);
     }
 
     /// What is announced from now on.
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<Announcement> {
-        self.0.subscribe()
+        self.sent.subscribe()
+    }
+
+    /// How many times serve has begun listening to capture.
+    #[must_use]
+    pub fn listening(&self) -> Listening {
+        self.listening.clone()
     }
 }
 

@@ -347,8 +347,9 @@ fn start_children(
     });
     let indexing = thread::Builder::new().name("srv-index".into()).spawn({
         let (store, data_dir) = (store.clone(), deployment.data_dir.value.clone());
-        let (announced, watching) = (announcements.subscribe(), Arc::clone(&watching));
-        move || index::keep_up_to_date(&store, &data_dir, announced, &watching)
+        let (announced, listening) = (announcements.subscribe(), announcements.listening());
+        let watching = Arc::clone(&watching);
+        move || index::keep_up_to_date(&store, &data_dir, announced, &listening, &watching)
     });
     match (watch, stats, relay, indexing) {
         (Ok(watch), Ok(stats), Ok(relay), Ok(indexing)) => Ok(Running {
