@@ -17,7 +17,10 @@
 //!   and halves the requests in flight, which grow back as requests
 //!   succeed ([`Window`]).
 //! - **Checked before it counts.** Each file is verified as [`Verify`]
-//!   says; the marker is written only once every file is.
+//!   says; the marker is written only once every file is. Unless only sizes
+//!   are compared, a file's bytes are hashed as they are read to be sent
+//!   and checked against its manifest before the file is completed there: a
+//!   store checking what it took proves only that it got what was read.
 //! - **Kept under the bandwidth cap.** Each request that sends data waits
 //!   its turn at the [`Pace`] the cap sets, if one is set.
 //! - **Paused or stopped between files.** The caller is asked before each
@@ -52,10 +55,12 @@ use crate::throttle::{Window, throttled};
 /// How uploaded files are checked to be the ones sent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verify {
-    /// The store checked each file's SHA-256 as it took it; a store that
-    /// doesn't has the file read back instead.
+    /// The bytes read to be sent match the manifest, and the store checked
+    /// their SHA-256 as it took them; a store that doesn't has the file
+    /// read back instead.
     ServerChecksum,
-    /// Each file is read back and hashed again.
+    /// The bytes read to be sent match the manifest, and each file is read
+    /// back and hashed again.
     ReadBack,
     /// Only the size is compared.
     SizeOnly,
@@ -200,6 +205,8 @@ pub enum Uploaded {
 /// - `upload.denied`: the store refused the credentials or the request.
 /// - `upload.marker_conflict`: a marker listing other files is there.
 /// - `upload.verify_failed`: a file there isn't the one sent.
+/// - `upload.local_changed`: a file read to be sent doesn't match the
+///   manifest; nothing of it is completed there.
 /// - `upload.marker_unreadable`, `upload.failed`: as they say.
 #[allow(
     clippy::too_many_arguments,
@@ -340,7 +347,6 @@ async fn upload_file(
     progress: &mut Progress,
     save: &mut (dyn FnMut(&Progress) + Send),
 ) -> Result<(), KaptoError> {
-    let local = folder.join(&file.path);
     let carried = match progress.files.remove(&file.path) {
         Some(FileProgress::Parts {
             upload_id,
@@ -354,18 +360,9 @@ async fn upload_file(
         .map(|(_, part_bytes, _)| *part_bytes)
         .filter(|part_bytes| *part_bytes > 0)
         .unwrap_or_else(|| part_size(tries.policy, file.bytes));
-    let read = |index: u64| read_part(&local, index * part, part, file.bytes);
+    let mut reading = Reading::new(tries.policy, folder, file, part);
     let Some(multipart) = store.multipart.filter(|_| file.bytes > part) else {
-        if file.bytes <= part {
-            let payload = PutPayload::from(read(0)?);
-            tries.paced(file.bytes).await;
-            return tries
-                .run(|| store.objects.put(at, payload.clone()))
-                .await
-                .map(|_| ())
-                .map_err(|error| store_error(at, &error));
-        }
-        return stream_whole(store.objects, at, file, part, &read, tries).await;
+        return put_whole(store.objects, at, &reading, tries).await;
     };
 
     let count = file.bytes.div_ceil(part);
@@ -393,13 +390,12 @@ async fn upload_file(
     save(progress);
     // As many at once as the window allows, each read only once it may go,
     // so memory stays at that many parts; each saved as it comes back.
-    let missing: Vec<u64> = (0..count)
-        .filter(|index| !parts.contains_key(index))
-        .collect();
-    let put = |index: u64| {
-        let (read, upload_id) = (&read, &upload_id);
+    // Parts are read in order, so the file is hashed as it goes; one sent
+    // before a restart is read again only to be hashed, into one buffer.
+    let put = |index: u64, data: Vec<u8>| {
+        let upload_id = &upload_id;
         let putting = async move {
-            let payload = PutPayload::from(read(index)?);
+            let payload = PutPayload::from(data);
             tries.paced(bytes(payload.content_length())).await;
             let place = usize::try_from(index).unwrap_or(usize::MAX);
             let id = tries
@@ -410,12 +406,17 @@ async fn upload_file(
         };
         kapto_core::instrument!(putting, "upload part", file = %file.path, index, bytes = part)
     };
-    let mut missing = missing.into_iter();
+    let (mut next, mut sent_before) = (0, Vec::new());
     let mut in_flight = FuturesUnordered::new();
     loop {
-        while in_flight.len() < lock(&tries.window).limit() {
-            let Some(index) = missing.next() else { break };
-            in_flight.push(put(index));
+        while in_flight.len() < lock(&tries.window).limit() && next < count {
+            let index = next;
+            next += 1;
+            if parts.contains_key(&index) {
+                reading.read_into(index, &mut sent_before)?;
+            } else {
+                in_flight.push(put(index, reading.part(index)?));
+            }
         }
         let Some(done) = in_flight.next().await else {
             break;
@@ -427,6 +428,18 @@ async fn upload_file(
         save(progress);
     }
     drop(in_flight);
+    if let Err(error) = reading.check() {
+        // Its parts are dropped, not carried on from: one may hold a bad
+        // read that reading it again on the next try wouldn't show.
+        tries
+            .run(|| multipart.abort_multipart(at, &upload_id))
+            .await
+            .ok();
+        progress.files.remove(&file.path);
+        tries.count(progress);
+        save(progress);
+        return Err(error);
+    }
     let ids: Vec<PartId> = parts
         .values()
         .map(|content_id| PartId {
@@ -447,34 +460,54 @@ fn part_size(policy: &Policy, bytes: u64) -> u64 {
     part.max(bytes.div_ceil(policy.most_parts.max(1)))
 }
 
-/// A large file to a store without parts that survive a restart: one
-/// stream of parts, all sent again if any try fails.
-async fn stream_whole(
+/// A file in one part put whole; a larger one to a store without parts
+/// that survive a restart in one stream of parts, all read and sent again
+/// if any try fails.
+async fn put_whole(
     store: &dyn ObjectStore,
     at: &Path,
-    file: &FileEntry,
-    part: u64,
-    read: &dyn Fn(u64) -> Result<Vec<u8>, KaptoError>,
+    reading: &Reading<'_>,
     tries: &Tries<'_>,
 ) -> Result<(), KaptoError> {
+    let file = reading.file;
+    if file.bytes <= reading.part {
+        let mut reading = reading.clone();
+        let payload = PutPayload::from(reading.part(0)?);
+        reading.check()?;
+        tries.paced(file.bytes).await;
+        return tries
+            .run(|| store.put(at, payload.clone()))
+            .await
+            .map(|_| ())
+            .map_err(|error| store_error(at, &error));
+    }
     let (mut attempt, mut throttles) = (0, 0);
     loop {
         let sent_at = lock(&tries.window).generation();
-        let sent: Result<(), Error> = async {
+        // The store's errors outside, tried again; the file's inside, not.
+        let sent: Result<Result<(), KaptoError>, Error> = async {
             let mut upload = store.put_multipart(at).await?;
-            for index in 0..file.bytes.div_ceil(part) {
-                let data = read(index).map_err(|error| Error::Generic {
-                    store: "local",
-                    source: error.message().into(),
-                })?;
+            let mut reading = reading.clone();
+            for index in 0..file.bytes.div_ceil(reading.part) {
+                let data = match reading.part(index) {
+                    Ok(data) => data,
+                    Err(error) => {
+                        upload.abort().await.ok();
+                        return Ok(Err(error));
+                    }
+                };
                 tries.paced(bytes(data.len())).await;
                 upload.put_part(PutPayload::from(data)).await?;
             }
-            upload.complete().await.map(|_| ())
+            if let Err(error) = reading.check() {
+                upload.abort().await.ok();
+                return Ok(Err(error));
+            }
+            upload.complete().await.map(|_| Ok(()))
         }
         .await;
         match sent {
-            Ok(()) => return Ok(()),
+            Ok(result) => return result,
             Err(error) if throttled(&error) => {
                 tries.throttled(sent_at, &mut throttles).await;
             }
@@ -491,20 +524,73 @@ fn bytes(length: usize) -> u64 {
     u64::try_from(length).unwrap_or(u64::MAX)
 }
 
-fn read_part(
-    file: &std::path::Path,
-    offset: u64,
+/// A file read in order, part by part, to be sent, hashed as it is read
+/// so that it can be checked against its manifest before it is completed
+/// at the store: the store's own checksum proves only that it took what
+/// was read. Nothing is hashed when only sizes are compared.
+#[derive(Clone)]
+struct Reading<'a> {
+    local: std::path::PathBuf,
+    file: &'a FileEntry,
     part: u64,
-    size: u64,
-) -> Result<Vec<u8>, KaptoError> {
-    let length = usize::try_from(part.min(size.saturating_sub(offset))).unwrap_or(usize::MAX);
-    let mut data = vec![0; length];
-    let mut opened = File::open(file).map_err(|error| unreadable(file, &error))?;
-    opened
-        .seek(SeekFrom::Start(offset))
-        .and_then(|_| opened.read_exact(&mut data))
-        .map_err(|error| unreadable(file, &error))?;
-    Ok(data)
+    hasher: Option<Sha256>,
+}
+
+impl<'a> Reading<'a> {
+    fn new(policy: &Policy, folder: &std::path::Path, file: &'a FileEntry, part: u64) -> Self {
+        Self {
+            local: folder.join(&file.path),
+            file,
+            part,
+            hasher: (policy.verify != Verify::SizeOnly).then(Sha256::new),
+        }
+    }
+
+    /// Part `index`, read and hashed, to send.
+    fn part(&mut self, index: u64) -> Result<Vec<u8>, KaptoError> {
+        let mut data = Vec::new();
+        self.read_into(index, &mut data)?;
+        Ok(data)
+    }
+
+    /// Part `index`, read into `data`, whose memory is reused, and hashed;
+    /// on its own, for a part sent before a restart, read again only to be
+    /// hashed.
+    fn read_into(&mut self, index: u64, data: &mut Vec<u8>) -> Result<(), KaptoError> {
+        let (local, offset) = (&self.local, index.saturating_mul(self.part));
+        let length = self.part.min(self.file.bytes.saturating_sub(offset));
+        data.clear();
+        data.reserve_exact(usize::try_from(length).unwrap_or(usize::MAX));
+        let mut opened = File::open(local).map_err(|error| unreadable(local, &error))?;
+        opened
+            .seek(SeekFrom::Start(offset))
+            .and_then(|_| opened.take(length).read_to_end(data))
+            .map_err(|error| unreadable(local, &error))?;
+        if bytes(data.len()) != length {
+            return Err(unreadable(local, &"it ends before its manifest's size"));
+        }
+        if let Some(hasher) = &mut self.hasher {
+            hasher.update(&*data);
+        }
+        Ok(())
+    }
+
+    /// Whether every part read, in order, makes the file its manifest says.
+    fn check(self) -> Result<(), KaptoError> {
+        let Some(hasher) = self.hasher else {
+            return Ok(());
+        };
+        if hex(&hasher.finalize()) == self.file.sha256 {
+            return Ok(());
+        }
+        Err(KaptoError::new(ErrorCode::UploadLocalChanged)
+            .detail(format!(
+                "`{}` as read now has another SHA-256 than its manifest's; \
+                 nothing of it was completed at the destination or marked verified",
+                self.file.path
+            ))
+            .context("path", self.local.display().to_string()))
+    }
 }
 
 /// Checks the file at `at` is `file`, returning the store's tag of it.
@@ -948,6 +1034,112 @@ mod tests {
                 ));
             } else {
                 assert!(outcome.is_ok(), "{verify:?}: {outcome:?}");
+            }
+        }
+    }
+
+    /// The store's own checksum only: nothing is read back.
+    const SERVER_CHECKSUM: Policy = Policy {
+        verify: Verify::ServerChecksum,
+        store_checks_sha256: true,
+        ..POLICY
+    };
+
+    /// Changes a byte of `name` in `folder`, keeping its size, as bit rot
+    /// or a bad read would after the manifest was written.
+    fn changed(folder: &std::path::Path, name: &str, at: usize) {
+        let mut data = std::fs::read(folder.join(name)).unwrap();
+        data[at] ^= 0x01;
+        std::fs::write(folder.join(name), data).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_file_changed_after_its_manifest_is_neither_completed_there_nor_verified() {
+        // In parts that survive a restart, streamed whole, and put whole.
+        for (in_parts, name) in [
+            (true, "recording.mcap"),
+            (false, "recording.mcap"),
+            (false, "episode.json"),
+        ] {
+            let case = format!("{name}, in parts: {in_parts}");
+            let folder = episode(&format!("upload-changed-{name}-{in_parts}"));
+            changed(&folder, name, 1);
+            let memory = InMemory::new();
+            let store = Store {
+                objects: &memory,
+                multipart: in_parts.then_some(&memory as &dyn MultipartStore),
+            };
+            let mut progress = Progress::default();
+            let (outcome, saves, _) = upload(store, &folder, &SERVER_CHECKSUM, &mut progress).await;
+            let error = outcome.unwrap_err();
+            assert_eq!(error.code(), ErrorCode::UploadLocalChanged, "{case}");
+            assert!(error.message().contains(name), "{}", error.message());
+            assert_eq!(object(&memory, name).await, None, "{case}: completed");
+            assert_eq!(object(&memory, SUCCESS_FILE).await, None, "{case}");
+            // Neither verified, which would let it be deleted here, nor its
+            // parts carried on from by the next try.
+            assert!(!progress.done, "{case}");
+            assert_eq!(progress.files.get(name), None, "{case}");
+            assert!(
+                saves.last().is_none_or(|save| save == &progress),
+                "{case}: saved as it is"
+            );
+        }
+
+        // Unchanged, the same upload goes up whole and checked.
+        let folder = episode("upload-unchanged");
+        let memory = InMemory::new();
+        let store = Store {
+            objects: &memory,
+            multipart: Some(&memory),
+        };
+        let (outcome, _, _) =
+            upload(store, &folder, &SERVER_CHECKSUM, &mut Progress::default()).await;
+        assert!(matches!(outcome, Ok(Uploaded::Now(_))), "{outcome:?}");
+        for file in ["recording.mcap", "episode.json", "manifest.json"] {
+            let sent = std::fs::read(folder.join(file)).unwrap();
+            assert_eq!(object(&memory, file).await.unwrap(), sent, "{file}");
+        }
+    }
+
+    #[tokio::test]
+    async fn parts_sent_before_a_restart_are_read_again_to_check_the_file_against_its_manifest() {
+        let at = Path::from("robot/episode/recording.mcap");
+        for change_it in [false, true] {
+            let folder = episode(&format!("upload-resumed-checked-{change_it}"));
+            let memory = InMemory::new();
+            // Part 1 went up before a restart, as the file was then.
+            let upload_id = memory.create_multipart(&at).await.unwrap();
+            let sent_before = PutPayload::from((16..32).collect::<Vec<u8>>());
+            let part = memory
+                .put_part(&at, &upload_id, 1, sent_before)
+                .await
+                .unwrap();
+            let mut progress = Progress::default();
+            progress.files.insert(
+                "recording.mcap".into(),
+                FileProgress::Parts {
+                    upload_id,
+                    part_bytes: 16,
+                    parts: BTreeMap::from([(1, part.content_id)]),
+                },
+            );
+            if change_it {
+                changed(&folder, "recording.mcap", 20);
+            }
+            let store = Store {
+                objects: &memory,
+                multipart: Some(&memory),
+            };
+            let (outcome, _, _) = upload(store, &folder, &SERVER_CHECKSUM, &mut progress).await;
+            if change_it {
+                assert_eq!(outcome.unwrap_err().code(), ErrorCode::UploadLocalChanged);
+                assert_eq!(object(&memory, "recording.mcap").await, None);
+                assert_eq!(progress.files.get("recording.mcap"), None);
+            } else {
+                assert!(matches!(outcome, Ok(Uploaded::Now(_))), "{outcome:?}");
+                let recording = object(&memory, "recording.mcap").await.unwrap();
+                assert_eq!(recording, (0..40).collect::<Vec<u8>>());
             }
         }
     }

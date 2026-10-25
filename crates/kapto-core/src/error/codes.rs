@@ -622,6 +622,12 @@ error_codes! {
         remedy: "The file at the destination has another size or SHA-256 than the episode's. Kapto writes no completeness marker for the episode, so nobody takes it for whole; it is uploaded again on the next try. If it keeps happening, check what else writes under the destination's `prefix`.",
     }
 
+    /// A file read to be uploaded no longer matches the episode's manifest.
+    UploadLocalChanged = "upload.local_changed" {
+        summary: "A file of the episode no longer matches its manifest",
+        remedy: "The bytes read to upload it have another SHA-256 than its manifest says: the file was changed after the episode was finalised, or the disk returned wrong data. Kapto completed nothing at the destination for it and marked nothing verified, so the episode isn't deleted here; it tries again after `upload.retry_failed_after`. If it keeps happening, check the disk holding the data directory, and restore the episode from a verified copy if there is one.",
+    }
+
     /// An uploaded episode's completeness marker can't be read.
     UploadMarkerUnreadable = "upload.marker_unreadable" {
         summary: "Can't read an uploaded episode's completeness marker",

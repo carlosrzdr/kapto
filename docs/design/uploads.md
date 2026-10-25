@@ -80,7 +80,13 @@ progress.
   `MultipartStore` (a local folder) puts each file whole, sent again from
   the start if interrupted. S3 is sent each part's SHA-256 and checks it
   itself; where a store doesn't, the engine reads back or compares sizes,
-  as configured.
+  as configured. A store's checksum proves only that it took what was
+  read, so unless only sizes are compared, the engine also hashes each
+  file as it reads it to send, part by part in order (a part sent before
+  a restart read again to be hashed), and completes the file at the store
+  only if that matches its manifest. A file that doesn't, changed on disk
+  or misread, fails with `upload.local_changed`, its parts dropped, and is
+  never marked verified, so never deleted here.
 - **The stores.** `object_store` covers S3 and S3-compatible storage, GCS,
   Azure, a local folder and memory (for tests). For SFTP, Google Drive and
   the other services Apache OpenDAL covers, `object_store_opendal` (part
