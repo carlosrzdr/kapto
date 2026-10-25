@@ -24,34 +24,42 @@
 
 {#if run === null}
   <p class="unknown">Not run yet: it runs when capture starts, for a few seconds.</p>
+{:else if failed.length === 0}
+  <!-- A pass needs no more than a line: what was checked is on hover. -->
+  <div class="passed">
+    <p title="All {run.checks.length} checks passed: {run.checks.map((check) => check.code).join(', ')}">
+      Passed at <span class="when">{time(Date.parse(run.ran_at) * 1e6)}</span>
+    </p>
+    {#if !recording}
+      <button type="button" class="small" disabled={running || busy} aria-busy={running} onclick={onrun}>
+        {running ? "Running…" : "Run again"}
+      </button>
+    {/if}
+  </div>
 {:else}
-  <p class="verdict" class:problem={failed.length > 0}>
-    {#if failed.length === 0}
-      All {run.checks.length} checks passed
-    {:else if recording}
+  <p class="verdict problem">
+    {#if recording}
       Recording despite {failed.length} failed {failed.length === 1 ? "check" : "checks"}
     {:else}
       {failed.length} of {run.checks.length} checks failed
     {/if}
     <span class="when">· {time(Date.parse(run.ran_at) * 1e6)}</span>
   </p>
-  {#if failed.length > 0}
-    <ul>
-      {#each failed as check (`${check.code}/${check.stream ?? ""}`)}
-        <li>
-          <strong>{check.summary || check.code}</strong>{#if check.stream}<span class="stream"
-            >{` · ${check.stream}`}</span
-          >{/if}
-          {#if check.waived}<span class="waived">waived</span>{/if}
-          <p>Measured {check.measured}; needs {check.needed}.</p>
-          {#if !recording && check.remedy}<p class="remedy">{check.remedy}</p>{/if}
-          <p class="code">{check.code}</p>
-        </li>
-      {/each}
-    </ul>
-  {/if}
+  <ul>
+    {#each failed as check (`${check.code}/${check.stream ?? ""}`)}
+      <li>
+        <strong>{check.summary || check.code}</strong>{#if check.stream}<span class="stream"
+          >{` · ${check.stream}`}</span
+        >{/if}
+        {#if check.waived}<span class="waived">waived</span>{/if}
+        <p>Measured {check.measured}; needs {check.needed}.</p>
+        {#if !recording && check.remedy}<p class="remedy">{check.remedy}</p>{/if}
+        <p class="code">{check.code}</p>
+      </li>
+    {/each}
+  </ul>
 {/if}
-{#if !recording}
+{#if !recording && (run === null || failed.length > 0)}
   <div class="actions">
     <button type="button" disabled={running || busy} aria-busy={running} onclick={onrun}>
       {running ? "Running…" : "Run again"}
@@ -88,6 +96,14 @@
   .problem {
     color: var(--warning);
   }
+  .passed {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
   ul {
     margin: 0.5rem 0 0;
     padding: 0;
@@ -123,6 +139,10 @@
     color: var(--text);
     font: inherit;
     cursor: pointer;
+  }
+  button.small {
+    padding: 0.1rem 0.6rem;
+    font-size: var(--text-sm);
   }
   button.anyway {
     border-color: var(--warning);

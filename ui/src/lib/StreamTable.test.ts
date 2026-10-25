@@ -22,6 +22,27 @@ describe("StreamTable", () => {
     expect(cells[4]?.classList.contains("problem")).toBe(false);
   });
 
+  it("shows no loss quietly, as a muted dash a screen reader reads as none, and any loss in the danger colour", () => {
+    render(StreamTable, {
+      streams: [arm, { ...arm, stream: "gripper", dropped_by_us: 0, lost_upstream: 3 }],
+      rates: {},
+      recording: true,
+    });
+    const quiet = screen.getByRole("row", { name: /arm_joints/ }).querySelectorAll("td")[4];
+    expect(quiet?.textContent).toBe("–none");
+    expect(quiet?.querySelector("[aria-hidden='true']")?.textContent).toBe("–");
+    expect(quiet?.classList.contains("problem")).toBe(false);
+    const cells = screen.getByRole("row", { name: /gripper/ }).querySelectorAll("td");
+    expect(cells[3]?.textContent).toBe("–none");
+    expect(cells[4]?.textContent).toBe("3");
+    expect(cells[4]?.classList.contains("problem")).toBe(true);
+    expect(cells[4]?.classList.contains("loss")).toBe(true);
+    // The drops above zero say their number, as loud.
+    const dropped = screen.getByRole("row", { name: /arm_joints/ }).querySelectorAll("td")[3];
+    expect(dropped?.textContent).toBe("10");
+    expect(dropped?.classList.contains("loss")).toBe(true);
+  });
+
   it("shows no written count while nothing is being recorded", () => {
     render(StreamTable, { streams: [{ ...arm, written: 0 }], rates: {}, recording: false });
     const cells = screen.getByRole("row", { name: /arm_joints/ }).querySelectorAll("td");

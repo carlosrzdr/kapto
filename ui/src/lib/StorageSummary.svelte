@@ -29,8 +29,6 @@
       <dt>Limit</dt>
       <dd class="problem">Recording stops below {bytes(storage.stop_below_bytes)} free</dd>
     {/if}
-    <dt>Episodes</dt>
-    <dd>{storage.episodes} · {bytes(storage.episodes_bytes)}</dd>
     {#if writing !== null}
       <dt>Writing</dt>
       <dd>
@@ -40,9 +38,17 @@
           >{/if}
       </dd>
     {/if}
-    <dt>Folder</dt>
-    <dd class="folder">{storage.data_dir}</dd>
   </dl>
+  <!-- What takes the room and where: wanted when it runs short, so open then. -->
+  <details open={low}>
+    <summary>Episodes and folder</summary>
+    <dl>
+      <dt>Episodes</dt>
+      <dd>{storage.episodes} · {bytes(storage.episodes_bytes)}</dd>
+      <dt>Folder</dt>
+      <dd class="folder">{storage.data_dir}</dd>
+    </dl>
+  </details>
 {:else}
   <p class="unknown">Not known yet.</p>
 {/if}
@@ -57,6 +63,17 @@
   }
   dt {
     color: var(--muted);
+  }
+  details {
+    margin-top: var(--space-2);
+  }
+  summary {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  details dl {
+    margin-top: var(--space-1);
   }
   dd {
     margin: 0;

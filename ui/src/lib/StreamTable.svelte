@@ -70,6 +70,15 @@
   }
 </script>
 
+<!-- A loss count: quiet while there is none, loud as soon as there is. -->
+{#snippet loss(n: number)}
+  {#if n > 0}
+    <td class="problem loss">{count(n)}</td>
+  {:else}
+    <td class="none-lost"><span aria-hidden="true">–</span><span class="visually-hidden">none</span></td>
+  {/if}
+{/snippet}
+
 <table>
   <thead>
     <tr>
@@ -102,8 +111,8 @@
         </td>
         <td>{count(stream.received)}</td>
         <td>{recording ? count(stream.written) : "–"}</td>
-        <td class:problem={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
-        <td class:problem={stream.lost_upstream > 0}>{count(stream.lost_upstream)}</td>
+        {@render loss(stream.dropped_by_us)}
+        {@render loss(stream.lost_upstream)}
       </tr>
       {#if stream.live_view}
         <tr class="camera">
@@ -160,6 +169,13 @@
   .problem {
     color: var(--warning);
     font-weight: 600;
+  }
+  /* Loss is never silent: a count above zero in the danger colour. */
+  .problem.loss {
+    color: var(--danger);
+  }
+  .none-lost {
+    color: var(--muted);
   }
   /* The dot stays beside its stream's name; a long name wraps before it. */
   .named {

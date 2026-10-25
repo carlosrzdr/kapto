@@ -23,6 +23,11 @@ describe("ProcessTable", () => {
     expect(row.textContent).toContain("0.26 cores");
     expect(row.textContent).toContain("83 MiB");
     expect(row.textContent).toContain("9");
+    // No restarts: said, quietly.
+    const restarts = row.querySelectorAll("td")[4];
+    expect(restarts?.textContent).toBe("0");
+    expect(restarts?.classList.contains("quiet")).toBe(true);
+    expect(restarts?.classList.contains("problem")).toBe(false);
   });
 
   it("marks a process waiting to be started again, and says how it ended", () => {

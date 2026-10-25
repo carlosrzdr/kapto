@@ -18,11 +18,13 @@ const storage: Storage = {
 };
 
 describe("StorageSummary", () => {
-  it("shows the free space, the episodes and the folder", () => {
+  it("shows the free space, with the episodes and the folder behind a disclosure, closed while there is room", () => {
     render(StorageSummary, { storage, writing: null });
     expect(screen.getByText("120 GiB free of 400 GiB")).toBeTruthy();
-    expect(screen.getByText("12 · 3.4 GiB")).toBeTruthy();
-    expect(screen.getByText("/var/lib/kapto")).toBeTruthy();
+    const details = screen.getByText("Episodes and folder").closest("details");
+    expect(details?.open).toBe(false);
+    expect(details?.textContent).toContain("12 · 3.4 GiB");
+    expect(details?.textContent).toContain("/var/lib/kapto");
     expect(screen.queryByText("Writing")).toBeNull();
   });
 
@@ -37,6 +39,8 @@ describe("StorageSummary", () => {
     render(StorageSummary, { storage: { ...storage, free_bytes: 9 * GiB }, writing: null });
     expect(screen.getByText("9.0 GiB free of 400 GiB").classList.contains("problem")).toBe(true);
     expect(screen.getByText("Recording stops below 2.0 GiB free")).toBeTruthy();
+    // What takes the room, and where, shown at once.
+    expect(screen.getByText("Episodes and folder").closest("details")?.open).toBe(true);
   });
 
   it("doesn't mark a disk above its warning limit, however full in share", () => {

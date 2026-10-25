@@ -45,7 +45,7 @@
         <td>{process.cpu_cores != null ? cores(process.cpu_cores) : unknown}</td>
         <td>{process.memory_bytes != null ? bytes(process.memory_bytes) : unknown}</td>
         <td>{process.threads ?? unknown}</td>
-        <td class:problem={process.restarts > 0}>{process.restarts}</td>
+        <td class:problem={process.restarts > 0} class:quiet={process.restarts === 0}>{process.restarts}</td>
       </tr>
       {#if process.state === "restarting" && process.last_exit}
         <tr class="exit">
@@ -81,6 +81,9 @@
   .problem {
     color: var(--warning);
     font-weight: 600;
+  }
+  .quiet {
+    color: var(--muted);
   }
   .exit td {
     text-align: left;

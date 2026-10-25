@@ -67,7 +67,7 @@
       a complete episode from one still going up.
     </p>
   {/if}
-  <p class="waiting">
+  <p class="waiting" class:quiet={overview.waiting === 0}>
     {overview.waiting === 0
       ? "No episode waiting"
       : `${count(overview.waiting)} ${overview.waiting === 1 ? "episode" : "episodes"} waiting`}
@@ -84,8 +84,9 @@
         </div>
         <p class="url data">{destination.url}</p>
         <p class="figures">
-          {count(destination.uploaded)} uploaded · {count(destination.uploading)} uploading ·
-          <span class:problem={destination.failed > 0}>{count(destination.failed)} failed</span>
+          <!-- Only what is happening: no "0 uploading", no "0 failed". -->
+          {count(destination.uploaded)} uploaded{#if destination.uploading > 0}{` · ${count(destination.uploading)} uploading`}{/if}{#if destination.failed > 0}
+            · <span class="problem failed">{count(destination.failed)} failed</span>{/if}
           {#if destination.throttled > 0}<span title="Requests it asked Kapto to slow down for"
               >{` · ${count(destination.throttled)} throttled`}</span
             >{/if}
@@ -180,7 +181,17 @@
   }
   .waiting {
     margin-bottom: var(--space-3);
+  }
+  .quiet {
     color: var(--muted);
+    font-size: var(--text-sm);
+  }
+  .figures {
+    font-variant-numeric: tabular-nums;
+  }
+  .failed {
+    color: var(--danger);
+    font-weight: 600;
   }
   .url,
   .code {

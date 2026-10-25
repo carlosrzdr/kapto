@@ -129,7 +129,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await page.getByRole("button", { name: "Dismiss" }).click();
   await page.unroute("**/api/status");
   await page.unroute("**/api/episodes/start");
-  await expect(page.getByText(/All 4 checks passed/)).toBeVisible();
+  await expect(page.getByText(/^Passed at/)).toBeVisible();
 
   await page.getByRole("combobox", { name: "Profile" }).selectOption("lab_ana");
   await page.getByRole("combobox", { name: "Task" }).selectOption("pick_and_place");

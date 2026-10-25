@@ -52,10 +52,14 @@ function props(overrides: Overrides = {}) {
 }
 
 describe("PreflightPanel", () => {
-  it("says every check passed, and offers only to run it again", async () => {
+  it("says a pass in one quiet line, every check on hover, and offers only to run it again", async () => {
     const onrun = vi.fn();
     render(PreflightPanel, props({ run: run(check("preflight.disk_too_small", true)), onrun }));
-    expect(screen.getByText(/All 1 checks passed/)).toBeTruthy();
+    const line = screen.getByText(/^Passed at/);
+    expect(line.textContent).toMatch(/^Passed at .*\d\d:\d\d:\d\d$/);
+    expect(line.title).toBe("All 1 checks passed: preflight.disk_too_small");
+    expect(screen.queryByRole("list")).toBeNull();
+    expect(screen.queryByText(/checks failed/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Record anyway" })).toBeNull();
     await fireEvent.click(screen.getByRole("button", { name: "Run again" }));
     expect(onrun).toHaveBeenCalledOnce();
@@ -65,6 +69,7 @@ describe("PreflightPanel", () => {
     const onrecordanyway = vi.fn();
     render(PreflightPanel, props({ onrecordanyway }));
     expect(screen.getByText(/2 of 3 checks failed/)).toBeTruthy();
+    expect(screen.queryByText(/^Passed at/)).toBeNull();
     expect(screen.getAllByText("preflight.stream_silent summary")).toHaveLength(2);
     expect(screen.getByText(/arm_joints/)).toBeTruthy();
     expect(screen.getByText(/gripper/)).toBeTruthy();
@@ -88,8 +93,15 @@ describe("PreflightPanel", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  it("while recording after a pass, says only that it passed, with no buttons", () => {
+    render(PreflightPanel, props({ run: run(check("preflight.disk_too_small", true)), recording: true }));
+    expect(screen.getByText(/^Passed at/)).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   it("before the first run has ended, says so", () => {
     render(PreflightPanel, props({ run: null }));
     expect(screen.getByText(/Not run yet/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Run again" })).toBeTruthy();
   });
 });

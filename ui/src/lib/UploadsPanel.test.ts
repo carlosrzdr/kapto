@@ -63,13 +63,21 @@ const props = (over: Partial<Record<string, unknown>> = {}) => ({
 describe("UploadsPanel", () => {
   it("shows each destination's counts and the episodes waiting", () => {
     render(UploadsPanel, props());
-    expect(screen.getByText("2 episodes waiting")).toBeTruthy();
+    expect(screen.getByText("2 episodes waiting").classList.contains("quiet")).toBe(false);
     const nas = screen.getByRole("listitem", { name: "nas" });
     expect(nas.textContent).toContain("file:///srv/kapto");
-    expect(within(nas).getByText("1 failed").classList.contains("problem")).toBe(true);
+    expect(within(nas).getByText("1 failed").classList.contains("failed")).toBe(true);
+    // Nothing going up there: not said.
+    expect(within(nas).getByText(/uploaded/).textContent).not.toContain("uploading");
     const shown = screen.getByRole("listitem", { name: "archive" });
-    expect(shown.textContent).toMatch(/4 uploaded · 1 uploading ·\s+0 failed/);
-    expect(within(shown).getByText("0 failed").classList.contains("problem")).toBe(false);
+    expect(within(shown).getByText(/uploaded/).textContent?.trim()).toBe("4 uploaded · 1 uploading");
+    // None failed there: not said either.
+    expect(shown.textContent).not.toContain("failed");
+  });
+
+  it("says quietly that no episode is waiting", () => {
+    render(UploadsPanel, props({ overview: { ...overview, waiting: 0 } }));
+    expect(screen.getByText("No episode waiting").classList.contains("quiet")).toBe(true);
   });
 
   it("shows an upload going with how fast it goes and how long it has left", () => {
