@@ -330,22 +330,29 @@ fn an_error_this_side_doesnt_know_is_an_unexpected_answer_not_capture_gone() {
     );
 }
 
-/// Waits until `check` holds.
-fn eventually(what: &str, check: impl Fn() -> bool) {
-    let deadline = Instant::now() + TIMEOUT;
-    while !check() {
-        assert!(Instant::now() < deadline, "never {what}");
-        thread::sleep(Duration::from_millis(5));
-    }
+/// Waits `pause`, then has `client` give a sign of life, and returns how
+/// long the supervisor had been missed just before and just after it.
+fn missed_around_a_sign(
+    server: &ControlServer,
+    client: &mut ControlClient,
+    pause: Duration,
+) -> (Duration, Duration) {
+    thread::sleep(pause);
+    let before = server.unsupervised_for().unwrap();
+    assert_eq!(
+        client.ask(&Request::Supervise).unwrap(),
+        Response::Supervised
+    );
+    (before, server.unsupervised_for().unwrap())
 }
 
 #[test]
-fn a_supervisor_is_missed_only_once_its_last_connection_has_closed() {
+fn a_supervisor_is_missed_from_its_last_sign_of_life_whether_it_closed_or_fell_silent() {
     let folder = scratch("supervise");
     let socket = folder.join("c.sock");
     let server = ControlServer::listen(&socket).unwrap();
     // Run by hand, nobody supervises and nobody is missed.
-    let mut client = ControlClient::connect(&socket, TIMEOUT).unwrap();
+    let client = ControlClient::connect(&socket, TIMEOUT).unwrap();
     assert_eq!(server.unsupervised_for(), None);
     drop(client);
 
@@ -355,31 +362,29 @@ fn a_supervisor_is_missed_only_once_its_last_connection_has_closed() {
         first.ask(&Request::Supervise).unwrap(),
         Response::Supervised
     );
-    let mut second = ControlClient::connect(&socket, TIMEOUT).unwrap();
-    assert_eq!(
-        second.ask(&Request::Supervise).unwrap(),
-        Response::Supervised
-    );
-    assert_eq!(
-        second.ask(&Request::Supervise).unwrap(),
-        Response::Supervised
-    );
-    drop(first);
-    thread::sleep(Duration::from_millis(50));
-    assert_eq!(server.unsupervised_for(), None, "one is still open");
+    // Open but silent, as a serve that hangs: missed all the same.
+    thread::sleep(Duration::from_millis(100));
+    assert!(server.unsupervised_for().unwrap() >= Duration::from_millis(100));
+    // Each sign of life starts the count again.
+    let (before, after) = missed_around_a_sign(&server, &mut first, Duration::from_millis(50));
+    assert!(after < before, "{after:?} after a sign, {before:?} before");
 
+    // Signs from any supervisor count.
+    let mut second = ControlClient::connect(&socket, TIMEOUT).unwrap();
+    let (before, after) = missed_around_a_sign(&server, &mut second, Duration::from_millis(50));
+    assert!(after < before, "{after:?} after a sign, {before:?} before");
+
+    // A closed connection gives no more signs: the time grows.
+    drop(first);
     drop(second);
-    eventually("missed", || server.unsupervised_for().is_some());
+    thread::sleep(Duration::from_millis(50));
     let gone = server.unsupervised_for().unwrap();
     thread::sleep(Duration::from_millis(20));
     assert!(server.unsupervised_for().unwrap() > gone, "the time grows");
 
-    client = ControlClient::connect(&socket, TIMEOUT).unwrap();
-    assert_eq!(
-        client.ask(&Request::Supervise).unwrap(),
-        Response::Supervised
-    );
-    assert_eq!(server.unsupervised_for(), None, "back again");
+    let mut back = ControlClient::connect(&socket, TIMEOUT).unwrap();
+    let (before, after) = missed_around_a_sign(&server, &mut back, Duration::ZERO);
+    assert!(after < before, "back again");
 }
 
 #[test]

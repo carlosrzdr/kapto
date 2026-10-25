@@ -590,9 +590,10 @@ same protocol version. Children write straight to `serve`'s own output
 rather than through it, so if `serve` itself dies, capture keeps recording
 and can still be stopped with `kapto episode stop`. `serve` also keeps a
 connection to capture open (`srv-watch`) and sends a sign of life on it
-every second; if `serve` is gone for a minute (`capture.control_timeout`)
-during an episode, capture finalises the episode, so nothing recorded
-waits on a server that may not return. A `serve` started again within that
+four times a second; if `serve` is gone, or gives no sign because it hangs
+or was stopped, for a minute (`capture.control_timeout`) during an episode,
+capture finalises the episode, so nothing recorded waits on a server that
+may not return and nothing is recorded until the disk is full. A `serve` started again within that
 time finds capture still answering and carries on with the episode.
 Every child ends with `serve`, even when it is killed outright: of no use
 without it, they would otherwise hold their ports, sockets and the streams'

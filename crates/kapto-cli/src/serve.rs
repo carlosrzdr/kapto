@@ -6,8 +6,8 @@
 //! SIGTERM stops them, giving capture time to finalise an episode.
 //!
 //! Serve keeps a connection to capture open the whole time and sends a sign
-//! of life on it every second, so capture can tell when serve is gone (see
-//! `capture.control_timeout`).
+//! of life on it four times a second, so capture can tell when serve is
+//! gone or no longer answering (see `capture.control_timeout`).
 
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
@@ -54,8 +54,11 @@ const CHILDREN: [&str; 3] = [CAPTURE, VIZ_BRIDGE, WORKER];
 /// How long the worker may take to stop: it stops at once, leaving a job it
 /// was doing to be done again, so it has nothing to finish.
 const WORKER_STOP_GRACE: Duration = Duration::from_secs(5);
-/// How often serve tells capture it is still there.
-const SIGN_OF_LIFE: Duration = Duration::from_secs(1);
+/// How often serve tells capture it is still there: well within the
+/// shortest `capture.control_timeout`, a second.
+const SIGN_OF_LIFE: Duration = Duration::from_millis(250);
+/// How long capture may take to answer serve's connection and each sign.
+const SIGN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Arguments of `kapto serve`.
 #[derive(Args)]
@@ -467,7 +470,7 @@ fn watch_over_capture(socket: &Path, watching: &AtomicBool) {
     while watching.load(Ordering::Relaxed) {
         let client = match connection.take() {
             Some(client) => Some(client),
-            None => ControlClient::connect(socket, SIGN_OF_LIFE).ok(),
+            None => ControlClient::connect(socket, SIGN_TIMEOUT).ok(),
         };
         connection =
             client.and_then(|mut client| client.ask(&Request::Supervise).is_ok().then_some(client));

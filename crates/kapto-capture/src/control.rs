@@ -20,10 +20,11 @@
 //! was recovered still hears of it.
 //!
 //! `kapto serve` keeps one connection open on which it sends `supervise`
-//! now and then. If every such connection has closed, because serve
-//! stopped or crashed, the capture process knows for how long
-//! ([`ControlServer::unsupervised_for`]) and finalises an episode that has
-//! gone unsupervised too long.
+//! several times a second as a sign of life. The capture process knows how
+//! long ago a supervisor last gave one ([`ControlServer::unsupervised_for`])
+//! and finalises an episode that has gone unsupervised too long: a serve
+//! that crashed closes its connection, one that hangs or is stopped falls
+//! silent, and both are missed alike.
 //!
 //! ```text
 //! → {"command":"hello","version":1}
@@ -410,48 +411,26 @@ struct Watcher {
 /// How long the announcing thread waits on one watcher before giving it up.
 const WATCHER_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// The connections a supervisor holds open.
+/// When a supervisor last gave a sign of life: sent `supervise`, or closed
+/// its connection, being there until then. `None` until one ever did.
 #[derive(Debug, Default)]
 struct Supervision {
-    state: Mutex<Supervisors>,
-}
-
-#[derive(Debug, Default)]
-struct Supervisors {
-    /// Open connections that sent `supervise`.
-    open: usize,
-    /// When the last one closed, if one ever did and none is open.
-    left: Option<Instant>,
+    last: Mutex<Option<Instant>>,
 }
 
 impl Supervision {
-    fn update(&self, change: impl FnOnce(&mut Supervisors)) {
-        change(&mut self.state.lock().unwrap_or_else(PoisonError::into_inner));
+    fn sign(&self) {
+        *self.last.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
     }
 }
 
-/// Holds a connection's place as a supervisor; the last one to go marks
-/// the time.
+/// Held by a supervisor's connection: its end, however it ends, is its
+/// last sign of life.
 struct Supervising(Arc<Supervision>);
-
-impl Supervising {
-    fn new(supervision: Arc<Supervision>) -> Self {
-        supervision.update(|supervisors| {
-            supervisors.open += 1;
-            supervisors.left = None;
-        });
-        Self(supervision)
-    }
-}
 
 impl Drop for Supervising {
     fn drop(&mut self) {
-        self.0.update(|supervisors| {
-            supervisors.open -= 1;
-            if supervisors.open == 0 {
-                supervisors.left = Some(Instant::now());
-            }
-        });
+        self.0.sign();
     }
 }
 
@@ -534,16 +513,18 @@ impl ControlServer {
         self.announcer.clone()
     }
 
-    /// How long ago the last supervisor's connection closed. `None` while
-    /// one is open, or if none ever was: a capture process run by hand has
+    /// How long ago a supervisor last gave a sign of life: sent
+    /// `supervise`, or closed its connection. An open connection that has
+    /// fallen silent, its serve hung or stopped, is missed like a closed
+    /// one. `None` if none ever was: a capture process run by hand has
     /// nobody to miss.
     pub fn unsupervised_for(&self) -> Option<Duration> {
-        let supervisors = self
+        let last = self
             .supervision
-            .state
+            .last
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        supervisors.left.map(|left| left.elapsed())
+        last.map(|last| last.elapsed())
     }
 
     /// The requests received since the last call, oldest first. Never
@@ -646,7 +627,8 @@ fn converse(
             // Answered here, so a sign of life never waits for the capture
             // process's own loop.
             Ok(Request::Supervise) => {
-                supervising.get_or_insert_with(|| Supervising::new(Arc::clone(supervision)));
+                supervision.sign();
+                supervising.get_or_insert_with(|| Supervising(Arc::clone(supervision)));
                 (Response::Supervised, true)
             }
             Ok(Request::Watch) => {

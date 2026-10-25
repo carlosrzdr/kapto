@@ -416,7 +416,10 @@ fn episode(
                     stop = Some(stopping);
                 }
             }
-            let abandoned = abandoned(control, control_timeout, elapsed, stop.is_none());
+            // Reckoned from when it was asked for: the start is answered,
+            // and a supervisor may give a sign, before `elapsed` begins.
+            let since_asked = monotonic_now().saturating_since(asked);
+            let abandoned = abandoned(control, control_timeout, since_asked, stop.is_none());
             if elapsed >= Duration::from_secs(next_second) {
                 eprintln!("{}", live.line(next_second));
                 next_second += 1;
@@ -572,18 +575,18 @@ fn status(
 }
 
 /// Whether the supervisor has been gone for `control_timeout`, saying so
-/// if the episode is to end for it. Only a supervisor that left during
-/// this episode counts: one started by hand after serve went away is the
-/// operator's.
+/// if the episode is to end for it. Only a supervisor that left since this
+/// episode was asked for, `since_asked` ago, counts: one started by hand
+/// after serve went away is the operator's.
 fn abandoned(
     control: &ControlServer,
     control_timeout: Duration,
-    elapsed: Duration,
+    since_asked: Duration,
     say: bool,
 ) -> bool {
     let abandoned = control
         .unsupervised_for()
-        .is_some_and(|gone| gone >= control_timeout && gone <= elapsed);
+        .is_some_and(|gone| gone >= control_timeout && gone <= since_asked);
     if abandoned && say {
         eprintln!(
             "kapto serve has been gone for {} s: finalising the episode.",

@@ -16,6 +16,8 @@ use std::io::{BufRead, BufReader};
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use common::free_udp_port;
@@ -809,15 +811,46 @@ fn kapto_records_its_own_events_around_what_clients_send() {
     assert!(capture.stop().status.success());
 }
 
+/// A supervisor's connection giving a sign of life five times a second, as
+/// serve does, until `going` turns false; its thread then returns when it
+/// gave its last sign, and the connection, still open.
+fn supervise(
+    mut supervisor: ControlClient,
+    going: &Arc<AtomicBool>,
+) -> std::thread::JoinHandle<(Instant, ControlClient)> {
+    let going = Arc::clone(going);
+    std::thread::spawn(move || {
+        loop {
+            assert_eq!(
+                supervisor.ask(&Request::Supervise).unwrap(),
+                Response::Supervised
+            );
+            let signed = Instant::now();
+            std::thread::sleep(Duration::from_millis(200));
+            if !going.load(Ordering::Relaxed) {
+                return (signed, supervisor);
+            }
+        }
+    })
+}
+
+/// Waits until the episode in `folder` is finalised and returns how many
+/// messages it holds.
+fn written_once_finalised(folder: &Path) -> u64 {
+    let deadline = Instant::now() + TIMEOUT;
+    while !folder.join("_FINALISED").exists() {
+        assert!(Instant::now() < deadline, "not finalised");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    finalised(folder.to_str().unwrap()).streams[0].written
+}
+
 #[test]
 fn an_episode_is_finalised_once_its_supervisor_has_been_gone_for_the_control_timeout() {
     let folder = scratch("timeout");
     let mut capture = Capture::start_with(&folder, &["--capture-control-timeout", "1"]);
-    let mut supervisor = capture.client();
-    assert_eq!(
-        supervisor.ask(&Request::Supervise).unwrap(),
-        Response::Supervised
-    );
+    let going = Arc::new(AtomicBool::new(true));
+    let supervisor = supervise(capture.client(), &going);
     let mut client = capture.client();
     let episode = start(&mut client);
     capture.send(100);
@@ -830,19 +863,14 @@ fn an_episode_is_finalised_once_its_supervisor_has_been_gone_for_the_control_tim
         "ended while supervised"
     );
 
+    going.store(false, Ordering::Relaxed);
+    let (gone, supervisor) = supervisor.join().unwrap();
     drop(supervisor);
-    let gone = Instant::now();
     capture.wait_for("ended", |s| s.episode.is_none());
     assert!(gone.elapsed() >= Duration::from_secs(1), "ended too early");
     // Closed beside the next phase: finalised a moment after it ended.
-    let folder_of = folder.join("data").join(&episode);
-    let deadline = Instant::now() + TIMEOUT;
-    while !folder_of.join("_FINALISED").exists() {
-        assert!(Instant::now() < deadline, "not finalised");
-        std::thread::sleep(Duration::from_millis(20));
-    }
     assert_eq!(
-        finalised(folder_of.to_str().unwrap()).streams[0].written,
+        written_once_finalised(&folder.join("data").join(&episode)),
         100
     );
 
@@ -855,6 +883,37 @@ fn an_episode_is_finalised_once_its_supervisor_has_been_gone_for_the_control_tim
     let output = capture.stop();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
+}
+
+#[test]
+fn an_episode_is_finalised_once_its_supervisor_has_fallen_silent_for_the_control_timeout() {
+    let folder = scratch("silent");
+    let mut capture = Capture::start_with(&folder, &["--capture-control-timeout", "1"]);
+    let going = Arc::new(AtomicBool::new(true));
+    let supervisor = supervise(capture.client(), &going);
+    let mut client = capture.client();
+    let episode = start(&mut client);
+    capture.send(100);
+    capture.wait_for("recording", |s| s.streams[0].written == 100);
+    // Still connected but silent, as a serve that hangs or is stopped.
+    going.store(false, Ordering::Relaxed);
+    let (signed, mut supervisor) = supervisor.join().unwrap();
+    capture.wait_for("ended", |s| s.episode.is_none());
+    assert!(
+        signed.elapsed() >= Duration::from_secs(1),
+        "ended too early"
+    );
+    assert_eq!(
+        written_once_finalised(&folder.join("data").join(&episode)),
+        100
+    );
+    // Its connection is still open: only its silence ended the episode.
+    assert_eq!(
+        supervisor.ask(&Request::Supervise).unwrap(),
+        Response::Supervised
+    );
+    let output = capture.stop();
+    assert!(output.status.success());
 }
 
 #[test]

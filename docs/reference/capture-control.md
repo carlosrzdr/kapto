@@ -71,11 +71,12 @@ episode. A capture process older than `abort` answers it with
 `capture.control_invalid_request`.
 
 `supervise` makes the connection a supervisor's: `kapto serve` sends it on a
-connection it keeps open, and again every second as a sign of life. When
-the last supervisor's connection closes, because serve stopped or crashed,
-an episode that was being recorded is finalised once
-`capture.control_timeout` has passed, unless a supervisor connects again
-first. Episodes started after the supervisor left, and a capture process
+connection it keeps open, and again four times a second as a sign of life.
+Once no supervisor has given one for `capture.control_timeout`, an episode
+that was being recorded is finalised: a supervisor that closed its
+connection, because serve stopped or crashed, and one that keeps it open
+but has fallen silent, because serve hangs or was stopped, are missed
+alike; the end of a connection counts as its last sign. Episodes started after the supervisor left, and a capture process
 that never had one, are left alone. It is answered by the connection
 itself, never waiting on recording.
 
