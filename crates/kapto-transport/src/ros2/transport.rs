@@ -132,6 +132,9 @@ impl Transport for Ros2Transport {
                 } else {
                     self.stats.count_truncated(stream);
                 }
+                if taken.publisher_replaced {
+                    self.stats.count_publisher_replaced(stream);
+                }
             }
         }
         Ok(added)

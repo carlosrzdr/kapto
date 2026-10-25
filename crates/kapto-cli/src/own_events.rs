@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The events Kapto records of its own during an episode: a stream losing
-//! messages, falling silent and coming back, at the moment it happened,
+//! messages, falling silent and coming back, or a publisher's count of its
+//! messages handed to a new one, at the moment it happened,
 //! which the episode's totals don't say. They are worked out from each
 //! stream's counts once a second, on the thread that watches the episode,
 //! never per message.
@@ -30,6 +31,8 @@ pub(crate) struct Counts {
     pub(crate) received: u64,
     pub(crate) dropped_by_us: u64,
     pub(crate) lost_upstream: u64,
+    /// Times a new publisher took another's place to be counted apart.
+    pub(crate) publishers_replaced: u64,
 }
 
 /// What a stream was last seen doing.
@@ -116,6 +119,19 @@ impl OwnEvents {
                     .insert("dropped_by_us".to_owned(), dropped.to_string());
                 events.push(event);
             }
+            let replaced = now
+                .publishers_replaced
+                .saturating_sub(seen.counts.publishers_replaced);
+            if replaced > 0 {
+                // Its loss is still counted, by the new publisher's numbers;
+                // said, as a robot whose nodes keep restarting is worth a look.
+                let mut event = own("publisher_replaced", now_utc_ns);
+                event.attributes.insert("stream".to_owned(), stream.clone());
+                event
+                    .attributes
+                    .insert("publishers".to_owned(), replaced.to_string());
+                events.push(event);
+            }
             let quiet = seen
                 .silent_after
                 .is_some_and(|after| elapsed.saturating_sub(seen.last_received) >= after);
@@ -162,6 +178,7 @@ mod tests {
             received,
             dropped_by_us: 0,
             lost_upstream,
+            publishers_replaced: 0,
         }]
     }
 
@@ -176,6 +193,31 @@ mod tests {
                 format!("{}{detail}", event.kind)
             })
             .collect()
+    }
+
+    #[test]
+    fn a_publisher_taking_anothers_place_is_told_once_a_second_with_how_many() {
+        let mut own = OwnEvents::new([("joints".to_owned(), Some(SILENT_AFTER))]);
+        let at = |ms: u64| Duration::from_millis(ms);
+        let replaced = |received, publishers_replaced| {
+            [Counts {
+                received,
+                publishers_replaced,
+                ..Counts::default()
+            }]
+        };
+        assert_eq!(own.tick(&replaced(10, 0), at(1_000), 0), []);
+        assert_eq!(
+            own.tick(&replaced(20, 2), at(1_500), 0),
+            [],
+            "not before the next second"
+        );
+        let told = own.tick(&replaced(30, 3), at(2_000), 0);
+        assert_eq!(told.len(), 1, "{told:?}");
+        assert_eq!(told[0].kind, "kapto.publisher_replaced");
+        assert_eq!(told[0].attributes["stream"], "joints");
+        assert_eq!(told[0].attributes["publishers"], "3");
+        assert_eq!(own.tick(&replaced(40, 3), at(3_000), 0), [], "none since");
     }
 
     #[test]
@@ -232,8 +274,7 @@ mod tests {
             // Both quiet after their first message.
             let counts = [Counts {
                 received: 1,
-                dropped_by_us: 0,
-                lost_upstream: 0,
+                ..Counts::default()
             }; 2];
             for event in own.tick(&counts, Duration::from_secs(second), 0) {
                 told.push(format!("{} {}", event.kind, event.attributes["stream"]));

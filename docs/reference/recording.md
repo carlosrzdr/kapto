@@ -53,6 +53,7 @@ saying when in it a stream had trouble, which its totals don't:
 | `kapto.stream_lost` | A stream lost messages, at most once a second | `stream`, `lost_upstream`, `dropped_by_us`: how many since the last |
 | `kapto.stream_silent` | A stream sent nothing for 2 s | `stream` |
 | `kapto.stream_back` | A silent stream sent again | `stream` |
+| `kapto.publisher_replaced` | A new publisher of a ROS 2 topic took the place of the one heard from least recently, every place to tell them apart by their counts (8) being taken, at most once a second; the stream's loss is still counted, by the new one's numbers | `stream`, `publishers`: how many since the last |
 
 Fields are only ever added, like every output format.
 

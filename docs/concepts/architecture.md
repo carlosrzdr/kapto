@@ -119,6 +119,10 @@ a stream's loss is counted by those counts instead, each publisher's on its
 own: every number skipped is a message lost on the way, however short the
 gap, which a rate can't tell from jitter, and a publisher pausing loses
 nothing; `episode.json` names such a stream's detection `publisher_count`.
+Eight publishers of a topic are told apart at once; a ninth, as a node
+restarted under a new ID, takes the place of the one heard from least
+recently, its count starting afresh there, and the episode says so with a
+`kapto.publisher_replaced` event.
 What a publisher sent before Kapto's subscription matched it can't be
 counted: its first number seen tells nothing of that. A stream with neither
 can't tell its upstream loss, and its counter stays at zero.

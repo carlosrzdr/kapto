@@ -340,10 +340,12 @@ fn keep_own(
 ) {
     let counts: Vec<Counts> = live
         .streams()
-        .map(|(_, totals)| Counts {
+        .zip(live.publishers_replaced())
+        .map(|((_, totals), publishers_replaced)| Counts {
             received: totals.received,
             dropped_by_us: totals.dropped_by_us,
             lost_upstream: totals.lost_upstream,
+            publishers_replaced,
         })
         .collect();
     for event in own.tick(&counts, elapsed, utc_now_ns()) {

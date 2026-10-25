@@ -265,15 +265,17 @@ impl Node {
         // A middleware without the publisher's count gives the largest
         // number (or none, 0) instead.
         let number = self.info.publication_sequence_number;
-        let publication = (number != 0 && number != u64::MAX)
+        let place = (number != 0 && number != u64::MAX)
             .then(|| publishers.index(&self.info.publisher_gid.data))
-            .flatten()
-            .map(|publisher| Publication { publisher, number });
+            .flatten();
+        let publisher_replaced = place.is_some_and(|(_, replaced)| replaced);
+        let publication = place.map(|(publisher, _)| Publication { publisher, number });
         if buffer.buffer.is_null() || buffer.buffer_length == 0 {
             return Ok(Some(Taken {
                 message: &[],
                 published,
                 publication,
+                publisher_replaced,
             }));
         }
         // SAFETY: after a successful take the buffer holds `buffer_length`
@@ -284,6 +286,7 @@ impl Node {
             message,
             published,
             publication,
+            publisher_replaced,
         }))
     }
 }
@@ -296,6 +299,9 @@ pub(super) struct Taken<'a> {
     pub(super) published: u64,
     /// Which publisher sent it and its count of it, if the middleware says.
     pub(super) publication: Option<Publication>,
+    /// Whether its publisher, new, took the place of another, every place
+    /// being taken: said, as its stream's count of it changes hands.
+    pub(super) publisher_replaced: bool,
 }
 
 unsafe extern "C" {

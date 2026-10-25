@@ -1250,6 +1250,17 @@ impl Live<'_> {
             .find(|camera| camera.stream == spec.stream)
     }
 
+    /// How often each stream, in the order of [`Live::streams`], had a new
+    /// publisher take another's place, every place being taken.
+    pub(crate) fn publishers_replaced(&self) -> impl Iterator<Item = u64> + '_ {
+        self.specs.iter().map(|spec| {
+            self.transports
+                .iter()
+                .map(|t| t.publishers_replaced(spec.stream))
+                .sum()
+        })
+    }
+
     /// Each stream's counts so far, with drops read from where they happen.
     pub(crate) fn streams(&self) -> impl Iterator<Item = (&StreamId, StreamTotals)> + '_ {
         self.specs.iter().map(|spec| {

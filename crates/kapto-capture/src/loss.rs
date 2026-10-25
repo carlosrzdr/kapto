@@ -263,9 +263,9 @@ struct StreamGap {
     undecoded: u32,
 }
 
-/// How many publishers of one stream are counted apart, as the transport
-/// tells them apart.
-const PUBLISHERS: usize = 8;
+/// How many publishers of one stream are counted apart at once; the
+/// transport tells apart as many, by this same number.
+pub const PUBLISHERS: usize = 8;
 
 /// One stream's messages followed by each publisher's count of them, from
 /// 1 up: a number skipped is a message lost on the way, however short the
