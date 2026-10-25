@@ -1,0 +1,101 @@
+[package]
+name = "kapto-fuzz"
+description = "Fuzz targets for the parsers that read bytes from outside Kapto, run with `cargo xtask fuzz`."
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Not a member of the repository's workspace: it builds only with a nightly
+# toolchain and libFuzzer's instrumentation, in the image `cargo xtask fuzz`
+# builds.
+[workspace]
+members = ["."]
+
+[dependencies]
+kapto-capture = { path = "../crates/kapto-capture", version = "0.0.0" }
+kapto-decode = { path = "../crates/kapto-decode", version = "0.0.0" }
+kapto-transport = { path = "../crates/kapto-transport", version = "0.0.0" }
+# libFuzzer, the engine `cargo fuzz` drives, and `arbitrary` for cutting
+# the fuzzer's bytes into structured inputs.
+libfuzzer-sys = "0.4"
+# Walking every value of a CDR message, and reading the reference messages
+# in testdata/cdr; both already in the tree through kapto-decode.
+serde = "1.0"
+serde_json = "1.0"
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "tcp_deframer"
+path = "fuzz_targets/tcp_deframer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cdr"
+path = "fuzz_targets/cdr.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "msg_definition"
+path = "fuzz_targets/msg_definition.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "struct_layout"
+path = "fuzz_targets/struct_layout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "path_layout"
+path = "fuzz_targets/path_layout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "protobuf"
+path = "fuzz_targets/protobuf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "camera_frame"
+path = "fuzz_targets/camera_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tap_wire"
+path = "fuzz_targets/tap_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcap_salvage"
+path = "fuzz_targets/mcap_salvage.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcap_seek"
+path = "fuzz_targets/mcap_seek.rs"
+test = false
+doc = false
+bench = false

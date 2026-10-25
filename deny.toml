@@ -38,6 +38,10 @@ allow = [
     # whoever distributes it to say it is based on the IJG's work, which
     # NOTICE does.
     "IJG",
+    # The University of Illinois/NCSA licence, BSD-like, of LLVM's
+    # libFuzzer in `libfuzzer-sys`: only in the fuzz targets, never in a
+    # binary Kapto ships.
+    "NCSA",
 ]
 confidence-threshold = 0.93
 # The list is policy, not inventory: allowed licences no dependency uses yet are fine.
