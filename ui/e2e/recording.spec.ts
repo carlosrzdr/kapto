@@ -58,16 +58,36 @@ test("the page shows the robot's stream, records an episode and lists it", async
   // roles; counters and clocks aren't plotted.
   const panels = page.getByRole("group", { name: "The view's panels" });
   const jointPlot = panels.getByRole("region", { name: /^Plot of role:joints\.joint_1\.position/ });
-  // The stream and what the roles share said once, in the key, not again over the chart.
+  // On a screen wide enough for its key, the stream and what the roles
+  // share said once, in the key, not again over the chart.
+  const viewport = page.viewportSize();
+  await page.setViewportSize({ width: 2200, height: 900 });
   await expect(jointPlot.getByText("arm_joints · joints · position", { exact: true })).toBeVisible();
   await expect(jointPlot.locator(".u-title")).toHaveCount(0);
-  // Too many values for every range to show: one shows its range once picked in the key.
+  // A value of the key clicked shows alone, with its band from minimum to
+  // maximum, on the chart already drawn rather than one made again;
+  // clicked again, every value is back. Pointed at, nothing changes.
+  await expect(jointPlot).toHaveAttribute("data-look", /^l+$/);
+  const builds = await jointPlot.getAttribute("data-builds");
+  await jointPlot.getByRole("button", { name: "joint_2", exact: true }).hover();
+  await page.waitForTimeout(500);
+  await expect(jointPlot).toHaveAttribute("data-look", /^l+$/);
   const joint = jointPlot.getByRole("button", { name: "joint_1", exact: true });
   await joint.click();
+  await expect(jointPlot).toHaveAttribute("data-look", /^b-+$/);
   await expect(joint).toHaveAttribute("aria-pressed", "true");
+  await expect(jointPlot.getByRole("button", { name: "joint_2", exact: true })).toHaveAttribute("aria-pressed", "false");
+  // With Ctrl, another beside it, both with their bands.
+  await jointPlot.getByRole("button", { name: "joint_3", exact: true }).click({ modifiers: ["Control"] });
+  await expect(jointPlot).toHaveAttribute("data-look", /^b-b-+$/);
+  await jointPlot.getByRole("button", { name: "joint_3", exact: true }).click({ modifiers: ["Control"] });
   await joint.click();
-  await expect(joint).toHaveAttribute("aria-pressed", "false");
-  // The gripper's one value shows its range anyway: nothing to pick.
+  await expect(jointPlot).toHaveAttribute("data-look", /^l+$/);
+  expect(await jointPlot.getAttribute("data-builds")).toBe(builds);
+  if (viewport) {
+    await page.setViewportSize(viewport);
+  }
+  // The gripper's one value, always shown with its range: nothing to pick.
   const gripperPlot = panels.getByRole("region", { name: "Plot of role:gripper.opening" });
   await expect(gripperPlot).toBeVisible();
   await expect(gripperPlot.getByRole("button")).toHaveCount(0);

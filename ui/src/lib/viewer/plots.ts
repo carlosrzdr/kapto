@@ -225,41 +225,57 @@ export function shownSpan(spanMs: number, endMs: number, oldestMs: number | null
 export const BANDED_AT_MOST = 2;
 
 /**
- * Which of a plot's `count` values are drawn as a band from minimum to
- * maximum, the rest as one line through the middle: every one in a plot
- * of [`BANDED_AT_MOST`] or fewer, otherwise only those `shown` (the key's
- * entries pointed at, focused or picked), as many bands over one another
- * hide the lines they are about.
+ * Which of a plot's values are drawn as a band from minimum to maximum,
+ * the rest as one line through the middle, given which are `shown`: each
+ * shown one while [`BANDED_AT_MOST`] or fewer are, as many bands over one
+ * another hide the lines they are about. A hidden value has neither.
  */
-export function banded(count: number, shown: ReadonlySet<number>): boolean[] {
-  return Array.from({ length: count }, (_, place) => count <= BANDED_AT_MOST || shown.has(place));
+export function banded(shown: readonly boolean[]): boolean[] {
+  const showing = shown.filter(Boolean).length;
+  return shown.map((one) => one && showing <= BANDED_AT_MOST);
+}
+
+/**
+ * The values a plot of `count` shows once its key's entry at `place` is
+ * clicked, from those `shown` (`null`: every one, as it is also returned).
+ * A click shows that value alone, or every one again if it already was;
+ * `adding` (a click with Ctrl, Cmd or Shift) shows or hides it beside the
+ * others. Hiding the last one shows every one again, as a plot of nothing
+ * says nothing.
+ */
+export function choose(shown: ReadonlySet<number> | null, count: number, place: number, adding: boolean): Set<number> | null {
+  if (!adding) {
+    return shown?.size === 1 && shown.has(place) ? null : new Set([place]);
+  }
+  const next = new Set(shown ?? Array.from({ length: count }, (_, each) => each));
+  if (!next.delete(place)) {
+    next.add(place);
+  }
+  return next.size === 0 || next.size >= count ? null : next;
 }
 
 /**
  * The columns a chart is given from `data`, [`SampleBuffer.stretch`]'s
  * (times, then each value's minima and maxima): the times, then, for each
- * value, its minima and maxima if it is `bands`'s, or else the middle of
- * the two, written into `middles`, one array per value made once and
- * reused, so drawing makes nothing new.
+ * value, the middle of the two, its minima and its maxima, so that each
+ * can be drawn as a line or a band by showing or hiding what the chart
+ * already has. Middles are written only for the values drawn as `lines`,
+ * into `middles`, one array per value made once and reused, so drawing
+ * makes nothing new; another's is left as it was, as it isn't drawn.
  */
-export function plotColumns(data: Float64Array[], bands: boolean[], middles: Float64Array[]): Float64Array[] {
+export function plotColumns(data: Float64Array[], lines: boolean[], middles: Float64Array[]): Float64Array[] {
   const times = data[0] ?? new Float64Array(0);
   const columns = [times];
-  bands.forEach((band, place) => {
+  lines.forEach((line, place) => {
     const low = data[1 + place * 2] ?? new Float64Array(0);
     const high = data[2 + place * 2] ?? new Float64Array(0);
-    if (band) {
-      columns.push(low, high);
-      return;
+    const middle = middles[place] ?? new Float64Array(times.length);
+    if (line) {
+      for (let index = 0; index < times.length; index++) {
+        middle[index] = ((low[index] ?? Number.NaN) + (high[index] ?? Number.NaN)) / 2;
+      }
     }
-    const middle = middles[place];
-    if (!middle) {
-      return;
-    }
-    for (let index = 0; index < times.length; index++) {
-      middle[index] = ((low[index] ?? Number.NaN) + (high[index] ?? Number.NaN)) / 2;
-    }
-    columns.push(middle.subarray(0, times.length));
+    columns.push(middle.subarray(0, times.length), low, high);
   });
   return columns;
 }

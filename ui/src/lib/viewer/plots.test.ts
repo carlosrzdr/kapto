@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   banded,
+  choose,
   type Drawn,
   drawAgain,
   plotColumns,
@@ -152,31 +153,66 @@ describe("shownSpan", () => {
 });
 
 describe("banded", () => {
-  it("draws every value's band in a plot of two or fewer", () => {
-    expect(banded(1, new Set())).toEqual([true]);
-    expect(banded(2, new Set())).toEqual([true, true]);
+  it("draws the band of each value shown while two or fewer are", () => {
+    expect(banded([true])).toEqual([true]);
+    expect(banded([true, true])).toEqual([true, true]);
+    expect(banded([false, true, false, true])).toEqual([false, true, false, true]);
   });
 
-  it("draws only the bands asked for in a plot of more", () => {
-    expect(banded(4, new Set())).toEqual([false, false, false, false]);
-    expect(banded(4, new Set([2]))).toEqual([false, false, true, false]);
+  it("draws no band while more than two are shown, nor a hidden value's", () => {
+    expect(banded([true, true, true, false])).toEqual([false, false, false, false]);
+    expect(banded([false, false])).toEqual([false, false]);
+  });
+});
+
+describe("choose", () => {
+  it("shows a value alone once its entry is clicked, and another alone once that one is", () => {
+    expect(choose(null, 4, 2, false)).toEqual(new Set([2]));
+    expect(choose(new Set([2]), 4, 0, false)).toEqual(new Set([0]));
+    expect(choose(new Set([1, 3]), 4, 1, false)).toEqual(new Set([1]));
+  });
+
+  it("shows every value again once the one shown alone is clicked", () => {
+    expect(choose(new Set([2]), 4, 2, false)).toBeNull();
+  });
+
+  it("adds a value to those shown, or takes it away, on a click with a modifier", () => {
+    expect(choose(new Set([2]), 4, 0, true)).toEqual(new Set([0, 2]));
+    expect(choose(new Set([0, 2]), 4, 0, true)).toEqual(new Set([2]));
+    expect(choose(null, 4, 1, true)).toEqual(new Set([0, 2, 3]));
+  });
+
+  it("shows every value again rather than none, and says so once every one is", () => {
+    expect(choose(new Set([2]), 4, 2, true)).toBeNull();
+    expect(choose(new Set([0, 1, 2]), 4, 3, true)).toBeNull();
   });
 });
 
 describe("plotColumns", () => {
-  it("gives a banded value's minima and maxima and another's middle, written into what it is given", () => {
+  it("gives each value's middle, minima and maxima, the middle written into what it is given", () => {
     const buffer = new SampleBuffer(2, 4);
     buffer.push(1000, sample(1));
     buffer.push(2000, sample(2));
     const middles = [new Float64Array(4), new Float64Array(4)];
-    const columns = plotColumns(buffer.stretch(0, [0, 1]), [true, false], middles);
+    const columns = plotColumns(buffer.stretch(0, [0, 1]), [true, true], middles);
     expect(columns.map((column) => Array.from(column))).toEqual([
+      [1, 2],
       [1, 2],
       [0.5, 1.5],
       [1.5, 2.5],
       [2, 4],
+      [2, 4],
+      [2, 4],
     ]);
-    expect(columns[3]!.buffer).toBe(middles[1]!.buffer);
+    expect(columns[4]!.buffer).toBe(middles[1]!.buffer);
+  });
+
+  it("leaves the middle of a value not drawn as a line as it was", () => {
+    const buffer = new SampleBuffer(1, 4);
+    buffer.push(1000, new Float64Array([0.5, 1.5]));
+    const middles = [new Float64Array([7, 7, 7, 7])];
+    const columns = plotColumns(buffer.stretch(0, [0]), [false], middles);
+    expect(Array.from(columns[1]!)).toEqual([7]);
   });
 });
 

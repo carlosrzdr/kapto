@@ -5,8 +5,8 @@
 
   import { AXIS_TIME_STEPS, axisTimes, axisTimesStep } from "./format";
   import {
-    BANDED_AT_MOST,
     banded,
+    choose,
     type Drawn,
     drawAgain,
     type PlotPart,
@@ -52,40 +52,39 @@
     const heading = parts.length === 1 ? [parts[0]!.stream.name, short.heading].filter(Boolean).join(" · ") : short.heading;
     return { heading, entries: short.labels.map((label, index) => ({ label, style: seriesStyle(index) })) };
   });
-  /** The key's entries picked to show their range, by place. */
-  let picked = $state(new Set<number>());
-  /** The key's entry pointed at or focused, whose range shows while it is. */
-  let pointedEntry = $state<number | null>(null);
-  /** Each value's place among the panel's: whether it is drawn as its band from minimum to maximum. */
-  const bands = $derived(banded(count, pointedEntry === null ? picked : new Set([...picked, pointedEntry])));
-  /** Whether the key's entries can be picked: not while every value shows its band anyway. */
-  const choosable = $derived(count > BANDED_AT_MOST);
-  function pick(place: number) {
-    const next = new Set(picked);
-    if (!next.delete(place)) {
-      next.add(place);
-    }
-    picked = next;
-  }
   /**
-   * What the charts are made for: each stream drawn, its values, their
-   * labels and which show their band. New samples, as a replay or a look
-   * back sends them, leave it alone, so the charts are only given them
-   * rather than made again.
+   * What the charts are made for: each stream drawn, its values and their
+   * labels. New samples, as a replay or a look back sends them, and values
+   * shown or hidden leave it alone, so the charts are only given them
+   * rather than made again, keeping their stretch and pointer.
    */
-  const shape = $derived(
-    `${parts.map((part) => `${part.stream.name}:${part.values.join(",")}:${part.labels.join(",")}`).join("|")}/${bands.map(Number).join("")}`,
-  );
+  const shape = $derived(parts.map((part) => `${part.stream.name}:${part.values.join(",")}:${part.labels.join(",")}`).join("|"));
+  /** The values the key shows, by place, for the charts it was chosen for; every one if `null`. */
+  let chosen = $state<{ shape: string; places: Set<number> } | null>(null);
+  const places = $derived(chosen?.shape === shape ? chosen.places : null);
+  /** Each value's place among the panel's: whether it is shown. */
+  const shown = $derived(Array.from({ length: count }, (_, place) => places === null || places.has(place)));
+  /** Each value's place among the panel's: whether it is drawn as its band from minimum to maximum. */
+  const bands = $derived(banded(shown));
+  /** How each value is drawn, as the charts compare it to what they show: hidden, a line or a band. */
+  const look = $derived(shown.map((one, place) => (one ? (bands[place] ? "b" : "l") : "-")).join(""));
+  /** Whether the key's entries can be clicked: not for a lone value, always shown. */
+  const choosable = $derived(count > 1);
+  function show(place: number, adding: boolean) {
+    const next = choose(places, count, place, adding);
+    chosen = next === null ? null : { shape, places: next };
+  }
+
   let holder = $state<HTMLDivElement | null>(null);
   let panel = $state<HTMLElement | null>(null);
   /** What the chart under the pointer says there, with its stream; none while it is elsewhere. */
-  let hovered = $state<(ValuesAt & { stream: string; first: number }) | null>(null);
+  let hovered = $state<{ stream: string; time: string; values: (ValuesAt["values"][number] & { place: number })[] } | null>(null);
   let tip = $state<HTMLElement | null>(null);
 
   onMount(() => {
     /**
      * Each chart, in the element it is drawn in: its values' place among the
-     * panel's and which show their band, what it was last drawn with, the
+     * panel's and which are drawn as lines, what it was last drawn with, the
      * stretch shown (seconds), the samples it was given (as the stream keeps
      * them, for the tip) and how many points that was.
      */
@@ -97,7 +96,8 @@
       part: PlotPart;
       element: HTMLElement;
       first: number;
-      bands: boolean[];
+      /** Each of its values: whether it is drawn as one line, through its middle. */
+      lines: boolean[];
       /** The middles of the values drawn as one line, made once. */
       middles: Float64Array[];
       drawn?: Drawn;
@@ -126,6 +126,10 @@
             }
           });
     let built: string | null = null;
+    /** How the charts draw each value, as `look` said when they last changed. */
+    let drawnLook = "";
+    /** How many times the charts were made: showing or hiding values must not make them again. */
+    let builds = 0;
     const line = token("line", "#2a2e31");
     // The page's own font, so the axes read as the rest of it and their labels can be measured.
     const font = `12px ${token("font-ui", "system-ui, sans-serif")}`;
@@ -172,7 +176,10 @@
       }
       pointedAt = plot;
       const spread = (low: number, high: number) => Math.abs(plot.valToPos(high, "y") - plot.valToPos(low, "y"));
-      hovered = { stream: part.stream.name, first: chart.first, ...valuesAt(chart.data, index, shortLabels(part.labels).labels, spread) };
+      const at = valuesAt(chart.data, index, shortLabels(part.labels).labels, spread);
+      // Only the values shown, each drawn as its line is.
+      const values = at.values.map((value, place) => ({ ...value, place: chart.first + place })).filter(({ place }) => shown[place]);
+      hovered = { stream: part.stream.name, time: at.time, values };
       const over = plot.over.getBoundingClientRect();
       const top = plot.cursor.top ?? 0;
       // Placed once what it says is drawn, so its size is known.
@@ -198,9 +205,10 @@
     };
 
     /**
-     * A chart per stream drawn, each of its values a line, or a band from
-     * its minimum to its maximum where `bands` says so. Titled with its
-     * stream only beside others, as the key names a lone one.
+     * A chart per stream drawn, each of its values both a line and a band
+     * from its minimum to its maximum, all made once and shown or hidden
+     * as `look` says. Titled with its stream only beside others, as the key
+     * names a lone one.
      */
     const build = (next: PlotPart[]) => {
       charts.forEach(({ plot }) => plot.destroy());
@@ -209,28 +217,33 @@
       holder?.replaceChildren();
       charts = [];
       built = shape;
+      drawnLook = look;
+      builds++;
+      // For tests: how many times the charts were made, and how each value is drawn.
+      panel?.setAttribute("data-builds", String(builds));
+      panel?.setAttribute("data-look", look);
       panel?.setAttribute("data-points", "0");
       next.forEach((part, index) => {
         const element = document.createElement("div");
         holder?.append(element);
         const first = firsts[index] ?? 0;
-        const shown = part.labels.map((_, place) => bands[first + place] ?? true);
         const series: uPlot.Series[] = [{}];
         const filled: uPlot.Band[] = [];
         part.labels.forEach((label, place) => {
           const { color, dash } = seriesStyle(first + place);
-          if (shown[place]) {
-            series.push({ label: `${label} min`, stroke: color, width: 1, dash }, { label: `${label} max`, stroke: color, width: 1, dash });
-            filled.push({ series: [series.length - 1, series.length - 2], fill: `${color}33` });
-          } else {
-            series.push({ label, stroke: color, width: 1.5, dash });
-          }
+          const how = look[first + place];
+          series.push(
+            { label, stroke: color, width: 1.5, dash, show: how === "l" },
+            { label: `${label} min`, stroke: color, width: 1, dash, show: how === "b" },
+            { label: `${label} max`, stroke: color, width: 1, dash, show: how === "b" },
+          );
+          filled.push({ series: [series.length - 1, series.length - 2], fill: `${color}33` });
         });
         const drawing: Drawing = {
           part,
           element,
           first,
-          bands: shown,
+          lines: part.labels.map((_, place) => look[first + place] === "l"),
           middles: part.labels.map(() => new Float64Array(part.stream.samples.capacity)),
           stretch: [0, spanMs / 1000],
           data: [],
@@ -275,6 +288,32 @@
       charts.forEach(({ plot }) => plot.setSize({ width, height }));
     };
 
+    /**
+     * Shows and hides each chart's lines and bands as `look` says, without
+     * making the charts again: their stretch, pointer and samples stay.
+     */
+    const restyle = () => {
+      drawnLook = look;
+      panel?.setAttribute("data-look", look);
+      for (const chart of charts) {
+        const { plot, part, first } = chart;
+        chart.lines = part.labels.map((_, place) => look[first + place] === "l");
+        plot.batch(() => {
+          // The middles of the values now drawn as lines, before they show.
+          plot.setData(plotColumns(chart.data, chart.lines, chart.middles) as uPlot.AlignedData);
+          part.labels.forEach((_, place) => {
+            const how = look[first + place];
+            plot.setSeries(1 + place * 3, { show: how === "l" });
+            plot.setSeries(2 + place * 3, { show: how === "b" });
+            plot.setSeries(3 + place * 3, { show: how === "b" });
+          });
+        });
+        if (pointedAt === plot) {
+          point(plot, chart);
+        }
+      }
+    };
+
     const observer = new ResizeObserver(() => {
       const { width, height } = size();
       charts.forEach(({ plot }) => plot.setSize({ width, height }));
@@ -295,6 +334,9 @@
         charts.forEach((chart, place) => {
           chart.part = parts[place] ?? chart.part;
         });
+        if (look !== drawnLook) {
+          restyle();
+        }
       }
       if (now - drawn < 1000 / DRAWS_PER_SECOND) {
         return;
@@ -339,7 +381,7 @@
         if ((chart.middles[0]?.length ?? last) < last) {
           chart.middles = chart.middles.map(() => new Float64Array(part.stream.samples.capacity));
         }
-        plot.setData(plotColumns(chart.data, chart.bands, chart.middles) as uPlot.AlignedData);
+        plot.setData(plotColumns(chart.data, chart.lines, chart.middles) as uPlot.AlignedData);
         chart.points = last;
       }
       // For tests: whether the charts have something drawn.
@@ -361,8 +403,8 @@
     {#if hovered}
       <p class="when">{hovered.stream} · {hovered.time}</p>
       <dl>
-        {#each hovered.values as value, index (index)}
-          {@const style = seriesStyle(hovered.first + index)}
+        {#each hovered.values as value (value.place)}
+          {@const style = seriesStyle(value.place)}
           <dt class={`swatch series-${style.hue} dash-${style.pattern}`}>{value.label}</dt>
           <dd>{value.value}</dd>
         {/each}
@@ -377,17 +419,13 @@
       {@const swatch = `swatch series-${entry.style.hue} dash-${entry.style.pattern}`}
       <li>
         {#if choosable}
-          <!-- Pointed at or focused, its range shows; picked, it stays. -->
+          <!-- Clicked, its value shows alone, or every one again; with a modifier, beside the others. -->
           <button
             type="button"
-            class={swatch}
-            aria-pressed={picked.has(index)}
-            title="Show its range, from minimum to maximum"
-            onclick={() => pick(index)}
-            onpointerenter={() => (pointedEntry = index)}
-            onpointerleave={() => (pointedEntry = pointedEntry === index ? null : pointedEntry)}
-            onfocus={() => (pointedEntry = index)}
-            onblur={() => (pointedEntry = pointedEntry === index ? null : pointedEntry)}>{entry.label}</button
+            class={[swatch, { hidden: !shown[index] }]}
+            aria-pressed={shown[index]}
+            title="Show only this value, or every one again; Ctrl-click to show or hide it beside the others"
+            onclick={(event) => show(index, event.ctrlKey || event.metaKey || event.shiftKey)}>{entry.label}</button
           >
         {:else}
           <span class={swatch}>{entry.label}</span>
@@ -435,7 +473,7 @@
   .labels .heading {
     color: var(--text);
   }
-  /* An entry that shows its value's range while pointed at, focused or picked. */
+  /* An entry that shows its value alone, or every one again. */
   .labels button {
     min-height: 1.5rem;
     padding: 0 var(--space-1);
@@ -448,9 +486,9 @@
   .labels button:hover {
     color: var(--text);
   }
-  .labels button[aria-pressed="true"] {
-    border-color: var(--control-line);
-    color: var(--text);
+  /* A hidden value's entry, faded with its swatch, still there to show it again. */
+  .labels button.hidden {
+    opacity: 0.45;
   }
   /* Each value's line as the chart draws it: its colour and its pattern. */
   .swatch::before {

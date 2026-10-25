@@ -1,6 +1,6 @@
 import { expect, test, type Route } from "@playwright/test";
 
-import { open, shot, shotWhole, tab, viewer } from "./screens";
+import { open, shot, shotWhole, tab, viewer, VIEWPORT } from "./screens";
 
 // A route that fetches the real answer before changing it reads that answer
 // after the request is made: the page's polls keep coming until the test
@@ -33,6 +33,16 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await expect(stream.getByRole("img", { name: "arriving at its declared rate" })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(5_000);
   await shot(page, "live");
+  // On a screen wide enough for the key of the joints' plot, one value
+  // picked in it shows alone, with its band.
+  const jointPlot = page.getByRole("region", { name: /^Plot of role:joints\.joint_1\.position/ });
+  await page.setViewportSize({ width: 2200, height: VIEWPORT.height });
+  await jointPlot.getByRole("button", { name: "joint_1", exact: true }).click();
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(1_000);
+  await shot(jointPlot, "live-plot-one-value");
+  await jointPlot.getByRole("button", { name: "joint_1", exact: true }).click();
+  await page.setViewportSize(VIEWPORT);
   // The keys for what operators do most.
   await page.keyboard.press("?");
   await expect(page.getByRole("region", { name: "Keyboard shortcuts" })).toBeVisible();
