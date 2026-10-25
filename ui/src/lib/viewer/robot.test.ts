@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RobotScene } from "../api-types";
-import { applyPoses, buildRobot, viewingDistance } from "./robot";
+import { applyPoses, buildRobot, drawsNow, viewingDistance } from "./robot";
 
 const still = { translation: [0, 0, 0], rotation: [0, 0, 0, 1] };
 
@@ -94,5 +94,34 @@ describe("a robot with nothing to draw", () => {
     // One that draws something gets none.
     const drawn = await buildRobot(scene, () => Promise.resolve([triangle]));
     expect(drawn.links[0]!.children.some((child) => child instanceof THREE.Mesh)).toBe(false);
+  });
+});
+
+describe("drawsNow", () => {
+  it("draws nothing while no panel shows the robot, what changed drawn as soon as one does", () => {
+    // As the view's loop does: what changed stays to draw until it is drawn.
+    let changed = true;
+    let draws = 0;
+    const frame = (shown: boolean) => {
+      if (drawsNow(changed, shown)) {
+        draws += 1;
+        changed = false;
+      }
+    };
+    frame(false);
+    changed = true;
+    frame(false);
+    frame(false);
+    expect(draws).toBe(0);
+    frame(true);
+    expect(draws).toBe(1);
+    frame(true);
+    expect(draws).toBe(1);
+  });
+
+  it("draws a shown view only when something in it changed", () => {
+    expect(drawsNow(false, true)).toBe(false);
+    expect(drawsNow(true, true)).toBe(true);
+    expect(drawsNow(true, false)).toBe(false);
   });
 });

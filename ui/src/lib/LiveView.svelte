@@ -60,7 +60,7 @@
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
-  import { applyPoses, buildRobot, type Robot, viewingDistance } from "./viewer/robot";
+  import { applyPoses, buildRobot, drawsNow, type Robot, viewingDistance } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
@@ -115,8 +115,11 @@
   const roleFields = $derived(
     Object.fromEntries((replay?.opening.layout ? replay.opening.roles : roles).map((each) => [each.role, each.field])),
   );
-  /** Where the robot's view waits while no panel shows it. */
+  /** Where the robot's view waits while no panel shows it, drawing nothing. */
   let home = $state<HTMLDivElement | null>(null);
+  /** How many times the robot's view was drawn, and the frame whose poses it showed last, for the page's tests. */
+  let draws = $state(0);
+  let drawnFrame = $state(0);
 
   /**
    * Shows the robot's view in a panel. It is made once and moved, never
@@ -1107,6 +1110,9 @@
     resize();
 
     let frame = 0;
+    // The frame whose poses the robot stands in, and whether a panel showed it last frame.
+    let posedFrame = 0;
+    let wasShown = false;
     const draw = () => {
       frame = requestAnimationFrame(draw);
       if (playing && started) {
@@ -1133,14 +1139,24 @@
       if (robot && pending && !paused) {
         applyPoses(robot.links, pending);
         pending = null;
+        posedFrame = frames;
         if (!framed) {
           frameRobot(robot.root);
         }
         dirty = true;
       }
-      if (dirty) {
+      // Posed all along, but drawn only into a panel: in its home it shows nowhere.
+      const shown = container !== null && container.parentElement !== home;
+      if (shown && !wasShown) {
+        // Back in a panel: drawn this frame at its size there, not the size it had hidden.
+        resize();
+      }
+      wasShown = shown;
+      if (drawsNow(dirty, shown)) {
         renderer.render(scene, camera);
         dirty = false;
+        draws += 1;
+        drawnFrame = posedFrame;
       }
     };
     draw();
@@ -1377,6 +1393,8 @@
   data-looked-back={lookedBack === null ? "no" : "yes"}
   data-environment={drawn}
   data-framings={framings}
+  data-draws={draws}
+  data-drawn-frame={drawnFrame}
   data-replay={replay?.id ?? ""}
   data-robot={robotOf}
   data-delay-ms={delayMs ?? ""}

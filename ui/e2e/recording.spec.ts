@@ -1308,6 +1308,46 @@ test("an episode deleted goes to the bin, is restored from it, and a refused del
   await expect(listed.first()).toBeVisible();
 });
 
+test("the robot isn't drawn while no panel shows it, and is drawn standing as it does now once one does", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  await page.evaluate(
+    (columns) => localStorage.setItem("kapto.layout.arm7", JSON.stringify({ columns })),
+    [
+      { width: 1, panels: [panel("robot")] },
+      { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] })] },
+    ],
+  );
+  await page.reload();
+  const live = page.getByTitle("Live view of the robot");
+  const count = async (name: string) => Number(await live.getAttribute(name));
+  await expect.poll(() => count("data-draws"), { timeout: 20_000 }).toBeGreaterThan(10);
+
+  // The robot's panel removed: frames keep coming, and the robot is posed by
+  // them, but nothing of it is drawn.
+  await page.getByRole("button", { name: "Arrange" }).click();
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  await panels.getByRole("button", { name: "Remove the robot panel" }).click();
+  await expect(panels.locator(".slot")).toHaveCount(0);
+  // A frame for anything drawn before it went.
+  await page.waitForTimeout(100);
+  const draws = await count("data-draws");
+  const frames = await count("data-frames");
+  await expect.poll(() => count("data-frames")).toBeGreaterThan(frames + 20);
+  expect(await count("data-draws")).toBe(draws);
+
+  // Shown again: drawn at once, standing as the newest frame has it.
+  const since = await count("data-frames");
+  await choose(page, "Shows", /^Robot$/);
+  await choose(page, "In", "a new column");
+  await page.getByRole("region", { name: "Arrange the view" }).getByRole("button", { name: "Add" }).click();
+  await expect(panels.locator(".slot canvas")).toBeVisible();
+  await expect.poll(() => count("data-draws"), { timeout: 1_000 }).toBeGreaterThan(draws);
+  expect(await count("data-drawn-frame")).toBeGreaterThanOrEqual(since);
+  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+});
+
 test("a column of more plots than fit scrolls, each plot keeping room for its chart", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });

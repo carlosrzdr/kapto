@@ -153,3 +153,12 @@ export function applyPoses(links: THREE.Object3D[], poses: Float32Array): boolea
   });
   return true;
 }
+
+/**
+ * Whether the robot's view draws this frame: only when something in it
+ * changed and a panel shows it. While none does, what changes is kept, still
+ * to draw, so it is drawn the first frame a panel shows it again.
+ */
+export function drawsNow(changed: boolean, shown: boolean): boolean {
+  return changed && shown;
+}
