@@ -19,4 +19,5 @@ mod profiles;
 mod replay;
 mod robot;
 mod status;
+mod status_poll;
 mod uploads;

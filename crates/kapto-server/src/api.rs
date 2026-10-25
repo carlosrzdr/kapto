@@ -21,6 +21,7 @@ mod profiles;
 mod replay;
 mod robot;
 mod status;
+mod status_poll;
 mod uploads;
 
 pub use capture::{AbortRequest, Aborted, StartRequest, Started, StopRequest, Stopped};
@@ -30,6 +31,7 @@ pub use replay::{ReplayRequest, WindowQuery};
 pub use status::{
     CaptureStatus, LiveViewCounts, Status, StreamCounts, StreamValues, Version, Viewer,
 };
+pub use status_poll::StatusPoller;
 pub use uploads::{
     DestinationStatus, DestinationTested, EpisodeDeletion, EpisodeUpload, EpisodeUploads,
     UploadDestination, UploadStatus, UploadedFile, UploadsOverview, UploadsRetried,
@@ -145,6 +147,9 @@ pub struct ApiState {
     pub viewer_stream_port: u16,
     /// What the capture process announces, for the event streams.
     pub announcements: CaptureAnnouncements,
+    /// The capture process's status, asked for on one connection for every
+    /// request and event stream that reads it.
+    pub capture_status: StatusPoller,
     /// When the data directory's disk is low, and too full to record on.
     pub disk_limits: DiskLimits,
     /// Where episodes are uploaded, as the configuration lists them.
@@ -497,19 +502,24 @@ fn invalid(rejection: &JsonRejection) -> Failure {
     Failure::from(KaptoError::new(ErrorCode::ApiInvalidRequest).detail(rejection.body_text()))
 }
 
-/// Asks the capture process, off the async threads: its client blocks.
+/// Gives the capture process an order on a connection of its own, off the
+/// async threads: its client blocks. Its status is read from
+/// [`ApiState::capture_status`] instead, and asked for again once the order
+/// is answered, so what it changed is what the next read sees.
 async fn ask(state: &ApiState, request: Request) -> Result<control::Response, Failure> {
     let socket = state.control_socket.clone();
-    tokio::task::spawn_blocking(move || {
+    let answered = tokio::task::spawn_blocking(move || {
         ControlClient::connect(&socket, ANSWER_TIMEOUT)?.ask(&request)
     })
-    .await
-    .map_err(|error| {
-        Failure::from(
-            KaptoError::new(ErrorCode::CaptureControlUnreachable).detail(error.to_string()),
-        )
-    })?
-    .map_err(Failure::from)
+    .await;
+    state.capture_status.refresh();
+    answered
+        .map_err(|error| {
+            Failure::from(
+                KaptoError::new(ErrorCode::CaptureControlUnreachable).detail(error.to_string()),
+            )
+        })?
+        .map_err(Failure::from)
 }
 
 fn unexpected(response: &control::Response) -> Failure {

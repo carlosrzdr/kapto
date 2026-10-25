@@ -815,11 +815,16 @@ and each one in full (`/api/episodes/{id}`: every stream's counts, its
 files, buffers, how quickly it reached the disk, the wall clock) and its
 replay, and starting, stopping and aborting episodes. `/api/events` is a WebSocket that tells when an episode starts
 or ends as capture announces it, however short, and sends the status once
-a second, asking capture for it four times a second for as long as a
-client listens (which also catches an episode whose announcement was
-missed while capture restarted). The API is the only part of Kapto
+a second (which also catches an episode whose announcement was
+missed while capture restarted). Capture's status is asked for by one
+`srv-status` thread, four times a second on one control connection,
+connecting again each second while capture can't be reached; `/api/status`
+and every event stream read its latest answer, so capture's load doesn't
+grow with the pages open. The API is the only part of Kapto
 that uses an async runtime (`tokio`, two `srv-api` threads); it turns each
-request about recording into an order on capture's control socket.
+request about recording into an order on capture's control socket, on a
+connection of its own, and the status is asked for again once it is
+answered.
 Requests that change something need a JSON body, so a web page from
 another site can't send them as a form; while the API listens only on
 this machine it only answers requests addressed to `localhost` or a

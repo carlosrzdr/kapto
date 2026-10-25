@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
-use kapto_capture::control::{self, Request};
+use kapto_capture::control;
 use kapto_core::{ErrorCode, KaptoError};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -18,7 +18,7 @@ use crate::processes::ProcessStatus;
 use crate::settings::SettingsOverview;
 use crate::storage::{self, Storage};
 
-use super::{API_VERSION, ApiError, ApiState, Failure, ask};
+use super::{API_VERSION, ApiError, ApiState, Failure};
 
 /// The versions of Kapto and of this API.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -145,13 +145,13 @@ pub(super) async fn status(State(state): State<Arc<ApiState>>) -> Result<Json<St
     current_status(&state).await.map(Json)
 }
 
-/// Asks the capture process what it is doing.
+/// What the capture process is doing, as it last answered.
 pub(super) async fn current_status(state: &ApiState) -> Result<Status, Failure> {
-    let control::Response::Status(status) = ask(state, Request::Status).await? else {
-        return Err(Failure::from(KaptoError::new(
-            ErrorCode::CaptureControlUnreachable,
-        )));
-    };
+    let status = state
+        .capture_status
+        .latest(&state.control_socket)
+        .await
+        .map_err(Failure::from)?;
     Ok(Status {
         capture: CaptureStatus {
             episode: status.episode,

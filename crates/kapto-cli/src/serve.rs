@@ -23,7 +23,7 @@ use kapto_config::DeploymentConfig;
 use kapto_core::{ClockSample, ErrorCode, KaptoError, say};
 use kapto_robot::Declared;
 use kapto_server::api::ApiError;
-use kapto_server::api::{self, ApiState, CaptureAnnouncements};
+use kapto_server::api::{self, ApiState, CaptureAnnouncements, StatusPoller};
 use kapto_server::jobs::{Bin, Destination, JOB_SOCKET, JobServer, Uploads};
 use kapto_server::layouts::Layouts;
 use kapto_server::lock::DataDirLock;
@@ -180,6 +180,7 @@ pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
         store,
         viewer_stream_port: deployment.viewer_stream_port.value,
         announcements,
+        capture_status: StatusPoller::default(),
         disk_limits: disk_limits(&deployment),
         destinations: deployment.upload_destinations.clone(),
     };

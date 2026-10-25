@@ -22,7 +22,7 @@ use kapto_capture::finalise::Staged;
 use kapto_capture::{Batch, ChannelSpec, LossCounters, Recording, StreamIndex, WriterConfig};
 use kapto_core::{ClockMap, ClockSample, EpisodeId, ErrorCode, RecvTime};
 use kapto_server::Processes;
-use kapto_server::api::{ApiState, CaptureAnnouncements, router};
+use kapto_server::api::{ApiState, CaptureAnnouncements, StatusPoller, router};
 use kapto_server::index;
 use kapto_server::layouts::Layouts;
 use kapto_server::robot::RobotOverview;
@@ -51,6 +51,7 @@ fn state(folder: &Path) -> ApiState {
         store: index::open(&folder.join("data")).unwrap(),
         viewer_stream_port: 9877,
         announcements: CaptureAnnouncements::default(),
+        capture_status: StatusPoller::default(),
         disk_limits: DiskLimits {
             warn_below: 10 << 30,
             stop_below: 2 << 30,

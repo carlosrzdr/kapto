@@ -19,7 +19,7 @@ use kapto_capture::control::{
 use kapto_capture::disk::DiskLimits;
 use kapto_capture::finalise::Staged;
 use kapto_core::{EpisodeId, ErrorCode, KaptoError};
-use kapto_server::api::{ApiState, CaptureAnnouncements, router};
+use kapto_server::api::{ApiState, CaptureAnnouncements, StatusPoller, router};
 use kapto_server::layouts::Layouts;
 use kapto_server::robot::RobotOverview;
 use kapto_server::scene::Scene;
@@ -46,6 +46,7 @@ pub(crate) fn state(folder: &Path) -> ApiState {
         store: index::open(&folder.join("data")).unwrap(),
         viewer_stream_port: 9877,
         announcements: CaptureAnnouncements::default(),
+        capture_status: StatusPoller::default(),
         disk_limits: DiskLimits {
             warn_below: 10 << 30,
             stop_below: 2 << 30,

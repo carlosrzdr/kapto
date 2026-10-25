@@ -7,8 +7,9 @@
 //! happens; serve keeps one connection listening ([`CaptureAnnouncements`])
 //! and every stream passes them on at once, however short the episode and
 //! whoever started it (`kapto episode`, another client). Each stream also
-//! asks the capture process for its status four times a second and sends
-//! it at least once a second, which is also how an episode is seen if an
+//! reads the capture process's status four times a second, as serve's one
+//! poller last had it answered ([`super::StatusPoller`]), and sends it at
+//! least once a second, which is also how an episode is seen if an
 //! announcement was missed, e.g. while capture restarted. Each time serve
 //! begins listening again, what capture finalised meanwhile is found on
 //! disk instead ([`Listening`]), so the episode index misses nothing.
@@ -36,10 +37,8 @@ use utoipa::openapi::extensions::Extensions;
 use utoipa::openapi::schema::{ObjectBuilder, Schema, Type};
 
 use super::status::current_status;
+use super::status_poll::POLL;
 use super::{ApiError, ApiState, Failure, Status};
-
-/// How often the capture process is asked.
-const POLL: Duration = Duration::from_millis(250);
 
 /// Status events are sent at least this often, every one if they change.
 const STATUS_EVERY: u32 = 4;
