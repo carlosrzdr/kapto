@@ -312,5 +312,6 @@ default per package over the package's own over one made from its roles; uploads
 in `kapto.db`, `_SUCCESS` last, credentials by reference, RustFS for tests;
 an episode closed on a thread of its own while capture receives again;
 episodes deleted by hand put in a bin, emptied by the
-retention executor;
+retention executor; a simulation's time read from the field given the
+role `time.simulated`, mapped from receive time, never a timestamp;
 Docker as the only build prerequisite, automation in `cargo xtask`.
