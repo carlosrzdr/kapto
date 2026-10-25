@@ -291,6 +291,10 @@ pub struct Status {
     /// processes leave it out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preflight: Option<Preflight>,
+    /// The episode being closed, if one is: stopped, and not yet
+    /// finalised. Older capture processes leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closing: Option<String>,
 }
 
 /// One stream's counts.

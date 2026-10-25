@@ -58,6 +58,11 @@ pub struct CaptureStatus {
     /// keeps, with the checks its start waived.
     #[serde(default)]
     pub preflight: Option<PreflightRun>,
+    /// The episode being closed, if one is: stopped, its stop answered and
+    /// its end announced once it is finalised, while capture receives and
+    /// may record the next.
+    #[serde(default)]
+    pub closing: Option<String>,
 }
 
 /// One stream's newest decoded values.
@@ -164,6 +169,7 @@ pub(super) async fn current_status(state: &ApiState) -> Result<Status, Failure> 
                 .collect(),
             streams: status.streams.into_iter().map(counts).collect(),
             preflight: status.preflight.map(PreflightRun::from),
+            closing: status.closing,
         },
         viewer: Viewer {
             stream_port: state.viewer_stream_port,

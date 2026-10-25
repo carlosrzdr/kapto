@@ -11,6 +11,7 @@
 #![cfg_attr(not(feature = "run"), allow(dead_code, unused_imports))]
 
 mod capture;
+mod closing;
 mod config;
 mod decode;
 mod demo;

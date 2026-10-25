@@ -24,7 +24,7 @@ without other documents, and always describe the design as it is.
 | [Layouts](layouts.md) | Columns of panels in TOML: the operator's own, else the config folder's default per package, else the package's, else made from its roles |
 | [Cameras in replay](cameras-in-replay.md) | Each frame read from the recording by its MCAP indexes, on request; every frame can be stepped through |
 | [Deleting episodes](deleting-episodes-through-a-bin.md) | Episodes deleted by hand go to a bin, emptied by the retention executor after a set time, when the disk runs low or on request |
-| [Closing an episode](closing-an-episode-beside-receiving.md) | An episode is closed on a thread of its own while capture receives again; Stop is answered once it is finalised *(planned)* |
+| [Closing an episode](closing-an-episode-beside-receiving.md) | An episode is closed on a thread of its own while capture receives again; Stop is answered once it is finalised |
 
 ## Writing one
 

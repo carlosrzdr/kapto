@@ -848,7 +848,7 @@ fn session(
     eprintln!("Recording with {}.", describe(station.package.as_ref()));
     let streams = station.plan.streams.len();
     let mut next_second = 1;
-    let finished = station.record(
+    let recorded = station.record(
         monotonic_now(),
         &mut |episode, buffers| {
             eprintln!(
@@ -869,6 +869,10 @@ fn session(
             Next::Record
         },
     )?;
+    // Nothing waits for it here: closed on this thread.
+    if let Some(closing) = recorded.closing {
+        closing.close()?;
+    }
     if let Some(stats) = station.tap_stats() {
         println!("{}", viewer_tap::summary(stats));
     }
@@ -877,7 +881,7 @@ fn session(
             println!("{line}");
         }
     }
-    finished.receivers
+    recorded.receivers
 }
 
 #[cfg(test)]

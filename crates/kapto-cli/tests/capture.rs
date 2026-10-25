@@ -66,6 +66,17 @@ impl Capture {
     /// Starts `kapto capture` on the streams `declared`, the robot sending
     /// to UDP `port`, and waits until it receives.
     fn declaring(folder: &Path, declared: &str, port: &str, flags: &[&str]) -> Self {
+        Self::declaring_with(folder, declared, port, flags, &[])
+    }
+
+    /// The same, with `environment` set for the process.
+    fn declaring_with(
+        folder: &Path,
+        declared: &str,
+        port: &str,
+        flags: &[&str],
+        environment: &[(&str, String)],
+    ) -> Self {
         let streams = folder.join("streams.toml");
         std::fs::write(&streams, declared).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_kapto"))
@@ -75,6 +86,7 @@ impl Capture {
             .arg(folder.join("data"))
             .args(flags)
             .env_clear()
+            .envs(environment.iter().map(|(name, value)| (*name, value)))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -820,9 +832,15 @@ fn an_episode_is_finalised_once_its_supervisor_has_been_gone_for_the_control_tim
 
     drop(supervisor);
     let gone = Instant::now();
-    capture.wait_for("finalised", |s| s.episode.is_none());
+    capture.wait_for("ended", |s| s.episode.is_none());
     assert!(gone.elapsed() >= Duration::from_secs(1), "ended too early");
+    // Closed beside the next phase: finalised a moment after it ended.
     let folder_of = folder.join("data").join(&episode);
+    let deadline = Instant::now() + TIMEOUT;
+    while !folder_of.join("_FINALISED").exists() {
+        assert!(Instant::now() < deadline, "not finalised");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     assert_eq!(
         finalised(folder_of.to_str().unwrap()).streams[0].written,
         100
@@ -1272,4 +1290,166 @@ fn a_cameras_frames_on_their_way_to_the_live_view_are_counted_in_the_status() {
     let camera = status.streams[0].live_view.unwrap();
     assert_eq!((camera.sent, camera.skipped), (0, 0), "{camera:?}");
     assert!(capture.stop().status.success());
+}
+
+/// With failpoints set: closing an episode held, or ended as a crash
+/// would, at each of its steps.
+#[cfg(feature = "failpoints")]
+mod closing {
+    use std::sync::mpsc;
+
+    use kapto_core::failpoints::FAILPOINTS_VAR;
+
+    use super::*;
+
+    /// `kapto capture` on one stream at 1 kHz with `failpoints` set.
+    fn capture(folder: &Path, failpoints: String) -> Capture {
+        let port = free_udp_port();
+        let streams = format!(
+            "[streams.joints]\nrate_hz = 1000\nudp = {{ bind = \"127.0.0.1:{port}\" }}\n\
+             sequence = {{ offset = 0, type = \"u32\" }}\n"
+        );
+        Capture::declaring_with(
+            folder,
+            &streams,
+            &port,
+            &["--capture-preflight", "warn"],
+            &[(FAILPOINTS_VAR, failpoints)],
+        )
+    }
+
+    /// Asks Stop on a connection of its own, its answer on the channel
+    /// once it comes.
+    fn stop_meanwhile(capture: &Capture) -> mpsc::Receiver<Response> {
+        let mut client = capture.client();
+        let (answered, answer) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = answered.send(client.ask(&Request::Stop).unwrap());
+        });
+        answer
+    }
+
+    fn wait_until(what: &str, holds: impl Fn() -> bool) {
+        let deadline = Instant::now() + TIMEOUT;
+        while !holds() {
+            assert!(Instant::now() < deadline, "{what}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn while_an_episode_is_closed_capture_receives_and_records_the_next_and_stop_waits_for_it() {
+        let folder = scratch("closing-beside");
+        let held = folder.join("held");
+        std::fs::write(&held, b"").unwrap();
+        let mut capture = capture(&folder, format!("closing.manifest=hold:{}", held.display()));
+        let mut client = capture.client();
+        let first = start(&mut client);
+        capture.send(100);
+        capture.wait_for("the first episode", |s| s.streams[0].written == 100);
+        let stopped = stop_meanwhile(&capture);
+
+        // Held before its manifest, moved out of staging but not finalised.
+        let moved = folder.join("data").join(&first);
+        wait_until("the first episode moved", || moved.exists());
+        assert!(!moved.join("_FINALISED").exists());
+        // Capture receives meanwhile, saying which episode it is closing,
+        // and records the next episode.
+        capture.send(100);
+        let status = capture.wait_for("receiving while it is closed", |s| {
+            s.episode.is_none() && s.streams[0].received == 100
+        });
+        assert_eq!(status.closing.as_ref(), Some(&first));
+        let second = start(&mut client);
+        assert_ne!(second, first);
+        capture.send(50);
+        capture.wait_for("the second episode", |s| s.streams[0].written == 50);
+        // Stop isn't answered until the first episode is finalised.
+        assert!(stopped.try_recv().is_err());
+        assert!(!moved.join("_FINALISED").exists());
+
+        std::fs::remove_file(&held).unwrap();
+        let Ok(Response::Stopped {
+            episode,
+            folder: closed,
+        }) = stopped.recv_timeout(TIMEOUT)
+        else {
+            panic!("the first episode's stop wasn't answered");
+        };
+        assert_eq!(episode, first);
+        assert_eq!(finalised(&closed).streams[0].written, 100);
+        let status = capture.wait_for("recording the second", |_| true);
+        assert_eq!(status.closing, None);
+        assert_eq!(status.episode.as_ref(), Some(&second));
+        let closed = stop(&mut client);
+        assert_eq!(finalised(&closed).streams[0].written, 50);
+        assert!(capture.stop().status.success());
+    }
+
+    #[test]
+    fn sigterm_while_an_episode_is_closed_finishes_closing_it_before_exiting() {
+        let folder = scratch("closing-sigterm");
+        let held = folder.join("held");
+        std::fs::write(&held, b"").unwrap();
+        let mut capture = capture(
+            &folder,
+            format!("closing.finalised=hold:{}", held.display()),
+        );
+        let mut client = capture.client();
+        let episode = start(&mut client);
+        capture.send(100);
+        capture.wait_for("recording", |s| s.streams[0].written == 100);
+        let stopped = stop_meanwhile(&capture);
+        let moved = folder.join("data").join(&episode);
+        wait_until("its manifest written", || {
+            moved.join("manifest.json").exists()
+        });
+
+        let mut child = capture.child.take().unwrap();
+        Command::new("kill")
+            .args(["-TERM", &child.id().to_string()])
+            .status()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(child.try_wait().unwrap().is_none(), "it exited mid-closing");
+        std::fs::remove_file(&held).unwrap();
+        assert!(child.wait().unwrap().success());
+        assert!(moved.join("_FINALISED").exists());
+        assert!(matches!(
+            stopped.recv_timeout(TIMEOUT),
+            Ok(Response::Stopped { .. })
+        ));
+        assert_eq!(finalised(moved.to_str().unwrap()).streams[0].written, 100);
+    }
+
+    #[test]
+    fn a_crash_at_any_step_of_closing_is_recovered_when_capture_starts_again() {
+        for step in [
+            "closing.index",
+            "closing.episode_json",
+            "closing.rename",
+            "closing.manifest",
+            "closing.finalised",
+        ] {
+            let folder = scratch(&format!("closing-crash-{step}"));
+            let mut capture = capture(&folder, format!("{step}=abort"));
+            let mut client = capture.client();
+            let episode = start(&mut client);
+            capture.send(200);
+            capture.wait_for("recording", |s| s.streams[0].written == 200);
+            // Ends the process at the step: Stop is never answered.
+            let _stopped = stop_meanwhile(&capture);
+            let mut child = capture.child.take().unwrap();
+            assert!(!child.wait().unwrap().success(), "{step}");
+
+            let capture = Capture::start(&folder);
+            let recovered = folder.join("data").join(&episode);
+            wait_until(&format!("recovered after {step}"), || {
+                recovered.join("_FINALISED").exists()
+            });
+            let described = finalised(recovered.to_str().unwrap());
+            assert_eq!(described.streams[0].written, 200, "{step}");
+            assert!(capture.stop().status.success());
+        }
+    }
 }

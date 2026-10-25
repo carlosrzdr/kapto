@@ -173,6 +173,8 @@ pub(crate) fn recording(request: &Request) -> Response {
                 },
             ],
             preflight: Some(silent_arm(true)),
+            // The episode before, being closed while this one records.
+            closing: Some("20260310T115900.000Z-0a0b0c0d".into()),
         }),
         Request::Start {
             duration_s: Some(5),

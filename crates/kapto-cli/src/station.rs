@@ -28,6 +28,7 @@ use std::sync::{Arc, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use kapto_capture::DurabilityStats;
 use kapto_capture::finalise::{RECORDING_FILE, Staged};
 use kapto_capture::post_roll::NOT_STOPPED;
 use kapto_capture::tap::frames::{FrameStats, FrameTotals};
@@ -46,6 +47,7 @@ use kapto_store::records::{
 };
 use kapto_store::{
     BufferSummary, Episode, Event, PackageIdentity, Preflight, SessionProfile, SessionTask,
+    StreamSummary,
 };
 #[cfg(feature = "ros2")]
 use kapto_transport::ros2::Ros2Transport;
@@ -140,14 +142,70 @@ pub(crate) enum Next {
     Discard,
 }
 
-/// An episode that was finalised or discarded.
-pub(crate) struct Finished {
+/// An episode recorded: to be closed, or discarded already.
+pub(crate) struct Recorded {
     pub(crate) episode: EpisodeId,
-    /// Where it was finalised; `None` if it was discarded.
-    pub(crate) folder: Option<PathBuf>,
+    /// What closing it needs; `None` if it was discarded.
+    pub(crate) closing: Option<Closing>,
     /// A receiver's failure, which ended the episode early. The episode is
     /// still finalised, with everything received until then.
     pub(crate) receivers: Outcome<()>,
+}
+
+/// What `episode.json` says of an episode besides how its file was
+/// synced: its start and end in UTC, its buffers, its streams, and when
+/// Start and Stop were asked.
+type Description = (
+    (i64, i64),
+    BufferSummary,
+    Vec<StreamSummary>,
+    (i64, Option<i64>),
+);
+
+/// What `episode.json` says of an episode, given how its file was synced.
+type Describe = Box<dyn FnOnce(&ClockMap, DurabilityStats) -> Episode + Send>;
+
+/// An episode recorded and not yet closed, with everything closing it
+/// needs, so it can be closed on a thread of its own while capture
+/// receives again.
+pub(crate) struct Closing {
+    pub(crate) episode: EpisodeId,
+    recording: Recording,
+    staged: Staged,
+    clock: ClockMap,
+    describe: Describe,
+    /// Each stream's counts, printed once it is finalised.
+    table: String,
+}
+
+impl Closing {
+    /// Closes the episode: the file's index and summary, synced, then
+    /// `episode.json`, the folder out of staging, the manifest and
+    /// `_FINALISED` last. Its folder.
+    ///
+    /// # Errors
+    ///
+    /// The step that failed; the episode is left for recovery.
+    pub(crate) fn close(self) -> Outcome<PathBuf> {
+        let Self {
+            recording,
+            staged,
+            clock,
+            describe,
+            table,
+            ..
+        } = self;
+        kapto_core::failpoint!("closing.index");
+        let durability = recording.finish(&clock).map_err(one)?;
+        kapto_core::failpoint!("closing.episode_json");
+        describe(&clock, durability)
+            .write(&staged.dir())
+            .map_err(one)?;
+        let finalised = staged.finalise().map_err(one)?;
+        println!("Finalised {}", finalised.dir().display());
+        print!("{table}");
+        Ok(finalised.dir().to_path_buf())
+    }
 }
 
 /// What a running phase shows: read by the watching thread.
@@ -323,19 +381,20 @@ impl Station {
     }
 
     /// Records one episode, asked for at `asked`, into the data directory
-    /// while `next` says so, then finalises or discards it as `next` says.
+    /// while `next` says so, then discards it or hands back what closing it
+    /// needs, as `next` says.
     /// `started` is told the episode's ID and buffer sizes once it is being
     /// recorded. The pre-roll it starts with is reckoned from `asked`.
     ///
     /// # Errors
     ///
-    /// The episode couldn't be created, written, finalised or discarded.
+    /// The episode couldn't be created, written or discarded.
     pub(crate) fn record(
         &mut self,
         asked: RecvTime,
         started: &mut dyn FnMut(&EpisodeId, &BufferSummary),
         next: &mut dyn FnMut(&Live<'_>, Duration) -> Next,
-    ) -> Outcome<Finished> {
+    ) -> Outcome<Recorded> {
         let counters = Arc::new(LossCounters::new(self.plan.streams.len()));
         let episode = EpisodeId::generate();
         std::fs::create_dir_all(&self.data_dir).map_err(|error| {
@@ -404,43 +463,69 @@ impl Station {
         recording
             .write_record(SUMMARY_RECORD, summary.record())
             .map_err(one)?;
-        let durability = recording.finish(&clock).map_err(one)?;
         if ending == Next::Discard {
+            recording.finish(&clock).map_err(one)?;
             staged.discard().map_err(one)?;
             println!("Aborted episode {episode}; nothing of it was kept.");
-            return Ok(Finished {
+            return Ok(Recorded {
                 episode,
-                folder: None,
+                closing: None,
                 receivers: end.receivers,
             });
         }
-
-        Episode::new(
-            &episode,
+        let table = summary_table(&self.plan, &counters, &arrivals);
+        let description = (
             (started_utc_ns, clock.to_utc_ns(ended)),
-            RECORDING_FILE,
-            &clock,
-            (buffers, durability.summary(self.writer.sync_interval)),
+            buffers,
             streams,
-        )
-        .with_commands(commands)
-        .with_package(self.package.clone())
-        .with_session(self.session.0.clone(), self.session.1.clone())
-        .with_preflight(self.preflight.clone())
-        .write(&staged.dir())
-        .map_err(one)?;
-        let finalised = staged.finalise().map_err(one)?;
-        print_summary(
-            &finalised.dir().display().to_string(),
-            &self.plan,
-            &counters,
-            &arrivals,
+            commands,
         );
-        Ok(Finished {
+        let closing = self.closing(episode, (recording, staged, clock), description, table);
+        Ok(Recorded {
             episode,
-            folder: Some(finalised.dir().to_path_buf()),
+            closing: Some(closing),
             receivers: end.receivers,
         })
+    }
+
+    /// What closing `episode`, its file written and still open, needs:
+    /// `episode.json` described from the phase's end and what this station
+    /// records with.
+    fn closing(
+        &self,
+        episode: EpisodeId,
+        (recording, staged, clock): (Recording, Staged, ClockMap),
+        (times, buffers, streams, commands): Description,
+        table: String,
+    ) -> Closing {
+        let (package, session, preflight) = (
+            self.package.clone(),
+            self.session.clone(),
+            self.preflight.clone(),
+        );
+        let sync_interval = self.writer.sync_interval;
+        let describe: Describe = Box::new(move |clock, durability| {
+            Episode::new(
+                &episode,
+                times,
+                RECORDING_FILE,
+                clock,
+                (buffers, durability.summary(sync_interval)),
+                streams,
+            )
+            .with_commands(commands)
+            .with_package(package)
+            .with_session(session.0, session.1)
+            .with_preflight(preflight)
+        });
+        Closing {
+            episode,
+            recording,
+            staged,
+            clock,
+            describe,
+            table,
+        }
     }
 
     /// When Start was asked (`asked`) and Stop, if it was, in UTC.
@@ -1028,7 +1113,7 @@ fn stream_summaries(
     counters: &LossCounters,
     arrivals: &dyn Fn(StreamIndex) -> Arrivals,
     carried: &BTreeMap<StreamIndex, u64>,
-) -> Vec<kapto_store::StreamSummary> {
+) -> Vec<StreamSummary> {
     plan.streams
         .iter()
         .zip(&plan.detections)
@@ -1103,15 +1188,14 @@ fn arrivals(plan: &Plan, transports: &[Arc<TransportStats>], stream: StreamIndex
         .unwrap_or_default()
 }
 
-fn print_summary(
-    folder: &str,
+/// Each stream's counts, as printed once its episode is finalised.
+fn summary_table(
     plan: &Plan,
     counters: &LossCounters,
     arrivals: &dyn Fn(StreamIndex) -> Arrivals,
-) {
-    println!("Finalised {folder}");
-    println!(
-        "{:<24} {:>10} {:>10} {:>8} {:>8}  LOSS DETECTION",
+) -> String {
+    let mut table = format!(
+        "{:<24} {:>10} {:>10} {:>8} {:>8}  LOSS DETECTION\n",
         "STREAM", "RECEIVED", "WRITTEN", "DROPPED", "LOST"
     );
     for (spec, (_, detection)) in plan.streams.iter().zip(&plan.detections) {
@@ -1132,7 +1216,8 @@ fn print_summary(
             Some(0) | None => String::new(),
             Some(count) => format!(", {count} from sources not allowed"),
         };
-        println!(
+        let _ = writeln!(
+            table,
             "{:<24} {:>10} {:>10} {:>8} {:>8}  {detection}{disconnects}{rejected}",
             id.as_str(),
             totals.received,
@@ -1141,6 +1226,7 @@ fn print_summary(
             totals.lost_upstream
         );
     }
+    table
 }
 
 pub(crate) fn thread_failed(thread: &str, detail: &str) -> KaptoError {

@@ -562,6 +562,16 @@ fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool) {
     }
 }
 
+/// Lowers the calling thread to the worker's CPU and I/O priority, as
+/// threads doing slow work beside capture are.
+///
+/// # Errors
+///
+/// The operating system's reason if either couldn't be set.
+pub(crate) fn lower_priority() -> std::io::Result<()> {
+    priority::lower()
+}
+
 /// `wrk-cpu-0`: does each job it is given and says how it ended.
 fn work(
     data_dir: &Path,

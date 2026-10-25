@@ -47,6 +47,7 @@ use kapto_core::{EpisodeId, ErrorCode, KaptoError, RecvTime};
 use kapto_store::{Event, PackageIdentity, Preflight as PreflightReport};
 
 use crate::SettingFlags;
+use crate::closing::Closer;
 use crate::own_events::{Counts, OwnEvents, silences};
 use crate::preflight::Preflight;
 use crate::record::{RecordSettings, describe, load_plan, package_of, recover};
@@ -83,15 +84,7 @@ fn say_receiving(station: &Station, deployment: &DeploymentConfig) {
 fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcome<()> {
     let (_, deployment) = crate::config::load(flags)?;
     let (declarations, plan) = load_plan(streams, &RecordSettings::of(&deployment))?;
-    let shutdown = Arc::new(AtomicBool::new(false));
-    for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
-        signal_hook::flag::register(signal, Arc::clone(&shutdown)).map_err(|error| {
-            vec![
-                KaptoError::new(ErrorCode::CaptureThreadFailed)
-                    .detail(format!("can't handle signal {signal}: {error}")),
-            ]
-        })?;
-    }
+    let shutdown = on_signals()?;
     let mut station = Station::open(
         plan,
         &declarations,
@@ -105,6 +98,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
     let control =
         ControlServer::listen(&deployment.control_socket.value).map_err(|error| vec![error])?;
     recover_meanwhile(&control, deployment.data_dir.value.clone())?;
+    let mut closer = Closer::start()?;
     let mut disk = DiskWatch::new(deployment.data_dir.value.clone(), disk_limits(&deployment));
     say_receiving(&station, &deployment);
 
@@ -119,6 +113,7 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
         // when it was asked: its pre-roll is reckoned from then.
         let mut waiting: Vec<(Pending, RecvTime)> = Vec::new();
         station.idle(&mut |live, elapsed| {
+            closer.answer(&control);
             if first {
                 preflight.begin(live, elapsed, None);
                 first = false;
@@ -128,7 +123,8 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
                     Request::Start { .. } => waiting.push((pending, monotonic_now())),
                     Request::Preflight => preflight.begin(live, elapsed, Some(pending)),
                     Request::Status => {
-                        let status = status(None, live, elapsed, preflight.latest());
+                        let status =
+                            status((None, closer.closing()), live, elapsed, preflight.latest());
                         pending.answer(Response::Status(status));
                     }
                     Request::Stop | Request::Abort => {
@@ -179,17 +175,34 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
             let timeout = deployment.control_timeout.value;
             episode(
                 &mut station,
-                (&control, &mut disk),
+                (&control, &mut disk, &mut closer),
                 &shutdown,
                 (pending, duration, asked),
                 (timeout, &silences),
             );
         }
         if shutdown.load(Ordering::Relaxed) {
+            // What was started is finished: the episodes still closing.
+            closer.finish(&control);
             eprintln!("Stopped.");
             return Ok(());
         }
     }
+}
+
+/// A flag SIGINT and SIGTERM set, which ends capture once what it is doing
+/// is finished.
+fn on_signals() -> Outcome<Arc<AtomicBool>> {
+    let shutdown = Arc::new(AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
+        signal_hook::flag::register(signal, Arc::clone(&shutdown)).map_err(|error| {
+            vec![
+                KaptoError::new(ErrorCode::CaptureThreadFailed)
+                    .detail(format!("can't handle signal {signal}: {error}")),
+            ]
+        })?;
+    }
+    Ok(shutdown)
 }
 
 /// Answers `pending`, asked while `episode` is recorded, unless it is a
@@ -197,19 +210,14 @@ fn serve(flags: &SettingFlags, streams: &Path, mapping: Option<&Path>) -> Outcom
 /// only, while none is `stopping` yet.
 fn answer_while_recording(
     pending: Pending,
-    (live, elapsed, episode, preflight): (
-        &Live<'_>,
-        Duration,
-        Option<String>,
-        Option<&PreflightReport>,
-    ),
+    (live, elapsed, episodes, preflight): (&Live<'_>, Duration, Episodes, Option<&PreflightReport>),
     control: &ControlServer,
     stopping: bool,
 ) -> Option<Pending> {
     match pending.request {
         Request::Stop | Request::Abort if !stopping => return Some(pending),
         Request::Status => {
-            let status = status(episode, live, elapsed, preflight);
+            let status = status(episodes.clone(), live, elapsed, preflight);
             pending.answer(Response::Status(status));
         }
         Request::Start { .. } | Request::Stop | Request::Abort => {
@@ -221,7 +229,7 @@ fn answer_while_recording(
                 .detail("pre-flight runs between episodes".to_owned()),
         )),
         Request::Event(ref asked) => {
-            let noted = note(asked, live, control, episode.as_deref());
+            let noted = note(asked, live, control, episodes.0.as_deref());
             pending.answer(noted);
         }
         Request::Hello { .. } | Request::Supervise | Request::Watch => {}
@@ -317,11 +325,12 @@ fn recover_meanwhile(control: &ControlServer, data_dir: PathBuf) -> Outcome<()> 
 /// Records one episode, answering control requests as it goes, and
 /// answers `start` once it is recording. It ends when told to, after
 /// `duration` if one was given, once the supervisor has been gone for
-/// `control_timeout`, or once the disk is nearly full. A failure is
+/// `control_timeout`, or once the disk is nearly full, and is handed to
+/// `closer`, which answers its stop once it is finalised. A failure is
 /// reported and answered, and the process goes back to receiving.
 fn episode(
     station: &mut Station,
-    (control, disk): (&ControlServer, &mut DiskWatch),
+    (control, disk, closer): (&ControlServer, &mut DiskWatch, &mut Closer),
     shutdown: &AtomicBool,
     (start, duration, asked): (Pending, Option<Duration>, RecvTime),
     (control_timeout, silences): (Duration, &[(String, Option<Duration>)]),
@@ -357,10 +366,13 @@ fn episode(
             }
         },
         &mut |live, elapsed| {
+            // An episode before this one may finish closing meanwhile.
+            closer.answer(control);
             let episode = current.borrow().as_ref().map(ToString::to_string);
             keep_own(&mut own, live, elapsed, control, episode.as_deref());
             for pending in control.pending() {
-                let recording = (live, elapsed, episode.clone(), preflight.as_ref());
+                let episodes = (episode.clone(), closer.closing());
+                let recording = (live, elapsed, episodes, preflight.as_ref());
                 if let Some(stopping) = answer_while_recording(pending, recording, control, stop.is_some()) {
                     stop = Some(stopping);
                 }
@@ -384,24 +396,16 @@ fn episode(
         },
     );
     match finished {
-        Ok(finished) => {
-            if let Err(errors) = &finished.receivers {
+        Ok(recorded) => {
+            if let Err(errors) = &recorded.receivers {
                 report(errors);
             }
-            let episode = finished.episode.to_string();
-            control.announce(Announcement::EpisodeEnded {
-                episode: episode.clone(),
-                finalised: finished.folder.is_some(),
-            });
-            if let Some(stop) = stop {
-                stop.answer(match finished.folder {
-                    Some(folder) => Response::Stopped {
-                        episode,
-                        folder: folder.display().to_string(),
-                    },
-                    None => Response::Aborted { episode },
-                });
+            // Closed beside the next phase; its stop answered once it is.
+            match recorded.closing {
+                Some(closing) => closer.close(closing, stop),
+                None => closer.aborted(recorded.episode, stop),
             }
+            closer.answer(control);
         }
         Err(errors) => {
             report(&errors);
@@ -482,8 +486,11 @@ fn startable(
     }
 }
 
+/// The episode being recorded and the one being closed, each if one is.
+type Episodes = (Option<String>, Option<String>);
+
 fn status(
-    episode: Option<String>,
+    (episode, closing): Episodes,
     live: &Live<'_>,
     elapsed: Duration,
     preflight: Option<&PreflightReport>,
@@ -521,6 +528,7 @@ fn status(
             })
             .collect(),
         preflight: preflight.cloned(),
+        closing,
     }
 }
 

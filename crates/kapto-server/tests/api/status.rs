@@ -70,7 +70,8 @@ async fn the_status_is_capture_s_with_its_newest_values_pre_flight_and_where_the
                             "waived": true
                         }
                     ]
-                }
+                },
+                "closing": "20260310T115900.000Z-0a0b0c0d"
             },
             "viewer": {"stream_port": 9877}
         })

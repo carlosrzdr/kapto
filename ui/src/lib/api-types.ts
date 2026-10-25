@@ -44,6 +44,12 @@ export interface CameraFrames {
 
 /** What the capture process is doing. */
 export interface CaptureStatus {
+  /**
+   * The episode being closed, if one is: stopped, its stop answered and
+   * its end announced once it is finalised, while capture receives and
+   * may record the next.
+   */
+  closing?: string | null;
   /** The episode being recorded, if one is. */
   episode?: string | null;
   /**

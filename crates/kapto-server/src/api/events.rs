@@ -247,6 +247,9 @@ async fn send(mut socket: WebSocket, state: Arc<ApiState>) {
 struct Seen {
     /// The episode it last said started and hasn't said ended.
     episode: Option<String>,
+    /// An episode it said started that capture is closing: its end is told
+    /// once capture announces it, or polling sees it closed.
+    closing: Option<String>,
     /// The episode it last said ended, so a status answered just before
     /// the end, or an announcement of what polling already saw, doesn't
     /// tell it again.
@@ -287,9 +290,21 @@ impl Seen {
             .episode
             .clone()
             .filter(|episode| self.ended.as_ref() != Some(episode));
+        let closing = status.capture.closing.clone();
+        // Closed since: its end announced, or missed.
+        if let Some(closed) = self.closing.clone()
+            && closing.as_ref() != Some(&closed)
+        {
+            events.push(self.end(closed, finalised));
+        }
         if running != self.episode {
             if let Some(ended) = self.episode.clone() {
-                events.push(self.end(ended, finalised));
+                if closing.as_ref() == Some(&ended) {
+                    // Not ended until it is finalised.
+                    self.closing = self.episode.take();
+                } else {
+                    events.push(self.end(ended, finalised));
+                }
             }
             if let Some(started) = running {
                 events.push(self.start(started));
@@ -318,9 +333,11 @@ impl Seen {
             Announcement::EpisodeStarted { episode } => {
                 if self.episode.as_ref() != Some(&episode) && self.ended.as_ref() != Some(&episode)
                 {
-                    if let Some(earlier) = self.episode.clone() {
-                        // Its end was missed: say so, as polling would.
-                        events.push(self.end(earlier, &|_| false));
+                    // The one before is still being closed, or its end was
+                    // missed: told once announced, or once polling sees it
+                    // closed.
+                    if let Some(earlier) = self.episode.take() {
+                        self.closing = Some(earlier);
                     }
                     events.push(self.start(episode));
                 }
@@ -328,7 +345,9 @@ impl Seen {
             Announcement::EpisodeEnded { episode, finalised } => {
                 if self.ended.as_ref() != Some(&episode) {
                     // Too short for polling to see it start.
-                    if self.episode.as_ref() != Some(&episode) {
+                    if self.episode.as_ref() != Some(&episode)
+                        && self.closing.as_ref() != Some(&episode)
+                    {
                         events.push(self.start(episode.clone()));
                     }
                     events.push(self.end(episode, &|_| finalised));
@@ -358,6 +377,9 @@ impl Seen {
         if self.episode.as_ref() == Some(&episode) {
             self.episode = None;
         }
+        if self.closing.as_ref() == Some(&episode) {
+            self.closing = None;
+        }
         self.ended = Some(episode.clone());
         Event {
             finalised: Some(finalised(&episode)),
@@ -382,6 +404,7 @@ mod tests {
                 streams: Vec::new(),
                 values: Vec::new(),
                 preflight: None,
+                closing: None,
             },
             viewer: Viewer { stream_port: 9877 },
         }
@@ -494,6 +517,75 @@ mod tests {
             kinds(&seen.announce(ended("missed", false))),
             [EventKind::EpisodeStarted, EventKind::EpisodeEnded]
         );
+    }
+
+    /// `episode` recorded and `closing` being closed.
+    fn closing(episode: Option<&str>, closing: &str) -> Status {
+        let mut status = status(episode);
+        status.capture.closing = Some(closing.to_owned());
+        status
+    }
+
+    #[test]
+    fn an_episode_being_closed_is_told_ended_once_finalised_not_when_recording_stops() {
+        let mut seen = Seen::default();
+        let finalised = |episode: &str| episode == "e1";
+        seen.update(Ok(status(Some("e1"))), &finalised);
+        // Recorded, and being closed: not ended yet.
+        let stopped = seen.update(Ok(closing(None, "e1")), &finalised);
+        assert!(
+            !kinds(&stopped).contains(&EventKind::EpisodeEnded),
+            "{stopped:?}"
+        );
+        // Finalised, as capture announces.
+        let end = seen.announce(ended("e1", true));
+        assert_eq!(kinds(&end), [EventKind::EpisodeEnded]);
+        assert_eq!(end[0].finalised, Some(true));
+        // Not told again once polling sees it closed.
+        for _ in 0..STATUS_EVERY {
+            let polled = seen.update(Ok(status(None)), &finalised);
+            assert!(
+                !kinds(&polled).contains(&EventKind::EpisodeEnded),
+                "{polled:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_next_episode_starting_while_one_is_closed_ends_neither_early() {
+        let mut seen = Seen::default();
+        let never = |_: &str| false;
+        seen.update(Ok(status(Some("e1"))), &never);
+        // Stopped, and the next started before a poll saw it closing.
+        let next = seen.announce(started("e2"));
+        assert_eq!(kinds(&next), [EventKind::EpisodeStarted]);
+        assert_eq!(next[0].episode.as_deref(), Some("e2"));
+        let polled = seen.update(Ok(closing(Some("e2"), "e1")), &never);
+        assert!(
+            !kinds(&polled).contains(&EventKind::EpisodeEnded),
+            "{polled:?}"
+        );
+        // The first's end, once finalised: not started again.
+        let end = seen.announce(ended("e1", true));
+        assert_eq!(kinds(&end), [EventKind::EpisodeEnded]);
+        assert_eq!(end[0].episode.as_deref(), Some("e1"));
+        let polled = seen.update(Ok(status(Some("e2"))), &never);
+        assert!(
+            !kinds(&polled).contains(&EventKind::EpisodeEnded),
+            "{polled:?}"
+        );
+    }
+
+    #[test]
+    fn a_closed_episode_whose_end_was_missed_is_told_from_polling() {
+        let mut seen = Seen::default();
+        let finalised = |episode: &str| episode == "e1";
+        seen.update(Ok(status(Some("e1"))), &finalised);
+        seen.update(Ok(closing(None, "e1")), &finalised);
+        // Its announcement missed: polling sees it closed.
+        let end = seen.update(Ok(status(None)), &finalised);
+        assert_eq!(kinds(&end), [EventKind::EpisodeEnded, EventKind::Status]);
+        assert_eq!(end[0].finalised, Some(true));
     }
 
     #[test]

@@ -2082,6 +2082,13 @@
           "streams"
         ],
         "properties": {
+          "closing": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The episode being closed, if one is: stopped, its stop answered and\nits end announced once it is finalised, while capture receives and\nmay record the next."
+          },
           "episode": {
             "type": [
               "string",

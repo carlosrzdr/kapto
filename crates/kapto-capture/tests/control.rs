@@ -151,6 +151,7 @@ fn requests_and_answers_are_one_line_of_json_each_as_documented() {
             ..StreamStatus::default()
         }],
         preflight: None,
+        closing: None,
     });
     let text = serde_json::to_string(&status).unwrap();
     assert_eq!(
@@ -158,6 +159,13 @@ fn requests_and_answers_are_one_line_of_json_each_as_documented() {
         r#"{"status":{"episode":null,"seconds":3,"streams":[{"stream":"arm","received":5,"written":0,"dropped_by_us":0,"lost_upstream":0}]}}"#
     );
     assert_eq!(serde_json::from_str::<Response>(&text).unwrap(), status);
+    // The episode being closed, only when one is.
+    let Response::Status(mut closing) = status else {
+        unreachable!()
+    };
+    closing.closing = Some("e".into());
+    let text = serde_json::to_string(&Response::Status(closing)).unwrap();
+    assert!(text.ends_with(r#""closing":"e"}}"#), "{text}");
 }
 
 #[test]
