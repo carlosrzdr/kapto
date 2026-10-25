@@ -174,6 +174,38 @@ export function apportioned(pixels: number[]): number[] {
   return pixels.map((each) => clamp(Math.round((each / largest) * MAX_SHARE)));
 }
 
+/**
+ * A column's panels' sizes on the page, in pixels, as whole shares of 1 to
+ * 12, where a share is as many pixels as `shares` gave each panel when
+ * they were measured. A share is a size of its own (a panel's least, two
+ * shares twice it, and more where the column has room), so a size dragged
+ * in a column that scrolls becomes as many shares as it holds, and one not
+ * yet dragged keeps the share it had.
+ */
+export function reshared(pixels: number[], shares: number[]): number[] {
+  const total = shares.reduce((sum, each) => sum + each, 0);
+  const each = pixels.reduce((sum, size) => sum + size, 0) / Math.max(total, 1) || 1;
+  return pixels.map((size) => clamp(Math.round(size / each)));
+}
+
+/**
+ * `shares` with the edge after `edge` moved `step` shares: the one before
+ * grows by as much as the one after shrinks, neither past 1 to 12: where
+ * one can't change the other still does, so an edge between two at their
+ * least still moves. `null` when neither can change.
+ */
+export function nudged(shares: number[], edge: number, step: number): number[] | null {
+  const before = shares[edge];
+  const after = shares[edge + 1];
+  if (before === undefined || after === undefined) {
+    return null;
+  }
+  const next = [...shares];
+  next[edge] = clamp(before + step);
+  next[edge + 1] = clamp(after - step);
+  return next[edge] === before && next[edge + 1] === after ? null : next;
+}
+
 /** `layout` with its columns `widths` wide; any not given stay as they are. */
 export function withWidths(layout: LayoutInput, widths: number[]): LayoutInput {
   const next = copy(layout);

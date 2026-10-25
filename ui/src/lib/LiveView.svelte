@@ -45,11 +45,13 @@
     laidOut,
     type LayoutStore,
     MAX_SHARE,
+    nudged,
     type Offered,
     type Place,
     moved,
     placed as droppedAt,
     removed,
+    reshared,
     withHeights,
     withWidths,
   } from "./viewer/layouts";
@@ -447,7 +449,7 @@
   let carried = $state<{ column: number; at: number; to: Place | null } | null>(null);
   /** Shares an edge being dragged gives, shown before they are set: the columns', or one column's panels'. */
   let sharing = $state<{ column: number | null; shares: number[] } | null>(null);
-  let sharingFrom: { at: number; sizes: number[]; edge: number } | null = null;
+  let sharingFrom: { at: number; sizes: number[]; shares: number[] | null; edge: number } | null = null;
 
   /** Whether the columns run one under another, as on a narrow page. */
   const stacked = () => (grid ? getComputedStyle(grid).flexDirection === "column" : false);
@@ -538,10 +540,18 @@
     sharingFrom = {
       at: across ? event.clientX : event.clientY,
       sizes: boxes.map((box) => (across ? box.getBoundingClientRect().width : box.getBoundingClientRect().height)),
+      shares: column === null ? null : (columns[column]?.panels.map((each) => each.height) ?? []),
       edge,
     };
-    sharing = { column, shares: apportioned(sharingFrom.sizes) };
+    sharing = { column, shares: sharesOf(sharingFrom.sizes) };
   }
+
+  /**
+   * Sizes measured or dragged as shares: the columns' in proportion, the
+   * largest 12; a column's panels' in the pixels a share had when grabbed,
+   * a share being a size of its own there.
+   */
+  const sharesOf = (sizes: number[]) => (sharingFrom?.shares ? reshared(sizes, sharingFrom.shares) : apportioned(sizes));
 
   function pull(event: PointerEvent) {
     if (!sharing || !sharingFrom) {
@@ -549,7 +559,7 @@
     }
     const across = (sharing.column === null) !== stacked();
     const by = (across ? event.clientX : event.clientY) - sharingFrom.at;
-    sharing = { ...sharing, shares: apportioned(dragged(sharingFrom.sizes, sharingFrom.edge, by)) };
+    sharing = { ...sharing, shares: sharesOf(dragged(sharingFrom.sizes, sharingFrom.edge, by)) };
   }
 
   function release() {
@@ -561,7 +571,7 @@
     }
   }
 
-  /** The edge after `edge` moved one share by the keyboard: the one before grows, the one after shrinks. */
+  /** The edge after `edge` moved one share by the keyboard: the one before grows, the one after shrinks, as far as they can. */
   function nudge(event: KeyboardEvent, column: number | null, edge: number) {
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
     if (step === undefined) {
@@ -570,14 +580,10 @@
     event.preventDefault();
     const layout = editing();
     const shares = column === null ? layout.columns.map((each) => each.width) : (layout.columns[column]?.panels.map((each) => each.height) ?? []);
-    const before = shares[edge];
-    const after = shares[edge + 1];
-    if (before === undefined || after === undefined || before + step < 1 || after - step < 1 || before + step > MAX_SHARE || after - step > MAX_SHARE) {
-      return;
+    const next = nudged(shares, edge, step);
+    if (next !== null) {
+      arrange(column === null ? withWidths(layout, next) : withHeights(layout, column, next));
     }
-    shares[edge] = before + step;
-    shares[edge + 1] = after - step;
-    arrange(column === null ? withWidths(layout, shares) : withHeights(layout, column, shares));
   }
 
   /** A column's width share as shown: the one being dragged to, while it is. */
@@ -1506,12 +1512,17 @@
     min-height: 0;
     overflow-y: auto;
   }
+  /* A height share is a size of its own: one the least room for a plot's
+     key and a chart that can be read, two twice that. A column with room
+     grows them in proportion; one with more than fit scrolls, each still
+     as tall as its shares, so resizing two shows there too; never taller
+     than the column, which would leave a panel alone in one to scroll. */
   .panel {
     display: flex;
     flex-direction: column;
-    flex-basis: 0;
+    flex-basis: min(calc(var(--shares) * 12rem), 100%);
+    flex-shrink: 0;
     min-width: 0;
-    /* Room for a plot's key and a chart that can be read. */
     min-height: 12rem;
     overflow: hidden;
   }
@@ -1521,39 +1532,51 @@
   }
   .grow-1 {
     flex-grow: 1;
+    --shares: 1;
   }
   .grow-2 {
     flex-grow: 2;
+    --shares: 2;
   }
   .grow-3 {
     flex-grow: 3;
+    --shares: 3;
   }
   .grow-4 {
     flex-grow: 4;
+    --shares: 4;
   }
   .grow-5 {
     flex-grow: 5;
+    --shares: 5;
   }
   .grow-6 {
     flex-grow: 6;
+    --shares: 6;
   }
   .grow-7 {
     flex-grow: 7;
+    --shares: 7;
   }
   .grow-8 {
     flex-grow: 8;
+    --shares: 8;
   }
   .grow-9 {
     flex-grow: 9;
+    --shares: 9;
   }
   .grow-10 {
     flex-grow: 10;
+    --shares: 10;
   }
   .grow-11 {
     flex-grow: 11;
+    --shares: 11;
   }
   .grow-12 {
     flex-grow: 12;
+    --shares: 12;
   }
   /* Arranged on: the room between columns and panels is the edges to drag,
      and the columns make room for the editor beside them rather than
@@ -1657,6 +1680,10 @@
     }
     .column {
       flex-direction: row;
+    }
+    /* Side by side, the panels share the column's width rather than scroll across. */
+    .panel {
+      flex-basis: 0;
     }
     /* No room beside: the editor goes under the view instead. */
     .columns.on-view {

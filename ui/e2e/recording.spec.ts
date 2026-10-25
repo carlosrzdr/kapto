@@ -1177,6 +1177,51 @@ test("a column of more plots than fit scrolls, each plot keeping room for its ch
   await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
 });
 
+test("the edge between two plots in a column of more than fit resizes them both", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  await page.evaluate(() => {
+    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+    const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
+    localStorage.setItem(
+      "kapto.layout.arm7",
+      JSON.stringify({ columns: [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }] }),
+    );
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Arrange" }).click();
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const column = panels.locator(".column").nth(1);
+  const heights = async () => Promise.all([0, 1, 2].map(async (at) => (await column.locator(":scope > .panel").nth(at).boundingBox())?.height ?? 0));
+  const shares = async () => (await heights()).map((each) => Math.round(each / least!));
+  const edge = column.getByRole("separator").first();
+  const drag = async (by: number) => {
+    const box = (await edge.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + by, { steps: 8 });
+    await page.mouse.up();
+  };
+  // Every plot at its least height, one share: more than the column holds.
+  const [least] = await heights();
+  expect(await column.evaluate((box) => box.scrollHeight > box.clientHeight)).toBe(true);
+
+  // Dragged down, the plot above grows by a share, the one below kept at its least.
+  await drag(least! * 1.2);
+  await expect.poll(heights).toEqual([expect.closeTo(least! * 2, 0), expect.closeTo(least!, 0), expect.closeTo(least!, 0)]);
+  // Dragged back up past it, the plot above shrinks and the one below grows.
+  await drag(-least! * 1.2);
+  await expect.poll(shares).toEqual([1, 2, 1]);
+  // And by the keyboard, a share at a time, even between two at their least.
+  await edge.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(shares).toEqual([2, 1, 1]);
+  await column.getByRole("separator").nth(1).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(shares).toEqual([2, 1, 2]);
+  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+});
+
 test("streams with long names still fit the side panel with every count", async ({ page }) => {
   const long = { arm_joints: "front_left_actuator_calibration_offsets", wrist_camera: "rear_conveyor_belt_motor_temperatures" };
   await page.route("**/api/status", async (route) => {

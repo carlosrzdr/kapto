@@ -9,12 +9,15 @@ import {
   laidOut,
   MAX_PANELS,
   moved,
+  nudged,
   panelCount,
   placed,
   removed,
+  reshared,
   withHeights,
   withWidths,
 } from "./layouts";
+import { dragged } from "./dragging";
 
 /** The robot on the left; the camera and a plot on the right. */
 const layout: LayoutInput = {
@@ -80,6 +83,27 @@ describe("editing a layout", () => {
     expect(apportioned([900, 300, 10])).toEqual([12, 4, 1]);
     expect(withWidths(layout, [5, 7]).columns.map((column) => column.width)).toEqual([5, 7]);
     expect(withHeights(layout, 1, [2]).columns[1]!.panels.map((panel) => panel.height)).toEqual([2, 1]);
+  });
+
+  it("turns a column's panels' sizes into shares of the pixels a share had, in a column that scrolls or one with room", () => {
+    // More than fit, each at its least: 192 pixels a share. The edge after
+    // the first dragged down a share and a half gives the first two, the
+    // second kept at its least; dragged back up past it, the second grows.
+    const scrolls = [192, 192, 192];
+    expect(reshared(scrolls, [1, 1, 1])).toEqual([1, 1, 1]);
+    expect(reshared(dragged(scrolls, 0, 288), [1, 1, 1])).toEqual([2, 1, 1]);
+    expect(reshared(dragged([384, 192, 192], 0, -230), [2, 1, 1])).toEqual([1, 2, 1]);
+    // With room, grown past their least: measured, they keep their shares.
+    expect(reshared([600, 300], [2, 1])).toEqual([2, 1]);
+    expect(reshared(dragged([600, 300], 0, -300), [2, 1])).toEqual([1, 2]);
+  });
+
+  it("moves an edge a share by the keyboard as far as both sides can go, even between two at their least", () => {
+    expect(nudged([2, 2], 0, 1)).toEqual([3, 1]);
+    expect(nudged([1, 1, 1], 1, 1)).toEqual([1, 2, 1]);
+    expect(nudged([1, 1], 0, -1)).toEqual([1, 2]);
+    expect(nudged([12, 1], 0, 1)).toBeNull();
+    expect(nudged([1, 1], 1, 1)).toBeNull();
   });
 
   it("never changes the layout it is given", () => {

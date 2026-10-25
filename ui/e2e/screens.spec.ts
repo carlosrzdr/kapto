@@ -555,6 +555,30 @@ test("a screenshot of a camera waiting for its pictures and of one that can't be
   nothingLeft();
 });
 
+test("a screenshot of a column of more plots than fit, two of them resized by the edge between them", async ({ page }) => {
+  const nothingLeft = await open(page);
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  // As a robot of many streams is shown by the layout made for it.
+  await page.evaluate(() => {
+    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+    const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
+    localStorage.setItem("kapto.layout.arm7", JSON.stringify({ columns: [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }] }));
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await viewer(page, false);
+  const column = page.getByRole("group", { name: "The view's panels" }).locator(".column").nth(1);
+  const edge = (await column.getByRole("separator").nth(1).boundingBox())!;
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2 + 300, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  await shot(page, "live-arrange-scrolling-column-resized");
+  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  nothingLeft();
+});
+
 // The console on a tablet beside the robot, held sideways: each tab whole.
 test("a screenshot of the page Kapto can't show, built for another version of its API", async ({ page }) => {
   await page.route("**/api/version", (route) => route.fulfill({ json: { kapto: "9.9.9", api: 999 } }));
