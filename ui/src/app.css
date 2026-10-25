@@ -37,15 +37,13 @@
   --on-danger: #ffffff;
   --danger-background: #2a0e10;
   /* Series of data and kinds of event, in order (`SERIES` in theme.ts):
-     distinct from one another, none of them a state colour. */
-  --series-0: #38bdf8;
-  --series-1: #fbbf24;
-  --series-2: #a78bfa;
-  --series-3: #2dd4bf;
-  --series-4: #f472b6;
-  --series-5: #a3e635;
-  --series-6: #fb923c;
-  --series-7: #e879f9;
+     told apart with colour blindness too, 3:1 or more on the background,
+     none of them a state colour's hue. A plot with more series than these
+     draws the rest dashed, never in a colour already used the same way. */
+  --series-0: #2f6bf5;
+  --series-1: #8a7d14;
+  --series-2: #bc10ba;
+  --series-3: #9d7dc9;
 
   --font-ui: "Fira Sans", system-ui, sans-serif;
   --font-data: "Fira Code", ui-monospace, monospace;

@@ -154,10 +154,51 @@
     flex-direction: column;
     gap: 0.1rem;
   }
+  /* A quiet line to slide along, as wide as the timeline, with only the
+     moment shown in the accent: drawn here, as the browser's own fills the
+     track up to the thumb, all of it while live. */
   input {
     width: 100%;
+    height: 1.5rem;
     margin: 0;
-    accent-color: var(--accent);
+    background: transparent;
+    appearance: none;
+    cursor: pointer;
+  }
+  input:disabled {
+    cursor: not-allowed;
+  }
+  input::-webkit-slider-runnable-track {
+    height: 2px;
+    border-radius: 1px;
+    background: var(--control-line);
+  }
+  input::-moz-range-track {
+    height: 2px;
+    border-radius: 1px;
+    background: var(--control-line);
+  }
+  input::-webkit-slider-thumb {
+    width: 0.875rem;
+    height: 0.875rem;
+    margin-top: calc(1px - 0.4375rem);
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    appearance: none;
+  }
+  input::-moz-range-thumb {
+    width: 0.875rem;
+    height: 0.875rem;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  input:disabled::-webkit-slider-thumb {
+    background: var(--muted);
+  }
+  input:disabled::-moz-range-thumb {
+    background: var(--muted);
   }
   .behind {
     min-width: 3.5rem;

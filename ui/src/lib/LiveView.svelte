@@ -1157,7 +1157,7 @@
   {spanMs}
   {historySeconds}
   items={replay ? replay.items : items}
-  colors={replay ? { check: token("warning", "#f59e0b"), ...colors } : colors}
+  {colors}
   onpause={pause}
   onlive={backToNow}
   onseek={seek}

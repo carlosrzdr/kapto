@@ -93,6 +93,13 @@ describe("Timeline's marks", () => {
     expect(shown.onseek).toHaveBeenCalledWith(1_100_000);
   });
 
+  it("draws what a check found in the warning colour, whatever colour a kind of the same name is given", () => {
+    const items = [{ kind: "check", startMs: 1_200_000, endMs: 1_210_000, label: "motion.frozen: stopped dead" }];
+    render(Timeline, props({ items, colors: { check: "#123456" } }));
+    const found = screen.getByRole("button", { name: "motion.frozen: stopped dead" }).querySelector("rect.shown")!;
+    expect(found.getAttribute("fill")).toBe("#f59e0b");
+  });
+
   it("says what a mark is, when and for how long, while it is pointed at or focused", async () => {
     const items = [{ kind: "grasp", startMs: 1_200_000, endMs: 1_202_400, label: "grasp (page)" }];
     render(Timeline, props({ items }));

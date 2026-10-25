@@ -20,6 +20,8 @@
   const PALETTE = SERIES;
   /** Kapto's own: something went wrong with a stream. */
   const OWN = token("danger", "#f87171");
+  /** What a quality check found: the state colour the episode's checks are shown in, whatever a kind is given. */
+  const CHECK = token("warning", "#f59e0b");
   const EPISODE = token("muted", "#9ca3a8");
   /** The strip's width in its own units; drawn stretched to the timeline's. */
   const WIDTH = 1000;
@@ -42,6 +44,9 @@
     }
     if (kind.startsWith("kapto.")) {
       return OWN;
+    }
+    if (kind === "check") {
+      return CHECK;
     }
     const given = colors[kind];
     if (given) {
