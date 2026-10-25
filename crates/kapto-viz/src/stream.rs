@@ -463,6 +463,22 @@ impl Photographer {
         }
     }
 
+    /// Whether a picture of camera `stream`'s frame received at
+    /// `received_utc_ns` is wanted: a page's share of the camera takes one
+    /// within `ahead`, when its next frame is expected, or the camera's
+    /// history is due one. Making a raw frame's picture is costly, and
+    /// isn't worth it otherwise.
+    #[must_use]
+    pub fn wants(&self, stream: u16, received_utc_ns: i64, ahead: Duration) -> bool {
+        if lock(&self.shared.camera_history).due(stream, received_utc_ns) {
+            return true;
+        }
+        let by = Instant::now() + ahead;
+        lock(&self.shared.pages)
+            .iter()
+            .any(|page| lock(&page.pictures).wants(stream, by))
+    }
+
     /// Keeps camera `stream`'s picture `jpeg`, whose frame Kapto received
     /// at `received_utc_ns`, for pages looking back, if one is due: made
     /// smaller first, without holding up a page asking meanwhile.

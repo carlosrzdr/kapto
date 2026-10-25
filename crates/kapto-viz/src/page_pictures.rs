@@ -92,6 +92,14 @@ impl Waiting {
         self.due_from(stream).is_none_or(|due| now >= due)
     }
 
+    /// Whether camera `stream`'s share would take a picture offered now
+    /// by `by`, when its next frame is expected: if not, a picture made of
+    /// this frame would only be replaced by the next.
+    #[must_use]
+    pub fn wants(&self, stream: u16, by: Instant) -> bool {
+        self.due_from(stream).is_none_or(|due| due <= by)
+    }
+
     /// Keeps `picture` as camera `stream`'s newest at `now`, in place of any
     /// waiting.
     pub fn offer(&mut self, stream: u16, picture: Bytes, now: Instant) -> Offered {
@@ -173,5 +181,22 @@ mod tests {
         assert_eq!(waiting.offer(1, picture(5), at(260)), Offered::Thinned);
         assert_eq!(waiting.offer(1, picture(6), at(400)), Offered::Dropped);
         assert_eq!(waiting.take_due(at(410)), [picture(6)]);
+    }
+
+    #[test]
+    fn a_camera_is_wanted_only_if_its_share_takes_a_picture_before_its_next_frame() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_millis(ms);
+        let mut waiting = Waiting::new(Duration::from_millis(100));
+        // Never sent: wanted at once.
+        assert!(waiting.wants(1, at(0)));
+        waiting.offer(1, Bytes::from_static(b"a"), at(0));
+        waiting.take_due(at(0));
+        // Next due at 100 ms: a frame at 50 ms whose next comes at 80 ms
+        // isn't, one whose next comes at 110 ms is.
+        assert!(!waiting.wants(1, at(80)));
+        assert!(waiting.wants(1, at(110)));
+        // Another camera has its own share.
+        assert!(waiting.wants(2, at(10)));
     }
 }

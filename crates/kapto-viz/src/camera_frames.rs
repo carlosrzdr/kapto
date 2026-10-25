@@ -5,11 +5,15 @@
 //! encoded as JPEG, and handed to the stream for every page.
 //!
 //! The frames come one at a time over a Unix stream socket, in the format
-//! `kapto_capture::tap::frames` writes. Taking a picture out and encoding
-//! it is the slow part, and is done here as each frame is read: while it
-//! is, capture keeps only each camera's newest frame waiting, so the
-//! pictures shown stay current however slow the encoding is.
+//! `kapto_capture::tap::frames` writes. Encoding a raw picture is the slow
+//! part, so it is done only when a page or the camera's history wants the
+//! picture, as each frame is read: while it is, capture keeps only each
+//! camera's newest frame waiting, so the pictures shown stay current
+//! however slow the encoding is. One thread encodes for every camera: on a
+//! machine shared with the recording and the browser, several encoding at
+//! once each took three times as long.
 
+use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -32,6 +36,9 @@ use crate::tap_reader::prepare_socket_path;
 const POLL: Duration = Duration::from_millis(100);
 /// How often the monotonic and wall clocks are read together again.
 const CLOCK_EVERY: Duration = Duration::from_secs(1);
+/// The longest a camera's next frame is expected after its last: a camera
+/// slower than this is wanted as if its next frame came then.
+const LONGEST_EXPECTED: Duration = Duration::from_secs(1);
 
 /// What the bridge has done with cameras' frames, readable from any
 /// thread.
@@ -41,6 +48,7 @@ pub struct CameraStats {
     shown: AtomicU64,
     unshown: AtomicU64,
     unreadable: AtomicU64,
+    not_encoded: AtomicU64,
 }
 
 /// A snapshot of [`CameraStats`].
@@ -56,6 +64,9 @@ pub struct CameraTotals {
     /// Connections dropped because what came wasn't a frame, or was one of
     /// a stream that isn't a camera.
     pub unreadable: u64,
+    /// Raw frames not encoded: no page's share, nor the camera's history,
+    /// wanted their picture.
+    pub not_encoded: u64,
 }
 
 impl CameraStats {
@@ -68,6 +79,7 @@ impl CameraStats {
             shown: read(&self.shown),
             unshown: read(&self.unshown),
             unreadable: read(&self.unreadable),
+            not_encoded: read(&self.not_encoded),
         }
     }
 }
@@ -92,6 +104,7 @@ pub fn listen(
     let stats = Arc::new(CameraStats::default());
     let mut reader = Reader {
         cameras,
+        last_frame: BTreeMap::new(),
         photographer,
         pictures: Pictures::default(),
         buffer: Vec::new(),
@@ -109,6 +122,9 @@ pub fn listen(
 
 struct Reader {
     cameras: Vec<(u16, CameraKind)>,
+    /// When each camera's last frame was received, in nanoseconds of the
+    /// monotonic clock.
+    last_frame: BTreeMap<u16, u64>,
     photographer: Photographer,
     pictures: Pictures,
     /// The frame being read, reused.
@@ -167,13 +183,38 @@ impl Reader {
             let read = self.fill(&mut connection, &mut buffer);
             if read {
                 self.stats.frames.fetch_add(1, Ordering::Relaxed);
-                self.show(frame.stream, kind, frame.recv_time.as_nanos(), &buffer);
+                let recv_time_ns = frame.recv_time.as_nanos();
+                if self.wanted(frame.stream, kind, recv_time_ns) {
+                    self.show(frame.stream, kind, recv_time_ns, &buffer);
+                } else {
+                    self.stats.not_encoded.fetch_add(1, Ordering::Relaxed);
+                }
             }
             self.buffer = buffer;
             if !read {
                 return;
             }
         }
+    }
+
+    /// Whether camera `stream`'s frame received at `recv_time_ns` is to be
+    /// shown: a compressed one always, as passing it on costs nothing; a
+    /// raw one only if a page or the camera's history wants its picture,
+    /// as encoding it is costly.
+    fn wanted(&mut self, stream: u16, kind: CameraKind, recv_time_ns: u64) -> bool {
+        if !matches!(kind, CameraKind::Raw { .. } | CameraKind::Image) {
+            return true;
+        }
+        // Its next frame is expected as long after as this one came after
+        // the last.
+        let last = self.last_frame.insert(stream, recv_time_ns);
+        let ahead = last.map_or(Duration::ZERO, |last| {
+            Duration::from_nanos(recv_time_ns.saturating_sub(last)).min(LONGEST_EXPECTED)
+        });
+        let received = i64::try_from(recv_time_ns)
+            .unwrap_or(i64::MAX)
+            .saturating_add(self.clock.offset_ns());
+        self.photographer.wants(stream, received, ahead)
     }
 
     /// Fills `into` from `connection`, waiting as long as it takes unless

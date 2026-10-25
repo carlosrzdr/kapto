@@ -80,6 +80,17 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   distance) black. Another encoding, or a compressed
   format the browser can't draw, is counted and named in the live view
   rather than shown.
+- **A raw frame is encoded only when its picture is wanted.** Encoding is
+  the bridge's one costly step, about 17 ms a 1080p picture, so a raw
+  frame is encoded only if a page's share of its camera would take a
+  picture by the time the camera's next frame comes, or the camera's
+  thinned history is due one; others are counted as not encoded. With no
+  page open, only the history's pictures are encoded, and a page
+  connecting is sent the newest of them first. One thread encodes for
+  every camera, as it reads: while it does, capture keeps only each
+  camera's newest frame waiting, so the pictures shown stay current. A
+  compressed picture costs nothing to pass on, and is passed on as it is
+  read.
 - **A page's cameras share its pictures.** The bridge sends each page at
   most `viewer.page_pictures` pictures a second across all its cameras (60
   by default), each camera an even share, never more than
@@ -137,8 +148,15 @@ JPEG, and sends it to each page over the live view's WebSocket.**
 - A second socket between capture and the bridge, with a setting of its
   own; the tap thread writes to two sockets.
 - The bridge depends on the JPEG encoder the synthetic camera already uses,
-  and spends about 10 ms of one core per 640x480 raw frame on it, off the
-  recording path.
+  and spends about 17 ms of a core per 1080p raw picture on it, off the
+  recording path: only as many pictures as its pages' shares and the
+  cameras' histories take, on one thread, so raw cameras take at most a
+  core of the bridge. Five raw 1080p cameras shown on a page fill it, at
+  about the page's share; with no page open it reads them all and encodes
+  about one frame in five, for the histories. A thread per camera was
+  tried: on a laptop shared with the recording and the browser, each
+  picture then took three times as long, the bridge 3.7 cores, and the
+  page's delay rose from 20 ms to 114 ms, for no more pictures.
 - The viewer stream's specification gains a message kind for pictures. A
   page that doesn't know it skips it, so the stream's version stays.
 - A TCP camera declares its frames' format in `streams.toml`; a ROS 2

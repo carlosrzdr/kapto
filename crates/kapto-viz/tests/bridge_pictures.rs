@@ -22,6 +22,7 @@ use kapto_config::{ConfigFile, parse_mapping, parse_streams};
 use kapto_core::{ClockSample, ErrorCode, RecvTime};
 use kapto_robot::{JointMap, Kinematics, RobotModel, load_urdf};
 use kapto_testkit::scratch;
+use kapto_viz::camera_history::CameraHistorySettings;
 use kapto_viz::page_pictures::PageShare;
 use kapto_viz::picture::CameraKind;
 use kapto_viz::stream::{PICTURE_HEADER, PICTURE_MAGIC, STREAM_VERSION};
@@ -57,6 +58,16 @@ fn bridge(folder: &Path) -> (Bridge, BridgeSettings, Capture) {
 
 /// A bridge sending each page its cameras' pictures by `share`.
 fn bridge_sharing(folder: &Path, share: PageShare) -> (Bridge, BridgeSettings, Capture) {
+    bridge_keeping(folder, share, CameraHistorySettings::default().every)
+}
+
+/// The same, keeping a picture of each camera for looking back every
+/// `every`.
+fn bridge_keeping(
+    folder: &Path,
+    share: PageShare,
+    every: Duration,
+) -> (Bridge, BridgeSettings, Capture) {
     let port = TcpListener::bind((LOCALHOST, 0))
         .unwrap()
         .local_addr()
@@ -66,6 +77,7 @@ fn bridge_sharing(folder: &Path, share: PageShare) -> (Bridge, BridgeSettings, C
     settings.frame_socket = Some(folder.join("frames.sock"));
     settings.cameras = vec![(1, CameraKind::CompressedImage), (2, CameraKind::Image)];
     settings.page_share = share;
+    settings.camera_history.every = every;
     let (robot, live) = arm7();
     let bridge = Bridge::start(&settings, &robot, live, &Plots::new(&[])).unwrap();
     let capture = Capture::new(&folder.join("frames.sock"));
@@ -355,6 +367,79 @@ fn a_pages_cameras_share_its_pictures_and_it_still_gets_each_ones_newest() {
     assert!(received < 30, "{received} of 30 pictures reached the page");
     let stream = bridge.stream_stats();
     assert!(stream.pictures_thinned > 0, "{stream:?}");
+    drop(bridge);
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+/// A small raw picture, all `shade`.
+fn a_raw_frame(shade: u8) -> Vec<u8> {
+    image(16, 8, "mono8", &[shade; 16 * 8])
+}
+
+/// Waits until the bridge has shown `shown` pictures.
+fn until_shown(bridge: &Bridge, shown: u64) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while bridge.camera_totals().unwrap().shown < shown {
+        assert!(Instant::now() < deadline, "{:?}", bridge.camera_totals());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Waits until the bridge has read `frames` frames.
+fn until_read(bridge: &Bridge, frames: u64) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while bridge.camera_totals().unwrap().frames < frames {
+        assert!(Instant::now() < deadline, "{:?}", bridge.camera_totals());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn a_raw_cameras_frames_are_not_encoded_while_no_page_nor_its_history_wants_them() {
+    let folder = scratch("bridge-pictures-unwanted");
+    // The history keeps a picture an hour: only the first is due.
+    let hour = Duration::from_secs(3_600);
+    let (bridge, settings, mut capture) = bridge_keeping(&folder, PageShare::default(), hour);
+    capture.send(2, &a_raw_frame(1));
+    until_shown(&bridge, 1);
+    for shade in 2..=5 {
+        capture.send(2, &a_raw_frame(shade));
+    }
+    until_read(&bridge, 5);
+    let totals = bridge.camera_totals().unwrap();
+    assert_eq!((totals.shown, totals.not_encoded), (1, 4), "{totals:?}");
+    // A page connecting is shown the newest encoded, then wants the next.
+    let (mut page, _) = watch(settings.stream_port);
+    let picture = next_picture(&mut page);
+    assert_eq!((picture.stream, picture.size), (2, (16, 8)));
+    capture.send(2, &a_raw_frame(6));
+    until_shown(&bridge, 2);
+    drop(bridge);
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[test]
+fn a_raw_camera_is_encoded_only_as_often_as_a_pages_share_takes_it() {
+    let folder = scratch("bridge-pictures-share-raw");
+    // One picture a second for the page, and none kept for looking back
+    // after the first: frames a tenth of a second apart are mostly
+    // unwanted.
+    let share = PageShare {
+        pictures_per_second: 1,
+        camera_max_fps: 30,
+    };
+    let hour = Duration::from_secs(3_600);
+    let (bridge, settings, mut capture) = bridge_keeping(&folder, share, hour);
+    let (mut page, _) = watch(settings.stream_port);
+    capture.send(2, &a_raw_frame(1));
+    let first = next_picture(&mut page);
+    assert_eq!(first.stream, 2);
+    for shade in 2..=4 {
+        capture.send(2, &a_raw_frame(shade));
+    }
+    until_read(&bridge, 4);
+    let totals = bridge.camera_totals().unwrap();
+    assert_eq!((totals.shown, totals.not_encoded), (1, 3), "{totals:?}");
     drop(bridge);
     std::fs::remove_dir_all(folder).unwrap();
 }

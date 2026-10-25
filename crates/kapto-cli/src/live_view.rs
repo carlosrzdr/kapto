@@ -103,10 +103,11 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
     if let Some(cameras) = bridge.camera_totals() {
         let stream = bridge.stream_stats();
         println!(
-            "Read {} cameras' frames: {} shown, {} that can't be shown, {} connections that sent something else; pictures sent to pages {}, held back for a page's share {}, missed by slow pages {}",
+            "Read {} cameras' frames: {} shown, {} that can't be shown, {} raw ones no page wanted, {} connections that sent something else; pictures sent to pages {}, held back for a page's share {}, missed by slow pages {}",
             cameras.frames,
             cameras.shown,
             cameras.unshown,
+            cameras.not_encoded,
             cameras.unreadable,
             stream.pictures_sent,
             stream.pictures_thinned,
