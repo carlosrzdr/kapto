@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Where messages go: UDP datagrams, frames on TCP connections, or ROS 2
-//! messages on topics ([`crate::ros2`]).
+//! messages on topics (the `ros2` module, built with the `ros2` feature).
 //!
 //! Over TCP each message is one frame: its length as 4 bytes little-endian,
 //! then the message. In Kapto's `streams.toml`:

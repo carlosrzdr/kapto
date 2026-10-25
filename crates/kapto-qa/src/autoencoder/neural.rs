@@ -88,7 +88,7 @@ type Network = Vec<(DMatrix<f64>, DVector<f64>)>;
 impl NeuralAutoencoder {
     /// Learns from `episodes` with `neurons` in each hidden layer, unless
     /// `deadline` passes first. `Ok(None)` with fewer episodes than
-    /// [`FOLDS`] or no statistic they all have.
+    /// `FOLDS` (5) or no statistic they all have.
     ///
     /// # Errors
     ///

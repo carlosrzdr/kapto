@@ -33,8 +33,9 @@ pub struct EpisodeEvents {
 ///
 /// # Errors
 ///
-/// As [`stored_here`] for an ID that isn't an episode's;
-/// `store.query_failed` if they can't be read.
+/// `api.invalid_request` if `id` isn't an episode ID;
+/// `api.episode_not_found` if no episode has it, finalised or deleted
+/// here; `store.query_failed` if they can't be read.
 pub fn read(data_dir: &Path, reader: &Reader, id: &str) -> Result<EpisodeEvents, KaptoError> {
     stored_here(data_dir, reader, id)?;
     Ok(match reader.events(id)? {

@@ -5,7 +5,7 @@
 //! mistaken for complete.
 //!
 //! An episode still in staging is salvaged: its recording is cut at its
-//! last intact record and closed ([`crate::salvage`]), its `episode.json`
+//! last intact record and closed ([`salvage`](crate::salvage())), its `episode.json`
 //! is written from what the recording holds, marked `recovered`, and it is
 //! finalised as any other. One moved out of staging but stopped before its
 //! manifest or its `_FINALISED` marker was complete already, and is only

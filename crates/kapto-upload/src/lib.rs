@@ -5,8 +5,8 @@
 //! The engine talks to storage through `object_store`'s own interface,
 //! [`ObjectStore`](object_store::ObjectStore) and, for large files put in
 //! parts, [`MultipartStore`](object_store::multipart::MultipartStore).
-//! [`conformance::check`] is what a store must do for the engine, and
-//! [`faulty::Faulty`] makes a store fail as a test says; both are built for
+//! `conformance::check` is what a store must do for the engine, and
+//! `faulty::Faulty` makes a store fail as a test says; both are built for
 //! this crate's tests and with the `testing` feature.
 
 pub mod backoff;

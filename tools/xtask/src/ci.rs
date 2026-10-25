@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! `cargo xtask ci`: formatting, lints, release builds without the
-//! development features, dependency policy, generated pages, links and
-//! tests.
+//! development features, dependency policy, documentation, generated
+//! pages, links and tests.
 //!
 //! All selected steps run even if an earlier one fails, so one run shows every
 //! problem. The command fails if any step failed.
@@ -16,7 +16,8 @@ use crate::{agents, links, reference, repo_root};
 /// static checks report first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Group {
-    /// Formatting, lints, dependency policy, generated pages and links.
+    /// Formatting, lints, dependency policy, documentation, generated pages
+    /// and links.
     Check,
     /// Unit, integration and documentation tests.
     Test,
@@ -35,10 +36,11 @@ pub(crate) struct Tool {
 
 /// What a step does.
 pub(crate) enum Action {
-    /// Runs `cargo` with these arguments. `tool` is `None` when the
-    /// subcommand ships with cargo.
+    /// Runs `cargo` with these arguments and environment variables. `tool`
+    /// is `None` when the subcommand ships with cargo.
     Cargo {
         args: &'static [&'static str],
+        env: &'static [(&'static str, &'static str)],
         tool: Option<Tool>,
     },
     /// Runs a check inside xtask; returns whether it passed and prints its
@@ -56,6 +58,7 @@ const FORMAT: Step = Step {
     name: "format",
     action: Action::Cargo {
         args: &["fmt", "--all", "--", "--check"],
+        env: &[],
         tool: None,
     },
 };
@@ -73,6 +76,7 @@ const LINTS: Step = Step {
             "--deny",
             "warnings",
         ],
+        env: &[],
         tool: None,
     },
 };
@@ -93,6 +97,7 @@ const DEVELOPMENT_LINTS: Step = Step {
             "--deny",
             "warnings",
         ],
+        env: &[],
         tool: None,
     },
 };
@@ -106,6 +111,7 @@ const DEPENDENCY_POLICY: Step = Step {
     name: "dependency policy",
     action: Action::Cargo {
         args: &["deny", "check"],
+        env: &[],
         tool: Some(Tool {
             subcommand: "deny",
             install: "cargo install --locked cargo-deny",
@@ -119,10 +125,25 @@ const FUZZ_DEPENDENCY_POLICY: Step = Step {
     name: "fuzz targets' dependency policy",
     action: Action::Cargo {
         args: &["deny", "--manifest-path", "fuzz/Cargo.toml", "check"],
+        env: &[],
         tool: Some(Tool {
             subcommand: "deny",
             install: "cargo install --locked cargo-deny",
         }),
+    },
+};
+
+// Every crate's documentation, warnings as errors: broken intra-doc links,
+// in private items too, and public items linking to private ones, which
+// would be dead links in the published pages. Private items aren't
+// documented: that would hide the second kind. The `ros2` feature is left
+// out, as for the lints.
+const RUSTDOC: Step = Step {
+    name: "rustdoc",
+    action: Action::Cargo {
+        args: &["doc", "--workspace", "--no-deps"],
+        env: &[("RUSTDOCFLAGS", "--deny warnings")],
+        tool: None,
     },
 };
 
@@ -146,6 +167,7 @@ const TESTS: Step = Step {
     action: Action::Cargo {
         // An empty test suite is not an error while crates are still empty.
         args: &["nextest", "run", "--workspace", "--no-tests=pass"],
+        env: &[],
         tool: Some(Tool {
             subcommand: "nextest",
             install: "cargo install --locked cargo-nextest",
@@ -170,6 +192,7 @@ const DEVELOPMENT_TESTS: Step = Step {
             "-E",
             "test(trace::) | test(closing::)",
         ],
+        env: &[],
         tool: Some(Tool {
             subcommand: "nextest",
             install: "cargo install --locked cargo-nextest",
@@ -181,6 +204,7 @@ const DOC_TESTS: Step = Step {
     name: "doc tests",
     action: Action::Cargo {
         args: &["test", "--workspace", "--doc"],
+        env: &[],
         tool: None,
     },
 };
@@ -194,6 +218,7 @@ pub(crate) fn steps(group: Group) -> Vec<&'static Step> {
         &RELEASE_WITHOUT_DEVELOPMENT,
         &DEPENDENCY_POLICY,
         &FUZZ_DEPENDENCY_POLICY,
+        &RUSTDOC,
         &GENERATED_PAGES,
         &LINKS,
         &AGENTS_FILE,
@@ -222,16 +247,17 @@ pub(crate) fn run(group: Group) -> ExitCode {
 
     for step in steps(group) {
         let passed = match &step.action {
-            Action::Cargo { args, tool } => {
+            Action::Cargo { args, env, tool } => {
                 if let Some(tool) = tool
                     && !is_installed(&cargo, tool)
                 {
                     eprintln!("{}", missing_tool_message(step, tool));
                     false
                 } else {
-                    println!("==> {}: cargo {}", step.name, args.join(" "));
+                    println!("==> {}: {}", step.name, command_line(args, env));
                     Command::new(&cargo)
                         .args(*args)
+                        .envs(env.iter().copied())
                         .status()
                         .is_ok_and(|status| status.success())
                 }
@@ -253,6 +279,18 @@ pub(crate) fn run(group: Group) -> ExitCode {
     } else {
         ExitCode::FAILURE
     }
+}
+
+/// How a cargo step's command is shown: its environment, then `cargo` and
+/// its arguments.
+fn command_line(args: &[&str], env: &[(&str, &str)]) -> String {
+    let mut words: Vec<String> = env
+        .iter()
+        .map(|(name, value)| format!("{name}=\"{value}\""))
+        .collect();
+    words.push("cargo".to_owned());
+    words.extend(args.iter().map(|arg| (*arg).to_owned()));
+    words.join(" ")
 }
 
 fn is_installed(cargo: &OsString, tool: &Tool) -> bool {
@@ -372,6 +410,7 @@ mod tests {
                 "release without development features",
                 "dependency policy",
                 "fuzz targets' dependency policy",
+                "rustdoc",
                 "generated pages",
                 "links",
                 "agents file"
@@ -398,6 +437,7 @@ mod tests {
                 "release without development features",
                 "dependency policy",
                 "fuzz targets' dependency policy",
+                "rustdoc",
                 "generated pages",
                 "links",
                 "agents file",
@@ -430,6 +470,27 @@ mod tests {
     #[test]
     fn lints_treat_warnings_as_errors() {
         assert!(cargo_args(&LINTS).ends_with(&["--deny", "warnings"]));
+    }
+
+    #[test]
+    fn rustdoc_treats_warnings_as_errors() {
+        let Action::Cargo { args, env, .. } = RUSTDOC.action else {
+            panic!("rustdoc runs cargo");
+        };
+        assert_eq!(args[0], "doc");
+        assert_eq!(env, [("RUSTDOCFLAGS", "--deny warnings")]);
+    }
+
+    #[test]
+    fn a_step_shows_its_environment_before_cargo() {
+        assert_eq!(
+            command_line(
+                &["doc", "--no-deps"],
+                &[("RUSTDOCFLAGS", "--deny warnings")]
+            ),
+            "RUSTDOCFLAGS=\"--deny warnings\" cargo doc --no-deps"
+        );
+        assert_eq!(command_line(&["fmt"], &[]), "cargo fmt");
     }
 
     #[test]

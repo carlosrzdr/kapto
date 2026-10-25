@@ -5,7 +5,7 @@
 //!
 //! What a stream's topic is ([`Ros2Subscription`]) is known to every build,
 //! so one without ROS 2 can say a stream needs it. Listing the topics
-//! ([`topics`]) and receiving them ([`Ros2Transport`], a node of Kapto's own
+//! (`topics`) and receiving them (`Ros2Transport`, a node of Kapto's own
 //! that takes each message as it arrived, still serialised as CDR, straight
 //! into a batch's free slot) are only built with the `ros2` feature, which
 //! needs a ROS 2 installation.
