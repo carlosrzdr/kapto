@@ -51,6 +51,10 @@ fn the_demo_receives_its_robot_and_records_an_episode_through_the_api() {
         .args(["demo", "--robot-port", &free_udp_port(), "--rate", "500"])
         .args(["--port", &port])
         .args(["--viewer-stream-port", &stream_port])
+        // Pre-flight measures the streams' rates and the disk's free space,
+        // which depend on how busy and full the test machine is: its
+        // failures are only warned of, so they can't refuse the start.
+        .args(["--capture-preflight", "warn"])
         .arg("--data-dir")
         .arg(&folder)
         .env_clear()
@@ -81,7 +85,8 @@ fn the_demo_receives_its_robot_and_records_an_episode_through_the_api() {
         let (code, body) = http(&port, "GET", "/api/status", "");
         code == 200 && number(&body, "received") > 0
     });
-    assert_eq!(http(&port, "POST", "/api/episodes/start", "{}").0, 201);
+    let (code, body) = http(&port, "POST", "/api/episodes/start", "{}");
+    assert_eq!(code, 201, "{body}");
     wait_until("messages written", || {
         number(&http(&port, "GET", "/api/status", "").1, "written") > 100
     });
