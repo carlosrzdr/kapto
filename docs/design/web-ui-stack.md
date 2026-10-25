@@ -33,6 +33,16 @@ fail in odd ways.
   another API version.
 - **The viewer is a Svelte component of the UI's own page,** under the
   same policy, reaching only the viewer bridge's stream.
+- **Interactive controls are Bits UI's**, headless components that bring
+  the behaviour and none of the look: selects, popovers, dialogs, toggles,
+  menus, folds and tooltips, with their keyboard use, focus and roles for
+  screen readers. Each is styled with the tokens of `ui/src/app.css`, so the
+  page keeps one look of its own, and works under the content policy as it
+  is, without styles written into the page. A wrapper of Kapto's own
+  (`ui/src/lib/controls/`) gives a control the same look and behaviour
+  everywhere it is used. Plots stay uPlot's and the robot three.js's: they
+  draw many times a second, which components drawing with the page's
+  elements can't.
 - **Logic that must match the server exactly** (validation, rule checks)
   will come from Rust compiled to WebAssembly (`kapto-wasm`) when the first
   such screen arrives; not before.
@@ -54,6 +64,16 @@ fail in odd ways.
   nothing Kapto needs is missing from Svelte.
 - **A Rust UI framework (Leptos, Dioxus):** one language, but a smaller
   ecosystem of components.
+- **shadcn-svelte, or another styled library (Skeleton, Flowbite):** a
+  finished look at once, but each brings Tailwind, a second way of styling
+  beside the tokens, for a look that would have to be made Kapto's anyway.
+- **Melt UI:** headless like Bits UI, but as builders spread onto markup
+  written out for each control: more code per control, and less of it
+  ready for Svelte 5.
+- **The browser's own controls, and controls of Kapto's own:** native
+  selects can't be styled or show more than a line per option, and every
+  control written by hand needs its keyboard use and roles written and
+  tested again.
 - **`openapi-typescript` for the types:** the usual tool, but it would bring
   Node.js into `cargo xtask gen` and the engine's CI.
 - **Serving the UI from the filesystem:** easier to swap, but the UI and the

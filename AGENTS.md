@@ -300,7 +300,7 @@ Python package on top; MCAP recordings stored as received, carrying
 everything they were recorded with; a viewer of Kapto's own (three.js,
 uPlot) with bounded memory and its own forward kinematics; Apache-2.0; TOML
 configuration; four processes, threads for high-rate work; a Svelte UI
-embedded in the binary; ROS 2 through rcl (`r2r`), types loaded by name,
+embedded in the binary, its controls on Bits UI styled with Kapto's tokens; ROS 2 through rcl (`r2r`), types loaded by name,
 only in the ROS 2 image; kept messages (`transient_local`) starting every
 episode; each stream's pre-roll held in a ring set aside at startup and
 written first, its post-roll after Stop, the episode spanning its data; messages over a datagram's size (cameras) through rings of their
