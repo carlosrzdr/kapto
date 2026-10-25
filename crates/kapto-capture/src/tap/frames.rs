@@ -6,8 +6,11 @@
 //! A frame is far larger than a datagram, so frames have a Unix stream
 //! socket of their own. Nothing here can make recording wait. The writer
 //! copies a camera's newest frame into one of three slots set aside for it,
-//! at most once per [`FrameConfig::min_interval`], and only into a slot the
-//! tap thread has finished with; otherwise the frame is skipped and counted.
+//! at most once per [`FrameConfig::min_interval`] and no more often than the
+//! bridge last asked for, and only into a slot the tap thread has finished
+//! with; otherwise the frame is skipped and counted. A frame the bridge
+//! didn't ask for is never copied: with no page open, it wants only what
+//! its history keeps, a few a second.
 //! The tap thread writes one frame at a time, until a deadline it is given,
 //! finishing a frame it wrote in part before starting another; meanwhile
 //! only each camera's newest frame waits, and older ones are skipped and
@@ -21,15 +24,33 @@
 //! | Offset | Bytes | Field |
 //! |---|---|---|
 //! | 0 | 4 | `KFRM` |
-//! | 4 | 1 | version, 1 |
+//! | 4 | 1 | version, 2 |
 //! | 5 | 1 | 0, reserved |
 //! | 6 | 2 | stream index, `u16`, its position in the stream declarations |
 //! | 8 | 8 | receive time, `u64` nanoseconds of the host's monotonic clock |
 //! | 16 | 4 | the message's length `n`, `u32` |
 //! | 20 | n | the message, exactly as received |
 //!
+//! The bridge says on the same connection how often it wants each camera's
+//! frames, when it connects and whenever that changes, each camera in a
+//! record of its own:
+//!
+//! | Offset | Bytes | Field |
+//! |---|---|---|
+//! | 0 | 4 | `KFRW` |
+//! | 4 | 1 | version, 2 |
+//! | 5 | 1 | 0, reserved |
+//! | 6 | 2 | stream index, `u16` |
+//! | 8 | 8 | the shortest time it wants between two frames, `u64` nanoseconds |
+//!
+//! The tap thread reads these without waiting and keeps each camera's
+//! interval, never shorter than the cap, in an atomic the writer reads once
+//! per batch. With no bridge connected, or before it has said, the cap
+//! alone applies. A record of a stream that isn't a camera here is ignored.
+//!
 //! All numbers are little-endian. A reader that finds a version it doesn't
-//! know can't tell where the next frame starts, and closes the connection.
+//! know can't tell where the next frame or record starts, and closes the
+//! connection: a bridge and capture of different builds refuse each other.
 
 use std::io;
 use std::os::unix::net::UnixStream;
@@ -46,11 +67,18 @@ use crate::batch::{Batch, StreamIndex};
 /// The first four bytes of every frame.
 pub const MAGIC: [u8; 4] = *b"KFRM";
 
-/// The version this code writes.
-pub const VERSION: u8 = 1;
+/// The version this code writes, of frames and of the bridge's records.
+pub const VERSION: u8 = 2;
 
 /// The bytes before the message.
 pub const HEADER: usize = 20;
+
+/// The first four bytes of each record of how often the bridge wants a
+/// camera's frames.
+pub const WANTED_MAGIC: [u8; 4] = *b"KFRW";
+
+/// The bytes of one such record.
+pub const WANTED: usize = 16;
 
 /// Slots per camera: one the tap thread is sending, one waiting, one the
 /// writer fills.
@@ -114,6 +142,8 @@ pub fn frames(config: &FrameConfig, socket: &Path) -> (FrameFeed, FrameSender, A
         .iter()
         .map(|(stream, _)| usize::from(*stream) + 1);
     let mut camera_of = vec![usize::MAX; streams.max().unwrap_or(0)];
+    let cap = u64::try_from(config.min_interval.as_nanos()).unwrap_or(u64::MAX);
+    let intervals: Arc<[AtomicU64]> = config.cameras.iter().map(|_| AtomicU64::new(cap)).collect();
     let mut feeds = Vec::with_capacity(config.cameras.len());
     let mut sends = Vec::with_capacity(config.cameras.len());
     for (camera, (stream, max_len)) in config.cameras.iter().enumerate() {
@@ -131,6 +161,7 @@ pub fn frames(config: &FrameConfig, socket: &Path) -> (FrameFeed, FrameSender, A
             full: full_tx,
             free: free_rx,
             due: 0,
+            interval: cap,
             newest: usize::MAX,
         });
         sends.push(SendCamera {
@@ -142,7 +173,7 @@ pub fn frames(config: &FrameConfig, socket: &Path) -> (FrameFeed, FrameSender, A
     let feed = FrameFeed {
         camera_of: camera_of.into_boxed_slice(),
         cameras: feeds.into_boxed_slice(),
-        interval: u64::try_from(config.min_interval.as_nanos()).unwrap_or(u64::MAX),
+        intervals: Arc::clone(&intervals),
         stats: Arc::clone(&stats),
     };
     let sender = FrameSender {
@@ -151,6 +182,10 @@ pub fn frames(config: &FrameConfig, socket: &Path) -> (FrameFeed, FrameSender, A
         path: socket.to_path_buf(),
         stream: None,
         last_attempt: None,
+        intervals,
+        cap,
+        heard: [0; WANTED],
+        heard_len: 0,
         stats: Arc::clone(&stats),
     };
     (feed, sender, stats)
@@ -162,8 +197,9 @@ pub struct FrameFeed {
     /// Per stream, its camera's position in the config, or `usize::MAX`.
     camera_of: Box<[usize]>,
     cameras: Box<[FeedCamera]>,
-    /// The shortest time between two offers, in nanoseconds.
-    interval: u64,
+    /// Each camera's shortest time between two offers, in nanoseconds: the
+    /// cap, or longer if the bridge wants fewer. Set by the tap thread.
+    intervals: Arc<[AtomicU64]>,
     stats: Arc<FrameStats>,
 }
 
@@ -171,16 +207,45 @@ pub struct FrameFeed {
 struct FeedCamera {
     full: Producer<Slot>,
     free: Consumer<Slot>,
-    /// When the next frame is due, in nanoseconds of the monotonic clock.
+    /// When the next frame is due, in nanoseconds of the monotonic clock;
+    /// 0 before the first.
     due: u64,
+    /// The shortest time between two offers `due` was set by.
+    interval: u64,
     /// The position of its newest frame in the current batch.
     newest: usize,
 }
 
+impl FeedCamera {
+    /// Offers from now on no more often than every `interval`.
+    fn follow(&mut self, interval: u64) {
+        if interval == self.interval {
+            return;
+        }
+        // Due that long after the last frame offered: a page that opens
+        // has its frames from the next, not after the history's interval.
+        if self.due != 0 {
+            self.due = self
+                .due
+                .saturating_sub(self.interval)
+                .saturating_add(interval);
+        }
+        self.interval = interval;
+    }
+
+    /// Whether its newest frame in the batch received at `now` is due.
+    /// Frames a little early still count as due, so a camera at twice the
+    /// interval's rate with some jitter is offered at that rate, not at a
+    /// third of its own.
+    fn due(&self, now: u64) -> bool {
+        self.newest != usize::MAX && now.saturating_add(self.interval / 8) >= self.due
+    }
+}
+
 impl FrameFeed {
     /// Offers each camera's newest frame in `batch`, if one is due. Never
-    /// allocates or waits: with no free slot, the frame is skipped and
-    /// counted.
+    /// allocates, locks or waits: with no free slot, the frame is skipped
+    /// and counted.
     pub fn offer(&mut self, batch: &Batch) {
         let now = batch.recv_time().as_nanos();
         let mut any = false;
@@ -192,13 +257,15 @@ impl FrameFeed {
                 any = true;
             }
         }
+        if !any {
+            return;
+        }
+        for (camera, interval) in self.cameras.iter_mut().zip(self.intervals.iter()) {
+            camera.follow(interval.load(Ordering::Relaxed));
+        }
         // Most batches have no frame due: they cost one look at each
         // message, not two.
-        let early = self.interval / 8;
-        let due = |camera: &FeedCamera| {
-            camera.newest != usize::MAX && now.saturating_add(early) >= camera.due
-        };
-        if !any || !self.cameras.iter().any(due) {
+        if !self.cameras.iter().any(|camera| camera.due(now)) {
             for camera in &mut self.cameras {
                 camera.newest = usize::MAX;
             }
@@ -214,19 +281,18 @@ impl FrameFeed {
             if camera.newest != position {
                 continue;
             }
+            let due = camera.due(now);
             camera.newest = usize::MAX;
-            // Frames a little early still count as due, so a camera at twice
-            // the cap with some jitter is offered at the cap, not at a third
-            // of its rate.
-            if now.saturating_add(early) < camera.due {
+            if !due {
                 continue;
             }
-            // The next one is due an interval after this one was, so the cap
-            // holds over time; after a pause, it starts again from now.
-            camera.due = if now > camera.due.saturating_add(self.interval) {
-                now.saturating_add(self.interval)
+            // The next one is due an interval after this one was, so the
+            // interval holds over time; after a pause, it starts again from
+            // now.
+            camera.due = if now > camera.due.saturating_add(camera.interval) {
+                now.saturating_add(camera.interval)
             } else {
-                camera.due.saturating_add(self.interval)
+                camera.due.saturating_add(camera.interval)
             };
             let counts = &self.stats.cameras[index];
             counts.offered.fetch_add(1, Ordering::Relaxed);
@@ -269,6 +335,13 @@ pub struct FrameSender {
     path: PathBuf,
     stream: Option<UnixStream>,
     last_attempt: Option<Instant>,
+    /// Each camera's interval, as the writer reads it.
+    intervals: Arc<[AtomicU64]>,
+    /// The shortest interval, `viewer.camera_max_fps`'s, in nanoseconds.
+    cap: u64,
+    /// A record from the bridge read in part, and how much of it.
+    heard: [u8; WANTED],
+    heard_len: usize,
     stats: Arc<FrameStats>,
 }
 
@@ -292,6 +365,7 @@ impl FrameSender {
     /// `deadline` passes. A frame the bridge hasn't taken in full by then
     /// is finished next time, before any other.
     pub fn send_until(&mut self, deadline: Instant) {
+        self.hear();
         loop {
             self.take_offered();
             if self.sending.is_none() {
@@ -338,12 +412,79 @@ impl FrameSender {
                 }
                 // The bridge has gone: the frame went with the connection.
                 Err(_) => {
-                    self.stream = None;
                     self.stats.cameras[camera]
                         .not_sent
                         .fetch_add(1, Ordering::Relaxed);
                     self.cameras[camera].free(slot);
+                    self.disconnect();
                 }
+            }
+        }
+    }
+
+    /// Reads, without waiting, what the bridge has said about how often it
+    /// wants each camera's frames. Something that isn't such a record ends
+    /// the connection.
+    fn hear(&mut self) {
+        let mut bytes = [0; 4 * WANTED];
+        while let Some(stream) = &self.stream {
+            let understood = match receive(stream, &mut bytes) {
+                // Closed by the bridge.
+                Ok(0) => false,
+                Ok(read) => self.heard(bytes.get(..read).unwrap_or_default()),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => true,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return,
+                Err(_) => false,
+            };
+            if !understood {
+                self.disconnect();
+            }
+        }
+    }
+
+    /// Takes `bytes` read from the bridge, each record whole setting its
+    /// camera's interval. `false` if one isn't a record of this version.
+    fn heard(&mut self, bytes: &[u8]) -> bool {
+        for &byte in bytes {
+            let Some(at) = self.heard.get_mut(self.heard_len) else {
+                return false;
+            };
+            *at = byte;
+            self.heard_len += 1;
+            if self.heard_len < WANTED {
+                continue;
+            }
+            self.heard_len = 0;
+            let Some((stream, interval)) = read_wanted(&self.heard) else {
+                return false;
+            };
+            let camera = self.stats.cameras.iter().position(|c| c.stream == stream);
+            if let Some(wanted) = camera.and_then(|camera| self.intervals.get(camera)) {
+                let interval = u64::try_from(interval.as_nanos()).unwrap_or(u64::MAX);
+                wanted.store(interval.max(self.cap), Ordering::Relaxed);
+            }
+        }
+        true
+    }
+
+    /// Lets go of the connection to the bridge: a frame written in part is
+    /// counted as not sent, and each camera's frames are offered at the cap
+    /// again until a bridge says otherwise.
+    fn disconnect(&mut self) {
+        self.stream = None;
+        self.heard_len = 0;
+        for interval in self.intervals.iter() {
+            interval.store(self.cap, Ordering::Relaxed);
+        }
+        if let Some((camera, slot, written)) = self.sending.take() {
+            if written == 0 {
+                // Nothing of it went: it can still go whole on the next.
+                self.sending = Some((camera, slot, written));
+            } else {
+                self.stats.cameras[camera]
+                    .not_sent
+                    .fetch_add(1, Ordering::Relaxed);
+                self.cameras[camera].free(slot);
             }
         }
     }
@@ -440,6 +581,23 @@ fn connect(path: &Path) -> io::Result<UnixStream> {
     UnixStream::connect(path)
 }
 
+/// Reads what the bridge has sent into `bytes`, without waiting.
+#[cfg(target_os = "linux")]
+fn receive(stream: &UnixStream, bytes: &mut [u8]) -> io::Result<usize> {
+    let (read, _) = rustix::net::recv(stream, bytes, rustix::net::RecvFlags::DONTWAIT)?;
+    Ok(read)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn receive(stream: &UnixStream, bytes: &mut [u8]) -> io::Result<usize> {
+    use std::io::Read;
+    stream.set_nonblocking(true)?;
+    let mut reading = stream;
+    let read = reading.read(bytes);
+    stream.set_nonblocking(false)?;
+    read
+}
+
 /// Writes as much of `bytes` as the bridge takes within `timeout`.
 fn write(stream: &UnixStream, bytes: &[u8], timeout: Duration) -> io::Result<usize> {
     // A timeout of zero would mean none at all.
@@ -490,6 +648,34 @@ pub fn read_header(header: &[u8; HEADER]) -> Option<FrameHeader> {
     })
 }
 
+/// The bridge's record saying it wants camera `stream`'s frames no more
+/// often than every `interval`.
+#[must_use]
+pub fn wanted_record(stream: StreamIndex, interval: Duration) -> [u8; WANTED] {
+    let mut record = [0; WANTED];
+    record[..4].copy_from_slice(&WANTED_MAGIC);
+    record[4] = VERSION;
+    record[6..8].copy_from_slice(&stream.to_le_bytes());
+    let interval = u64::try_from(interval.as_nanos()).unwrap_or(u64::MAX);
+    record[8..].copy_from_slice(&interval.to_le_bytes());
+    record
+}
+
+/// Reads one of the bridge's records: the camera's stream and how often it
+/// wants its frames; `None` if it isn't one of this version.
+#[must_use]
+pub fn read_wanted(record: &[u8; WANTED]) -> Option<(StreamIndex, Duration)> {
+    if record[..4] != WANTED_MAGIC || record[4] != VERSION {
+        return None;
+    }
+    let mut interval = [0; 8];
+    interval.copy_from_slice(&record[8..]);
+    Some((
+        u16::from_le_bytes([record[6], record[7]]),
+        Duration::from_nanos(u64::from_le_bytes(interval)),
+    ))
+}
+
 /// What happened to each camera's frames, readable from any thread.
 #[derive(Debug)]
 pub struct FrameStats {
@@ -511,7 +697,9 @@ struct CameraCounts {
 pub struct FrameTotals {
     /// The camera's stream.
     pub stream: StreamIndex,
-    /// Frames the writer offered, at most one per interval.
+    /// Frames the writer offered, at most one per interval: the cap's, or
+    /// the longer one the bridge asked for. Frames between are neither
+    /// offered nor counted, as nothing was to use them.
     pub offered: u64,
     /// Offered frames the writer skipped because the tap thread held every
     /// slot, or that were longer than a slot.
@@ -549,7 +737,8 @@ impl FrameStats {
 mod tests {
     use super::*;
 
-    const CAP: Duration = Duration::from_nanos(1_000_000_000 / 30);
+    const CAP_NS: u64 = 1_000_000_000 / 30;
+    const CAP: Duration = Duration::from_nanos(CAP_NS);
 
     fn config(cameras: &[(StreamIndex, usize)]) -> FrameConfig {
         FrameConfig {
@@ -676,6 +865,147 @@ mod tests {
             config(&[(0, 100), (1, 1000)]).memory_bytes(),
             3 * 120 + 3 * 1020
         );
+    }
+
+    /// Offers a frame of camera 0 every `period_ns` from `from_ns` until
+    /// `to_ns`, the tap thread taking each, and says how many were offered.
+    fn offer_every(
+        (feed, sender): (&mut FrameFeed, &mut FrameSender),
+        period_ns: u64,
+        (from_ns, to_ns): (u64, u64),
+    ) -> u64 {
+        let before = sender.stats.totals()[0].offered;
+        let mut at = from_ns;
+        while at < to_ns {
+            feed.offer(&batch(at, &[(0, b"f")]));
+            sender.take_offered();
+            let _ = sender.cameras[0]
+                .waiting
+                .take()
+                .map(|slot| sender.cameras[0].free(slot));
+            at += period_ns;
+        }
+        sender.stats.totals()[0].offered - before
+    }
+
+    const SECOND: u64 = 1_000_000_000;
+    /// A camera at 30 frames a second.
+    const PERIOD: u64 = SECOND / 30;
+
+    #[test]
+    fn the_writer_offers_frames_as_often_as_the_bridge_last_asked() {
+        let (mut feed, mut sender, _) = frames(&config(&[(0, 8)]), Path::new("x"));
+        // Before the bridge says anything, the cap: 30 a second.
+        let offered = offer_every((&mut feed, &mut sender), PERIOD, (0, SECOND));
+        assert!((29..=31).contains(&offered), "{offered}");
+        // Five a second, as for the history with no page open.
+        assert!(sender.heard(&wanted_record(0, Duration::from_millis(200))));
+        let offered = offer_every((&mut feed, &mut sender), PERIOD, (SECOND, 3 * SECOND));
+        assert!((9..=11).contains(&offered), "{offered}");
+        // A page opens and wants 12 a second: from the next frame.
+        assert!(sender.heard(&wanted_record(0, Duration::from_secs(1) / 12)));
+        let offered = offer_every((&mut feed, &mut sender), PERIOD, (3 * SECOND, 5 * SECOND));
+        assert!((23..=25).contains(&offered), "{offered}");
+        // More than the cap allows is the cap.
+        assert!(sender.heard(&wanted_record(0, Duration::ZERO)));
+        let offered = offer_every((&mut feed, &mut sender), PERIOD, (5 * SECOND, 6 * SECOND));
+        assert!((29..=31).contains(&offered), "{offered}");
+        assert_eq!(sender.stats.totals()[0].skipped, 0);
+    }
+
+    #[test]
+    fn a_page_opening_has_the_next_frame_not_one_a_history_interval_later() {
+        let (mut feed, mut sender, _) = frames(&config(&[(0, 8)]), Path::new("x"));
+        assert!(sender.heard(&wanted_record(0, Duration::from_millis(200))));
+        // Offered at 0; the next would be due at 200 ms.
+        assert_eq!(offer_every((&mut feed, &mut sender), PERIOD, (0, 1)), 1);
+        assert!(sender.heard(&wanted_record(0, CAP)));
+        assert_eq!(
+            offer_every((&mut feed, &mut sender), PERIOD, (PERIOD, PERIOD + 1)),
+            1
+        );
+    }
+
+    #[test]
+    fn with_the_bridge_gone_the_cap_alone_applies_again() {
+        let (mut feed, mut sender, _) = frames(&config(&[(0, 8)]), Path::new("x"));
+        assert!(sender.heard(&wanted_record(0, Duration::from_millis(200))));
+        let offered = offer_every((&mut feed, &mut sender), PERIOD, (0, SECOND));
+        assert!((4..=6).contains(&offered), "{offered}");
+        sender.disconnect();
+        let offered = offer_every((&mut feed, &mut sender), PERIOD, (SECOND, 2 * SECOND));
+        assert!((29..=31).contains(&offered), "{offered}");
+    }
+
+    #[test]
+    fn a_record_of_a_stream_that_isnt_a_camera_here_is_ignored() {
+        let (_, mut sender, _) = frames(&config(&[(2, 8)]), Path::new("x"));
+        assert!(sender.heard(&wanted_record(5, Duration::from_secs(1))));
+        assert_eq!(sender.intervals[0].load(Ordering::Relaxed), CAP_NS);
+    }
+
+    proptest::proptest! {
+        /// However the bridge's records are cut up by the reads, each sets
+        /// its camera's interval once whole.
+        #[test]
+        fn records_split_across_reads_are_read_whole(
+            wanted_ms in proptest::collection::vec((0_u16..3, 0_u64..2_000), 1..8),
+            cuts in proptest::collection::vec(1_usize..40, 0..20),
+        ) {
+            let (_, mut sender, _) = frames(&config(&[(0, 8), (1, 8), (2, 8)]), Path::new("x"));
+            let bytes: Vec<u8> = wanted_ms
+                .iter()
+                .flat_map(|(stream, ms)| wanted_record(*stream, Duration::from_millis(*ms)))
+                .collect();
+            let mut rest = &bytes[..];
+            for cut in cuts.iter().chain(std::iter::repeat(&usize::MAX)) {
+                if rest.is_empty() {
+                    break;
+                }
+                let (read, left) = rest.split_at((*cut).min(rest.len()));
+                proptest::prop_assert!(sender.heard(read));
+                rest = left;
+            }
+            for camera in 0..3_u16 {
+                let expected = wanted_ms
+                    .iter()
+                    .rev()
+                    .find(|(stream, _)| *stream == camera)
+                    .map_or(CAP.as_nanos(), |(_, ms)| {
+                        Duration::from_millis(*ms).max(CAP).as_nanos()
+                    });
+                let interval = sender.intervals[usize::from(camera)].load(Ordering::Relaxed);
+                proptest::prop_assert_eq!(u128::from(interval), expected);
+            }
+        }
+
+        /// Bytes that aren't records are refused, never panicked on, and
+        /// never set an interval shorter than the cap.
+        #[test]
+        fn anything_else_from_the_bridge_is_refused_without_panicking(
+            bytes in proptest::collection::vec(proptest::num::u8::ANY, 0..100),
+        ) {
+            let (_, mut sender, _) = frames(&config(&[(0, 8), (1, 8)]), Path::new("x"));
+            let understood = sender.heard(&bytes);
+            let records_ok = bytes
+                .as_chunks::<WANTED>()
+                .0
+                .iter()
+                .all(|record| read_wanted(record).is_some());
+            proptest::prop_assert_eq!(understood, records_ok);
+            for interval in sender.intervals.iter() {
+                proptest::prop_assert!(interval.load(Ordering::Relaxed) >= CAP_NS);
+            }
+        }
+    }
+
+    #[test]
+    fn a_wanted_record_is_read_back_and_one_of_another_version_is_not() {
+        let mut record = wanted_record(7, Duration::from_millis(200));
+        assert_eq!(read_wanted(&record), Some((7, Duration::from_millis(200))));
+        record[4] = VERSION + 1;
+        assert_eq!(read_wanted(&record), None);
+        assert_eq!(read_wanted(&[0; WANTED]), None);
     }
 
     #[test]
