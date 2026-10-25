@@ -474,11 +474,24 @@ impl Photographer {
             .any(|page| lock(&page.pictures).wants(stream, by))
     }
 
+    /// The shortest time wanted between two frames of a camera: the
+    /// history's interval with no page open, else the shortest of it and
+    /// each page's share. Capture sends no frame more often, as nothing
+    /// here would use it.
+    #[must_use]
+    pub fn wanted_interval(&self) -> Duration {
+        let history = lock(&self.shared.camera_history).settings().every;
+        lock(&self.shared.pages)
+            .iter()
+            .map(|page| lock(&page.pictures).interval())
+            .fold(history, Duration::min)
+    }
+
     /// How wide, at most, camera `stream`'s picture of a frame received at
     /// `received_utc_ns` is kept for pages looking back, if one is due.
     #[must_use]
     pub fn look_back_due(&self, stream: u16, received_utc_ns: i64) -> Option<u32> {
-        let history = lock(&self.shared.camera_history);
+        let mut history = lock(&self.shared.camera_history);
         history
             .due(stream, received_utc_ns)
             .then(|| history.settings().width)
@@ -503,7 +516,7 @@ impl Photographer {
     /// smaller first, without holding up a page asking meanwhile.
     pub fn remember(&self, stream: u16, received_utc_ns: i64, jpeg: &[u8]) {
         let settings = {
-            let history = lock(&self.shared.camera_history);
+            let mut history = lock(&self.shared.camera_history);
             if !history.due(stream, received_utc_ns) {
                 return;
             }
@@ -721,6 +734,9 @@ fn serve_page(
         (&frames, &marks, (&pictures, &shared.pictures_sent)),
         (&shared.history, &shared.camera_history),
     );
+    // Gone now, not when a frame next finds it gone: capture is told at
+    // once that its cameras' frames are wanted less often.
+    lock(&shared.pages).retain(|page| !Arc::ptr_eq(&page.pictures, &pictures));
     let _ = socket.close(None);
     Ok(())
 }

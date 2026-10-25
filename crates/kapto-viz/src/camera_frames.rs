@@ -12,9 +12,15 @@
 //! however slow the encoding is. One thread encodes for every camera: on a
 //! machine shared with the recording and the browser, several encoding at
 //! once each took three times as long.
+//!
+//! The thread also tells capture, on the same connection, how often it
+//! wants each camera's frames: as often as the history keeps them with no
+//! page open, as often as the page wanting most shows them otherwise, and
+//! again whenever that changes. Capture then copies and sends no frame
+//! nothing here would use.
 
 use std::collections::BTreeMap;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,7 +28,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use kapto_capture::tap::frames::{HEADER, read_header};
+use kapto_capture::tap::frames::{HEADER, read_header, wanted_record};
 use kapto_config::MAX_MESSAGE_BYTES;
 use kapto_core::ClockSample;
 use kapto_core::clock::monotonic_now;
@@ -108,6 +114,7 @@ pub fn listen(
         photographer,
         pictures: Pictures::default(),
         buffer: Vec::new(),
+        told: Vec::new(),
         clock: ClockSample::now(),
         clock_read: Instant::now(),
         stats: Arc::clone(&stats),
@@ -129,6 +136,9 @@ struct Reader {
     pictures: Pictures,
     /// The frame being read, reused.
     buffer: Vec<u8>,
+    /// How often this connection's capture was last told the bridge wants
+    /// each camera's frames, in the order of `cameras`.
+    told: Vec<Option<Duration>>,
     clock: ClockSample,
     clock_read: Instant,
     stats: Arc<CameraStats>,
@@ -155,7 +165,13 @@ impl Reader {
     fn read(&mut self, mut connection: UnixStream) {
         if connection.set_nonblocking(false).is_err()
             || connection.set_read_timeout(Some(POLL)).is_err()
+            || connection.set_write_timeout(Some(POLL)).is_err()
         {
+            return;
+        }
+        self.told.clear();
+        self.told.resize(self.cameras.len(), None);
+        if !self.tell(&mut connection) {
             return;
         }
         let mut header = [0; HEADER];
@@ -186,10 +202,29 @@ impl Reader {
                 self.hand(frame.stream, kind, frame.recv_time.as_nanos(), &buffer);
             }
             self.buffer = buffer;
-            if !read {
+            if !read || !self.tell(&mut connection) {
                 return;
             }
         }
+    }
+
+    /// Tells capture how often the bridge now wants each camera's frames,
+    /// if that changed since it was last told. `false` if capture has gone.
+    fn tell(&mut self, connection: &mut UnixStream) -> bool {
+        let wanted = self.photographer.wanted_interval();
+        for ((stream, _), told) in self.cameras.iter().zip(&mut self.told) {
+            if *told == Some(wanted) {
+                continue;
+            }
+            if connection
+                .write_all(&wanted_record(*stream, wanted))
+                .is_err()
+            {
+                return false;
+            }
+            *told = Some(wanted);
+        }
+        true
     }
 
     /// Shows camera `stream`'s frame received at `recv_time_ns`: a
@@ -233,8 +268,9 @@ impl Reader {
     }
 
     /// Fills `into` from `connection`, waiting as long as it takes unless
-    /// the bridge stops. `false` if it closed or the bridge is stopping.
-    fn fill(&self, connection: &mut UnixStream, into: &mut [u8]) -> bool {
+    /// the bridge stops, and telling capture meanwhile when the frames
+    /// wanted change. `false` if it closed or the bridge is stopping.
+    fn fill(&mut self, connection: &mut UnixStream, into: &mut [u8]) -> bool {
         let mut filled = 0;
         while filled < into.len() {
             if self.stop.load(Ordering::Relaxed) {
@@ -246,10 +282,16 @@ impl Reader {
                 Err(error)
                     if matches!(
                         error.kind(),
-                        io::ErrorKind::WouldBlock
-                            | io::ErrorKind::TimedOut
-                            | io::ErrorKind::Interrupted
-                    ) => {}
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    // A page that opens while a camera's frames come only
+                    // for the history is told within a poll.
+                    if !self.tell(connection) {
+                        return false;
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(_) => return false,
             }
         }

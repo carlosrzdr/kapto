@@ -572,7 +572,7 @@ export interface LiveViewCounts {
   not_sent: number;
   /**
    * Frames offered: the camera's newest, at most `viewer.camera_max_fps`
-   * a second.
+   * a second, and no more often than the viewer bridge asked for.
    */
   offered: number;
   /** Frames the viewer bridge took. */

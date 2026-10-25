@@ -373,8 +373,14 @@ their own ([cameras in the live view](../design/cameras-in-the-live-view.md)).
 A stream is a camera when it is a ROS 2 topic of a camera's type or a TCP
 stream with a `camera` table. As it offers each batch, the writer copies
 each camera's newest frame into one of three slots set aside for it, at
-most `viewer.camera_max_fps` times a second (30 by default); the batches
-between only look for a frame. In what is left of each interval between
+most `viewer.camera_max_fps` times a second (30 by default) and no more
+often than the bridge last asked for; the batches between only look for a
+frame. The bridge says on the frame socket how often it wants each
+camera's frames: as often as its history keeps them with no page open
+(`viewer.camera_history_fps`), as often as the page wanting most shows
+them otherwise, and again when a page opens or closes; `cap-tap` reads
+that without waiting and hands it to the writer through an atomic per
+camera. With no bridge connected, the cap alone applies. In what is left of each interval between
 its sends of samples, `cap-tap` writes the frames to the viewer's frame
 socket (`viewer.frame_socket`), a Unix stream socket, as a short header and
 the message as recorded: one frame at a time, finishing a frame cut off by

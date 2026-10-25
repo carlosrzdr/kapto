@@ -3279,7 +3279,7 @@
           "offered": {
             "type": "integer",
             "format": "int64",
-            "description": "Frames offered: the camera's newest, at most `viewer.camera_max_fps`\na second.",
+            "description": "Frames offered: the camera's newest, at most `viewer.camera_max_fps`\na second, and no more often than the viewer bridge asked for.",
             "minimum": 0
           },
           "sent": {

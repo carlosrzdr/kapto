@@ -2,7 +2,8 @@
 
 //! A camera recorded by `kapto record` reaches the live view's frame
 //! socket at `viewer.camera_max_fps`, each frame as recorded, and with no
-//! viewer listening is recorded just the same.
+//! viewer listening is recorded just the same. A viewer bridge with no page
+//! open has it offered only as often as its history keeps pictures.
 
 #![cfg(unix)]
 #![allow(
@@ -20,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use common::free_tcp_ports;
+use common::{free_tcp_ports, free_udp_port, root};
 use kapto_capture::tap::frames::{HEADER, read_header};
 use kapto_loadgen::{Config, Transport, run};
 use kapto_testkit::TempDir;
@@ -98,6 +99,19 @@ fn send_camera(port: &str) {
     assert_eq!(sent.send_errors, 0);
 }
 
+/// The numbers in the summary's line about the camera: sent, offered,
+/// replaced, skipped and not sent.
+fn camera_line(summary: &str) -> Vec<usize> {
+    let line = summary
+        .lines()
+        .find(|line| line.starts_with("Live view of front_camera: "))
+        .unwrap_or_else(|| panic!("{summary}"));
+    line.split(|c: char| !c.is_ascii_digit())
+        .filter(|word| !word.is_empty())
+        .map(|word| word.parse().unwrap())
+        .collect()
+}
+
 /// What `kapto record` printed at the end, and every frame recorded.
 fn finish(child: Child, data: &Path) -> (String, Vec<Vec<u8>>) {
     let output = child.wait_with_output().unwrap();
@@ -146,16 +160,8 @@ fn a_cameras_frames_reach_the_viewer_at_the_cap_each_as_recorded() {
     // What the summary says became of the frames offered: each sent (and
     // read here), replaced by a newer one while this reader was slow, or
     // skipped; a slow viewer losing frames is how the live view works.
-    let line = summary
-        .lines()
-        .find(|line| line.starts_with("Live view of front_camera: "))
-        .unwrap_or_else(|| panic!("{summary}"));
-    let numbers: Vec<usize> = line
-        .split(|c: char| !c.is_ascii_digit())
-        .filter(|word| !word.is_empty())
-        .map(|word| word.parse().unwrap())
-        .collect();
-    let [sent, offered, replaced, skipped, ..] = numbers[..] else {
+    let line = &summary;
+    let [sent, offered, replaced, skipped, ..] = camera_line(&summary)[..] else {
         panic!("{line}");
     };
     assert_eq!(sent, shown.len(), "{line}");
@@ -190,4 +196,67 @@ fn with_no_viewer_listening_a_camera_is_recorded_whole_and_its_frames_counted_as
         .find(|line| line.starts_with("Live view of front_camera: 0 of "))
         .unwrap_or_else(|| panic!("{summary}"));
     assert!(line.ends_with("while no viewer listened"), "{line}");
+}
+
+#[test]
+fn with_a_bridge_but_no_page_open_a_camera_is_offered_only_as_often_as_the_history_keeps() {
+    let dir = TempDir::new("record-camera-bridge");
+    let [camera_port, stream_port] = free_tcp_ports::<2>();
+    // The sample arm and a camera after it, for the bridge and capture.
+    let arm7 = root().join("packages/arm7");
+    let streams = std::fs::read_to_string(arm7.join("streams.toml"))
+        .unwrap()
+        .replace("127.0.0.1:9000", &format!("127.0.0.1:{}", free_udp_port()));
+    let streams_path = dir.0.join("streams.toml");
+    let camera = std::fs::read_to_string(streams_file(&dir.0, &camera_port)).unwrap();
+    std::fs::write(&streams_path, format!("{streams}\n{camera}")).unwrap();
+    let data = dir.0.join("data");
+    let socket = dir.0.join("frames.sock");
+    let bridge = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .arg("viz-bridge")
+        .arg("--robot")
+        .arg(arm7.join("urdf/arm7.urdf"))
+        .arg("--streams")
+        .arg(&streams_path)
+        .arg("--mapping")
+        .arg(arm7.join("mapping.toml"))
+        .args(["--duration", &(SECONDS + 12).to_string()])
+        .args(["--viewer-stream-port", &stream_port])
+        .arg("--viewer-tap-socket")
+        .arg(data.with_file_name("tap.sock"))
+        .arg("--viewer-frame-socket")
+        .arg(&socket)
+        .arg("--data-dir")
+        .arg(&dir.0)
+        .env_clear()
+        .env("HOME", &dir.0)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !socket.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the bridge never listened"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let recording = start_recording(&streams_path, &data, &socket, "30");
+    send_camera(&camera_port);
+    let (summary, recorded) = finish(recording, &data);
+    let mut bridge = bridge;
+    let _ = bridge.kill();
+    let _ = bridge.wait();
+
+    assert_eq!(recorded.len(), 60 * 3, "every frame recorded");
+    let [sent, offered, ..] = camera_line(&summary)[..] else {
+        panic!("{summary}");
+    };
+    // Five a second for the history, not the cap's thirty: a few more
+    // before the bridge first said so, or when the writer's schedule
+    // starts again after a pause.
+    let history = 5 * usize::try_from(SECONDS).unwrap();
+    assert!((1..=history + 5).contains(&offered), "{summary}");
+    assert!(sent >= 1, "{summary}");
 }

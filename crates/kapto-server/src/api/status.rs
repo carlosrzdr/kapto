@@ -100,7 +100,7 @@ pub struct StreamCounts {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct LiveViewCounts {
     /// Frames offered: the camera's newest, at most `viewer.camera_max_fps`
-    /// a second.
+    /// a second, and no more often than the viewer bridge asked for.
     pub offered: u64,
     /// Offered frames skipped because the live view held every slot.
     pub skipped: u64,

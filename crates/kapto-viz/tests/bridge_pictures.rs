@@ -2,8 +2,9 @@
 
 //! Cameras' frames through the bridge: read from the frame socket as
 //! capture sends them, each picture sent to a page as the viewer stream's
-//! specification says, a frame that can't be shown named, and a page that
-//! stops reading missing pictures without holding up the bridge.
+//! specification says, a frame that can't be shown named, a page that
+//! stops reading missing pictures without holding up the bridge, and
+//! capture told how often the bridge wants each camera's frames.
 
 #![cfg(unix)]
 #![allow(
@@ -12,14 +13,15 @@
     reason = "test helpers fail the test loudly when the setup itself breaks"
 )]
 
+use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, TcpListener, TcpStream};
+use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use kapto_capture::Batch;
-use kapto_capture::tap::frames::{FrameConfig, FrameFeed, FrameSender, frames};
+use kapto_capture::tap::frames::{HEADER, MAGIC, VERSION, WANTED, read_wanted};
 use kapto_config::{ConfigFile, parse_mapping, parse_streams};
-use kapto_core::{ClockSample, ErrorCode, RecvTime};
+use kapto_core::{ClockSample, ErrorCode};
 use kapto_robot::{JointMap, Kinematics, RobotModel, load_urdf};
 use kapto_testkit::scratch;
 use kapto_viz::camera_history::CameraHistorySettings;
@@ -84,37 +86,59 @@ fn bridge_keeping(
     (bridge, settings, capture)
 }
 
-/// Capture sending frames, as `kapto record` does.
+/// Capture's end of the frame socket, sending each frame as `kapto record`
+/// writes it, whether or not the bridge said it wants it: what the bridge
+/// makes of the frames it gets is tested here, and how capture follows
+/// what the bridge wants in `kapto_capture::tap::frames`.
 struct Capture {
-    feed: FrameFeed,
-    sender: FrameSender,
-    /// Each frame is offered a tenth of a second after the last, so each
-    /// is due.
+    socket: std::path::PathBuf,
+    connection: Option<UnixStream>,
+    /// Each frame is received a tenth of a second after the last.
     tick: u64,
 }
 
 impl Capture {
     fn new(socket: &Path) -> Self {
-        let config = FrameConfig {
-            cameras: vec![(1, 1 << 20), (2, 1 << 20)],
-            min_interval: Duration::from_millis(30),
-        };
-        let (feed, sender, _) = frames(&config, socket);
         Self {
-            feed,
-            sender,
+            socket: socket.to_path_buf(),
+            connection: None,
             tick: 1,
         }
     }
 
-    fn send(&mut self, stream: u16, frame: &[u8]) {
-        let mut batch = Batch::new(1, frame.len());
-        assert!(batch.push(stream, frame));
-        batch.set_recv_time(RecvTime::from_nanos(self.tick * 100_000_000));
-        self.tick += 1;
-        self.feed.offer(&batch);
+    /// The connection to the bridge, made once it listens.
+    fn connection(&mut self) -> &mut UnixStream {
         let deadline = Instant::now() + Duration::from_secs(5);
-        self.sender.send_until(deadline);
+        while self.connection.is_none() {
+            self.connection = UnixStream::connect(&self.socket).ok();
+            assert!(Instant::now() < deadline, "the bridge never listened");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        self.connection.as_mut().unwrap()
+    }
+
+    fn send(&mut self, stream: u16, frame: &[u8]) {
+        let mut bytes = Vec::with_capacity(HEADER + frame.len());
+        bytes.extend(MAGIC);
+        bytes.extend([VERSION, 0]);
+        bytes.extend(stream.to_le_bytes());
+        bytes.extend((self.tick * 100_000_000).to_le_bytes());
+        bytes.extend(u32::try_from(frame.len()).unwrap().to_le_bytes());
+        bytes.extend(frame);
+        self.tick += 1;
+        self.connection().write_all(&bytes).unwrap();
+    }
+
+    /// The next record of how often the bridge wants a camera's frames:
+    /// its stream and the interval.
+    fn wanted(&mut self) -> (u16, Duration) {
+        let connection = self.connection();
+        connection
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut record = [0; WANTED];
+        connection.read_exact(&mut record).unwrap();
+        read_wanted(&record).unwrap()
     }
 }
 
@@ -474,5 +498,31 @@ fn a_frame_socket_that_cannot_be_listened_on_stops_the_bridge_with_its_cause() {
         std::fs::read_to_string(folder.join("in-the-way")).unwrap(),
         "not a socket"
     );
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[test]
+fn capture_is_told_how_often_each_camera_is_wanted_as_pages_open_and_close() {
+    let folder = scratch("bridge-pictures-wanted");
+    // Two cameras on a page: 30 pictures a second each, the cap.
+    let (bridge, settings, mut capture) = bridge(&folder);
+    let history = CameraHistorySettings::default().every;
+    // With no page open, only as often as the history keeps them.
+    assert_eq!(
+        [capture.wanted(), capture.wanted()],
+        [(1, history), (2, history)]
+    );
+    let page = watch(settings.stream_port);
+    let share = PageShare::default().interval(2);
+    assert_eq!(
+        [capture.wanted(), capture.wanted()],
+        [(1, share), (2, share)]
+    );
+    drop(page);
+    assert_eq!(
+        [capture.wanted(), capture.wanted()],
+        [(1, history), (2, history)]
+    );
+    drop(bridge);
     std::fs::remove_dir_all(folder).unwrap();
 }
