@@ -1030,25 +1030,19 @@ The other work packages wait until then.
    chunk, so the writer's per-chunk allocations come with each frame;
    proposed, chunks stay 1 MiB, as the writer takes 0.16 cores with two
    1080p cameras at 60 fps.
-6. **Capture's threads in its declared memory.** The closing design says
-   capture's threads are counted in what it declares, but only the rings
-   are: `cap-finalise` and `cap-hash` (a 256 KiB buffer each, beside their
-   stacks) aren't. Proposed: each thread's buffers and stack size added to
-   the declaration when capture starts, with a test that the declared
-   total covers what a recording with one episode closing allocates.
-7. **Fixed transforms in the ROS 2 demo.** Whether the synthetic robot also
+6. **Fixed transforms in the ROS 2 demo.** Whether the synthetic robot also
    publishes the sample arm's fixed transforms (a camera's mount on
    `/tf_static`), so the ROS 2 demo shows a kept stream.
-8. **`kapto topics` through Kapto's own node**, leaving `r2r_rcl` as the
+7. **`kapto topics` through Kapto's own node**, leaving `r2r_rcl` as the
    only ROS 2 dependency.
-9. **Environments around the robot**, once they have been used in the
+8. **Environments around the robot**, once they have been used in the
    viewer: kept with the configuration, chosen per session, checked like a
    package and carried in the recording.
-10. **Jitter in the stream health.** Measuring the spread of arrival times
-    needs every message's receive time, which only capture's threads see:
-    a running spread per stream in the writer, or none until there is a
-    measured need.
-11. **Controls for a finger.** Controls are 1.75rem (26 px) tall, above
+9. **Jitter in the stream health.** Measuring the spread of arrival times
+   needs every message's receive time, which only capture's threads see:
+   a running spread per stream in the writer, or none until there is a
+   measured need.
+10. **Controls for a finger.** Controls are 1.75rem (26 px) tall, above
     WCAG's 24 px but under the 44 px a finger needs on a tablet beside the
     robot. Proposed: `--control-height` at 44 px under `@media (pointer:
     coarse)`, desktop unchanged; tried on a real tablet first, as the
