@@ -22,7 +22,7 @@ binary:
 |---|---|---|
 | server | Supervises the others; API and web UI; the only writer of the runtime database | async, small runtime |
 | capture | Receives, timestamps and records data | one thread per input, one writer thread, one stats thread, normal or real-time priority; one thread closing each episode as the next phase runs, at low priority |
-| viewer bridge | Turns a lossy copy of live data into the web UI's live view, and recordings into replays | threads, slightly lowered priority |
+| viewer bridge | Turns a lossy copy of live data into the web UI's live view | threads, slightly lowered priority |
 | worker | Checks, statistics, relevance selection, labelling, export, upload | low priority; thread pool for CPU work, small async runtime for uploads |
 
 - The server restarts the viewer bridge and the worker if they crash. It never

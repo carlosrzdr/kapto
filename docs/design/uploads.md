@@ -137,9 +137,9 @@ them.** Throughput comes from concurrency, not from a single request:
   throttles, so a change in `object_store`'s wording fails a test rather
   than throttling going unnoticed. Waiting as
   `Retry-After` says comes back once `object_store` exposes it.
-- **A bandwidth cap**, optional and off by default, with a token bucket of
-  Kapto's own, for links shared with the robot's own traffic, optionally
-  only at certain hours.
+- **A bandwidth cap**, optional and off by default, for links shared with
+  the robot's own traffic: each request waits until those before it would
+  have taken at the cap.
 - **The defaults are a starting point.** Part size, parallel parts and
   files, the most requests in flight and how throttling is answered are all
   in `[upload]`, overridable per destination, so a site with a fast link
@@ -189,7 +189,7 @@ when an upload starts, so a change applies to uploads that start after it.
   it is.
 - Retries, backoff, timeouts, part size, parallel parts and files, the
   most requests in flight and how throttling is answered, the bandwidth
-  cap, verification (`server-checksum`, `read-back`, `size-only`)
+  cap, verification (`server_checksum`, `read_back`, `size_only`)
   and the marker: each with its default in one `Default` implementation,
   which is also the source of the configuration reference.
 

@@ -26,7 +26,7 @@ running collector. Python never runs in the recording path.
 
 - Predictable latency and memory use without a garbage collector, and memory
   safety without manual memory management.
-- Mature libraries exist for what Kapto needs: MCAP, Rerun, ROS 2, cloud
+- Mature libraries exist for what Kapto needs: MCAP, ROS 2, cloud
   storage, SQLite, HTTP.
 - The Python package gives identical results to the Rust engine because it
   is the Rust engine.
@@ -39,6 +39,6 @@ running collector. Python never runs in the recording path.
 - **C++:** equally fast, but without Rust's memory safety, and with harder
   dependency management and builds.
 - **Go:** simpler, but its garbage collector adds pauses, and its libraries
-  for MCAP, Rerun and robotics are thinner.
+  for MCAP and robotics are thinner.
 - **Python:** what many users know, but too slow for the recording path, and
   its interpreter lock limits parallelism.

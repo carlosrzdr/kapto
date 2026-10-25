@@ -6,7 +6,7 @@ Kapto shows the robot moving on its 3D model, and every decoded value
 plotted, live and when an episode is replayed. The page showing it is left
 open all day beside a robot, on whatever computer the operator has, often
 without a graphics card. What it needs is bounded by design: the robot's
-pose now, and the last minute or so of each plot.
+pose now, and each plot's last minutes, as far back as the bridge keeps.
 
 What has to hold:
 
@@ -80,7 +80,7 @@ replay.** Forward kinematics is Kapto's own and shared with the checks.
 - **Kapto takes the events, not the page.** The capture process receives
   every event, whoever sends it: itself, the web UI's buttons or keys, the
   API, `kapto episode event`, or the robot through a stream declared for
-  it, so a teleoperation tool or a pedal can mark an action without the
+  it *(planned)*, so a teleoperation tool or a pedal can mark an action without the
   page open. During an episode it writes each one into the recording, on a
   channel of Kapto's own handed to the writer between batches, so the
   recording carries its events and anything working on it later reads

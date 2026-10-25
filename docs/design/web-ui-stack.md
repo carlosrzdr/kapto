@@ -31,8 +31,8 @@ fail in odd ways.
   UI serves a page saying how to build it.
 - **The UI checks `/api/version` when it loads** and refuses to run against
   another API version.
-- **The viewer is embedded as a frame of the viewer bridge's own page,**
-  which keeps its policy separate from the UI's.
+- **The viewer is a Svelte component of the UI's own page,** under the
+  same policy, reaching only the viewer bridge's stream.
 - **Logic that must match the server exactly** (validation, rule checks)
   will come from Rust compiled to WebAssembly (`kapto-wasm`) when the first
   such screen arrives; not before.
@@ -53,7 +53,7 @@ fail in odd ways.
 - **React or Vue:** larger runtimes and more code for the same dashboard;
   nothing Kapto needs is missing from Svelte.
 - **A Rust UI framework (Leptos, Dioxus):** one language, but a smaller
-  ecosystem of components and a harder time embedding the Rerun viewer.
+  ecosystem of components.
 - **`openapi-typescript` for the types:** the usual tool, but it would bring
   Node.js into `cargo xtask gen` and the engine's CI.
 - **Serving the UI from the filesystem:** easier to swap, but the UI and the
