@@ -235,11 +235,25 @@ episode waiting behind another being closed holds no thread or buffer.
 Every thread capture starts has a stack of 2 MiB, set rather than left to
 the environment, and capture says when it starts what its threads take at
 most (`kapto_capture::threads`): each one's stack and the buffer it holds
-for itself (`cap-hash` and `cap-finalise` 256 KiB to read a file back,
-pre-flight 1 MiB to write its test), with two `cap-hash` for an episode
-stopped while the next is recorded, and what each control connection
-adds. The main thread,
-and threads rcl and the ROS 2 middleware start, aren't counted.
+for itself. Each kind of thread is bounded, so the total is finite and
+known at start:
+
+| Thread | At most | Holds for itself |
+|---|---|---|
+| `cap-rx-udp-0`, `cap-rx-tcp-<n>`, `cap-rx-ros2`, `cap-rx-ros2-<n>` | one per input | a TCP input's framing buffer: its stream's `max_message_bytes` and one read, allocated whole when it opens |
+| `cap-writer` | one | |
+| `cap-hash` | two: the episode recorded, and one just stopped until its next read | 256 KiB to read the file back |
+| `cap-finalise` | one, closing one episode at a time | 256 KiB to read the rest, then the other files |
+| `cap-tap` | one, with a live view | |
+| `cap-control`, `cap-control-tell` | one each | |
+| `cap-control-conn` | `capture.control_max_connections` (16), one per connection answered | |
+| `cap-recover` | one, while capture starts | |
+| `cap-preflight`, `cap-preflight-router` | one each, while pre-flight runs, the router's to see a ROS 2 router answer | 1 MiB to write the test |
+
+An episode waiting to be closed behind another keeps no thread or buffer,
+only its digest and its open file; a control connection beyond the bound
+is answered `capture.control_busy` and closed. The main thread, and threads
+rcl and the ROS 2 middleware start, aren't counted.
 
 Each recording is written in a staging folder, then moved, listed in a
 manifest with every file's checksum, and marked `_FINALISED` last, so a
@@ -821,7 +835,7 @@ schema changes in place, at version 1 and without migrations: a database
 whose tables differ from it is deleted and made again.
 
 ```
-kapto serve ─┬─ kapto capture      (cap-rx-*, cap-writer, cap-tap, cap-hash, cap-finalise, cap-control, cap-control-tell, cap-preflight)
+kapto serve ─┬─ kapto capture      (cap-rx-*, cap-writer, cap-tap, cap-hash, cap-finalise, cap-control, cap-control-tell, cap-control-conn, cap-recover, cap-preflight, cap-preflight-router)
   srv-api    ├─ kapto viz-bridge   (viz-stream, viz-stream-page, viz-marks)
              └─ kapto worker       (wrk-sched, wrk-cpu-0, wrk-watch, wrk-upload) ── worker.sock
   srv-watch, srv-stats, srv-announce, srv-index, srv-jobs ── worker.sock
