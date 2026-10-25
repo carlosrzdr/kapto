@@ -887,8 +887,9 @@ Rust side through an adapter. Stubs generated and verified with
 | M15-04 `feat(capture): rt priority and pinning` | Optional, with `CAP_SYS_NICE` detection (CAP-12, DCK-8) | Works and degrades gracefully without the capability | — |
 | M15-05 `feat(config): low-power profile` | Viewer rates, deferred QA (EFF-7) | Bench on lower-bound machine | — |
 | M15-06 `build(docker): production profile and python` | DCK-9, DCK-10, DCK-11 docs | Container tests | — |
-| M15-06b `feat(xtask): profile report and budgets` | Full `perf-budget.toml` (hot path + every job kind), `xtask profile report` with within/over/unexpectedly-cheap verdicts; `tokio-console` under the `profiling` feature (PROF-5, PROF-6) | Report snapshot on the `unattended-1h-events` scenario; a deliberately slowed check is flagged over budget, a disabled one as unexpectedly cheap | Which background jobs dominate CPU per episode-minute, and whether that matches the budget |
-| M15-06d `feat(xtask): profile page` | The page profile of §2.8 (PROF-8): the web UI against a scenario in Chromium in Docker, on the GPU when there is one, for a set time; frames a second, the live view's delay, memory over time and the main thread's time per function, as a report beside the others | A scenario with two 1080p cameras at 60 fps and 50 streams: the report's numbers within what the page is allowed (stated in `perf-budget.toml`) | The live view on a robot the size of the largest one recorded |
+| M15-06b `feat(server): tokio-console in profiling builds` | The server's and the upload lane's runtimes observable with `tokio-console` under the `profiling` feature (PROF-6): each task's poll times and wake-ups. **Open question:** whether it is worth `console-subscriber` and the `tokio_unstable` build flag it needs, or whether the trace's spans around each upload are enough | A profiling build of serve shows its tasks in `tokio-console`; a release build has none of it | What the API's and the uploads' tasks wait on |
+| M15-06e `perf(capture): lz4 chunks without a second checksum` | The writer spends a fifth of its time in `XXH32_update`, the LZ4 frame's own checksum of each chunk's contents, on the reference load and on a two-armed robot over ROS 2 with two cameras alike (`profile record`), beside MCAP's CRC-32 of the same chunk; write the frames without it if every reader of Kapto's recordings still checks the chunk by its CRC | `bench model`'s `mcap_write_lz4` before and after; recordings still read by `mcap` and Foxglove, a damaged chunk still found | The writer's CPU on the reference load |
+| M15-06f `fix(ui): the live view's memory over hours` | Watching the live view of a two-armed robot over ROS 2 with two 1080p cameras for an hour, the browser's memory grew from 808 to 1074 MiB, its renderer about 5 MiB a minute, while the page's JavaScript heap stayed at about 20 MiB: find what the renderer keeps (canvases, decoded pictures, WebGL) with Chrome's memory tools, and the main thread's own painting, half its busy time on the largest robot (`profile page --scenario large`). `profile page` names the page's functions only as minified: a source map for it would name them | `bench browser --minutes 60` with cameras: the browser's memory flat after its first minutes | The live view left open for a shift |
 | M15-07 `test(docs): quick-start in ci` | DCK-13 steps executed as written | E2E | Exit criterion |
 
 ### WP M17: Time correlation *(parallel)*
@@ -985,9 +986,9 @@ reference.
 1. The cameras: M6b-04b (capture's CPU with ROS 2 cameras, not reproduced
    in later runs; measured on the reference PC).
 2. Zenoh made solid with cameras: its cost brought to DDS's (M6-05d).
-3. Profiling, so every change after it is measured where the time goes:
-   M15-06d (`profile page`), then M15-06b (the budget report over
-   them).
+3. What profiling found: the writer's second checksum (M15-06e) and
+   the live view's memory over hours (M15-06f); `tokio-console`
+   (M15-06b) once its open question is answered.
 4. Recording a robot simulated in Isaac Sim (WP M20), starting with
    M20-01.
 

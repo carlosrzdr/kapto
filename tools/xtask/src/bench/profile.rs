@@ -9,6 +9,7 @@
 
 mod flamegraph;
 mod page;
+mod report;
 mod stacks;
 mod timeline;
 
@@ -113,6 +114,26 @@ pub(crate) fn record(root: &Path, args: ScenarioArgs) -> ExitCode {
                 work.display()
             );
             ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Holds the newest runs of `bench model`, `profile trace` and `profile
+/// page` against `perf-budget.toml`; fails if anything is over budget.
+pub(crate) fn report(root: &Path) -> ExitCode {
+    match report::report(root) {
+        Ok((report, over)) => {
+            println!("{report}");
+            if over {
+                eprintln!("Something is over its budget in perf-budget.toml.");
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
         }
         Err(error) => {
             eprintln!("error: {error}");

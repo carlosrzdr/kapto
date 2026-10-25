@@ -22,11 +22,56 @@ use kapto_server::retention::Retention;
 use kapto_store::db::DATABASE_FILE;
 use kapto_store::episode::EPISODE_FILE;
 use kapto_store::{Episode, JobState, Writer};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::super::{record_load_watched, tidy, work_dir};
 use super::TraceArgs;
 use crate::storage;
+
+/// The file in a trace's folder `profile report` reads.
+pub(super) const SUMMARY_FILE: &str = "summary.json";
+
+/// What `profile report` reads of a trace.
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+pub(super) struct TraceSummary {
+    /// Each job's time per minute recorded, in milliseconds, by its kind.
+    pub(super) job_ms_per_minute: BTreeMap<String, f64>,
+    /// Seconds of hashing per GB, if anything was hashed.
+    pub(super) checksum_s_per_gb: Option<f64>,
+    /// The upload lane's CPU-seconds per GB, if the episode went up.
+    pub(super) upload_cpu_s_per_gb: Option<f64>,
+}
+
+impl TraceSummary {
+    /// From a trace's events, the episode's length in minutes and its
+    /// upload, if it went up.
+    fn new(events: &[Value], minutes: f64, uploaded: Option<&Uploaded>) -> Self {
+        let mut summary = Self::default();
+        let (mut hashed_bytes, mut hashing_us) = (0_u64, 0.0);
+        for event in events.iter().filter(|event| event["ph"] == "X") {
+            let duration_us = event["dur"].as_f64().unwrap_or(0.0);
+            match event["name"].as_str() {
+                Some("job") if minutes > 0.0 => {
+                    let kind = event["args"]["kind"].as_str().unwrap_or("").to_owned();
+                    *summary.job_ms_per_minute.entry(kind).or_default() +=
+                        duration_us / 1e3 / minutes;
+                }
+                Some("checksum") => {
+                    hashed_bytes += event["args"]["bytes"].as_u64().unwrap_or(0);
+                    hashing_us += duration_us;
+                }
+                _ => {}
+            }
+        }
+        summary.checksum_s_per_gb =
+            (hashed_bytes > 0).then(|| hashing_us / 1e6 / (hashed_bytes as f64 / 1e9));
+        summary.upload_cpu_s_per_gb = uploaded
+            .filter(|uploaded| uploaded.bytes > 0)
+            .map(|uploaded| uploaded.cpu_seconds / (uploaded.bytes as f64 / 1e9));
+        summary
+    }
+}
 
 /// Where the profiling build goes, apart from the others.
 const TARGET_DIR: &str = "target/tracing";
@@ -83,6 +128,12 @@ fn traced_with(
         serde_json::to_string(&events).map_err(|error| error.to_string())?,
     )
     .map_err(|error| format!("can't write trace.json: {error}"))?;
+    let summary = TraceSummary::new(&events, worked.minutes, worked.uploaded.as_ref());
+    std::fs::write(
+        work.join(SUMMARY_FILE),
+        serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("can't write {SUMMARY_FILE}: {error}"))?;
     let mut report = markdown(&events, args.scenario.name(), args.seconds, worked.minutes);
     if let Some(uploaded) = worked.uploaded {
         let _ = write!(report, "{}", uploaded.markdown());
@@ -478,6 +529,31 @@ mod tests {
         assert!(
             report.contains("250.0 MB hashed in 500.00 ms: 2.00 s per GB"),
             "{report}"
+        );
+    }
+
+    #[test]
+    fn a_summary_gives_each_job_per_minute_recorded_and_checksums_and_uploads_per_gb() {
+        let events = [
+            json!({"ph": "X", "name": "job", "dur": 3e6, "args": {"kind": "qa"}}),
+            json!({"ph": "X", "name": "job", "dur": 1e6, "args": {"kind": "qa"}}),
+            json!({"ph": "X", "name": "checksum", "dur": 5e5, "args": {"bytes": 250_000_000}}),
+            json!({"ph": "X", "name": "write", "dur": 100.0, "args": {}}),
+        ];
+        let uploaded = Uploaded {
+            bytes: 500_000_000,
+            cpu_seconds: 1.5,
+        };
+        let summary = TraceSummary::new(&events, 2.0, Some(&uploaded));
+        assert_eq!(
+            summary.job_ms_per_minute,
+            BTreeMap::from([("qa".to_owned(), 2000.0)])
+        );
+        assert_eq!(summary.checksum_s_per_gb, Some(2.0));
+        assert_eq!(summary.upload_cpu_s_per_gb, Some(3.0));
+        assert_eq!(
+            TraceSummary::new(&events, 2.0, None).upload_cpu_s_per_gb,
+            None
         );
     }
 

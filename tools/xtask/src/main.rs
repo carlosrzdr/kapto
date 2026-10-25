@@ -155,6 +155,10 @@ enum ProfileCommand {
     /// time, checked against perf-budget.toml, and the main thread's
     /// profile.
     Page(bench::profile::PageArgs),
+    /// Hold the newest runs of `bench model`, `profile trace` and `profile
+    /// page` against perf-budget.toml: each within its budget, over it, or
+    /// unexpectedly cheap.
+    Report,
 }
 
 fn main() -> ExitCode {
@@ -174,6 +178,7 @@ fn main() -> ExitCode {
         }
         Command::Profile(ProfileCommand::Trace(args)) => bench::profile::trace(&repo_root(), args),
         Command::Profile(ProfileCommand::Page(args)) => bench::profile::page(&repo_root(), args),
+        Command::Profile(ProfileCommand::Report) => bench::profile::report(&repo_root()),
         Command::Ui { task } => ui::run(&repo_root(), task),
         Command::Clean { workspace, all } => clean::run(
             &repo_root(),

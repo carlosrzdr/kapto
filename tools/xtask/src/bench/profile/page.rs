@@ -99,10 +99,91 @@ struct Sample {
 }
 
 /// The file in a page profile's folder `profile report` reads.
-pub(super) const CHECKS_FILE: &str = "checks.json";
+pub(super) const MEASURES_FILE: &str = "measures.json";
+
+/// What the page cost, as the budget is held against it.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(super) struct PageMeasures {
+    /// Pictures drawn a second, the fewest in 10 s.
+    lowest_fps: f64,
+    /// A frame's delay to the screen, 95 %; none if no frame came.
+    delay_p95_ms: Option<f64>,
+    /// The browser's memory, its second minute to its last.
+    memory_growth_mib: f64,
+    /// The main thread's busy share, the most in 10 s.
+    busiest: f64,
+}
+
+impl PageMeasures {
+    /// From what the page was seen doing, samples the profiler slowed left
+    /// out.
+    fn new(watched: &Watched) -> Self {
+        let unprofiled: Vec<&Sample> = watched
+            .samples
+            .iter()
+            .filter(|sample| !sample.profiled)
+            .collect();
+        Self {
+            lowest_fps: unprofiled
+                .iter()
+                .map(|sample| sample.fps)
+                .fold(f64::INFINITY, f64::min),
+            delay_p95_ms: percentiles(watched.delays_ms.clone()).map(|delays| delays.p95),
+            memory_growth_mib: memory_growth(&watched.samples),
+            busiest: unprofiled
+                .iter()
+                .map(|sample| sample.busy)
+                .fold(0.0, f64::max),
+        }
+    }
+
+    /// Each measure against `budget`.
+    pub(super) fn checks(&self, budget: &PageBudget) -> Vec<PageCheck> {
+        let Self {
+            lowest_fps,
+            delay_p95_ms,
+            memory_growth_mib,
+            busiest,
+        } = *self;
+        [
+            (
+                "Pictures drawn a second, the fewest in 10 s",
+                format!("{lowest_fps:.1}"),
+                format!("at least {}", budget.min_fps),
+                lowest_fps >= budget.min_fps,
+            ),
+            (
+                "A frame's delay to the screen, 95 %",
+                delay_p95_ms.map_or_else(|| "no frames".to_owned(), |p95| format!("{p95:.0} ms")),
+                format!("at most {} ms", budget.max_delay_p95_ms),
+                delay_p95_ms.is_some_and(|p95| p95 <= budget.max_delay_p95_ms),
+            ),
+            (
+                "The browser's memory, second minute to last",
+                format!("{memory_growth_mib:+.0} MiB"),
+                format!("at most +{} MiB", budget.max_memory_growth_mib),
+                memory_growth_mib <= budget.max_memory_growth_mib,
+            ),
+            (
+                "The main thread busy, the most in 10 s",
+                format!("{:.0} %", busiest * 100.0),
+                format!("at most {:.0} %", budget.max_main_thread_busy * 100.0),
+                busiest <= budget.max_main_thread_busy,
+            ),
+        ]
+        .into_iter()
+        .map(|(measure, measured, allowed, within)| PageCheck {
+            measure: measure.to_owned(),
+            measured,
+            allowed,
+            within,
+        })
+        .collect()
+    }
+}
 
 /// One measure of the page against its budget.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq)]
 pub(super) struct PageCheck {
     pub(super) measure: String,
     pub(super) measured: String,
@@ -172,6 +253,7 @@ pub(super) fn profiled_page(
         serde_json::from_str(&read("page.json")?).map_err(|error| error.to_string())?;
     let profile: Profile =
         serde_json::from_str(&read("page.cpuprofile")?).map_err(|error| error.to_string())?;
+    let measures = PageMeasures::new(&watched);
     let (report, checks) = markdown(args, &watched, &profile, &budget);
     let write = |name: &str, text: &str| {
         std::fs::write(work.join(name), text)
@@ -179,8 +261,8 @@ pub(super) fn profiled_page(
     };
     write("page.md", &report)?;
     write(
-        CHECKS_FILE,
-        &serde_json::to_string_pretty(&checks).map_err(|error| error.to_string())?,
+        MEASURES_FILE,
+        &serde_json::to_string_pretty(&measures).map_err(|error| error.to_string())?,
     )?;
     let within = checks.iter().all(|check| check.within);
     Ok((work, report, within))
@@ -193,47 +275,7 @@ fn markdown(
     profile: &Profile,
     budget: &PageBudget,
 ) -> (String, Vec<PageCheck>) {
-    let unprofiled: Vec<&Sample> = watched
-        .samples
-        .iter()
-        .filter(|sample| !sample.profiled)
-        .collect();
-    let lowest_fps = unprofiled
-        .iter()
-        .map(|sample| sample.fps)
-        .fold(f64::INFINITY, f64::min);
-    let busiest = unprofiled
-        .iter()
-        .map(|sample| sample.busy)
-        .fold(0.0, f64::max);
-    let delay_p95 = percentiles(watched.delays_ms.clone()).map(|delays| delays.p95);
-    let growth = memory_growth(&watched.samples);
-    let checks = [
-        (
-            "Pictures drawn a second, the fewest in 10 s",
-            format!("{lowest_fps:.1}"),
-            format!("at least {}", budget.min_fps),
-            lowest_fps >= budget.min_fps,
-        ),
-        (
-            "A frame's delay to the screen, 95 %",
-            delay_p95.map_or_else(|| "no frames".to_owned(), |p95| format!("{p95:.0} ms")),
-            format!("at most {} ms", budget.max_delay_p95_ms),
-            delay_p95.is_some_and(|p95| p95 <= budget.max_delay_p95_ms),
-        ),
-        (
-            "The browser's memory, second minute to last",
-            format!("{growth:+.0} MiB"),
-            format!("at most +{} MiB", budget.max_memory_growth_mib),
-            growth <= budget.max_memory_growth_mib,
-        ),
-        (
-            "The main thread busy, the most in 10 s",
-            format!("{:.0} %", busiest * 100.0),
-            format!("at most {:.0} %", budget.max_main_thread_busy * 100.0),
-            busiest <= budget.max_main_thread_busy,
-        ),
-    ];
+    let checks = PageMeasures::new(watched).checks(budget);
     let mut text = format!(
         "# Page profile: the {} load, {} minutes\n\n\
          Drawn by {}. Samples taken while the profiler ran are left out of the checks.\n\n\
@@ -242,15 +284,6 @@ fn markdown(
         args.minutes,
         watched.renderer
     );
-    let checks: Vec<PageCheck> = checks
-        .into_iter()
-        .map(|(measure, measured, allowed, within)| PageCheck {
-            measure: measure.to_owned(),
-            measured,
-            allowed,
-            within,
-        })
-        .collect();
     for check in &checks {
         let _ = writeln!(
             text,
