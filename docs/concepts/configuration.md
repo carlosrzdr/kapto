@@ -264,9 +264,13 @@ ros2 = { topic = "/joint_states", type = "sensor_msgs/msg/JointState" }
 # depth = 10                    # messages kept for Kapto before it takes them
 ```
 
-The type's definition is read when the file is: from the `.msg` files in
-the package (see *Decoding messages* below), then from the ROS 2 installation
-Kapto runs in, as ROS 2's setup script sets it (`AMENT_PREFIX_PATH`).
+The type's definition is read when the file is, from the `.msg` files of
+the ROS 2 installation Kapto runs in, as ROS 2's setup script sets it
+(`AMENT_PREFIX_PATH`): the build the robot's nodes use. Where there is no
+installation, it comes from the package's `msg/` folder instead (see
+*Decoding messages* below). A package whose `msg/` folder has a type the
+installation also has, with different text, is refused when it is loaded
+(`config.ros2_msg_differs`), naming the type and both files.
 
 Only the `kapto-ros2` image's Kapto records ROS 2 topics; the others refuse
 a file with one (`transport.ros2.not_built`). It subscribes with a node of
@@ -407,11 +411,13 @@ path syntax and every conversion rule.
 
 A stream of ROS 2 messages declares `kind = "cdr"` and the messages' `type`,
 and finds fields by path the same way; a ROS 2 topic's decoder needs no
-`type`, as it has the topic's. The type's definition comes from `.msg` files
-in a `msg/` folder beside `streams.toml`, laid out as ROS 2 installs them
-(`msg/sensor_msgs/msg/JointState.msg`, and the file of every type it uses),
-or else from the ROS 2 installation Kapto runs in. Copying them into the
-package makes it work wherever Kapto runs:
+`type`, as it has the topic's. The type's definition comes from the ROS 2 installation Kapto runs in,
+where there is one, and only from there; where there is none (the `kapto`
+image, a laptop), from `.msg` files in a `msg/` folder beside
+`streams.toml`, laid out as ROS 2 installs them
+(`msg/sensor_msgs/msg/JointState.msg`, and the file of every type it uses).
+Copying them into the package makes it work wherever Kapto runs, as long
+as each copy has the installed file's text:
 
 ```toml
 [streams.joints.decoder]

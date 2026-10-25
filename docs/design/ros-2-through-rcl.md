@@ -61,7 +61,7 @@ feature `ros2` of `kapto-transport` (and `kapto-cli`, which passes it on):
   message package), as rosbag2 does: any type installed where Kapto runs
   can be subscribed to, the robot's own included. Kapto has its own QoS
   types, and puts each type's definition together from the `.msg` files
-  itself, the package's first, then the installation's.
+  itself, from the installation's where there is one (below).
 - **Kapto takes each message itself**, through rcl's C functions that
   `r2r` already binds (`r2r_rcl`). It waits on its own wait set with the
   transport's timeout, and takes with `rcl_take_serialized_message` into a
@@ -83,6 +83,33 @@ feature `ros2` of `kapto-transport` (and `kapto-cli`, which passes it on):
 - **Only the ROS 2 image has the feature.** `kapto-ros2` is built on the
   pinned ROS 2 base with the feature, linking the installation's libraries;
   `kapto` is built without it and has no ROS 2 code.
+- **A robot's own message types are mounted, not built in.** The image's
+  entrypoint (a few lines in the Dockerfile, in place of the base image's
+  `ros_entrypoint.sh`) sources ROS 2's setup script, then the `setup.sh` of
+  every folder under `/overlays`, in name order, as a ROS 2 workspace
+  overlays the installation it was built on. A robot's built interface
+  packages (its colcon `install/` folder, built against the image's ROS 2
+  distribution) mounted read-only at `/overlays/<name>` are then on
+  `AMENT_PREFIX_PATH` and the library path like the standard ones: Kapto
+  loads their support libraries by name and reads their `.msg` files, and
+  nothing in Kapto's code changes. A folder under `/overlays` without a
+  `setup.sh` stops the container at start, naming the folder, rather than
+  leaving its types missing until a topic is subscribed to.
+- **A type's definition has one source where ROS 2 is installed.** Where
+  Kapto runs with a ROS 2 installation (the ROS 2 image, with its
+  overlays), a type's `.msg` files come from the installation alone: it is
+  the build the robot's nodes use. A package's `msg/` folder is read only
+  where there is no installation (the slim image, a laptop, CDR over UDP or
+  TCP), so a package can still carry what it needs to run anywhere. A
+  package whose `msg/` folder has a type the installation also has, with
+  different text, is refused when it is loaded, naming the type and both
+  files (`config.ros2_msg_differs`), rather than one of them silently
+  deciding how the bytes are read. A recording carries the files it was
+  decoded with, wherever they came from, as before.
+- **`kapto topics` says which types it can subscribe with.** Each topic is
+  listed with its type and whether that type's support library loads in
+  this image, so a missing package shows before a stream is declared, with
+  the same remedy as `transport.ros2.type_unavailable`.
 
 ## Consequences
 
@@ -99,10 +126,18 @@ feature `ros2` of `kapto-transport` (and `kapto-cli`, which passes it on):
   second person, as every `unsafe` block is; Miri can't run it, as it calls
   C, so the transport's tests run against real ROS 2 nodes in the image.
 - **Every message type a topic is subscribed with must be installed where
-  Kapto runs**, as for the robot's own nodes: the standard ones come with the
-  ROS 2 image, and a robot's own message package is built and sourced there.
-  A missing one is refused when the topic is subscribed to, naming it
-  (`transport.ros2.type_unavailable`).
+  Kapto runs**, as for the robot's own nodes: the standard ones come with
+  the ROS 2 image, and a robot's own are mounted from its build into
+  `/overlays`, or built into an image of the user's on top of Kapto's. They
+  must be built for the image's ROS 2 distribution and architecture; a
+  package built for another one fails to load, named with the loader's
+  reason (`transport.ros2.type_unavailable`). A missing one is refused when
+  the topic is subscribed to, naming it.
+- A Kapto upgrade doesn't need the robot's image rebuilt, and the robot's
+  message packages change without Kapto's image: the two meet only in the
+  mount.
+- The test builds a message package of its own in the ROS 2 image, mounts
+  it as an overlay, and records a topic of its type, which fails today.
 - `r2r` follows ROS 2's releases. Moving to a new ROS 2 distribution means
   moving the base image and, if needed, `r2r`, in their own pull request.
 - The middleware's own memory and threads are outside Kapto's control:
@@ -128,3 +163,19 @@ feature `ros2` of `kapto-transport` (and `kapto-cli`, which passes it on):
 - **Recording ROS 2 with rosbag2 and importing the bags.** Already planned as
   an importer, for what was recorded elsewhere. It isn't live: no live view,
   no checks while recording, and loss counted by another tool.
+- **The package's `msg/` folder first, as until now.** A package can
+  override an installed type, but a copy gone stale against the robot's
+  build reads its bytes with the wrong layout, with no error.
+- **Only the installation, no `msg/` folder at all.** One source, but a CDR
+  stream over UDP or TCP, and checking a package without ROS 2
+  (`kapto decode --pcap`), would no longer have the definitions.
+- **Only an image of the user's on top of Kapto's.** Works today, but every
+  Kapto upgrade means rebuilding it, and the guide must teach a Dockerfile.
+- **Kapto adding the overlay's folders to the paths itself** (a deployment
+  key with the prefixes). No script, but the support libraries depend on
+  others found through the library path, which the loader reads only when
+  the process starts, and each package's setup hooks would be skipped.
+- **Kapto decoding the robot's types without ROS 2's libraries, from
+  their `.msg` files alone.** Kapto already decodes CDR so, but subscribing
+  through rcl still needs each type's support library, so it wouldn't
+  record anything more.
