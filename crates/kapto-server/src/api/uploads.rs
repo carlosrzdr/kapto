@@ -11,6 +11,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_store::{Deletion, JobState, Reader, Upload, UploadState};
+use kapto_upload::episode::retrying_may_help;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -52,6 +53,11 @@ pub struct DestinationStatus {
     pub uploaded: u64,
     /// Episodes whose upload failed, tried again by themselves later.
     pub failed: u64,
+    /// Of `failed`, those that need someone: trying again fails the same
+    /// way until what their cause code's remedy names is fixed. The rest
+    /// failed only as the destination didn't answer, and may go up when
+    /// tried again.
+    pub stuck: u64,
     /// The bytes sent of the episodes going up to it.
     pub bytes_sent: u64,
     /// The bytes in all of those episodes.
@@ -89,6 +95,9 @@ pub struct UploadStatus {
     pub failure_code: Option<String>,
     /// Why it failed last, in words.
     pub failure_message: Option<String>,
+    /// Whether, failed, it needs someone: trying again fails the same way
+    /// until what its cause code's remedy names is fixed.
+    pub stuck: bool,
 }
 
 /// One episode's uploads, and whether it is still stored here.
@@ -175,6 +184,7 @@ pub fn overview(
             uploading: 0,
             uploaded: 0,
             failed: 0,
+            stuck: 0,
             bytes_sent: 0,
             bytes_total: 0,
             throttled: 0,
@@ -195,7 +205,10 @@ pub fn overview(
                 status.bytes_total += upload.counts.bytes_total;
             }
             UploadState::Uploaded => status.uploaded += 1,
-            UploadState::Failed => status.failed += 1,
+            UploadState::Failed => {
+                status.failed += 1;
+                status.stuck += u64::from(stuck(upload));
+            }
         }
     }
     let mut uploads: Vec<UploadStatus> = all
@@ -264,7 +277,18 @@ fn status(upload: &Upload) -> UploadStatus {
             .failure
             .as_ref()
             .map(|failure| failure.message.clone()),
+        stuck: stuck(upload),
     }
+}
+
+/// Whether `upload` failed and trying it again won't help; one failed
+/// without a cause recorded isn't known to pass by itself either.
+fn stuck(upload: &Upload) -> bool {
+    upload.state == UploadState::Failed
+        && !upload
+            .failure
+            .as_ref()
+            .is_some_and(|failure| retrying_may_help(&failure.code))
 }
 
 fn deletion(deletion: Deletion) -> EpisodeDeletion {

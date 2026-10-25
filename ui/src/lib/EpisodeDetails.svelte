@@ -294,7 +294,8 @@
       <dd class="uploaded">
         <span>
           {#each uploads.uploads as upload, index (upload.destination)}{index > 0 ? " · " : ""}{upload.destination}
-            {#if upload.state === "failed"}<span class="danger"><Icon name="attention" />failed</span
+            <!-- Red only when it needs someone; amber while trying again may get it up. -->
+            {#if upload.state === "failed"}<span class={upload.stuck ? "danger" : "warning"}><Icon name="attention" />failed</span
               >{:else if upload.state === "uploading"}uploading{:else}uploaded{/if}{/each}
         </span>
         {#if failedUploads.length > 0}
@@ -730,8 +731,9 @@
     color: var(--muted);
     font-size: var(--text-sm);
   }
-  /* One scale: danger for data rejected, at risk or not where it should be;
-     warning for degraded but usable. Each with a word, never colour alone. */
+  /* One scale: danger for data rejected, at risk or not where it should be
+     until someone acts; warning for degraded but usable, or for an upload
+     trying again may get up. Each with a word, never colour alone. */
   .danger {
     color: var(--danger);
     font-weight: 600;

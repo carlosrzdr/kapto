@@ -14,6 +14,7 @@ const archive: DestinationStatus = {
   uploading: 1,
   uploaded: 4,
   failed: 0,
+  stuck: 0,
   bytes_sent: 40 * MiB,
   bytes_total: 100 * MiB,
   throttled: 0,
@@ -29,6 +30,7 @@ const going: UploadStatus = {
   throttled: 0,
   started_utc_ns: 2,
   reported_utc_ns: 5e9,
+  stuck: false,
 };
 
 const failed: UploadStatus = {
@@ -43,11 +45,12 @@ const failed: UploadStatus = {
   failed_utc_ns: Date.parse("2026-03-25T10:00:00") * 1e6,
   failure_code: "upload.denied",
   failure_message: "the store refused Kapto's credentials (os error 13)",
+  stuck: true,
 };
 
 const overview: UploadsOverview = {
   waiting: 2,
-  destinations: [archive, { ...archive, name: "nas", url: "file:///srv/kapto", uploading: 0, uploaded: 0, failed: 1 }],
+  destinations: [archive, { ...archive, name: "nas", url: "file:///srv/kapto", uploading: 0, uploaded: 0, failed: 1, stuck: 1 }],
   uploads: [going, failed],
 };
 
@@ -73,6 +76,34 @@ describe("UploadsPanel", () => {
     expect(within(shown).getByText(/uploaded/).textContent?.trim()).toBe("4 uploaded · 1 uploading");
     // None failed there: not said either.
     expect(shown.textContent).not.toContain("failed");
+  });
+
+  it("says failed uploads that need someone in red, apart from those only retrying, in amber", () => {
+    const unreachable = {
+      ...failed,
+      episode: "ep_unreachable",
+      failure_code: "upload.unreachable",
+      failure_message: "connection refused",
+      stuck: false,
+    };
+    const nas = { ...archive, name: "nas", uploading: 0, uploaded: 0, failed: 3, stuck: 1 };
+    render(UploadsPanel, props({ overview: { ...overview, destinations: [nas], uploads: [failed, unreachable] } }));
+    const shown = screen.getByRole("listitem", { name: "nas" });
+    expect(within(shown).getByText(/uploaded/).textContent?.trim()).toBe("0 uploaded · 1 failed · 2 retrying");
+    expect(within(shown).getByText("1 failed").classList.contains("problem")).toBe(true);
+    expect(within(shown).getByText("2 retrying").classList.contains("retrying")).toBe(true);
+    const row = (name: string) => screen.getByRole("listitem", { name: `${name} to nas` });
+    expect(within(row("ep_failed")).getByText(/refused/).classList.contains("problem")).toBe(true);
+    const retrying = within(row("ep_unreachable")).getByText(/connection refused/);
+    expect(retrying.classList.contains("retrying")).toBe(true);
+    expect(retrying.classList.contains("problem")).toBe(false);
+  });
+
+  it("doesn't say a destination's uploads failed while every one is only retrying", () => {
+    const nas = { ...archive, name: "nas", uploading: 0, uploaded: 2, failed: 1, stuck: 0 };
+    render(UploadsPanel, props({ overview: { ...overview, destinations: [nas] } }));
+    const shown = screen.getByRole("listitem", { name: "nas" });
+    expect(within(shown).getByText(/uploaded/).textContent?.trim()).toBe("2 uploaded · 1 retrying");
   });
 
   it("says quietly that no episode is waiting", () => {

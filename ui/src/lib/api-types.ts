@@ -118,6 +118,13 @@ export interface DestinationStatus extends UploadDestination {
   bytes_total: number;
   /** Episodes whose upload failed, tried again by themselves later. */
   failed: number;
+  /**
+   * Of `failed`, those that need someone: trying again fails the same
+   * way until what their cause code's remedy names is fixed. The rest
+   * failed only as the destination didn't answer, and may go up when
+   * tried again.
+   */
+  stuck: number;
   /** How many requests it throttled, over every upload to it. */
   throttled: number;
   /** Episodes uploaded and verified there. */
@@ -1307,6 +1314,11 @@ export interface UploadStatus {
   started_utc_ns: number;
   /** `uploading`, `uploaded` or `failed`. */
   state: string;
+  /**
+   * Whether, failed, it needs someone: trying again fails the same way
+   * until what its cause code's remedy names is fixed.
+   */
+  stuck: boolean;
   /** How many requests the destination throttled. */
   throttled: number;
   /** When it was uploaded, the same way. */

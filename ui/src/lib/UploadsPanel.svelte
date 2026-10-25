@@ -87,9 +87,12 @@
         </div>
         <p class="url data">{destination.url}</p>
         <p class="figures">
-          <!-- Only what is happening: no "0 uploading", no "0 failed". -->
-          {count(destination.uploaded)} uploaded{#if destination.uploading > 0}{` · ${count(destination.uploading)} uploading`}{/if}{#if destination.failed > 0}
-            {" · "}<span class="problem failed">{count(destination.failed)} failed</span>{/if}
+          <!-- Only what is happening: no "0 uploading", no "0 failed". Failed
+               uploads that need someone apart from those only retrying, each in
+               the colour the header's chip says it in. -->
+          {count(destination.uploaded)} uploaded{#if destination.uploading > 0}{` · ${count(destination.uploading)} uploading`}{/if}{#if destination.stuck > 0}
+            {" · "}<span class="problem failed">{count(destination.stuck)} failed</span>{/if}{#if destination.failed > destination.stuck}
+            {" · "}<span class="retrying failed">{count(destination.failed - destination.stuck)} retrying</span>{/if}
           {#if destination.throttled > 0}<span title="Requests it asked Kapto to slow down for"
               >{` · ${count(destination.throttled)} throttled`}</span
             >{/if}
@@ -130,7 +133,7 @@
         {@const retried = retrying[upload.episode]}
         <li aria-label="{upload.episode} to {upload.destination}">
           <p><span class="data">{upload.episode}</span> → {upload.destination}</p>
-          <p class="problem" title={upload.failure_message}>
+          <p class={upload.stuck ? "problem" : "retrying"} title={upload.failure_message}>
             {plain(upload.failure_message ?? "Failed")}{#if upload.failed_utc_ns}<span class="when"
                 >{` · ${time(upload.failed_utc_ns)}`}</span
               >{/if}
@@ -220,10 +223,14 @@
     color: var(--ok);
     font-size: var(--text-sm);
   }
-  /* A failed upload, test or retry is red, as in the header and the
-     episode's details; amber is for what is only degraded. */
+  /* A failed upload that needs someone, test or retry is red, as in the
+     header and the episode's details; amber is for an upload only
+     retrying, and for what is only degraded. */
   .problem {
     color: var(--danger);
+  }
+  .retrying {
+    color: var(--warning);
   }
   .warning {
     margin-bottom: var(--space-3);

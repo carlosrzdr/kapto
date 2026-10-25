@@ -79,14 +79,19 @@ export const RANK = {
   disk_full: { rank: 1, level: "danger" },
   lost: { rank: 2, level: "danger" },
   dropped: { rank: 3, level: "danger" },
-  // A failed upload leaves an episode short of where it should be: red, as
-  // in the Uploads tab and the episode's details.
-  destination: { rank: 4, level: "danger" },
+  // An upload failed in a way trying again won't fix leaves an episode
+  // short of where it should be until someone acts: red, as in the
+  // Uploads tab and the episode's details.
+  upload_stuck: { rank: 4, level: "danger" },
   preflight: { rank: 5, level: "warning" },
   silent: { rank: 6, level: "warning" },
-  slow: { rank: 7, level: "warning" },
-  disk_low: { rank: 8, level: "warning" },
-  process: { rank: 9, level: "warning" },
+  // One failed only as the destination didn't answer is tried again by
+  // itself and loses nothing meanwhile: amber, after what leaves the
+  // recording without a stream, before what only degrades it.
+  upload_retrying: { rank: 7, level: "warning" },
+  slow: { rank: 8, level: "warning" },
+  disk_low: { rank: 9, level: "warning" },
+  process: { rank: 10, level: "warning" },
 } as const satisfies Record<string, { rank: number; level: Level }>;
 
 export type Kind = keyof typeof RANK;
@@ -193,9 +198,12 @@ export function problems(input: HealthInput): Problem[] {
     }
   }
   for (const destination of input.destinations) {
-    if (destination.failed > 0) {
-      const target: Target = { tab: "uploads", anchor: destinationAnchor(destination.name) };
-      all.push(found("destination", `Uploads to ${destination.name} failing`, target, destination.failed));
+    // One line per destination, in the colour of its worst.
+    const target: Target = { tab: "uploads", anchor: destinationAnchor(destination.name) };
+    if (destination.stuck > 0) {
+      all.push(found("upload_stuck", `Uploads to ${destination.name} failing`, target, destination.stuck));
+    } else if (destination.failed > 0) {
+      all.push(found("upload_retrying", `Uploads to ${destination.name} retrying`, target, destination.failed));
     }
   }
   // Stable: problems of one rank and weight keep the order they are listed in.

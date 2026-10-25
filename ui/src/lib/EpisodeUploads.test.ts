@@ -16,6 +16,7 @@ const uploaded: EpisodeUpload = {
   throttled: 0,
   started_utc_ns: 1,
   uploaded_utc_ns: Date.parse("2026-03-25T10:00:00") * 1e6,
+  stuck: false,
   objects: [
     { path: "recording.mcap", key: "fleet-a/arm7/2026-03-25/ep1/recording.mcap", bytes: 12 * MiB, sha256: "a".repeat(64) },
   ],
@@ -29,6 +30,7 @@ const failed: EpisodeUpload = {
   uploaded_utc_ns: null,
   failure_code: "upload.denied",
   failure_message: "the store refused Kapto's credentials (os error 13)",
+  stuck: true,
   objects: [],
 };
 
@@ -52,6 +54,14 @@ describe("EpisodeUploads", () => {
     render(EpisodeUploads, { uploads: here, destinations });
     const nas = screen.getByRole("region", { name: "Upload to nas" });
     expect(nas.textContent).toContain("failed: the store refused Kapto's credentials upload.denied");
+  });
+
+  it("says a failed upload trying again may get up in amber, not red", () => {
+    const retrying = { ...failed, failure_code: "upload.unreachable", failure_message: "connection refused", stuck: false };
+    render(EpisodeUploads, { uploads: { stored_here: true, uploads: [retrying] }, destinations });
+    const failure = screen.getByText(/failed: connection refused/);
+    expect(failure.classList.contains("warning")).toBe(true);
+    expect(failure.classList.contains("danger")).toBe(false);
   });
 
   it("folds each object and its URI behind how many files there are, never the failure", () => {

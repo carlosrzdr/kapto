@@ -930,7 +930,10 @@ attention, with how many more there are, in the colour of the worst, which
 opens the tab holding it at its row ([layouts](../design/layouts.md)). The
 bar over the header, the notice under it and the marks on the tabs take
 that colour too: red for what loses data, stops recording or leaves an
-upload failed, amber for what is degraded or being retried. The
+upload failed until someone acts (refused, answered wrongly, set up
+wrong), amber for what is degraded or being retried, as an upload failed
+because its destination didn't answer or a file there didn't verify,
+which the next try sends again. The
 side panel opens on Episodes, or on the tab last chosen. A button on its
 edge, or `P`, folds it to a strip of its tabs' icons, still marked, so the
 view takes the page's width, the header staying; a tab picked there or the
@@ -952,7 +955,8 @@ puts it in the bin, and *In the bin* lists those there, each with
 failed and throttled counts with a *Test* button that writes, reads back and
 removes a probe there, the episodes waiting, each upload going with how fast
 it goes and how long it has left (from the bytes and the times the worker
-reported), each failed one with why and *Retry now*, and a warning while
+reported), each failed one with why and *Retry now*, red if it needs
+someone and amber if trying again may get it up, and a warning while
 `upload.marker` is off; **Robot** its joints with where
 each is now against its range and what drives it, and its declared
 streams; **System** each process with its state, CPU, memory, threads and

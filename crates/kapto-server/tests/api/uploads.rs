@@ -236,6 +236,76 @@ async fn an_episode_deleted_here_is_still_listed_and_shown_with_where_its_copies
 }
 
 #[tokio::test]
+async fn a_failed_upload_needs_someone_unless_trying_again_may_get_it_up() {
+    let folder = scratch("uploads-stuck");
+    let data = folder.join("data");
+    let state = uploading_state(&folder);
+    let store = state.store.clone();
+    // Two episodes failed at `nas`, one as it didn't answer, one as it
+    // refused Kapto; one at `cloud`, its files not the ones sent, which the
+    // next try sends again.
+    let failures = [
+        (
+            "20260310T120000.000Z-00000001",
+            0,
+            "nas",
+            "upload.unreachable",
+        ),
+        ("20260310T120100.000Z-00000002", 60, "nas", "upload.denied"),
+        (
+            "20260310T120200.000Z-00000003",
+            120,
+            "cloud",
+            "upload.verify_failed",
+        ),
+    ];
+    for (episode, second, destination, code) in failures {
+        finalised_episode(&data, episode, second);
+        store.start_upload(episode, destination, episode).unwrap();
+        let failure = JobFailure {
+            code: code.into(),
+            message: "the destination's answer".into(),
+        };
+        store.upload_failed(episode, destination, failure).unwrap();
+    }
+
+    let (status, overview) = call(state, "GET", "/api/uploads", None).await;
+    assert_eq!(status, StatusCode::OK, "{overview}");
+    let counts =
+        |destination: &Value| (destination["failed"].clone(), destination["stuck"].clone());
+    assert_eq!(counts(&overview["destinations"][0]), (json!(2), json!(1)));
+    assert_eq!(counts(&overview["destinations"][1]), (json!(1), json!(0)));
+    let mut stuck: Vec<(String, bool)> = overview["uploads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|upload| {
+            let code = upload["failure_code"].as_str().unwrap().to_owned();
+            (code, upload["stuck"].as_bool().unwrap())
+        })
+        .collect();
+    stuck.sort();
+    assert_eq!(
+        stuck,
+        [
+            ("upload.denied".to_owned(), true),
+            ("upload.unreachable".to_owned(), false),
+            ("upload.verify_failed".to_owned(), false),
+        ]
+    );
+
+    let (status, uploads) = call(
+        uploading_state(&folder),
+        "GET",
+        &format!("/api/episodes/{}/uploads", failures[0].0),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{uploads}");
+    assert_eq!(uploads["uploads"][0]["stuck"], false);
+}
+
+#[tokio::test]
 async fn failed_uploads_are_tried_again_when_asked_and_asking_with_none_failed_is_refused() {
     let folder = scratch("uploads-retry");
     let data = folder.join("data");

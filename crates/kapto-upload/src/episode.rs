@@ -800,6 +800,16 @@ pub(crate) fn store_error(at: &Path, error: &Error) -> KaptoError {
         .context("key", at.to_string())
 }
 
+/// Whether trying a failed upload again may fix it, by the cause code it
+/// last failed with. A destination that didn't answer may answer later,
+/// and a file that didn't verify is sent again whole on the next try;
+/// refused, answered with an error, changed here, set up wrong or without
+/// its credentials, an upload fails the same way each time it is tried
+/// until someone fixes what the remedy names.
+pub fn retrying_may_help(code: &str) -> bool {
+    code == ErrorCode::UploadUnreachable.id() || code == ErrorCode::UploadVerifyFailed.id()
+}
+
 fn failed(at: &Path, detail: &str) -> KaptoError {
     KaptoError::new(ErrorCode::UploadFailed)
         .detail(detail.to_owned())
@@ -830,6 +840,28 @@ mod tests {
     use crate::faulty::Faulty;
 
     const EPISODE: &str = "20260323T073012.345Z-5f729d2c";
+
+    #[test]
+    fn only_a_destination_not_answering_or_a_file_not_verified_is_left_to_trying_again() {
+        assert!(retrying_may_help("upload.unreachable"));
+        assert!(retrying_may_help("upload.verify_failed"));
+        // Every other cause an upload can be recorded as failed with, and
+        // one this Kapto doesn't know.
+        for code in [
+            ErrorCode::UploadDenied,
+            ErrorCode::UploadFailed,
+            ErrorCode::UploadLocalChanged,
+            ErrorCode::UploadMarkerConflict,
+            ErrorCode::UploadMarkerUnreadable,
+            ErrorCode::UploadDestinationUnusable,
+            ErrorCode::UploadCredentialsMissing,
+            ErrorCode::UploadEpisodeUnreadable,
+            ErrorCode::EpisodeUnreadable,
+        ] {
+            assert!(!retrying_may_help(code.id()), "{}", code.id());
+        }
+        assert!(!retrying_may_help("upload.not_known_yet"));
+    }
 
     /// An episode folder: a recording of three parts of 16 bytes (the last
     /// shorter), a small summary, and their manifest.

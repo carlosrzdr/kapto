@@ -349,6 +349,7 @@ describe("EpisodeList's open episode, folded", () => {
     started_utc_ns: 1,
     failure_code: "upload.denied",
     failure_message: "the store refused Kapto's credentials",
+    stuck: true,
     objects: [],
   };
   const fold = (name: string) => screen.getByRole("table", { name }).closest("details");
@@ -447,6 +448,19 @@ describe("EpisodeList's open episode, folded", () => {
     render(EpisodeList, { ...props, onretry: refused });
     await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("no such upload")).toBeTruthy();
+  });
+
+  it("says in its summary an upload trying again may get up in amber, not red", () => {
+    const retrying = { ...upload, failure_code: "upload.unreachable", failure_message: "connection refused", stuck: false };
+    render(EpisodeList, {
+      episodes: [summary],
+      open: clean,
+      uploads: { stored_here: true, uploads: [retrying] },
+      onselect: vi.fn(),
+    });
+    const nas = screen.getByText("failed", { selector: "dd span" });
+    expect(nas.classList.contains("warning")).toBe(true);
+    expect(nas.classList.contains("danger")).toBe(false);
   });
 
   it("offers no retry while nothing has failed", () => {

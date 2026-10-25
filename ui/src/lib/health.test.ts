@@ -55,7 +55,7 @@ const well = (): HealthInput => ({
   kept: {},
   storage: storage(50 * GiB),
   processes: [{ name: "capture", state: "running", restarts: 0 }],
-  destinations: [{ name: "archive", url: "file:///archive", uploaded: 3, uploading: 0, failed: 0, throttled: 0, bytes_sent: 0, bytes_total: 0 }],
+  destinations: [{ name: "archive", url: "file:///archive", uploaded: 3, uploading: 0, failed: 0, stuck: 0, throttled: 0, bytes_sent: 0, bytes_total: 0 }],
 });
 
 describe("health", () => {
@@ -116,13 +116,34 @@ describe("health", () => {
     const input = well();
     input.rates.arm_joints = 1500;
     input.processes = [{ name: "worker", state: "stopped", restarts: 0 }];
-    input.destinations = [{ ...input.destinations[0]!, name: "nas", failed: 2 }];
-    // A failed upload is red, as everywhere else it is shown; the rest amber.
+    input.destinations = [{ ...input.destinations[0]!, name: "nas", failed: 2, stuck: 1 }];
+    // An upload that needs someone is red, as everywhere else it is shown; the rest amber.
     expect(problems(input)).toEqual([
       { level: "danger", text: "Uploads to nas failing", target: { tab: "uploads", anchor: "destination-nas" } },
       { level: "warning", text: "arm_joints slow", target: { tab: "live", anchor: "stream-arm_joints" } },
       { level: "warning", text: "worker stopped", target: { tab: "system", anchor: "process-worker" } },
     ]);
+  });
+
+  it("says uploads only retrying in amber, after a silent stream and before a slow one", () => {
+    const input = well();
+    input.rates.arm_joints = 1500;
+    input.rates.gripper = 0;
+    input.destinations = [
+      { ...input.destinations[0]!, name: "nas", failed: 2, stuck: 0 },
+      { ...input.destinations[0]!, name: "cloud", failed: 3, stuck: 1 },
+    ];
+    expect(problems(input)).toEqual([
+      { level: "danger", text: "Uploads to cloud failing", target: { tab: "uploads", anchor: "destination-cloud" } },
+      { level: "warning", text: "gripper silent", target: { tab: "live", anchor: "stream-gripper" } },
+      { level: "warning", text: "Uploads to nas retrying", target: { tab: "uploads", anchor: "destination-nas" } },
+      { level: "warning", text: "arm_joints slow", target: { tab: "live", anchor: "stream-arm_joints" } },
+    ]);
+    expect(health({ ...well(), destinations: [input.destinations[0]!] })).toMatchObject({
+      level: "warning",
+      text: "Uploads to nas retrying",
+      more: 0,
+    });
   });
 
   it("doesn't count a kept stream's silence, nor a stream whose rate isn't measured yet", () => {

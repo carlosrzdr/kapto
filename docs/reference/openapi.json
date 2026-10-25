@@ -2442,6 +2442,7 @@
               "uploading",
               "uploaded",
               "failed",
+              "stuck",
               "bytes_sent",
               "bytes_total",
               "throttled"
@@ -2463,6 +2464,12 @@
                 "type": "integer",
                 "format": "int64",
                 "description": "Episodes whose upload failed, tried again by themselves later.",
+                "minimum": 0
+              },
+              "stuck": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Of `failed`, those that need someone: trying again fails the same\nway until what their cause code's remedy names is fixed. The rest\nfailed only as the destination didn't answer, and may go up when\ntried again.",
                 "minimum": 0
               },
               "throttled": {
@@ -5208,7 +5215,8 @@
           "bytes_sent",
           "bytes_total",
           "throttled",
-          "started_utc_ns"
+          "started_utc_ns",
+          "stuck"
         ],
         "properties": {
           "bytes_sent": {
@@ -5273,6 +5281,10 @@
           "state": {
             "type": "string",
             "description": "`uploading`, `uploaded` or `failed`."
+          },
+          "stuck": {
+            "type": "boolean",
+            "description": "Whether, failed, it needs someone: trying again fails the same way\nuntil what its cause code's remedy names is fixed."
           },
           "throttled": {
             "type": "integer",

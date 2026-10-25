@@ -63,7 +63,7 @@
       {:else if upload.state === "uploading"}
         · uploading, {bytes(upload.bytes_sent)} of {bytes(upload.bytes_total)}
       {:else}
-        · <span class="danger" title={upload.failure_message}
+        · <span class={upload.stuck ? "danger" : "warning"} title={upload.failure_message}
           ><Icon name="attention" />{`failed: ${plain(upload.failure_message ?? "")}`}</span
         >{#if upload.failure_code}<span class="code">{" "}<Breakable text={upload.failure_code} /></span>{/if}
       {/if}
@@ -156,11 +156,16 @@
     font-family: var(--font-data);
     font-size: var(--text-xs);
   }
-  /* A failed upload leaves the episode short of where it should be: danger, with its word. */
+  /* A failed upload that needs someone leaves the episode short of where it
+     should be: danger, with its word; one trying again may get up, warning. */
   .danger {
     color: var(--danger);
   }
-  .danger :global(.icon) {
+  .warning {
+    color: var(--warning);
+  }
+  .danger :global(.icon),
+  .warning :global(.icon) {
     margin-right: 0.25em;
     vertical-align: -0.125em;
   }

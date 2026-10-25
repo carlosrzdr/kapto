@@ -17,6 +17,7 @@ function upload(sent: number, reported: number | null, state = "uploading"): Upl
     throttled: 0,
     started_utc_ns: 0,
     reported_utc_ns: reported,
+    stuck: false,
   };
 }
 
