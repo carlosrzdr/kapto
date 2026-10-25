@@ -87,6 +87,14 @@ impl TcpConfig {
             keepalive_after: Duration::from_secs(5),
         }
     }
+
+    /// The framing buffer a transport opened with this config allocates
+    /// when it opens, at its full size from the start: room for the
+    /// longest message, a delimiter and one read.
+    #[must_use]
+    pub fn framing_buffer_bytes(&self) -> usize {
+        Deframer::buffer_bytes(&self.framing, self.max_message_bytes, self.read_bytes)
+    }
 }
 
 /// Receives the messages of one TCP connection.

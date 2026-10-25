@@ -154,6 +154,20 @@ pub(crate) struct Input {
     pub(crate) max_batches: usize,
 }
 
+impl Plan {
+    /// What each receiver thread holds for itself, in input order: a TCP
+    /// input's framing buffer, nothing for the others.
+    pub(crate) fn receiver_buffers(&self) -> Vec<usize> {
+        self.inputs
+            .iter()
+            .map(|input| match &input.source {
+                Source::Tcp(tcp) => tcp.framing_buffer_bytes(),
+                Source::Udp(_) | Source::Ros2 { .. } => 0,
+            })
+            .collect()
+    }
+}
+
 /// How many times its planned size an input's ring may grow to.
 pub(crate) const GROWTH_LIMIT: usize = 16;
 
@@ -1346,6 +1360,29 @@ mod tests {
         };
         assert_eq!((imu.stream, imu.max_message_bytes), (2, 4000));
         assert_eq!(plan.inputs[2].ring.max_message_len, 4000);
+    }
+
+    #[test]
+    fn a_tcp_stream_declares_at_least_its_largest_message_for_its_receiver() {
+        let n = 8 * 1024 * 1024;
+        let streams = declarations(&format!(
+            "[streams.arm]\nrate_hz = 1000\nudp = {{ bind = \"127.0.0.1:9000\" }}\n\
+             [streams.camera]\nrate_hz = 30\nmax_message_bytes = {n}\n\
+             tcp = {{ listen = \"0.0.0.0:7001\", framing = {{ kind = \"length_prefix\", length_bytes = 4 }} }}\n"
+        ));
+        let plan = plan(
+            &streams,
+            Path::new("streams.toml"),
+            &RecordSettings::default(),
+        )
+        .unwrap();
+        let buffers = plan.receiver_buffers();
+        assert_eq!(buffers[0], 0, "UDP holds no buffer of its own");
+        assert!(buffers[1] >= n, "{} bytes", buffers[1]);
+        let memory = kapto_capture::threads::ThreadMemory::capture(&buffers, false);
+        assert_eq!(memory.receiver_buffer_bytes(), buffers[1]);
+        let without = kapto_capture::threads::ThreadMemory::capture(&[0, 0], false);
+        assert!(memory.total_bytes() - without.total_bytes() >= n);
     }
 
     #[test]

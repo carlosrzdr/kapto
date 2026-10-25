@@ -303,7 +303,7 @@ fn close(episode: Episode) -> PathBuf {
 
 /// What capture declares for each of the threads named `name`.
 fn declared(name: &str) -> Threads {
-    ThreadMemory::capture(1, true)
+    ThreadMemory::capture(&[0], true)
         .threads
         .into_iter()
         .find(|threads| threads.name == name)

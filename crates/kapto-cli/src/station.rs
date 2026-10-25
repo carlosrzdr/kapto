@@ -402,9 +402,9 @@ impl Station {
     }
 
     /// What capture's threads take at most: one receiver thread per input,
-    /// and the live view's if it runs.
+    /// with a TCP input's framing buffer, and the live view's if it runs.
     pub(crate) fn threads(&self) -> ThreadMemory {
-        ThreadMemory::capture(self.plan.inputs.len(), self.tap_thread.is_some())
+        ThreadMemory::capture(&self.plan.receiver_buffers(), self.tap_thread.is_some())
     }
 
     /// What the pre-roll keeps and the memory set aside for it, said when

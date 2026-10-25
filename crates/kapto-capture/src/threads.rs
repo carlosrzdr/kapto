@@ -15,10 +15,15 @@
 //! whatever they allocate; and memory counted where it is set aside (the
 //! rings, the pre-roll, kept messages, the live view's frames). Nor what
 //! grows with what a thread is given rather than with the thread: the
-//! writer's chunks as the MCAP library builds and compresses them, a TCP
-//! stream's framing buffer, a chunk read back to recover an episode, and
-//! an episode's index and `episode.json`, larger the longer the episode
-//! and the more streams it has, beyond [`SMALL_BYTES`].
+//! writer's chunks as the MCAP library builds and compresses them, a chunk
+//! read back to recover an episode, and an episode's index and
+//! `episode.json`, larger the longer the episode and the more streams it
+//! has, beyond [`SMALL_BYTES`].
+//!
+//! A receiver's own buffer is counted at its bound, known at start: a TCP
+//! input's framing buffer, room for its stream's `max_message_bytes`, a
+//! delimiter and one read, is allocated whole when the input opens rather
+//! than grown, its pages taken by the system as bytes first reach them.
 
 use std::thread;
 
@@ -67,8 +72,9 @@ pub struct ThreadMemory {
 }
 
 impl ThreadMemory {
-    /// Capture's threads, with `receivers` receiver threads and the live
-    /// view's `cap-tap` if it runs.
+    /// Capture's threads, with a receiver thread for each of `receivers`,
+    /// the buffer it holds for itself (a TCP input's framing buffer, 0 for
+    /// others), and the live view's `cap-tap` if it runs.
     ///
     /// Two `cap-hash`: the episode being recorded, and the one just
     /// stopped until it is set aside and ends at its next read
@@ -79,7 +85,7 @@ impl ThreadMemory {
     /// buffer each, one after the other. Pre-flight's and recovery's
     /// threads are counted though they run only for a while.
     #[must_use]
-    pub fn capture(receivers: usize, live_view: bool) -> Self {
+    pub fn capture(receivers: &[usize], live_view: bool) -> Self {
         let one = one_of;
         let mut threads = vec![
             one("cap-control", 0),
@@ -87,11 +93,9 @@ impl ThreadMemory {
             one("cap-recover", 0),
             one("cap-preflight", crate::preflight::WRITE_BLOCK_BYTES),
             one("cap-preflight-router", 0),
-            Threads {
-                name: "cap-rx-*",
-                at_once: receivers,
-                buffer_bytes: 0,
-            },
+        ];
+        threads.extend(receivers.iter().map(|&buffer| one("cap-rx-*", buffer)));
+        threads.extend([
             one("cap-writer", 0),
             Threads {
                 name: "cap-hash",
@@ -102,7 +106,7 @@ impl ThreadMemory {
                 "cap-finalise",
                 crate::hash_behind::CHUNK.max(kapto_store::manifest::HASH_BUFFER_BYTES),
             ),
-        ];
+        ]);
         if live_view {
             threads.push(one("cap-tap", 0));
         }
@@ -113,6 +117,17 @@ impl ThreadMemory {
     #[must_use]
     pub fn count(&self) -> usize {
         self.threads.iter().map(|threads| threads.at_once).sum()
+    }
+
+    /// What the receiver threads hold for themselves, in bytes: their TCP
+    /// inputs' framing buffers.
+    #[must_use]
+    pub fn receiver_buffer_bytes(&self) -> usize {
+        self.threads
+            .iter()
+            .filter(|threads| threads.name == "cap-rx-*")
+            .map(|threads| threads.at_once * threads.buffer_bytes)
+            .sum()
     }
 
     /// What they take together, in bytes.
@@ -146,7 +161,7 @@ mod tests {
 
     #[test]
     fn the_declared_total_is_each_threads_stack_and_buffers() {
-        let memory = ThreadMemory::capture(3, true);
+        let memory = ThreadMemory::capture(&[0; 3], true);
         // Control 2, recovery 1, pre-flight 2, receivers 3, the writer,
         // cap-hash twice, cap-finalise and the live view's tap.
         assert_eq!(memory.count(), 13);
@@ -161,7 +176,7 @@ mod tests {
 
     #[test]
     fn both_episodes_cap_hash_are_counted_with_their_buffers() {
-        let memory = ThreadMemory::capture(1, false);
+        let memory = ThreadMemory::capture(&[0], false);
         let hash = memory
             .threads
             .iter()
@@ -171,9 +186,22 @@ mod tests {
     }
 
     #[test]
+    fn each_receivers_own_buffer_is_counted_once_with_its_thread() {
+        let udp_only = ThreadMemory::capture(&[0], false);
+        // UDP's thread and two TCP inputs, one of a 32 MiB camera.
+        let memory = ThreadMemory::capture(&[0, 4096, 32 << 20], false);
+        assert_eq!(memory.count(), udp_only.count() + 2);
+        assert_eq!(memory.receiver_buffer_bytes(), 4096 + (32 << 20));
+        assert_eq!(
+            memory.total_bytes() - udp_only.total_bytes(),
+            2 * (STACK_BYTES + SMALL_BYTES) + 4096 + (32 << 20)
+        );
+    }
+
+    #[test]
     fn without_a_live_view_its_tap_thread_isnt_counted() {
-        let with = ThreadMemory::capture(2, true);
-        let without = ThreadMemory::capture(2, false);
+        let with = ThreadMemory::capture(&[0; 2], true);
+        let without = ThreadMemory::capture(&[0; 2], false);
         assert_eq!(with.count(), without.count() + 1);
         assert_eq!(
             with.total_bytes() - without.total_bytes(),

@@ -98,10 +98,14 @@ fn threads_said(memory: &ThreadMemory) -> String {
         reason = "a size shown to a tenth of a MiB"
     )]
     let mib = |bytes: usize| bytes as f64 / f64::from(1 << 20);
+    let framing = match memory.receiver_buffer_bytes() {
+        0 => String::new(),
+        bytes => format!(" (the TCP inputs' framing buffers {:.1} MiB)", mib(bytes)),
+    };
     format!(
-        "Threads: {}, their stacks and own buffers {:.1} MiB, with an episode being closed \
-         while the next is recorded; each control connection adds {:.1} MiB, and an episode \
-         waiting to be closed keeps only its digest and its open file.",
+        "Threads: {}, their stacks and own buffers {:.1} MiB{framing}, with an episode being \
+         closed while the next is recorded; each control connection adds {:.1} MiB, and an \
+         episode waiting to be closed keeps only its digest and its open file.",
         memory.count(),
         mib(memory.total_bytes()),
         mib(ThreadMemory::per_connection_bytes()),
@@ -733,10 +737,18 @@ mod tests {
         // buffers of pre-flight (1 MiB), two cap-hash and cap-finalise
         // (256 KiB each).
         assert_eq!(
-            threads_said(&ThreadMemory::capture(1, true)),
-            "Threads: 11, their stacks and own buffers 24.4 MiB, with an episode being closed \
-             while the next is recorded; each control connection adds 2.1 MiB, and an \
+            threads_said(&ThreadMemory::capture(&[0], true)),
+            "Threads: 11, their stacks and own buffers 24.4 MiB, with an episode being \
+             closed while the next is recorded; each control connection adds 2.1 MiB, and an \
              episode waiting to be closed keeps only its digest and its open file."
+        );
+        // A TCP camera of 32 MiB frames, read 64 KiB at a time.
+        assert_eq!(
+            threads_said(&ThreadMemory::capture(&[0, (32 << 20) + (64 << 10)], true)),
+            "Threads: 12, their stacks and own buffers 58.6 MiB (the TCP inputs' framing \
+             buffers 32.1 MiB), with an episode being closed while the next is recorded; each \
+             control connection adds 2.1 MiB, and an episode waiting to be closed keeps only \
+             its digest and its open file."
         );
     }
 

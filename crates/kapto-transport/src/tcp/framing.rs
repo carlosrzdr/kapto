@@ -201,20 +201,31 @@ impl Deframer {
     /// `read_bytes` at a time.
     #[must_use]
     pub fn new(framing: Framing, max_frame: usize, read_bytes: usize) -> Self {
-        let delimiter = match &framing {
-            Framing::Delimiter(delimiter) => delimiter.len(),
-            _ => 0,
-        };
+        let buffer_bytes = Self::buffer_bytes(&framing, max_frame, read_bytes);
         Self {
             framing,
             max_frame,
-            buffer: vec![0; max_frame + delimiter + read_bytes.max(1)].into_boxed_slice(),
+            buffer: vec![0; buffer_bytes].into_boxed_slice(),
             start: 0,
             end: 0,
             skipping: 0,
             discarding: false,
             too_long: 0,
         }
+    }
+
+    /// The size of the buffer a deframer for `framing`, `max_frame` and
+    /// `read_bytes` allocates when it is made, all of it at once: the
+    /// largest frame, a delimiter and one read.
+    #[must_use]
+    pub fn buffer_bytes(framing: &Framing, max_frame: usize, read_bytes: usize) -> usize {
+        let delimiter = match framing {
+            Framing::Delimiter(delimiter) => delimiter.len(),
+            _ => 0,
+        };
+        max_frame
+            .saturating_add(delimiter)
+            .saturating_add(read_bytes.max(1))
     }
 
     /// The free space to read into. Call [`Deframer::filled`] with how many
@@ -356,6 +367,21 @@ mod tests {
         message.extend(u16::try_from(length).unwrap().to_be_bytes());
         message.extend(body);
         message
+    }
+
+    #[test]
+    fn the_buffer_is_allocated_whole_for_the_largest_frame_a_delimiter_and_one_read() {
+        let delimited = Framing::Delimiter(b"\r\n".to_vec());
+        assert_eq!(Deframer::buffer_bytes(&delimited, 1000, 64), 1066);
+        assert_eq!(Deframer::new(delimited, 1000, 64).buffer.len(), 1066);
+        // A camera's frames of up to 32 MiB, read 64 KiB at a time.
+        let fixed = Framing::Fixed(4);
+        assert_eq!(
+            Deframer::buffer_bytes(&fixed, 32 << 20, 64 << 10),
+            (32 << 20) + (64 << 10)
+        );
+        // Reading nothing at a time still leaves room for one byte.
+        assert_eq!(Deframer::buffer_bytes(&fixed, 10, 0), 11);
     }
 
     #[test]
