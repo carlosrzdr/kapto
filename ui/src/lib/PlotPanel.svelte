@@ -44,8 +44,27 @@
   let tip = $state<HTMLElement | null>(null);
 
   onMount(() => {
-    /** Each chart, with what it was last drawn with and how many points that was. */
-    let charts: { plot: uPlot; part: PlotPart; drawn?: Drawn; points: number }[] = [];
+    /** Each chart, in the element it is drawn in, with what it was last drawn with and how many points that was. */
+    let charts: { plot: uPlot; part: PlotPart; element: HTMLElement; drawn?: Drawn; points: number }[] = [];
+    /**
+     * The charts at least partly on screen. Only those are drawn: with many
+     * streams most are scrolled out of sight, and drawing them all took the
+     * page's main thread most of its time. Without the browser's observer,
+     * every chart is drawn.
+     */
+    const inSight = new Set<Element>();
+    const sight =
+      typeof IntersectionObserver === "undefined"
+        ? null
+        : new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                inSight.add(entry.target);
+              } else {
+                inSight.delete(entry.target);
+              }
+            }
+          });
     let built: string | null = null;
     const line = token("line", "#2a2e31");
     // The page's own font, so the axes read as the rest of it and their labels can be measured.
@@ -112,6 +131,8 @@
     /** A chart per stream drawn, each of its values a band from its minimum to its maximum. */
     const build = (next: PlotPart[]) => {
       charts.forEach(({ plot }) => plot.destroy());
+      sight?.disconnect();
+      inSight.clear();
       holder?.replaceChildren();
       charts = [];
       built = shape;
@@ -153,7 +174,8 @@
           [[], ...part.values.flatMap(() => [[], []])],
           element,
         );
-        charts.push({ plot, part, points: 0 });
+        sight?.observe(element);
+        charts.push({ plot, part, element, points: 0 });
       }
       const { width, height } = size();
       charts.forEach(({ plot }) => plot.setSize({ width, height }));
@@ -186,6 +208,9 @@
       drawn = now;
       for (const chart of charts) {
         const { plot, part } = chart;
+        if (sight && !inSight.has(chart.element)) {
+          continue;
+        }
         const end = endMs ?? part.stream.samples.newestMs;
         if (end === null) {
           continue;
@@ -224,6 +249,7 @@
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      sight?.disconnect();
       charts.forEach(({ plot }) => plot.destroy());
     };
   });
