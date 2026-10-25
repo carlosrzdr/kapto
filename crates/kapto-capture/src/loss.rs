@@ -135,11 +135,30 @@ impl LossCounters {
             })
     }
 
-    /// Counts `messages` of `stream` as received: messages received before
-    /// the episode began, held for it, as its pre-roll.
+    /// Counts `messages` of `stream` as received and never decoded: those a
+    /// ring dropped after it was handed over to an episode.
     pub fn add_received(&self, stream: StreamIndex, messages: u64) {
         if let Some(counters) = self.streams.get(usize::from(stream)) {
             counters.received.fetch_add(messages, Ordering::Relaxed);
+        }
+    }
+
+    /// Counts `messages` of `stream` received before the episode began,
+    /// held or handed over to it, as both received and decoded; those of
+    /// them that couldn't be decoded are taken back with
+    /// [`LossCounters::take_back_decoded`], as their batch says.
+    pub fn add_received_decoded(&self, stream: StreamIndex, messages: u64) {
+        if let Some(counters) = self.streams.get(usize::from(stream)) {
+            counters.received.fetch_add(messages, Ordering::Relaxed);
+            counters.decoded.fetch_add(messages, Ordering::Relaxed);
+        }
+    }
+
+    /// Takes `messages` of `stream` back from those counted decoded: their
+    /// batch, counted as it was received, found their fields unreadable.
+    pub fn take_back_decoded(&self, stream: StreamIndex, messages: u64) {
+        if let Some(counters) = self.streams.get(usize::from(stream)) {
+            counters.decoded.fetch_sub(messages, Ordering::Relaxed);
         }
     }
 
@@ -240,6 +259,8 @@ struct StreamGap {
     /// batch before.
     silent_since: Option<RecvTime>,
     last: Option<RecvTime>,
+    /// Its messages in the batch whose field couldn't be read.
+    undecoded: u32,
 }
 
 /// How many publishers of one stream are counted apart, as the transport
@@ -497,6 +518,11 @@ impl Accounting {
             if !gap.in_batch {
                 continue;
             }
+            // Written later, a batch held or handed over to an episode
+            // says which of its messages weren't decoded.
+            if gap.undecoded > 0 {
+                batch.add_undecoded(stream, gap.undecoded);
+            }
             let since = gap.last.unwrap_or(time);
             let gaps = [
                 (
@@ -552,6 +578,10 @@ impl Accounting {
             gap.in_batch = true;
             gap.lost += run.lost_before;
             gap.within += run.lost_within;
+            let undecoded = run.received - run.decoded;
+            gap.undecoded = gap
+                .undecoded
+                .saturating_add(u32::try_from(undecoded).unwrap_or(u32::MAX));
         }
     }
 }
@@ -876,6 +906,25 @@ mod tests {
             (totals.received, totals.decoded, totals.lost_upstream),
             (2, 1, 0)
         );
+    }
+
+    #[test]
+    fn a_batch_says_how_many_of_each_streams_messages_were_not_decoded() {
+        // So a writer counting it later for an episode, as a pre-roll or
+        // handed over, counts them as the receiver did.
+        let counters = Arc::new(LossCounters::new(3));
+        let mut accounting =
+            Accounting::new(Arc::clone(&counters), &[(0, SEQUENCE), (2, SEQUENCE)]);
+        let mut batch = Batch::new(5, 8);
+        batch.push(0, &[1]);
+        batch.push(1, &[1]);
+        batch.push(0, &[2]);
+        batch.push(2, &7_u32.to_le_bytes());
+        batch.push(0, &3_u32.to_le_bytes());
+        accounting.count(&mut batch);
+        assert_eq!(batch.undecoded(), [(0, 2)]);
+        batch.clear();
+        assert_eq!(batch.undecoded(), []);
     }
 
     #[test]

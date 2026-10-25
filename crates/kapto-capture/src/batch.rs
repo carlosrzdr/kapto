@@ -79,6 +79,11 @@ pub struct Batch {
     /// it has messages.
     gaps: Box<[Gap]>,
     gap_count: usize,
+    /// How many of each stream's messages loss detection couldn't read
+    /// its field from, for streams with any: so never more entries than
+    /// messages.
+    undecoded: Box<[(StreamIndex, u32)]>,
+    undecoded_count: usize,
     /// When the episode was stopped, as its receiver saw when it counted
     /// the batch: see [`crate::PostRoll`].
     stopped: u64,
@@ -109,6 +114,8 @@ impl Batch {
             ]
             .into_boxed_slice(),
             gap_count: 0,
+            undecoded: vec![(0, 0); capacity].into_boxed_slice(),
+            undecoded_count: 0,
             stopped: crate::post_roll::NOT_STOPPED,
             max_message_len,
             len: 0,
@@ -337,6 +344,23 @@ impl Batch {
         &self.gaps[..self.gap_count]
     }
 
+    /// Records that `messages` of `stream`'s in the batch couldn't be
+    /// decoded. Does nothing once there are as many entries as messages,
+    /// which one per stream with messages never exceeds.
+    pub fn add_undecoded(&mut self, stream: StreamIndex, messages: u32) {
+        if let Some(slot) = self.undecoded.get_mut(self.undecoded_count) {
+            *slot = (stream, messages);
+            self.undecoded_count += 1;
+        }
+    }
+
+    /// How many of each stream's messages in the batch couldn't be decoded,
+    /// for the streams with any.
+    #[must_use]
+    pub fn undecoded(&self) -> &[(StreamIndex, u32)] {
+        &self.undecoded[..self.undecoded_count]
+    }
+
     /// When the episode was stopped as its receiver saw it, in nanoseconds,
     /// or [`crate::post_roll::NOT_STOPPED`].
     #[must_use]
@@ -353,6 +377,7 @@ impl Batch {
     pub fn clear(&mut self) {
         self.len = 0;
         self.gap_count = 0;
+        self.undecoded_count = 0;
         self.stopped = crate::post_roll::NOT_STOPPED;
         self.any_source_time = false;
         self.any_publication = false;

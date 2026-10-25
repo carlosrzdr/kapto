@@ -513,7 +513,8 @@ impl Recording {
 
     /// Writes the messages `pre_roll` holds for an episode asked for at
     /// `asked` and begun at `begun` (see [`PreRoll::messages`]), at the
-    /// times they were received, and counts them as received and written,
+    /// times they were received, and counts them as received, decoded but
+    /// for those their batch couldn't, and written,
     /// and the gaps before them as lost from `from`, the episode's start,
     /// on. They were held on purpose, so how long they waited to be on disk
     /// isn't counted.
@@ -554,14 +555,16 @@ impl Recording {
             if let Some(Some(written)) = self.channels.get_mut(usize::from(message.stream)) {
                 written.next_sequence = channel.next_sequence.wrapping_add(1);
             }
-            counters.add_received(message.stream, 1);
+            counters.add_received_decoded(message.stream, 1);
+            counters.take_back_decoded(message.stream, u64::from(message.undecoded));
             counters.add_written(message.stream, 1);
         }
         Ok(())
     }
 
     /// Writes every batch left in `handed` once its receiver has stopped,
-    /// each message counted as received and written, its gaps as lost from
+    /// each message counted as received, decoded but for those its batch
+    /// couldn't, and written, its gaps as lost from
     /// `from`, the episode's start, on, and the messages each ring dropped
     /// after it was handed over as received and dropped. Each
     /// batch is also offered to `kept` and held in `pre_roll`, as the writer
@@ -580,7 +583,10 @@ impl Recording {
         for mut handed in handed {
             while let Some(batch) = handed.drainer.take() {
                 for (stream, _) in batch.messages() {
-                    counters.add_received(stream, 1);
+                    counters.add_received_decoded(stream, 1);
+                }
+                for &(stream, undecoded) in batch.undecoded() {
+                    counters.take_back_decoded(stream, u64::from(undecoded));
                 }
                 for gap in batch.gaps() {
                     counters.add_gap(gap, batch.recv_time(), from);

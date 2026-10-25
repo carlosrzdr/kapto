@@ -98,6 +98,9 @@ struct Held {
     /// 0 for none.
     lost: i64,
     since: RecvTime,
+    /// The stream's messages in its batch that couldn't be decoded, given
+    /// with the newest of them.
+    undecoded: u32,
 }
 
 /// A message held, as it was received.
@@ -114,6 +117,9 @@ pub struct HeldMessage<'a> {
     /// The gap loss detection found before its batch, given with the
     /// newest of the stream's messages in it.
     pub gap: Option<Gap>,
+    /// How many of the stream's messages in its batch couldn't be decoded,
+    /// given with the newest of them as the gap is.
+    pub undecoded: u32,
 }
 
 impl PreRoll {
@@ -143,6 +149,7 @@ impl PreRoll {
                             source_time: None,
                             lost: 0,
                             since: RecvTime::from_nanos(0),
+                            undecoded: 0,
                         };
                         stream.messages.max(1)
                     ]
@@ -203,6 +210,11 @@ impl PreRoll {
                 self.rings[*place].attach(gap, batch.recv_time());
             }
         }
+        for &(stream, undecoded) in batch.undecoded() {
+            if let Some(Some(place)) = self.by_stream.get(usize::from(stream)) {
+                self.rings[*place].attach_undecoded(undecoded, batch.recv_time());
+            }
+        }
     }
 
     /// The earliest message an episode asked for at `asked` and begun at
@@ -239,6 +251,7 @@ impl PreRoll {
                         lost: held.lost,
                         since: held.since,
                     }),
+                    undecoded: held.undecoded,
                 })
         })
     }
@@ -278,6 +291,7 @@ impl Ring {
             source_time,
             lost: 0,
             since: received,
+            undecoded: 0,
         };
         self.count += 1;
         self.write += len;
@@ -293,6 +307,16 @@ impl Ring {
         if newest.received == received {
             newest.lost = gap.lost;
             newest.since = gap.since;
+        }
+    }
+
+    fn attach_undecoded(&mut self, undecoded: u32, received: RecvTime) {
+        if self.count == 0 {
+            return;
+        }
+        let newest = &mut self.index[(self.oldest + self.count - 1) % self.index.len()];
+        if newest.received == received {
+            newest.undecoded = undecoded;
         }
     }
 

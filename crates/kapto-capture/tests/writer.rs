@@ -17,11 +17,13 @@ use std::time::Duration;
 
 use std::collections::BTreeMap;
 
+use kapto_capture::loss::{ByteOrder, SequenceField, SequenceWidth};
 use kapto_capture::reader::read_start;
 use kapto_capture::writer::{CARRIED_RECORD, CLOCK_MAP_RECORD, capture_record, carried_record};
 use kapto_capture::{
     Accounting, Batch, ChannelSchema, ChannelSpec, Compression, Kept, KeptStream, LossCounters,
-    PostRoll, PreRoll, Recording, RingConfig, StreamIndex, WriterConfig, discard, ring,
+    LossDetection, PostRoll, PreRoll, PreRollStream, Recording, RingConfig, StreamIndex,
+    WriterConfig, discard, ring,
 };
 use kapto_core::{ClockMap, ClockSample, ErrorCode, RecvTime};
 
@@ -388,6 +390,100 @@ fn what_the_idle_writer_left_when_told_to_stop_starts_the_episode_with_its_drops
             (3, 2, 1)
         );
     }
+}
+
+#[test]
+fn messages_from_before_the_episode_count_as_decoded_unless_their_receiver_could_not() {
+    let file = TempFile::new("decoded");
+    let sequence = LossDetection::Sequence(SequenceField {
+        offset: 0,
+        width: SequenceWidth::U32,
+        byte_order: ByteOrder::Little,
+    });
+    let config = RingConfig {
+        batches: 4,
+        batch_capacity: 4,
+        max_message_len: 64,
+        streams: 2,
+    };
+    // Idle: the receiver counts each batch as it arrives, stream 0 by its
+    // sequence number, which one message is too short to hold.
+    let idle = Arc::new(LossCounters::new(2));
+    let mut accounting = Accounting::new(Arc::clone(&idle), &[(0, sequence)]);
+    let (mut filler, drainer, _) = ring(&config);
+    let mut send = |filler: &mut kapto_capture::Filler, at: u64, first: u32, short: bool| {
+        let batch = filler.batch();
+        batch.set_recv_time(RecvTime::from_nanos(at * SECOND));
+        batch.push(0, &first.to_le_bytes());
+        let second = (first + 1).to_le_bytes();
+        batch.push(0, if short { &second[..1] } else { &second });
+        batch.push(1, b"no number");
+        accounting.count(batch);
+        filler.send();
+    };
+    // The pre-roll holds the first batch while idle; Start is asked, and
+    // the idle writer, told to stop, hands over the two after it.
+    send(&mut filler, 1, 1, true);
+    drop(filler);
+    let hold = |stream| PreRollStream {
+        stream,
+        seconds: Duration::from_secs(5),
+        bytes: 1024,
+        messages: 8,
+    };
+    let mut kept = Kept::default();
+    let mut pre_roll = PreRoll::new(&[hold(0), hold(1)]);
+    let idle = discard(
+        vec![drainer],
+        None,
+        (&mut kept, &mut pre_roll),
+        &AtomicBool::new(false),
+        Duration::from_millis(1),
+    );
+    assert!(idle.is_empty());
+    let (mut filler, drainer, _) = ring(&config);
+    send(&mut filler, 3, 3, false);
+    send(&mut filler, 4, 5, true);
+    drop(filler);
+    let handed = discard(
+        vec![drainer],
+        None,
+        (&mut kept, &mut PreRoll::default()),
+        &AtomicBool::new(true),
+        Duration::from_millis(1),
+    );
+    let (asked, begun) = (
+        RecvTime::from_nanos(2 * SECOND),
+        RecvTime::from_nanos(2 * SECOND),
+    );
+
+    let counters = LossCounters::new(2);
+    let mut recording = Recording::create(
+        &file.0,
+        &streams(&["joints", "status"]),
+        &clock(),
+        &WriterConfig::default(),
+    )
+    .unwrap();
+    let from = RecvTime::from_nanos(0);
+    recording
+        .write_pre_roll(&pre_roll, (asked, begun, from), &counters)
+        .unwrap();
+    recording
+        .write_handed_over(
+            (handed, from),
+            &counters,
+            (&mut kept, &mut PreRoll::default()),
+        )
+        .unwrap();
+    recording.finish(&clock()).unwrap();
+
+    // Three batches of two messages each: one too short in the first and
+    // the last; every message of the stream with no number decoded.
+    let joints = counters.totals(0);
+    assert_eq!((joints.received, joints.decoded, joints.written), (6, 4, 6));
+    let status = counters.totals(1);
+    assert_eq!((status.received, status.decoded, status.written), (3, 3, 3));
 }
 
 #[test]
