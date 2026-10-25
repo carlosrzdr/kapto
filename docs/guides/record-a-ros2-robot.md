@@ -46,10 +46,11 @@ Kapto has to be on the robot's ROS 2 network, as the robot's nodes are:
   (`--user <uid>:<gid>`; with another user Fast DDS delivers nothing),
   with `/data` on a folder that user can write.
 - **The message types.** Every type Kapto subscribes with must be installed
-  in the image, as it must be for any node: the standard ones are. For a
-  robot's own message package, build an image on top of `kapto-ros2:dev`
-  with the package built and sourced; without it, subscribing fails with
-  `transport.ros2.type_unavailable`, naming the type.
+  in the image, as it must be for any node: the standard ones are. A
+  robot's own message packages are built for the image and mounted into it
+  (see [Record the robot's own message types](#record-the-robots-own-message-types));
+  without them, subscribing fails with `transport.ros2.type_unavailable`,
+  naming the type.
 
 ## Find the topics
 
@@ -71,7 +72,9 @@ docker run --rm --network host kapto-ros2:dev topics --streams --wait 5
 It finds the topics for five seconds and listens to them for five more. A
 topic that published nothing meanwhile, or whose type isn't installed in
 the image, says so in a comment instead of a rate; ROS 2's own topics
-(`/rosout`, `/parameter_events`) are left out.
+(`/rosout`, `/parameter_events`) are left out. Either way, a topic whose
+type doesn't load in the image is marked `(its type doesn't load here)`,
+with a warning saying why and what to install or mount.
 
 ## Declare them in a package
 
@@ -118,9 +121,12 @@ path = "position[7]"
 unit = "m"
 ```
 
-The type's definition comes from `.msg` files. Copy them into a `msg/`
-folder beside `streams.toml`, laid out as ROS 2 installs them under
-`share/`, the type's own and that of every type it uses:
+The type's definition comes from `.msg` files. In the `kapto-ros2` image
+they come from its ROS 2 installation alone, with the overlays mounted into
+it: the build the robot's nodes use. For the package to decode the same on
+a machine without ROS 2 too (`kapto decode --pcap`, the slim image), copy
+them into a `msg/` folder beside `streams.toml`, laid out as ROS 2 installs
+them under `share/`, the type's own and that of every type it uses:
 
 ```text
 msg/sensor_msgs/msg/JointState.msg
@@ -128,9 +134,11 @@ msg/std_msgs/msg/Header.msg
 msg/builtin_interfaces/msg/Time.msg
 ```
 
-A file missing from the package is looked for in the ROS 2 installation
-Kapto runs in, but carrying them makes the package decode the same
-anywhere, also on a machine without ROS 2. `mapping.toml` says which value
+Copy them exactly: where ROS 2 is installed, a copy whose text isn't the
+installed file's is refused when the package is loaded
+(`config.ros2_msg_differs`), naming the type and both files, rather than
+one of them silently deciding how the bytes are read. The sample arm's
+copies are the files ROS 2 Jazzy installs. `mapping.toml` says which value
 drives which joint, as for any robot; the
 [configuration guide](../concepts/configuration.md) has the details, and
 `kapto package lint` checks the whole package:
@@ -187,11 +195,38 @@ only asks that one has arrived since Kapto started. Neither topic needs a
 decoder to be recorded; both are stored as received and play back with
 `ros2 bag play`.
 
-Kapto subscribes to the message types its image has installed: the
-standard ones (`std_msgs`, `sensor_msgs`, `geometry_msgs`, `nav_msgs`,
-`tf2_msgs` and the others of ROS 2's common interfaces). `kapto topics`
-lists a topic of any type, but recording one of a robot's own types isn't
-possible yet.
+## Record the robot's own message types
+
+The image has ROS 2's standard message types (`std_msgs`, `sensor_msgs`,
+`geometry_msgs`, `nav_msgs`, `tf2_msgs` and the others of its common
+interfaces). A robot's own, such as a gripper's state in a package
+`acme_msgs`, are built from the robot's ROS 2 workspace for the image's
+ROS 2 distribution, Jazzy, and on the same architecture, then mounted
+into it. Build the interface packages with colcon in ROS 2's own Jazzy
+image, from the workspace's folder:
+
+```sh
+docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/ws" -w /ws ros:jazzy \
+  colcon build --packages-up-to acme_msgs
+```
+
+Mount the `install` folder it makes, read-only, as a folder of its own
+under `/overlays`:
+
+```sh
+docker run --rm --network host -v "$PWD/install:/overlays/acme:ro" kapto-ros2:dev topics
+```
+
+The image's entry point sources ROS 2's setup script, then the `setup.sh`
+of each folder under `/overlays`, in name order, as a workspace overlays
+the installation it was built on: the robot's types are then installed
+there like the standard ones, `.msg` files and libraries both, and
+nothing else changes. Mount several workspaces as several folders. A
+folder without a `setup.sh` (the workspace itself, or its `src`) stops the
+container at start, naming it. `kapto topics` marks a topic whose type
+still doesn't load, with the loader's reason: a package built for another
+distribution or architecture fails there, with
+`transport.ros2.type_unavailable`.
 
 ## Run Kapto beside the robot
 
@@ -206,7 +241,9 @@ docker run --rm --network host -v kapto-data:/data -v "$PWD/packages:/packages:r
   --mapping /packages/arm7_ros2/mapping.toml
 ```
 
-Open <http://127.0.0.1:7700>: the arm moves as the robot publishes, and
+With the robot's own types, add their mount, as above
+(`-v "$PWD/install:/overlays/acme:ro"`). Open
+<http://127.0.0.1:7700>: the arm moves as the robot publishes, and
 the Record button records an episode. Each episode is checked and can be
 replayed as any other. `KAPTO_SERVER_BIND` keeps the web UI to the
 machine itself; leave it out to reach it from elsewhere.
