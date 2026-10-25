@@ -13,6 +13,7 @@ use std::thread;
 use std::time::Duration;
 
 use clap::Args;
+use kapto_config::{DeploymentConfig, Source};
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_loadgen::{Config, Transport, prepare, run_until};
 
@@ -52,6 +53,12 @@ const CAMERA_SIZE: (u16, u16) = (640, 480);
 /// Its frames a second.
 const CAMERA_FPS: u32 = 30;
 
+/// Seconds of recording pre-flight asks the disk to have room for, when
+/// nothing else sets `capture.preflight_disk_time`. A demo records a few
+/// minutes at most: two of them (with the wrist camera, about 4 GiB), not
+/// the ten a robot is asked for, which a nearly full laptop can't give.
+const DEMO_PREFLIGHT_DISK_TIME: &str = "120";
+
 /// Arguments of `kapto demo`.
 #[derive(Args)]
 pub(crate) struct DemoArgs {
@@ -80,6 +87,7 @@ pub(crate) fn demo(flags: &SettingFlags, args: &DemoArgs) -> ExitCode {
 
 fn run(flags: &SettingFlags, args: &DemoArgs) -> Outcome<()> {
     let (_, deployment) = crate::config::load(flags)?;
+    let flags = &demo_flags(flags, &deployment);
     let folder = deployment.data_dir.value.join("demo/arm7");
     let camera_port = (!args.no_camera).then(|| args.robot_port.wrapping_add(1));
     write_arm7(&folder, args.robot_port, args.rate, camera_port).map_err(|error| vec![error])?;
@@ -163,6 +171,17 @@ fn run(flags: &SettingFlags, args: &DemoArgs) -> Outcome<()> {
     })
 }
 
+/// The flags the demo serves with: the ones given, and the demo's shorter
+/// disk window for pre-flight unless a file, the environment or a flag sets
+/// one.
+fn demo_flags(flags: &SettingFlags, deployment: &DeploymentConfig) -> SettingFlags {
+    let mut flags = flags.clone();
+    if deployment.preflight_disk_time.source == Source::Default {
+        flags.preflight_disk_time = Some(DEMO_PREFLIGHT_DISK_TIME.to_owned());
+    }
+    flags
+}
+
 /// Writes the sample arm into `folder`, receiving on `port` at `rate_hz`,
 /// the rate the synthetic robot sends at, so the stream's declared rate is
 /// the one it arrives at; and, given `camera_port`, a wrist camera received
@@ -224,6 +243,51 @@ mod tests {
             .unwrap();
         assert_eq!(streams.matches(ARM7_ADDRESS).count(), 1);
         assert_eq!(streams.matches(ARM7_RATE).count(), 1);
+    }
+
+    /// The disk window the demo serves with, given `kapto.toml` holding
+    /// `config` and the flags `given`.
+    fn served_disk_time(config: &str, given: SettingFlags) -> (Duration, Duration) {
+        let folder = std::env::temp_dir().join(format!(
+            "kapto-demo-disk-{}-{}",
+            std::process::id(),
+            config.len()
+        ));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("kapto.toml"), config).unwrap();
+        let flags = SettingFlags {
+            config: Some(folder.join("kapto.toml")),
+            ..given
+        };
+        let (_, robot) = crate::config::load(&flags).unwrap();
+        let (_, served) = crate::config::load(&demo_flags(&flags, &robot)).unwrap();
+        std::fs::remove_dir_all(&folder).unwrap();
+        (
+            robot.preflight_disk_time.value,
+            served.preflight_disk_time.value,
+        )
+    }
+
+    #[test]
+    fn the_demo_asks_pre_flight_for_two_minutes_of_room_where_a_robot_is_asked_for_ten() {
+        assert_eq!(
+            served_disk_time("", SettingFlags::default()),
+            (Duration::from_mins(10), Duration::from_mins(2))
+        );
+    }
+
+    #[test]
+    fn a_disk_window_set_by_a_file_or_a_flag_is_kept_for_the_demo() {
+        let file = "[capture]\npreflight_disk_time = 300\n";
+        assert_eq!(
+            served_disk_time(file, SettingFlags::default()).1,
+            Duration::from_mins(5)
+        );
+        let flag = SettingFlags {
+            preflight_disk_time: Some("900".into()),
+            ..SettingFlags::default()
+        };
+        assert_eq!(served_disk_time("", flag).1, Duration::from_mins(15));
     }
 
     #[test]

@@ -881,7 +881,11 @@ arm (built into the binary) to the data directory, runs Kapto with it, and
 sends the arm's joint states from a synthetic robot thread (`demo-robot`)
 over UDP on the same machine, and a wrist camera's JPEG pictures from
 another (`demo-camera`, 640x480 at 30 a second) over TCP on the port after
-the robot's, declared a camera in the arm's `streams.toml` there.
+the robot's, declared a camera in the arm's `streams.toml` there. A demo
+records a few minutes at most, so unless a file, the environment or a flag
+sets `capture.preflight_disk_time`, its pre-flight asks the disk for room
+for two minutes of recording (with the camera, about 4 GiB) rather than
+the ten a robot is asked for.
 
 ```sh
 cargo run --release --bin kapto -- demo

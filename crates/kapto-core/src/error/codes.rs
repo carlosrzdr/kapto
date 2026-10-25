@@ -298,7 +298,7 @@ error_codes! {
     /// the streams' rate above `capture.disk_stop_below`.
     PreflightDiskTooSmall = "preflight.disk_too_small" {
         summary: "The disk doesn't have room for the minimum recording time",
-        remedy: "Free space on the disk that holds the data directory, or move `paths.data` to a larger disk, then run pre-flight again. To record anyway, waive this check when starting the episode.",
+        remedy: "Free space on the disk that holds the data directory, move `paths.data` to a larger disk, or ask for a shorter recording time with `capture.preflight_disk_time`, then run pre-flight again. To record anyway, waive this check when starting the episode.",
     }
 
     /// Pre-flight's test file was written more slowly than the streams send

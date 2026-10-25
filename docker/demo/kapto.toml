@@ -9,9 +9,3 @@ url = "s3://kapto"
 endpoint = "http://rustfs:9000"
 region = "us-east-1"
 credentials = { env = "LOCAL" }
-
-# A demo records a few minutes at most: pre-flight checks the disk has room
-# for two of them (with the wrist camera, about 4 GiB), not the ten it asks
-# of a robot.
-[capture]
-preflight_disk_time = 120

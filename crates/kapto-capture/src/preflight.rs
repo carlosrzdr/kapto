@@ -363,6 +363,24 @@ mod tests {
     }
 
     #[test]
+    fn the_room_a_disk_needs_follows_the_recording_time_asked_for() {
+        let mut measured = measured();
+        measured.free_bytes = Ok(600 * MIB);
+        let short = Needs {
+            recording_time: Duration::from_secs(120),
+            ..needs()
+        };
+        // 117.2 MiB of recording plus the 100 MiB limit fit where ten
+        // minutes don't.
+        let checks = evaluate(&measured, short);
+        assert_eq!(failed(&checks), []);
+        assert_eq!(
+            checks[0].needed,
+            "217.2 MiB free: 2 minutes of recording at 1.0 MiB/s, above the 100.0 MiB recording stops at"
+        );
+    }
+
+    #[test]
     fn a_disk_slower_than_the_streams_fails_and_so_does_one_that_cant_be_written() {
         let mut measured = measured();
         measured.write_bytes_per_second = Ok(512.0 * 1024.0);
