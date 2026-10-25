@@ -13,6 +13,8 @@
 //! to the queue, to be done again without counting as an attempt; a job it
 //! was doing when it died is queued again when serve next starts.
 
+use std::any::Any;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -379,13 +381,20 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     };
     let (orders, ordered) = mpsc::channel::<JobOrder>();
     let (ended, results) = mpsc::channel();
+    let cpu_ended = Arc::new(AtomicBool::new(false));
     // Ends with the process: a job it is doing is left unfinished.
     thread::Builder::new()
         .name("wrk-cpu-0".into())
         .spawn({
             let (data_dir, recording) = (data_dir.clone(), Arc::clone(&recording));
-            let shutdown = Arc::clone(&shutdown);
-            move || work(&data_dir, &jobs, (&recording, &shutdown), &ordered, &ended)
+            let (shutdown, cpu_ended) = (Arc::clone(&shutdown), Arc::clone(&cpu_ended));
+            move || {
+                let _ends = EndsWorker {
+                    shutdown: &shutdown,
+                    ended: &cpu_ended,
+                };
+                work(&data_dir, &jobs, (&recording, &shutdown), &ordered, &ended);
+            }
         })
         .map_err(|error| vec![thread_failed(&error.to_string())])?;
     let scheduler = thread::Builder::new()
@@ -411,10 +420,17 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
     if let Some(lane) = lane {
         let _ = lane.join();
     }
-    if lane_ended.load(Ordering::Relaxed) {
-        return Err(vec![
-            KaptoError::new(ErrorCode::WorkerLaneEnded).detail("the upload lane, `wrk-upload`"),
-        ]);
+    let lanes = [
+        (&cpu_ended, "the lane doing jobs, `wrk-cpu-0`"),
+        (&lane_ended, "the upload lane, `wrk-upload`"),
+    ];
+    let ended: Vec<KaptoError> = lanes
+        .into_iter()
+        .filter(|(ended, _)| ended.load(Ordering::Relaxed))
+        .map(|(_, lane)| KaptoError::new(ErrorCode::WorkerLaneEnded).detail(lane))
+        .collect();
+    if !ended.is_empty() {
+        return Err(ended);
     }
     eprintln!("Worker stopped.");
     Ok(())
@@ -582,12 +598,33 @@ fn work(
 ) {
     let mut between = || step(recording, shutdown);
     for order in ordered {
-        let result = run_job(data_dir, jobs, &order, &mut between);
+        // A bug hit by one job fails that job alone: the lane goes on to
+        // the next rather than ending, and leaving it running in the queue.
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            run_job(data_dir, jobs, &order, &mut between)
+        }))
+        .unwrap_or_else(|payload| Err(panicked(&order, payload.as_ref())));
         memory::give_back();
         if ended.send((order.id, result)).is_err() {
             return;
         }
     }
+}
+
+/// The failure of the job `order` asked for, which panicked with `payload`.
+fn panicked(order: &JobOrder, payload: &(dyn Any + Send)) -> KaptoError {
+    let why = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("no reason given");
+    KaptoError::new(ErrorCode::WorkerJobPanicked)
+        .detail(format!(
+            "the {} job of episode {} panicked: {why}",
+            order.kind, order.episode
+        ))
+        .context("job", order.kind.clone())
+        .context("episode", order.episode.clone())
 }
 
 /// Between two steps of a job: waits while an episode is recorded, and
@@ -722,7 +759,8 @@ fn schedule(
             match results.recv_timeout(POLL) {
                 Ok((done, result)) if done == id => break result,
                 Ok(_) | Err(RecvTimeoutError::Timeout) => {}
-                // The job's thread is gone: the job stays running in the
+                // The job's thread is gone, and its guard stops the worker
+                // for serve to start again: the job stays running in the
                 // queue and is done again after serve next starts.
                 Err(RecvTimeoutError::Disconnected) => return,
             }
@@ -807,6 +845,80 @@ mod tests {
         assert!(recording.now_at(Duration::from_secs(14)));
         recording.heard_at(Duration::from_secs(15), false);
         assert!(!recording.now_at(Duration::from_secs(15)));
+    }
+
+    /// A job of `kind` that hits a bug when `panics`, and is done otherwise.
+    struct TestJob {
+        kind: &'static str,
+        panics: bool,
+    }
+
+    impl Job for TestJob {
+        fn kind(&self) -> &'static str {
+            self.kind
+        }
+
+        fn run(
+            &self,
+            _: &Path,
+            _: &mut dyn FnMut() -> Result<(), KaptoError>,
+        ) -> Result<Done, KaptoError> {
+            assert!(!self.panics, "a job's bug");
+            Ok(Done::default())
+        }
+    }
+
+    #[test]
+    fn a_job_hitting_a_bug_fails_with_its_cause_and_the_lane_does_the_next() {
+        let jobs: Vec<Box<dyn Job>> = vec![
+            Box::new(TestJob {
+                kind: "buggy",
+                panics: true,
+            }),
+            Box::new(TestJob {
+                kind: "fine",
+                panics: false,
+            }),
+        ];
+        let episode = "20240229T000000.000Z-00000000";
+        let (orders, ordered) = mpsc::channel();
+        for (id, kind) in [(1, "buggy"), (2, "fine")] {
+            orders
+                .send(JobOrder {
+                    id,
+                    kind: kind.to_owned(),
+                    episode: episode.to_owned(),
+                    destinations: Vec::new(),
+                })
+                .unwrap();
+        }
+        drop(orders);
+        let (ended, results) = mpsc::channel();
+        let (recording, shutdown) = (Recording::new(), AtomicBool::new(false));
+        work(
+            Path::new("data"),
+            &jobs,
+            (&recording, &shutdown),
+            &ordered,
+            &ended,
+        );
+
+        let results: Vec<_> = results.try_iter().collect();
+        assert_eq!(results.len(), 2, "both jobs ended");
+        let (id, buggy) = &results[0];
+        assert_eq!(*id, 1);
+        let Err(error) = buggy else {
+            panic!("the job that hit a bug failed");
+        };
+        assert_eq!(error.code(), ErrorCode::WorkerJobPanicked);
+        let message = error.message();
+        assert!(
+            message.contains("buggy")
+                && message.contains(episode)
+                && message.contains("a job's bug"),
+            "{message}"
+        );
+        assert!(matches!(results[1], (2, Ok(_))), "the next job was done");
     }
 
     #[test]

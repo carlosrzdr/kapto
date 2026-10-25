@@ -848,6 +848,13 @@ error_codes! {
         remedy: "Serve starts the worker again by itself. The worker's output just before this says why the lane ended; if it keeps happening, report it with that output.",
     }
 
+    /// A job hit a bug in the worker and stopped part-way; the job failed,
+    /// and the worker went on to the next.
+    WorkerJobPanicked = "worker.job_panicked" {
+        summary: "The job stopped part-way on a bug in the worker",
+        remedy: "The episode's files are as they were; only this job's result is missing. Report it with this message, which names the kind of job and the episode, and the worker's output just before it, which says where the bug was hit.",
+    }
+
     /// Uploads were asked to be tried again for an episode none of whose
     /// uploads failed.
     UploadNothingToRetry = "upload.nothing_to_retry" {

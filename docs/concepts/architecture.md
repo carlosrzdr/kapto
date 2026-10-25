@@ -679,7 +679,10 @@ SIGTERM (as serve does when it stops), the worker stops a job at its next
 step and gives it back (`released`): queued again without counting as an
 attempt, so only a worker that dies uses up `worker.max_attempts`. A
 job the worker was doing when it stopped stays running in the queue and is
-done again when serve next starts.
+done again when serve next starts. A job that hits a bug (a panic) fails
+with `worker.job_panicked`, naming its kind and episode, and `wrk-cpu-0`
+goes on to the next; if `wrk-cpu-0` itself ends, the worker stops with
+`worker.lane_ended` and serve starts it again.
 
 **Uploads** take a lane of their own. With at least one
 `[[upload.destination]]`, serve queues an episode's `upload` job once it
