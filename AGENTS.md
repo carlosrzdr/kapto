@@ -50,6 +50,7 @@ command (benchmarks, golden files, the demo, serve, the load generator).
 | Every check required before a PR | `cargo xtask ci` · only static checks or tests: `cargo xtask ci check` · `cargo xtask ci test` |
 | The `ros2` feature, linted and tested in the ROS 2 image over each middleware | `cargo xtask ros2` |
 | Uploads against a RustFS server in Docker | `cargo xtask storage` |
+| Fuzz the parsers (cargo-fuzz in Docker): one target, or every one briefly | `cargo xtask fuzz tcp_deframer` · `cargo xtask fuzz` · `cargo xtask fuzz --list` |
 | Regenerate `docs/reference/` and the UI's API types | `cargo xtask gen` |
 | Check the API for breaking changes | `cargo xtask api-diff` |
 | Build, type-check or test the web UI (Node.js in Docker) | `cargo xtask ui build` · `cargo xtask ui check` · `cargo xtask ui test` |
@@ -86,7 +87,8 @@ command (benchmarks, golden files, the demo, serve, the load generator).
 | `docs/project/` | Planning documents; nothing else refers to them |
 | `docker/` | The Dockerfile for both images, built by `compose.yaml` |
 | `perf-budget.toml` | What each recording stage may cost, with the reason |
-| `fuzz/` · `spikes/` | Fuzz targets · throwaway prototypes *(planned)* |
+| `fuzz/` | Fuzz targets, outside the workspace, run by `cargo xtask fuzz` |
+| `spikes/` | Throwaway prototypes *(planned)* |
 
 ---
 

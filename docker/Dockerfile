@@ -103,6 +103,23 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends linux-perf \
     && rm -rf /var/lib/apt/lists/*
 
+# --- fuzzing -----------------------------------------------------------------
+# cargo-fuzz, for `cargo xtask fuzz`, built with the stable toolchain (its
+# locked dependencies don't build on a recent nightly). libFuzzer's
+# instrumentation needs a nightly toolchain, pinned here by date, and
+# libFuzzer itself a C++ compiler. The repository is mounted, never copied
+# in.
+FROM ${RUST_IMAGE} AS fuzz
+ARG FUZZ_TOOLCHAIN=nightly-2026-10-15
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends g++ \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup toolchain install ${FUZZ_TOOLCHAIN} --profile minimal \
+    && cargo install --locked cargo-fuzz@0.13.1 \
+    && rm -rf /usr/local/cargo/registry
+# Over the toolchain rust-toolchain.toml names.
+ENV RUSTUP_TOOLCHAIN=${FUZZ_TOOLCHAIN}
+
 # --- runtimes ----------------------------------------------------------------
 # Both runtimes are set up the same way: an unprivileged user with fixed IDs
 # (10001), and data, robot packages and configuration on explicit mounts. The

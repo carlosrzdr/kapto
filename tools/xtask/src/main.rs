@@ -11,6 +11,7 @@ mod bench;
 mod ci;
 mod clean;
 mod demo;
+mod fuzz;
 mod golden;
 mod links;
 mod reference;
@@ -84,6 +85,9 @@ enum Command {
     /// up`, and check it end to end: the arm moving in a browser, an
     /// episode recorded and found uploaded in RustFS.
     DemoCompose,
+    /// Fuzz the parsers that read bytes from outside Kapto, with
+    /// cargo-fuzz in Docker (a nightly toolchain).
+    Fuzz(fuzz::FuzzArgs),
     /// Regenerate the reference pages in docs/reference from the code.
     Gen {
         /// Only report pages that are out of date; don't write anything.
@@ -189,6 +193,7 @@ fn main() -> ExitCode {
             },
         ),
         Command::ApiDiff { base } => api_diff::run(&repo_root(), &base),
+        Command::Fuzz(args) => fuzz::run(&repo_root(), &args),
         Command::Gen { check } => reference::run(&repo_root(), check),
         Command::Ros2 => ros2::run(&repo_root()),
         Command::Storage => storage::run(&repo_root()),

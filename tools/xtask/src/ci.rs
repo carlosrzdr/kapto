@@ -113,6 +113,19 @@ const DEPENDENCY_POLICY: Step = Step {
     },
 };
 
+// The fuzz targets are outside the workspace, with dependencies of their
+// own, held to the same policy.
+const FUZZ_DEPENDENCY_POLICY: Step = Step {
+    name: "fuzz targets' dependency policy",
+    action: Action::Cargo {
+        args: &["deny", "--manifest-path", "fuzz/Cargo.toml", "check"],
+        tool: Some(Tool {
+            subcommand: "deny",
+            install: "cargo install --locked cargo-deny",
+        }),
+    },
+};
+
 const GENERATED_PAGES: Step = Step {
     name: "generated pages",
     action: Action::Internal(generated_pages_are_current),
@@ -180,6 +193,7 @@ pub(crate) fn steps(group: Group) -> Vec<&'static Step> {
         &DEVELOPMENT_LINTS,
         &RELEASE_WITHOUT_DEVELOPMENT,
         &DEPENDENCY_POLICY,
+        &FUZZ_DEPENDENCY_POLICY,
         &GENERATED_PAGES,
         &LINKS,
         &AGENTS_FILE,
@@ -357,6 +371,7 @@ mod tests {
                 "development lints",
                 "release without development features",
                 "dependency policy",
+                "fuzz targets' dependency policy",
                 "generated pages",
                 "links",
                 "agents file"
@@ -382,6 +397,7 @@ mod tests {
                 "development lints",
                 "release without development features",
                 "dependency policy",
+                "fuzz targets' dependency policy",
                 "generated pages",
                 "links",
                 "agents file",
