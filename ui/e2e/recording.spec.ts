@@ -788,7 +788,10 @@ test("episodes go up to each destination, one that can't take them says why and 
   await expect(there).toContainText(/uploaded \d{4}-/);
   await expect(there).toContainText(/file:\/\/\/.*\/archive\//);
   await expect(there.getByRole("button", { name: "Copy folder URI" })).toBeVisible();
+  // Each object behind how many there are.
   const objects = there.getByRole("table", { name: "Objects at archive" });
+  await expect(objects).toBeHidden();
+  await there.locator("summary").filter({ hasText: /\d+\s+files\s+·/ }).click();
   await expect(objects.getByRole("row", { name: /recording\.mcap/ })).toBeVisible();
   await expect(objects.getByRole("row", { name: /episode\.json/ })).toBeVisible();
   await expect(page.getByRole("region", { name: "Upload to nas" })).toContainText("upload.destination_unusable");

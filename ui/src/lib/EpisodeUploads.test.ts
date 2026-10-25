@@ -54,6 +54,20 @@ describe("EpisodeUploads", () => {
     expect(nas.textContent).toContain("failed: the store refused Kapto's credentials upload.denied");
   });
 
+  it("folds each object and its URI behind how many files there are, never the failure", () => {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn() }, configurable: true });
+    render(EpisodeUploads, { uploads: here, destinations });
+    const archive = screen.getByRole("region", { name: "Upload to archive" });
+    const objects = within(archive).getByRole("table", { name: "Objects at archive" }).closest("details");
+    expect(objects?.open).toBe(false);
+    expect(objects?.querySelector("summary")?.textContent).toMatch(/1\s+file · 12 MiB/);
+    // The folder's URI stays out, to copy without opening anything.
+    expect(within(archive).getByRole("button", { name: "Copy folder URI" }).closest("details")).toBeNull();
+    const failure = screen.getByText(/failed: the store refused/);
+    expect(failure.closest("details")).toBeNull();
+    expect(failure.classList.contains("danger")).toBe(true);
+  });
+
   it("copies an object's URI", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
