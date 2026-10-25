@@ -170,3 +170,9 @@ opt-level = 3
 
 [profile.dev.package.nalgebra]
 opt-level = 3
+
+# The release profile is Cargo's default. Measured on the maintainer's laptop
+# against the recording benchmarks, `codegen-units = 1` shrinks `kapto` from
+# 37 to 29.5 MB with no change in CPU or build time, and adding `lto = "fat"`
+# to 26.7 MB for a minute more of linking; neither made recording faster, so
+# set them only if the binary's or the image's size comes to matter.
