@@ -66,8 +66,8 @@ pub struct Waiting {
     interval: Duration,
     /// Each camera's newest, with when it was offered.
     newest: BTreeMap<u16, (Bytes, Instant)>,
-    /// When each camera's last picture was taken for the page.
-    sent: BTreeMap<u16, Instant>,
+    /// When each camera's next picture is due, once one was taken.
+    due: BTreeMap<u16, Instant>,
 }
 
 impl Waiting {
@@ -77,19 +77,29 @@ impl Waiting {
         Self {
             interval,
             newest: BTreeMap::new(),
-            sent: BTreeMap::new(),
+            due: BTreeMap::new(),
         }
+    }
+
+    /// The time between two pictures of one camera.
+    #[must_use]
+    pub fn interval(&self) -> Duration {
+        self.interval
     }
 
     /// From when camera `stream` may have its next picture taken: at once
     /// if none was yet.
     fn due_from(&self, stream: u16) -> Option<Instant> {
-        self.sent.get(&stream).map(|sent| *sent + self.interval)
+        self.due.get(&stream).copied()
     }
 
     /// Whether camera `stream` may have its next picture taken at `now`.
+    /// A picture a little early counts as due: capture offers frames as
+    /// often as the share and no more, each up to an eighth of an interval
+    /// early, and a page that waited for each would miss one now and then.
     fn due(&self, stream: u16, now: Instant) -> bool {
-        self.due_from(stream).is_none_or(|due| now >= due)
+        self.due_from(stream)
+            .is_none_or(|due| now + self.interval / 8 >= due)
     }
 
     /// Whether camera `stream`'s share would take a picture offered now
@@ -97,7 +107,7 @@ impl Waiting {
     /// this frame would only be replaced by the next.
     #[must_use]
     pub fn wants(&self, stream: u16, by: Instant) -> bool {
-        self.due_from(stream).is_none_or(|due| due <= by)
+        self.due(stream, by)
     }
 
     /// Keeps `picture` as camera `stream`'s newest at `now`, in place of any
@@ -128,7 +138,14 @@ impl Waiting {
             .collect();
         due.into_iter()
             .filter_map(|stream| {
-                self.sent.insert(stream, now);
+                // The next is due an interval after this one was, so the
+                // share holds over time however late the page looks; after
+                // a pause, an interval from now.
+                let next = match self.due.get(&stream) {
+                    Some(due) if now <= *due + self.interval => *due + self.interval,
+                    _ => now + self.interval,
+                };
+                self.due.insert(stream, next);
                 self.newest.remove(&stream).map(|(picture, _)| picture)
             })
             .collect()
@@ -164,7 +181,7 @@ mod tests {
         // Within its interval, newer pictures replace each other: thinned.
         assert_eq!(waiting.offer(1, picture(2), at(30)), Offered::Waits);
         assert_eq!(waiting.offer(1, picture(3), at(60)), Offered::Thinned);
-        assert_eq!(waiting.take_due(at(90)), Vec::<Bytes>::new());
+        assert_eq!(waiting.take_due(at(80)), Vec::<Bytes>::new());
         // Once due, the newest goes, even if no newer one comes: a camera
         // that stops still shows its last picture.
         assert_eq!(waiting.take_due(at(100)), [picture(3)]);
@@ -181,6 +198,27 @@ mod tests {
         assert_eq!(waiting.offer(1, picture(5), at(260)), Offered::Thinned);
         assert_eq!(waiting.offer(1, picture(6), at(400)), Offered::Dropped);
         assert_eq!(waiting.take_due(at(410)), [picture(6)]);
+    }
+
+    #[test]
+    fn a_camera_offered_at_its_share_with_jitter_is_sent_every_picture() {
+        let start = Instant::now();
+        let mut waiting = Waiting::new(Duration::from_millis(100));
+        let mut sent = 0;
+        // Ten a second, each up to 12 ms early or late, as capture offers
+        // them at the share's rate, the page looking 0 to 30 ms later.
+        for picture in 0..100_u64 {
+            let jitter = [0, 12, 5, 0, 7][usize::try_from(picture % 5).unwrap_or(0)];
+            let offered = start + Duration::from_millis(picture * 100 + jitter);
+            assert_ne!(
+                waiting.offer(1, Bytes::from_static(b"p"), offered),
+                Offered::Thinned,
+                "picture {picture}"
+            );
+            let looked = offered + Duration::from_millis((picture * 7) % 31);
+            sent += waiting.take_due(looked).len();
+        }
+        assert!(sent >= 99, "{sent} sent");
     }
 
     #[test]

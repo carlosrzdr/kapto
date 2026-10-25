@@ -66,8 +66,11 @@ pub struct CameraHistory {
     settings: CameraHistorySettings,
     kept: VecDeque<Kept>,
     bytes: usize,
-    /// When the newest picture kept of each camera was received.
-    newest: BTreeMap<u16, i64>,
+    /// When each camera's next picture is due, once one was kept, in UTC
+    /// nanoseconds.
+    due: BTreeMap<u16, i64>,
+    /// When each camera's last frame was received, kept or not.
+    seen: BTreeMap<u16, i64>,
 }
 
 impl CameraHistory {
@@ -78,7 +81,8 @@ impl CameraHistory {
             settings,
             kept: VecDeque::new(),
             bytes: 0,
-            newest: BTreeMap::new(),
+            due: BTreeMap::new(),
+            seen: BTreeMap::new(),
         }
     }
 
@@ -88,22 +92,48 @@ impl CameraHistory {
         self.settings
     }
 
+    /// The setting's interval, in nanoseconds.
+    fn every_ns(&self) -> i64 {
+        i64::try_from(self.settings.every.as_nanos()).unwrap_or(i64::MAX)
+    }
+
     /// Whether a picture of camera `stream` received at `received_utc_ns`
-    /// is to be kept: the first, or one at least a setting's interval after
-    /// the last kept.
+    /// is to be kept: the first, or one about a setting's interval after
+    /// the last was due. Each frame of the camera is to be asked about once,
+    /// as it comes.
+    ///
+    /// One a little early counts when the camera's frames are far apart:
+    /// with no page open, capture offers them only as often as the history
+    /// keeps them, each a little early or late, and waiting for each to be
+    /// late would keep far fewer. It may be early by an eighth of the
+    /// interval at most, and by less than half the time since the camera's
+    /// last frame, so of frames close together the one due is kept, not
+    /// the one before it.
     #[must_use]
-    pub fn due(&self, stream: u16, received_utc_ns: i64) -> bool {
-        let every = i64::try_from(self.settings.every.as_nanos()).unwrap_or(i64::MAX);
-        self.newest
+    pub fn due(&mut self, stream: u16, received_utc_ns: i64) -> bool {
+        let gap = self
+            .seen
+            .insert(stream, received_utc_ns)
+            .map_or(i64::MAX, |last| received_utc_ns.saturating_sub(last));
+        let early = (self.every_ns() / 8).min(gap / 2).max(0);
+        self.due
             .get(&stream)
-            .is_none_or(|newest| received_utc_ns.saturating_sub(*newest) >= every)
+            .is_none_or(|due| received_utc_ns.saturating_add(early) >= *due)
     }
 
     /// Keeps `picture`, then lets go of the oldest pictures until what is
     /// kept is younger than the setting's age, counted from this one, and
     /// within its bytes.
     pub fn keep(&mut self, picture: Kept) {
-        self.newest.insert(picture.stream, picture.received_utc_ns);
+        // The next is due an interval after this one was, so the rate
+        // holds over time; after a pause, an interval from this one.
+        let every = self.every_ns();
+        let received = picture.received_utc_ns;
+        let next = match self.due.get(&picture.stream) {
+            Some(due) if received <= due.saturating_add(every) => due.saturating_add(every),
+            _ => received.saturating_add(every),
+        };
+        self.due.insert(picture.stream, next);
         let oldest_kept = picture.received_utc_ns.saturating_sub(self.settings.age_ns);
         self.bytes += picture.jpeg.len();
         self.kept.push_back(picture);
@@ -176,6 +206,10 @@ mod tests {
             reason = "test times are a few seconds"
         )]
         let received_utc_ns = (at_s * 1e9) as i64;
+        picture_at(stream, received_utc_ns, bytes)
+    }
+
+    fn picture_at(stream: u16, received_utc_ns: i64, bytes: usize) -> Kept {
         Kept {
             stream,
             received_utc_ns,
@@ -208,6 +242,23 @@ mod tests {
         }
         assert_eq!(kept.iter().filter(|stream| **stream == 1).count(), 5);
         assert_eq!(kept.iter().filter(|stream| **stream == 2).count(), 5);
+    }
+
+    #[test]
+    fn a_camera_offered_at_the_historys_rate_with_jitter_has_each_picture_kept() {
+        let mut history = CameraHistory::new(CameraHistorySettings::default());
+        let mut kept = 0;
+        // Five a second for ten seconds, each up to 20 ms early or late, as
+        // capture offers them with no page open.
+        for frame in 0..50_i64 {
+            let jitter = [0, 20, -20, 5, -3][usize::try_from(frame % 5).unwrap_or(0)];
+            let received = 1_000 * SECOND + frame * 200_000_000 + jitter * 1_000_000;
+            if history.due(1, received) {
+                history.keep(picture_at(1, received, 10));
+                kept += 1;
+            }
+        }
+        assert_eq!(kept, 50);
     }
 
     #[test]
