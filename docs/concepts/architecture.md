@@ -531,7 +531,9 @@ robot's 3D view is made once and moved to the panel that shows it. An
 operator arranges their own view with *Arrange*, on the view itself: a
 panel dragged by its grip into any column or beside one as a new column,
 an edge between two columns or panels dragged to share the room anew, each
-by the arrow keys too; saved as the same whole shares of 1 to 12. Kept in
+by the arrow keys too; saved as the same whole shares of 1 to 12; a
+panel given a title of its own by clicking its name on the grip, shown in
+place of the one made from what it shows. Kept in
 that browser for the package, before every other layout, until saved as
 the package's *Default* or reset. A
 replay is arranged by the layout its recording carries, or one made from

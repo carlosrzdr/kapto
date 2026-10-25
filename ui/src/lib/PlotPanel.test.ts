@@ -81,6 +81,13 @@ describe("PlotPanel", () => {
     expect(items).toEqual(["arm_joints · joints · position", "joint_1", "joint_2"]);
   });
 
+  it("heads its key with its own title, in place of the one made from what it draws", () => {
+    render(PlotPanel, { fields: ["arm_joints.joint_positions"], roles: {}, streams: [arm], title: "Arm" });
+    const plot = screen.getByRole("region", { name: "Arm, plot of arm_joints.joint_positions" });
+    expect(plot.querySelector("li.heading")?.textContent).toBe("Arm");
+    expect(screen.queryByText(/^arm_joints · /)).toBeNull();
+  });
+
   it("has nothing to click in the key of a lone value, always shown", () => {
     render(PlotPanel, { fields: ["arm_joints.gripper"], roles: {}, streams: [arm] });
     expect(screen.queryAllByRole("button")).toHaveLength(0);

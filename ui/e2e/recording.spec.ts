@@ -1163,6 +1163,63 @@ test("the operator arranges the view by dragging its panels and the edges betwee
   await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
 });
 
+test("a panel is given a title of its own by clicking its name while arranging, kept after a reload, and cleared again", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  await page.evaluate(
+    (columns) => localStorage.setItem("kapto.layout.arm7", JSON.stringify({ columns })),
+    [{ width: 1, panels: [panel("robot")] }, { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] }],
+  );
+  await page.reload();
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const kept = async () =>
+    page.evaluate(() => {
+      const layout = JSON.parse(localStorage.getItem("kapto.layout.arm7") ?? "{}") as { columns: { panels: { title?: string }[] }[] };
+      return layout.columns.map((column) => column.panels.map((each) => each.title ?? null));
+    });
+  await page.getByRole("button", { name: "Arrange" }).click();
+
+  // Its name clicked: a field in its place, the made name shown while empty.
+  await panels.getByRole("button", { name: "Drag the plot of role:gripper.opening to another place" }).click();
+  const field = panels.getByRole("textbox", { name: "Title of the plot of role:gripper.opening" });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveAttribute("placeholder", "role:gripper.opening");
+  await field.fill("Gripper");
+  await field.press("Enter");
+  await expect.poll(kept).toEqual([[null], ["Gripper", null]]);
+  const grip = panels.getByRole("button", { name: "Drag the panel Gripper to another place" });
+  await expect(grip).toHaveText("Gripper");
+  await expect(grip).toBeFocused();
+
+  // Escape leaves it as it was; Enter on the grip opens the field as a click does.
+  await grip.press("Enter");
+  await panels.getByRole("textbox", { name: "Title of the panel Gripper" }).fill("Something else");
+  await page.keyboard.press("Escape");
+  await expect(grip).toBeVisible();
+  expect(await kept()).toEqual([[null], ["Gripper", null]]);
+  // The events' panel titled, saved as the field is left.
+  await panels.getByRole("button", { name: "Drag the events panel to another place" }).click();
+  await panels.getByRole("textbox", { name: "Title of the events panel" }).fill("What the operator marked");
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await expect.poll(kept).toEqual([[null], ["Gripper", "What the operator marked"]]);
+
+  // After a reload, shown in place of the ones made from what they show.
+  await page.reload();
+  await expect(panels.getByRole("region", { name: "Gripper, plot of role:gripper.opening" })).toBeVisible({ timeout: 20_000 });
+  await expect(panels.getByRole("region", { name: "What the operator marked" })).toBeVisible();
+  await expect(panels.getByText("What the operator marked", { exact: true })).toBeVisible();
+
+  // Emptied, the plot is named from what it shows again.
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await panels.getByRole("button", { name: "Drag the panel Gripper to another place" }).click();
+  await panels.getByRole("textbox", { name: "Title of the panel Gripper" }).fill("");
+  await page.keyboard.press("Enter");
+  await expect.poll(kept).toEqual([[null], [null, "What the operator marked"]]);
+  await expect(panels.getByRole("button", { name: "Drag the plot of role:gripper.opening to another place" })).toHaveText("role:gripper.opening");
+  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+});
+
 test("a layout kept in the browser naming a field the package lacks says so in its place", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });

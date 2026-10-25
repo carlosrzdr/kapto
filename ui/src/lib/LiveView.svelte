@@ -22,6 +22,7 @@
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
   import LayoutEditor from "./LayoutEditor.svelte";
   import MarkBar from "./MarkBar.svelte";
+  import PanelTitle from "./PanelTitle.svelte";
   import PlotPanel from "./PlotPanel.svelte";
   import Timeline from "./Timeline.svelte";
   import { camerasOf, Decoder, LATE_MS, type Shown, withPicture, withSaid } from "./viewer/cameras";
@@ -51,6 +52,7 @@
     moved,
     placed as droppedAt,
     removed,
+    retitled,
     reshared,
     withHeights,
     withWidths,
@@ -143,8 +145,8 @@
         return `The ${panel.kind} panel`;
     }
   }
-  /** What a panel is, in a word or two, on its grip. */
-  function titled(panel: ViewPanel): string {
+  /** What a panel is, in a word or two, made from what it shows. */
+  function madeTitle(panel: ViewPanel): string {
     switch (panel.kind) {
       case "camera":
         return panel.stream ?? "Camera";
@@ -158,8 +160,10 @@
         return "Robot";
     }
   }
+  /** A panel's name on its grip: its own title, else the one made from what it shows. */
+  const titled = (panel: ViewPanel) => panel.title ?? madeTitle(panel);
   /** What a panel is, in words, within a sentence. */
-  const inWords = (panel: ViewPanel) => named(panel).replace(/^The /, "the ");
+  const inWords = (panel: ViewPanel) => (panel.title ? `the panel ${panel.title}` : named(panel).replace(/^The /, "the "));
   /** The replay's plots, made from its opening. */
   let replayPlots = $state.raw<PlotStream[]>([]);
   /** Whether the replay was recorded without a robot, so only its plots are shown. */
@@ -464,16 +468,25 @@
     }));
   }
 
+  /** Where the grip was pressed, and whether it went far enough from there to be a drag rather than a click on its name. */
+  let pressedAt: { x: number; y: number } | null = null;
+  let draggedAway = false;
+
   function carry(event: PointerEvent, column: number, at: number) {
     if (event.button !== 0) {
       return;
     }
+    pressedAt = { x: event.clientX, y: event.clientY };
+    draggedAway = false;
     event.preventDefault();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     carried = { column, at, to: null };
   }
 
   function carrying(event: PointerEvent) {
+    if (pressedAt && Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > 4) {
+      draggedAway = true;
+    }
     if (carried) {
       carried = { ...carried, to: dropPlace(measured(), event.clientX, event.clientY, stacked()) };
     }
@@ -518,7 +531,44 @@
     const into = move === "up" || move === "down" ? column : move === "left" ? column - 1 : alone ? column : column + 1;
     const place = move === "up" ? at - 1 : move === "down" ? at + 1 : next.columns[into]!.panels.length - 1;
     await tick();
-    columnBoxes()[into]?.querySelectorAll<HTMLElement>(":scope > .panel .grip:not(.remove)")[place]?.focus();
+    gripOf(into, place)?.focus();
+  }
+
+  /** The panel whose title is being written, by its column and place. */
+  let titling = $state<{ column: number; at: number } | null>(null);
+  const gripOf = (column: number, at: number) =>
+    columnBoxes()[column]?.querySelectorAll<HTMLElement>(":scope > .panel .grip:not(.remove)")[at];
+
+  /** Its name clicked, or Enter on its grip: a field to write the panel's own title in, in place of its name. */
+  function startTitling(column: number, at: number) {
+    const dragged = draggedAway;
+    draggedAway = false;
+    pressedAt = null;
+    if (!dragged) {
+      titling = { column, at };
+    }
+  }
+
+  /**
+   * The title written saved, as every other change is saved while arranging
+   * (blank, the panel's made one is back), or `null` left as it was; by a
+   * key, the grip has the focus again, as it had before.
+   */
+  async function titleWritten(written: string | null, byKey: boolean) {
+    const was = titling;
+    if (!was) {
+      return;
+    }
+    titling = null;
+    const layout = editing();
+    const next = written === null ? layout : retitled(layout, was.column, was.at, written);
+    if (JSON.stringify(next) !== JSON.stringify(layout)) {
+      arrange(next);
+    }
+    if (byKey) {
+      await tick();
+      gripOf(was.column, was.at)?.focus();
+    }
   }
 
   /** The column dropping now would put the panel into, before panel `at`. */
@@ -1410,21 +1460,36 @@
         >
           {#if onView}
             <div class="grip-bar">
-              <button
-                type="button"
-                class="grip"
-                aria-label={`Drag ${inWords(panel)} to another place`}
-                title="Drag to another place, or move it with the arrow keys"
-                onpointerdown={(event) => carry(event, place, at)}
-                onpointermove={carrying}
-                onpointerup={drop}
-                onpointercancel={() => (carried = null)}
-                onkeydown={(event) => void step(event, place, at)}><Icon name="grip" /><span>{titled(panel)}</span></button
-              >
+              {#if titling?.column === place && titling.at === at}
+                <PanelTitle
+                  title={panel.title ?? null}
+                  made={madeTitle(panel)}
+                  label={`Title of ${inWords(panel)}`}
+                  onsave={(written, byKey) => void titleWritten(written, byKey)}
+                  oncancel={() => void titleWritten(null, true)}
+                />
+              {:else}
+                <button
+                  type="button"
+                  class="grip"
+                  aria-label={`Drag ${inWords(panel)} to another place`}
+                  title="Drag to another place, or move it with the arrow keys; click its name, or press Enter, to give it a title"
+                  onpointerdown={(event) => carry(event, place, at)}
+                  onpointermove={carrying}
+                  onpointerup={drop}
+                  onpointercancel={() => (carried = null)}
+                  onclick={() => startTitling(place, at)}
+                  onkeydown={(event) => void step(event, place, at)}><Icon name="grip" /><span>{titled(panel)}</span></button
+                >
+              {/if}
               <button type="button" class="grip remove" aria-label={`Remove ${inWords(panel)}`} onclick={() => arrange(removed(editing(), place, at))}
                 ><Icon name="bin" /></button
               >
             </div>
+          {/if}
+          <!-- Plots and cameras show it in their own heading; the rest above what they show. -->
+          {#if panel.title && !onView && panel.missing.length === 0 && panel.kind !== "plot" && panel.kind !== "camera"}
+            <p class="panel-title">{panel.title}</p>
           {/if}
           {#if panel.missing.length > 0}
             <div class="placeholder" role="note">
@@ -1442,6 +1507,7 @@
             {#if shown.length > 0}
               <CameraPanel
                 cameras={shown}
+                title={panel.title ?? undefined}
                 onstep={replay === null ? undefined : stepCamera}
                 onwidth={(stream, pixels) => shownWidths.set(stream, pixels)}
                 tallies={replay === null ? tallies : {}}
@@ -1452,6 +1518,7 @@
           {:else if panel.kind === "plot"}
             <PlotPanel
               fields={panel.fields}
+              title={panel.title ?? undefined}
               roles={roleFields}
               streams={lookedBack ?? plots}
               {spanMs}
@@ -1461,7 +1528,7 @@
           {:else if panel.kind === "health"}
             {@render health?.()}
           {:else if panel.kind === "events"}
-            <section class="events" aria-label="What happened">
+            <section class="events" aria-label={panel.title ?? "What happened"}>
               <ol>
                 {#each (replay ? replay.items : items).slice(-50).reverse() as item, index (index)}
                   <li><time>{time(item.startMs * 1e6)}</time> {item.label}</li>
@@ -1649,6 +1716,16 @@
     font-size: var(--text-xs);
     cursor: grab;
     touch-action: none;
+  }
+  .panel > .panel-title {
+    flex: none;
+    margin: 0;
+    padding: 0.2rem 0.6rem;
+    overflow: hidden;
+    color: var(--text);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .grip span {
     overflow: hidden;

@@ -57,6 +57,12 @@ describe("CameraPanel", () => {
     expect(screen.getByText("wrist_camera").closest("figcaption")?.title).toContain("12 skipped");
   });
 
+  it("shows its own title in place of the camera's name", () => {
+    render(CameraPanel, { cameras: [camera({ bitmap: bitmap(640, 480) })], title: "Wrist" });
+    expect(screen.getByText("Wrist").classList.contains("name")).toBe(true);
+    expect(screen.queryByText("wrist_camera")).toBeNull();
+  });
+
   it("waits for a camera's first picture, and says why one can't be shown", () => {
     render(CameraPanel, {
       cameras: [

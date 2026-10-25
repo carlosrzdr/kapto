@@ -37,9 +37,11 @@
     endMs?: number | null;
     /** Nothing before this is shown, UTC milliseconds: an episode's start while it is recorded. */
     fromMs?: number | null;
+    /** Its own title, heading its key in place of the one made from what it draws. */
+    title?: string;
   }
 
-  let { fields, roles, streams, spanMs = 30_000, endMs = null, fromMs = null }: Props = $props();
+  let { fields, roles, streams, spanMs = 30_000, endMs = null, fromMs = null, title }: Props = $props();
   /** The most times a second it is drawn again. */
   const DRAWS_PER_SECOND = 30;
 
@@ -54,7 +56,8 @@
    */
   const key = $derived.by(() => {
     const short = shortLabels(parts.flatMap((part) => part.labels));
-    const heading = parts.length === 1 ? [parts[0]!.stream.name, short.heading].filter(Boolean).join(" · ") : short.heading;
+    const made = parts.length === 1 ? [parts[0]!.stream.name, short.heading].filter(Boolean).join(" · ") : short.heading;
+    const heading = title ?? made;
     return { heading, entries: short.labels.map((label, index) => ({ label, style: seriesStyle(index) })) };
   });
   /**
@@ -469,7 +472,7 @@
   });
 </script>
 
-<section class="plot" aria-label={`Plot of ${fields.join(", ")}`} bind:this={panel}>
+<section class="plot" aria-label={`${title ? `${title}, plot` : "Plot"} of ${fields.join(", ")}`} bind:this={panel}>
   <div class="tip" role="tooltip" hidden={hovered === null} bind:this={tip}>
     {#if hovered}
       <p class="when">{hovered.stream} · {hovered.time}</p>

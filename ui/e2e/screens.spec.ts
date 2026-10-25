@@ -586,6 +586,30 @@ test("a screenshot of a column of more plots than fit, two of them resized by th
   nothingLeft();
 });
 
+test("a screenshot of a panel's title being written while arranging, and of the view with it", async ({ page }) => {
+  test.setTimeout(180_000);
+  const nothingLeft = await open(page);
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible({ timeout: 60_000 });
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await viewer(page, false);
+  await panels.getByRole("button", { name: "Drag the plot of role:gripper.opening to another place" }).click();
+  const field = panels.getByRole("textbox", { name: "Title of the plot of role:gripper.opening" });
+  await field.fill("Gripper opening");
+  await viewer(page, true);
+  await page.waitForTimeout(2_000);
+  await shot(page, "live-arrange-title-editing");
+  await viewer(page, false);
+  await field.press("Enter");
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await expect(panels.getByRole("region", { name: "Gripper opening, plot of role:gripper.opening" })).toBeVisible();
+  await viewer(page, true);
+  await page.waitForTimeout(3_000);
+  await shot(page, "live-titled");
+  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  nothingLeft();
+});
+
 // The console on a tablet beside the robot, held sideways: each tab whole.
 test("a screenshot of the page Kapto can't show, built for another version of its API", async ({ page }) => {
   await page.route("**/api/version", (route) => route.fulfill({ json: { kapto: "9.9.9", api: 999 } }));

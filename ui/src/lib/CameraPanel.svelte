@@ -12,9 +12,11 @@
     onwidth?: (stream: number, pixels: number) => void;
     /** Live, what became of each camera's frames on their way to the view, by camera name. */
     tallies?: Record<string, LiveViewCounts | null | undefined>;
+    /** Its own title, shown in place of each camera's name. */
+    title?: string;
   }
 
-  let { cameras, onstep, onwidth, tallies = {} }: Props = $props();
+  let { cameras, onstep, onwidth, tallies = {}, title }: Props = $props();
 
   /**
    * Draws `bitmap` on the canvas, sized to it, and again as it changes.
@@ -81,7 +83,7 @@
         </div>
       {/if}
       <figcaption title={said.length > 0 ? said.join("\n") : undefined}>
-        <span class="name">{camera.name}</span>
+        <span class="name">{title ?? camera.name}</span>
         {#if missed !== null}
           <span class="missed">{count(missed)} not shown</span>
         {/if}
