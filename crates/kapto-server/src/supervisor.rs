@@ -10,12 +10,18 @@
 //! server leaves the code holding it, by an error or a panic, no child is
 //! left behind.
 //!
+//! Each child runs in a process group of its own, so Ctrl-C at the
+//! terminal reaches only the supervisor, which then stops the children in
+//! its own order and says so, rather than seeing them end by themselves
+//! and starting them again.
+//!
 //! Children write to the supervisor's own standard output and error rather
 //! than through pipes: if the supervisor dies, a child writing to a pipe
 //! nobody reads would fail, and the capture process must keep recording
 //! when the supervisor is gone.
 
 use std::ffi::OsString;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -215,6 +221,7 @@ fn watch(
         let reason = match Command::new(&spec.program)
             .args(&spec.args)
             .stdin(Stdio::null())
+            .process_group(0)
             .spawn()
         {
             Ok(mut child) => {

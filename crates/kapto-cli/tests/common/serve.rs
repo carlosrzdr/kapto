@@ -3,6 +3,7 @@
 //! A `kapto serve` started for a test, on free ports and its own folder.
 
 use std::io::{BufRead, BufReader};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -66,6 +67,9 @@ impl Serve {
     ) -> Self {
         let [api_port, stream_port] = free_tcp_ports();
         let mut child = Command::new(env!("CARGO_BIN_EXE_kapto"))
+            // A job of its own, as a shell starts it: Ctrl-C at its
+            // terminal is SIGINT to its whole group.
+            .process_group(0)
             .arg("serve")
             .arg("--robot")
             .arg(robot)

@@ -590,3 +590,36 @@ fn a_second_serve_on_the_same_data_directory_is_refused_naming_the_first() {
     // The first goes on as it was.
     assert_eq!(first.http("GET", "/api/version", None).0, 200);
 }
+
+#[test]
+fn ctrl_c_at_the_terminal_stops_every_process_once_saying_so_truthfully() {
+    let folder = scratch("ctrl-c");
+    let mut serve = Serve::start(&folder, &root().join("packages/arm7/mapping.toml"));
+    serve.wait_for("Kapto is running: ", 1);
+    let capture = serve.child_pid("capture", 1);
+
+    // What the terminal does: SIGINT to serve's whole process group.
+    assert!(
+        Command::new("kill")
+            .args(["-INT", "--", &format!("-{}", serve.pid())])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let status = serve.child.take().unwrap().wait().unwrap();
+    assert!(status.success());
+    for child in ["capture", "viz-bridge", "worker"] {
+        serve.wait_for(&format!("[serve] {child} stopped"), 1);
+    }
+    assert!(!alive(capture));
+    let lines = serve.lines.lock().unwrap();
+    assert!(
+        !lines.iter().any(|line| line.contains("starting it again")),
+        "{lines:#?}"
+    );
+    assert_eq!(
+        lines.iter().filter(|line| *line == "Stopped.").count(),
+        1,
+        "{lines:#?}"
+    );
+}

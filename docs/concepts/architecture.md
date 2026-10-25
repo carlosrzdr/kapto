@@ -581,7 +581,11 @@ would rebuild or even delete the runtime state under the first, ends with
 however it ends. A child that exits is started again after a second, then after
 waits that double up to 30 s while it keeps failing, and from a second
 again once it has run for a minute (`supervisor.restart_delay`,
-`restart_max_delay`, `stable_after`). Ctrl-C, SIGINT or SIGTERM stops them
+`restart_max_delay`, `stable_after`). Each child runs in a process group of
+its own, so Ctrl-C at the terminal reaches only `serve`, which stops them
+in its own order rather than seeing them end and starting them again. The
+worker says capture can't be reached only once it hasn't been for longer
+than `supervisor.restart_max_delay`. Ctrl-C, SIGINT or SIGTERM stops them
 all: each gets SIGTERM, capture up to 30 s to finalise an episode
 (`capture.stop_grace`), the bridge 5 s (`viewer.stop_grace`), the worker 5 s
 (it stops at once), and whatever is left is killed. Only then does the API

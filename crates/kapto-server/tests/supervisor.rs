@@ -241,3 +241,24 @@ fn a_supervisor_dropped_without_being_stopped_stops_its_children() {
         })
     );
 }
+
+#[test]
+fn each_child_runs_in_a_process_group_of_its_own_so_the_terminals_ctrl_c_misses_it() {
+    let (listener, _events) = recorder();
+    let supervisor = Supervisor::start(
+        vec![shell("sleeper", "exec sleep 30", Duration::from_secs(5))],
+        QUICK,
+        &listener,
+    )
+    .unwrap();
+    wait_until("started", || supervisor.pid("sleeper").is_some());
+    let pid = supervisor.pid("sleeper").unwrap();
+    let pid = rustix::process::Pid::from_raw(i32::try_from(pid).unwrap()).unwrap();
+    assert_eq!(rustix::process::getpgid(Some(pid)).unwrap(), pid);
+    assert_ne!(
+        rustix::process::getpgid(None).unwrap(),
+        pid,
+        "not the test's group"
+    );
+    supervisor.stop();
+}

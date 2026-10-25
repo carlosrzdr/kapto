@@ -192,7 +192,7 @@ fn serve(
             );
         }
         if shutdown.load(Ordering::Relaxed) || orphaned {
-            stop(closer, &control, orphaned);
+            stop(closer, &control, (parent.is_some(), orphaned));
             return Ok(());
         }
     }
@@ -220,13 +220,15 @@ fn open_station(
 }
 
 /// Ends capture once what was started is finished: the episodes still
-/// closing.
-fn stop(closer: Closer, control: &ControlServer, orphaned: bool) {
+/// closing. Stopped by serve, serve says so for it.
+fn stop(closer: Closer, control: &ControlServer, (served, orphaned): (bool, bool)) {
     if orphaned {
         eprintln!("kapto serve has gone and no episode is recorded: capture stops.");
     }
     closer.finish(control);
-    eprintln!("Stopped.");
+    if !served || orphaned {
+        eprintln!("Stopped.");
+    }
 }
 
 /// A flag SIGINT and SIGTERM set, which ends capture once what it is doing

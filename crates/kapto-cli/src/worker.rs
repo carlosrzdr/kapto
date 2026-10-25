@@ -363,7 +363,8 @@ fn run(flags: &SettingFlags, args: &WorkerArgs) -> Outcome<()> {
             .spawn({
                 let (socket, recording) = (deployment.control_socket.value, Arc::clone(&recording));
                 let shutdown = Arc::clone(&shutdown);
-                move || watch(&socket, &recording, &shutdown)
+                let quiet = deployment.restart_max_delay.value;
+                move || watch(&socket, &recording, &shutdown, quiet)
             })
             .map_err(|error| vec![thread_failed(&error.to_string())])?;
     }
@@ -528,10 +529,14 @@ impl Recording {
 /// `wrk-watch`: asks capture once a second whether it is recording an
 /// episode, and says so to `recording`. Capture not answering counts as
 /// not recording: the worker doesn't wait on a capture process that isn't
-/// there. The first failure after answers is logged with why.
-fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool) {
+/// there. The first failure after answers is logged with why; capture
+/// unreachable only once it has been for longer than `quiet`, the longest
+/// serve waits to start it again, so a capture still starting or
+/// restarting isn't reported.
+fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool, quiet: Duration) {
     let mut capture: Option<ControlClient> = None;
     let mut failing = false;
+    let mut unreachable = Unreachable::default();
     while !shutdown.load(Ordering::Relaxed) {
         let answer = match capture.take() {
             Some(client) => Ok(client),
@@ -545,6 +550,7 @@ fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool) {
         let now = match answer {
             Ok(Response::Status(status)) => {
                 failing = false;
+                unreachable = Unreachable::default();
                 status.episode.is_some()
             }
             Ok(other) => {
@@ -557,13 +563,13 @@ fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool) {
             }
             Err(error) => {
                 capture = None;
-                if !failing {
+                if !failing && unreachable.for_longer_than(quiet, Instant::now()) {
                     eprintln!(
                         "[worker] can't ask capture whether it records: {}",
                         error.message()
                     );
+                    failing = true;
                 }
-                failing = true;
                 false
             }
         };
@@ -575,6 +581,20 @@ fn watch(socket: &Path, recording: &Recording, shutdown: &AtomicBool) {
             }
         }
         wait(WAIT, shutdown);
+    }
+}
+
+/// Since when capture hasn't answered, while it doesn't.
+#[derive(Debug, Default)]
+struct Unreachable {
+    since: Option<Instant>,
+}
+
+impl Unreachable {
+    /// Capture didn't answer at `now`: whether it hasn't since longer than
+    /// `quiet` ago.
+    fn for_longer_than(&mut self, quiet: Duration, now: Instant) -> bool {
+        now.saturating_duration_since(*self.since.get_or_insert(now)) > quiet
     }
 }
 
@@ -821,6 +841,19 @@ fn thread_failed(detail: &str) -> KaptoError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_unreachable_is_told_only_once_it_has_been_for_longer_than_a_restart_takes() {
+        let quiet = Duration::from_secs(30);
+        let start = Instant::now();
+        let mut unreachable = Unreachable::default();
+        assert!(!unreachable.for_longer_than(quiet, start));
+        assert!(!unreachable.for_longer_than(quiet, start + quiet));
+        assert!(unreachable.for_longer_than(quiet, start + quiet + Duration::from_secs(1)));
+        // Answering in between starts the count again.
+        let mut unreachable = Unreachable::default();
+        assert!(!unreachable.for_longer_than(quiet, start + quiet * 3));
+    }
 
     #[test]
     fn a_job_waits_between_steps_while_recording_and_stops_once_the_worker_stops() {
