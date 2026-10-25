@@ -162,6 +162,21 @@ fn a_receive_buffer_larger_than_the_host_allows_is_reported_once_as_a_warning() 
 }
 
 #[test]
+fn a_receive_buffer_the_host_allows_gives_no_warning() {
+    // Below every host's default limit, so nothing is capped.
+    let options = UdpOptions {
+        receive_buffer_bytes: 64 << 10,
+    };
+    let config = UdpSocketConfig::new(0, "127.0.0.1:0".parse().unwrap());
+    let transport = UdpTransport::open(&[config], options).unwrap();
+    assert!(
+        transport.warnings().is_empty(),
+        "{:?}",
+        transport.warnings()
+    );
+}
+
+#[test]
 #[ignore = "needs a network interface with multicast; shared CI runners often have none"]
 fn multicast_datagrams_are_received_after_joining_the_group() {
     let group: IpAddr = "239.255.42.1".parse().unwrap();

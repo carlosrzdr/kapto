@@ -191,6 +191,12 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         default: DefaultValue::Fixed("64"),
     },
     Key {
+        path: "capture.udp_receive_buffer",
+        value_type: ValueType::Mebibytes,
+        help: "Receive buffer, in MiB, the capture process asks the operating system for on each UDP socket. It holds the datagrams that arrive while capture isn't reading, so it decides how long a burst or a stall is absorbed without loss. Linux gives at most `net.core.rmem_max`; capture warns when a socket gets less than this.",
+        default: DefaultValue::Fixed("8"),
+    },
+    Key {
         path: "capture.preflight_window",
         value_type: ValueType::Seconds,
         help: "How long, in seconds, pre-flight watches the streams to check each arrives at roughly its declared rate. Pre-flight runs when the capture process starts and whenever asked.",

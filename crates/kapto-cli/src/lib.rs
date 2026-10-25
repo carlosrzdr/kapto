@@ -144,6 +144,9 @@ struct SettingFlags {
     /// The most MiB set aside for one stream's pre-roll (`capture.pre_roll_max`).
     #[arg(long = "capture-pre-roll-max", global = true, value_name = "MIB")]
     pre_roll_max: Option<String>,
+    /// MiB of receive buffer asked for on each UDP socket (`capture.udp_receive_buffer`).
+    #[arg(long = "capture-udp-receive-buffer", global = true, value_name = "MIB")]
+    udp_receive_buffer: Option<String>,
     /// Seconds pre-flight watches the streams (`capture.preflight_window`).
     #[arg(
         long = "capture-preflight-window",
@@ -292,6 +295,7 @@ pub const SETTING_FLAGS: &[(&str, &str)] = &[
     ("capture.disk_warn_below", "--capture-disk-warn-below"),
     ("capture.disk_stop_below", "--capture-disk-stop-below"),
     ("capture.pre_roll_max", "--capture-pre-roll-max"),
+    ("capture.udp_receive_buffer", "--capture-udp-receive-buffer"),
     ("capture.preflight_window", "--capture-preflight-window"),
     (
         "capture.preflight_disk_time",
@@ -384,6 +388,7 @@ impl SettingFlags {
             &self.disk_warn_below,
             &self.disk_stop_below,
             &self.pre_roll_max,
+            &self.udp_receive_buffer,
             &self.preflight_window,
             &self.preflight_disk_time,
             &self.preflight,
@@ -783,6 +788,7 @@ mod tests {
             disk_warn_below: Some("capture-disk-warn-below".into()),
             disk_stop_below: Some("capture-disk-stop-below".into()),
             pre_roll_max: Some("capture-pre-roll-max".into()),
+            udp_receive_buffer: Some("capture-udp-receive-buffer".into()),
             preflight_window: Some("capture-preflight-window".into()),
             preflight_disk_time: Some("capture-preflight-disk-time".into()),
             preflight: Some("capture-preflight".into()),
@@ -873,6 +879,7 @@ mod tests {
             disk_warn_below: Some(String::new()),
             disk_stop_below: Some(String::new()),
             pre_roll_max: Some(String::new()),
+            udp_receive_buffer: Some(String::new()),
             preflight_window: Some(String::new()),
             preflight_disk_time: Some(String::new()),
             preflight: Some(String::new()),

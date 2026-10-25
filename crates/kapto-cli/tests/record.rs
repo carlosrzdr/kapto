@@ -626,6 +626,29 @@ fn a_recording_carries_the_msg_files_it_needs_beyond_the_package_and_all_of_them
 }
 
 #[test]
+fn udp_sockets_ask_for_the_receive_buffer_capture_udp_receive_buffer_sets() {
+    let dir = TempDir::new("record-udp-buffer");
+    let streams = streams_file(&dir.0, free_ports(1), 1, 100, Transport::Udp);
+    // A tebibyte: more than any host allows, so the warning tells what was
+    // asked for.
+    let args = ["--capture-udp-receive-buffer", "1048576"];
+    let (_, _, seen) = record_a_second(&streams, &dir.0.join("data"), &args);
+    let seen = seen.join("\n");
+    assert!(
+        seen.contains("warning[transport.udp.receive_buffer_small]"),
+        "{seen}"
+    );
+    assert!(
+        seen.contains("asked for 1048576 MiB (`capture.udp_receive_buffer`)"),
+        "{seen}"
+    );
+    assert!(
+        seen.contains("net.core.rmem_max of at least 1099511627776"),
+        "{seen}"
+    );
+}
+
+#[test]
 fn a_stream_kapto_record_cannot_receive_is_reported_before_recording() {
     let dir = TempDir::new("invalid");
     let streams = dir.0.join("streams.toml");

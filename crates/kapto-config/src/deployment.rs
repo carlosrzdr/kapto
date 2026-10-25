@@ -90,6 +90,8 @@ pub struct DeploymentConfig {
     pub disk_stop_below_mib: Effective<u64>,
     /// The most memory, in MiB, set aside for one stream's pre-roll.
     pub pre_roll_max: Effective<u64>,
+    /// The receive buffer, in MiB, asked for on each UDP socket.
+    pub udp_receive_buffer_mib: Effective<u64>,
     /// How long pre-flight watches the streams.
     pub preflight_window: Effective<Duration>,
     /// How long a recording pre-flight checks the disk has room for.
@@ -209,6 +211,7 @@ impl DeploymentConfig {
             disk_warn_below_mib: take(&mut values, "capture.disk_warn_below", mebibytes),
             disk_stop_below_mib: take(&mut values, "capture.disk_stop_below", mebibytes),
             pre_roll_max: take(&mut values, "capture.pre_roll_max", mebibytes),
+            udp_receive_buffer_mib: take(&mut values, "capture.udp_receive_buffer", mebibytes),
             preflight_window: take(&mut values, "capture.preflight_window", seconds),
             preflight_disk_time: take(&mut values, "capture.preflight_disk_time", seconds),
             preflight_failures: take(&mut values, "capture.preflight", |value| match value {
@@ -266,6 +269,7 @@ impl DeploymentConfig {
                     "capture.disk_warn_below" => text(&self.disk_warn_below_mib),
                     "capture.disk_stop_below" => text(&self.disk_stop_below_mib),
                     "capture.pre_roll_max" => text(&self.pre_roll_max),
+                    "capture.udp_receive_buffer" => text(&self.udp_receive_buffer_mib),
                     "capture.preflight_window" => seconds_text(&self.preflight_window),
                     "capture.preflight_disk_time" => seconds_text(&self.preflight_disk_time),
                     "capture.preflight" => text(&self.preflight_failures),
@@ -968,6 +972,43 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.compression.value, Compression::None);
         let errors =
             resolve(None, &env(&[("KAPTO_CAPTURE_COMPRESSION", "gzip")]), &[]).unwrap_err();
+        assert_eq!(codes(&errors), [ErrorCode::ConfigInvalidEnvVar]);
+    }
+
+    #[test]
+    fn the_udp_receive_buffer_is_8_mib_unless_set_by_file_env_or_flag() {
+        let config = resolve(None, &env(&[]), &[]).unwrap();
+        assert_eq!(config.udp_receive_buffer_mib.value, 8);
+        assert_eq!(config.udp_receive_buffer_mib.source, Source::Default);
+        let file = file("[capture]\nudp_receive_buffer = 16\n");
+        let config = resolve(Some(&file), &env(&[]), &[]).unwrap();
+        assert_eq!(config.udp_receive_buffer_mib.value, 16);
+        assert_eq!(config.udp_receive_buffer_mib.source, line_source(2));
+        let vars = env(&[("KAPTO_CAPTURE_UDP_RECEIVE_BUFFER", "32")]);
+        let config = resolve(Some(&file), &vars, &[]).unwrap();
+        assert_eq!(config.udp_receive_buffer_mib.value, 32);
+        let flags = [cli(
+            "capture.udp_receive_buffer",
+            "64",
+            "--capture-udp-receive-buffer",
+        )];
+        let config = resolve(Some(&file), &vars, &flags).unwrap();
+        assert_eq!(config.udp_receive_buffer_mib.value, 64);
+        assert_eq!(
+            config.udp_receive_buffer_mib.source,
+            Source::Cli {
+                flag: "--capture-udp-receive-buffer".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_udp_receive_buffer_of_nothing_is_rejected() {
+        let file = file("[capture]\nudp_receive_buffer = 0\n");
+        let errors = resolve(Some(&file), &env(&[]), &[]).unwrap_err();
+        assert_eq!(codes(&errors), [ErrorCode::ConfigInvalidValue]);
+        let vars = env(&[("KAPTO_CAPTURE_UDP_RECEIVE_BUFFER", "0")]);
+        let errors = resolve(None, &vars, &[]).unwrap_err();
         assert_eq!(codes(&errors), [ErrorCode::ConfigInvalidEnvVar]);
     }
 

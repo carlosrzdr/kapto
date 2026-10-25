@@ -271,6 +271,18 @@ The most memory, in MiB, set aside for one stream's pre-roll (`pre_roll_s` in `s
 | Environment variable | `KAPTO_CAPTURE_PRE_ROLL_MAX` |
 | Flag | `--capture-pre-roll-max` |
 
+## `capture.udp_receive_buffer`
+
+Receive buffer, in MiB, the capture process asks the operating system for on each UDP socket. It holds the datagrams that arrive while capture isn't reading, so it decides how long a burst or a stall is absorbed without loss. Linux gives at most `net.core.rmem_max`; capture warns when a socket gets less than this.
+
+| | |
+|---|---|
+| Section and name | `[capture]` `udp_receive_buffer` |
+| Accepts | a whole number of MiB from 1 to 1048576 |
+| Default | `8` |
+| Environment variable | `KAPTO_CAPTURE_UDP_RECEIVE_BUFFER` |
+| Flag | `--capture-udp-receive-buffer` |
+
 ## `capture.preflight_window`
 
 How long, in seconds, pre-flight watches the streams to check each arrives at roughly its declared rate. Pre-flight runs when the capture process starts and whenever asked.

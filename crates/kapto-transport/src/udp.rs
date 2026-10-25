@@ -53,9 +53,10 @@ impl UdpSocketConfig {
 /// Settings shared by every socket of a UDP transport.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UdpOptions {
-    /// Receive buffer to ask the operating system for, per socket, in bytes.
-    /// It holds datagrams that arrive while the receiver thread isn't
-    /// reading, so it decides how long a pause or burst can be absorbed.
+    /// Receive buffer to ask the operating system for, per socket, in bytes
+    /// (`capture.udp_receive_buffer`). It holds datagrams that arrive while
+    /// the receiver thread isn't reading, so it decides how long a pause or
+    /// burst can be absorbed.
     pub receive_buffer_bytes: usize,
 }
 
@@ -263,7 +264,10 @@ fn open_socket(config: &UdpSocketConfig, options: UdpOptions) -> Result<Opened, 
 /// Asks for a receive buffer of `requested` bytes and returns the size the
 /// operating system gave if it gave less, which it does silently.
 fn set_receive_buffer(socket: &Socket, requested: usize) -> io::Result<Option<usize>> {
-    socket.set_recv_buffer_size(requested)?;
+    // The operating system takes a C `int`: a larger size would wrap around
+    // to a small one, so it asks for the most it can say instead.
+    let most = usize::try_from(libc::c_int::MAX).unwrap_or(usize::MAX);
+    socket.set_recv_buffer_size(requested.min(most))?;
     let usable = usable_buffer(socket.recv_buffer_size()?);
     Ok((usable < requested).then_some(usable))
 }
@@ -282,11 +286,19 @@ fn small_buffers(requested: usize, small: &[(SocketAddr, usize)]) -> Option<Kapt
     let sockets = if count == 1 { "socket" } else { "sockets" };
     let addresses: Vec<SocketAddr> = small.iter().map(|&(address, _)| address).collect();
     Some(
-        KaptoError::new(ErrorCode::TransportUdpReceiveBufferSmall).detail(format!(
-            "asked for {}, got {got} on {count} {sockets} ({})",
-            bytes(requested),
-            addresses_in_short(&addresses)
-        )),
+        KaptoError::new(ErrorCode::TransportUdpReceiveBufferSmall)
+            .detail(format!(
+                "asked for {} (`capture.udp_receive_buffer`), got {got} on {count} {sockets} ({})",
+                bytes(requested),
+                addresses_in_short(&addresses)
+            ))
+            // Linux caps the size asked for at `net.core.rmem_max`, so the
+            // warning says what it must be raised to, in bytes as sysctl
+            // writes it.
+            .context(
+                "needs",
+                format!("net.core.rmem_max of at least {requested}"),
+            ),
     )
 }
 
@@ -373,7 +385,15 @@ mod tests {
         assert_eq!(
             warning.message(),
             "UDP receive buffer is smaller than Kapto asks for: \
-             asked for 8 MiB, got 4 MiB on 16 sockets (127.0.0.1:9300\u{2013}9315)"
+             asked for 8 MiB (`capture.udp_receive_buffer`), got 4 MiB on 16 sockets \
+             (127.0.0.1:9300\u{2013}9315)"
+        );
+        assert!(
+            warning
+                .warning_report()
+                .contains("needs: net.core.rmem_max of at least 8388608"),
+            "{}",
+            warning.warning_report()
         );
     }
 
@@ -391,7 +411,7 @@ mod tests {
         let warning = small_buffers(8 << 20, &small).unwrap();
         assert!(
             warning.message().ends_with(
-                "asked for 8 MiB, got 208 KiB to 4 MiB on 5 sockets \
+                "got 208 KiB to 4 MiB on 5 sockets \
                  (127.0.0.1:9000, 127.0.0.1:9010, 10.0.0.2:9000 and 2 more)"
             ),
             "{}",
@@ -402,7 +422,7 @@ mod tests {
             small_buffers(8 << 20, &one)
                 .unwrap()
                 .message()
-                .ends_with("asked for 8 MiB, got 1000 bytes on 1 socket (127.0.0.1:9000)")
+                .ends_with("got 1000 bytes on 1 socket (127.0.0.1:9000)")
         );
     }
 

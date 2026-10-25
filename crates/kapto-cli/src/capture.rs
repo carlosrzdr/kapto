@@ -48,6 +48,7 @@ use kapto_config::{DeploymentConfig, StreamDeclaration};
 use kapto_core::clock::{monotonic_now, utc_now_ns};
 use kapto_core::{EpisodeId, ErrorCode, KaptoError, RecvTime};
 use kapto_store::{Event, PackageIdentity, Preflight as PreflightReport};
+use kapto_transport::UdpOptions;
 
 use crate::SettingFlags;
 use crate::closing::Closer;
@@ -211,6 +212,7 @@ fn open_station(
         declarations,
         live_view(deployment),
         deployment.data_dir.value.clone(),
+        udp_options(deployment),
     )
     .map_err(|error| vec![error])?;
     (station.package, station.carried) =
@@ -659,6 +661,15 @@ pub(crate) fn live_view(deployment: &DeploymentConfig) -> (&Path, &Path, u32) {
         &deployment.frame_socket.value,
         deployment.viewer_camera_max_fps.value,
     )
+}
+
+/// The receive buffer each UDP socket asks for
+/// (`capture.udp_receive_buffer`), in bytes.
+pub(crate) fn udp_options(deployment: &DeploymentConfig) -> UdpOptions {
+    let mib = usize::try_from(deployment.udp_receive_buffer_mib.value).unwrap_or(usize::MAX);
+    UdpOptions {
+        receive_buffer_bytes: mib.saturating_mul(1 << 20),
+    }
 }
 
 /// In MiB, as the settings write it.

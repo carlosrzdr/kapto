@@ -888,6 +888,7 @@ fn session(
         &declarations,
         crate::capture::live_view(&deployment),
         deployment.data_dir.value.clone(),
+        crate::capture::udp_options(&deployment),
     )
     .map_err(|error| vec![error])?;
     (station.package, station.carried) =

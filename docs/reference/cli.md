@@ -27,6 +27,7 @@
 | `--capture-disk-warn-below <MIB>` | MiB free below which Kapto warns the disk is running low (`capture.disk_warn_below`) |
 | `--capture-disk-stop-below <MIB>` | MiB free below which recording stops and none starts (`capture.disk_stop_below`) |
 | `--capture-pre-roll-max <MIB>` | The most MiB set aside for one stream's pre-roll (`capture.pre_roll_max`) |
+| `--capture-udp-receive-buffer <MIB>` | MiB of receive buffer asked for on each UDP socket (`capture.udp_receive_buffer`) |
 | `--capture-preflight-window <SECONDS>` | Seconds pre-flight watches the streams (`capture.preflight_window`) |
 | `--capture-preflight-disk-time <SECONDS>` | Seconds of recording pre-flight checks the disk has room for (`capture.preflight_disk_time`) |
 | `--capture-preflight <POLICY>` | What a failed pre-flight check does to a start: refuse or warn (`capture.preflight`) |

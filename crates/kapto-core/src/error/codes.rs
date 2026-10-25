@@ -521,12 +521,12 @@ error_codes! {
     }
 
     /// The operating system gave UDP sockets a smaller receive buffer than
-    /// Kapto asks for. Reported as a warning, once for every socket it
+    /// `capture.udp_receive_buffer` asks for. Reported as a warning, once for every socket it
     /// concerns: receiving works, but a burst or a short stall can overflow
     /// the buffer and lose messages.
     TransportUdpReceiveBufferSmall = "transport.udp.receive_buffer_small" {
         summary: "UDP receive buffer is smaller than Kapto asks for",
-        remedy: "Raise the host's limit to at least the size Kapto asks for, e.g. `sysctl -w net.core.rmem_max=8388608` for 8 MiB, and add it to /etc/sysctl.d so it survives a reboot. A container uses the host's limit.",
+        remedy: "Raise the host's limit to at least the size asked for, `capture.udp_receive_buffer` (8 MiB by default), in bytes, e.g. `sysctl -w net.core.rmem_max=8388608`, and add it to /etc/sysctl.d so it survives a reboot; or ask for less with `capture.udp_receive_buffer`. A container uses the host's limit.",
     }
 
     /// Reading from a UDP socket failed for a reason other than having

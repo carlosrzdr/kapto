@@ -283,6 +283,7 @@ capture.stop_grace                30                                       defau
 capture.disk_warn_below           10240                                    default
 capture.disk_stop_below           2048                                     default
 capture.pre_roll_max              64                                       default
+capture.udp_receive_buffer        8                                        default
 capture.preflight_window          5                                        default
 capture.preflight_disk_time       600                                      default
 capture.preflight                 refuse                                   default

@@ -240,7 +240,8 @@ impl Station {
     /// Opens every input and starts the live view, which sends to
     /// `tap_socket`, and the cameras' frames to `frame_socket` at most
     /// `camera_max_fps` a second each, for as long as the station is open.
-    /// Without a socket the station works without a live view.
+    /// Without a socket the station works without a live view. UDP sockets
+    /// ask for the receive buffer `udp` says.
     ///
     /// # Errors
     ///
@@ -250,11 +251,12 @@ impl Station {
         declarations: &[StreamDeclaration],
         (tap_socket, frame_socket, camera_max_fps): (&Path, &Path, u32),
         data_dir: PathBuf,
+        udp: UdpOptions,
     ) -> Result<Self, KaptoError> {
         let transports = plan
             .inputs
             .iter()
-            .map(|input| open_transport(&input.source))
+            .map(|input| open_transport(&input.source, udp))
             .collect::<Result<Vec<_>, _>>()?;
         // A frame larger than a datagram is never tapped: the tap sends
         // datagrams, so its slots stop there and a larger message is
@@ -1094,10 +1096,10 @@ impl Live<'_> {
     }
 }
 
-fn open_transport(source: &Source) -> Result<Box<dyn Transport>, KaptoError> {
+fn open_transport(source: &Source, udp: UdpOptions) -> Result<Box<dyn Transport>, KaptoError> {
     match source {
         Source::Udp(sockets) => {
-            let transport = UdpTransport::open(sockets, UdpOptions::default())?;
+            let transport = UdpTransport::open(sockets, udp)?;
             for warning in transport.warnings() {
                 // Recording goes ahead.
                 eprintln!("{}\n", warning.warning_report());

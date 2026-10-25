@@ -170,4 +170,6 @@ If a stream received nothing, Kapto names it; if none did, the episode is
 still kept, but `kapto record` exits with 2 instead of 0, so a script notices.
 
 If Kapto warns that the UDP receive buffer is smaller than Kapto asks for,
-recording still works; the warning says how to raise the host's limit.
+recording still works; the warning says how much `capture.udp_receive_buffer`
+asked for (8 MiB by default), how much the host gave, and the
+`net.core.rmem_max` that would allow it.
