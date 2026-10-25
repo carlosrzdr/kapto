@@ -1282,13 +1282,19 @@ fn a_cameras_frames_on_their_way_to_the_live_view_are_counted_in_the_status() {
         camera.write_all(&jpeg).unwrap();
         std::thread::sleep(Duration::from_millis(30));
     }
-    let status = capture.wait_for("each frame offered and not sent", |status| {
-        status.streams[0]
-            .live_view
-            .is_some_and(|camera| camera.offered >= 5 && camera.not_sent == camera.offered)
+    // How the frames split between not sent, superseded and skipped
+    // depends on when the tap thread runs, so a busy machine moves them
+    // between the three; every one is counted all the same.
+    let status = capture.wait_for("each frame offered and counted", |status| {
+        status.streams[0].live_view.is_some_and(|camera| {
+            camera.offered >= 5
+                && camera.not_sent + camera.superseded + camera.skipped == camera.offered
+        })
     });
     let camera = status.streams[0].live_view.unwrap();
-    assert_eq!((camera.sent, camera.skipped), (0, 0), "{camera:?}");
+    assert_eq!(camera.sent, 0, "{camera:?}");
+    // The newest frame is never superseded, so with no bridge it is not sent.
+    assert!(camera.not_sent >= 1, "{camera:?}");
     assert!(capture.stop().status.success());
 }
 
