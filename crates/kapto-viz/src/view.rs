@@ -422,7 +422,19 @@ impl View {
             return Err(unreadable("it ends before its footer".into()));
         }
         let offset = u64::from_le_bytes([o0, o1, o2, o3, o4, o5, o6, o7]);
-        let mut footer = vec![0_u8; u32::from_le_bytes([l0, l1, l2, l3]) as usize];
+        let length = u32::from_le_bytes([l0, l1, l2, l3]);
+        // A damaged trailer could ask for more than the file holds.
+        let size = file
+            .get_ref()
+            .metadata()
+            .map_err(|error| unreadable(error.to_string()))?
+            .len();
+        if offset.saturating_add(u64::from(length)) > size {
+            return Err(unreadable(format!(
+                "its footer of {length} bytes at byte {offset} runs past the end of the file of {size} bytes"
+            )));
+        }
+        let mut footer = vec![0_u8; length as usize];
         file.seek(SeekFrom::Start(offset))
             .and_then(|_| file.read_exact(&mut footer))
             .map_err(|error| unreadable(error.to_string()))?;

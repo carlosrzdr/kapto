@@ -196,6 +196,30 @@ fn a_chunk_whose_bytes_changed_is_cut_with_everything_after_it() {
 }
 
 #[test]
+fn a_chunk_whose_length_runs_past_the_end_is_cut_without_setting_room_aside_for_it() {
+    let (bytes, chunks) = reference();
+    // The last chunk starts where the message indexes after the one before
+    // it end: found by walking from there.
+    let (before, _) = chunks[chunks.len() - 2];
+    let mut at = usize::try_from(before).unwrap();
+    while bytes[at] != op::CHUNK {
+        let length = u64::from_le_bytes(bytes[at + 1..at + 9].try_into().unwrap());
+        at += 9 + usize::try_from(length).unwrap();
+    }
+    // A byte past the end, and a petabyte no reader could set aside.
+    for length in [bytes.len() as u64, 1 << 50] {
+        let folder = TempDir::new("salvage-damaged-length");
+        let mut damaged = bytes.clone();
+        damaged[at + 1..at + 9].copy_from_slice(&length.to_le_bytes());
+        let path = written(&folder, &damaged);
+        let salvaged = salvage(&path).unwrap();
+        assert_eq!(salvaged.messages, u64::from((CHUNKS - 1) * PER_CHUNK));
+        assert!(salvaged.kept_bytes >= before && salvaged.kept_bytes <= at as u64);
+        assert_eq!(messages(&path).len(), ((CHUNKS - 1) * PER_CHUNK) as usize);
+    }
+}
+
+#[test]
 fn a_closed_recording_is_left_as_it_is() {
     let folder = TempDir::new("salvage-whole");
     let path = folder.0.join("recording.mcap");

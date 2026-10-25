@@ -233,9 +233,14 @@ fn a_view_of_another_version_or_cut_off_is_unreadable() {
     let mut other = whole.clone();
     other[4..6].copy_from_slice(&99_u16.to_le_bytes());
     let cut = &whole[..whole.len() - 5];
+    // A footer length past the end of the file, as damage could leave it.
+    let mut damaged = whole.clone();
+    let length_at = whole.len() - 8;
+    damaged[length_at..length_at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
     for (name, bytes) in [
         ("other.view", other.as_slice()),
         ("cut.view", cut),
+        ("damaged.view", damaged.as_slice()),
         ("empty.view", &[][..]),
     ] {
         let path = folder.write(name, bytes);

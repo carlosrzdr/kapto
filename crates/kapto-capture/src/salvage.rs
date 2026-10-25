@@ -22,6 +22,8 @@ use kapto_core::{ErrorCode, KaptoError};
 use mcap::records::{Record, op};
 use mcap::sans_io::linear_reader::{LinearReadEvent, LinearReader, LinearReaderOptions};
 
+use crate::reader::record_length_limit;
+
 /// What salvaging a recording kept and cut.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Salvaged {
@@ -158,17 +160,26 @@ fn read_prefix(path: &Path, length: u64, closed: bool) -> Result<PrefixRead, Str
     } else {
         Vec::new()
     };
+    // What is left to read: a reader asking for more is reading a record
+    // whose length runs past the end, and is never given room for it.
+    let mut left = length + closing.len() as u64;
     let mut source = file.take(length).chain(Cursor::new(closing));
     let mut reader = LinearReader::new_with_options(
-        LinearReaderOptions::default().with_prevalidate_chunk_crcs(true),
+        LinearReaderOptions::default()
+            .with_prevalidate_chunk_crcs(true)
+            .with_record_length_limit(record_length_limit(length)),
     );
     let mut read = PrefixRead::default();
     while let Some(event) = reader.next_event() {
         match event.map_err(|error| error.to_string())? {
             LinearReadEvent::ReadRequest(need) => {
+                if left < need as u64 {
+                    return Err("a record runs past the end of the file".to_owned());
+                }
                 let got = source
                     .read(reader.insert(need))
                     .map_err(|error| error.to_string())?;
+                left -= got as u64;
                 reader.notify_read(got);
             }
             LinearReadEvent::Record { opcode, data } => {

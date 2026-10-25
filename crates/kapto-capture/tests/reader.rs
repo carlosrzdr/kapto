@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Reading recordings back: whole, stopped early, cut off, and not a
-//! recording at all; their streams and their events apart.
+//! recording at all, or damaged; their streams and their events apart.
 
 #![allow(
     clippy::unwrap_used,
@@ -13,7 +13,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use kapto_capture::reader::{read_events, read_recording, recorded_channels};
+use kapto_capture::reader::{read_events, read_recording, read_start, recorded_channels};
 use kapto_capture::{
     Batch, ChannelSchema, ChannelSpec, LossCounters, Recording, StreamIndex, WriterConfig,
 };
@@ -242,5 +242,61 @@ fn files_that_are_not_recordings_are_reported_as_unreadable() {
             "{}",
             path.display()
         );
+    }
+}
+
+/// Where the first record with `opcode` starts, walked by each record's
+/// opcode and length.
+fn first_record(bytes: &[u8], opcode: u8) -> usize {
+    let mut at = mcap::MAGIC.len();
+    while bytes[at] != opcode {
+        let length = u64::from_le_bytes(bytes[at + 1..at + 9].try_into().unwrap());
+        at += 9 + usize::try_from(length).unwrap();
+    }
+    at
+}
+
+/// Lengths a damaged file could hold for a record: one byte past the file's
+/// end, and a petabyte, which no reader could set aside.
+fn damaged_lengths(file_length: usize) -> [u64; 2] {
+    [file_length as u64, 1 << 50]
+}
+
+#[test]
+fn a_record_whose_length_runs_past_the_end_is_read_up_to_without_setting_room_aside_for_it() {
+    let file = TempFile::new("damaged-chunk");
+    record(&file, false);
+    let whole = std::fs::read(&file.0).unwrap();
+    let (all, _) = read_all(&file.0);
+    let chunk = first_record(&whole, mcap::records::op::CHUNK);
+    for length in damaged_lengths(whole.len()) {
+        let mut bytes = whole.clone();
+        bytes[chunk + 1..chunk + 9].copy_from_slice(&length.to_le_bytes());
+        std::fs::write(&file.0, &bytes).unwrap();
+
+        // What could be read is, as of a recording cut off there.
+        let (messages, cut_off) = read_all(&file.0);
+        assert!(all.starts_with(&messages), "{length}");
+        assert!(cut_off, "{length}");
+        assert!(read_start(&file.0).is_ok(), "{length}");
+    }
+}
+
+#[test]
+fn a_recording_whose_first_record_runs_past_the_end_is_unreadable() {
+    let file = TempFile::new("damaged-header");
+    record(&file, false);
+    let whole = std::fs::read(&file.0).unwrap();
+    let header = mcap::MAGIC.len();
+    for length in damaged_lengths(whole.len()) {
+        let mut bytes = whole.clone();
+        bytes[header + 1..header + 9].copy_from_slice(&length.to_le_bytes());
+        std::fs::write(&file.0, &bytes).unwrap();
+
+        let read = read_recording(&file.0, |_, _| ControlFlow::Continue(())).unwrap_err();
+        let start = read_start(&file.0).unwrap_err();
+        for error in [read, start] {
+            assert_eq!(error.code(), ErrorCode::RecordingUnreadable, "{length}");
+        }
     }
 }

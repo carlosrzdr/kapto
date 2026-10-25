@@ -21,7 +21,81 @@ use std::path::Path;
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_store::{EVENTS_CHANNEL, Event};
 use mcap::records::Record;
-use mcap::sans_io::linear_reader::{LinearReadEvent, LinearReader};
+use mcap::sans_io::linear_reader::{LinearReadEvent, LinearReader, LinearReaderOptions};
+
+/// The longest record a reader sets memory aside for whatever the file's
+/// length: none Kapto writes is longer than its largest message (32 MiB, a
+/// raw 4K frame) and a chunk of them, so twice that is plenty.
+const LONGEST_RECORD: u64 = 64 << 20;
+
+/// The longest record a reader of a file of `file_length` bytes trusts a
+/// length for. A record's length comes from the file, and a damaged one's
+/// would have the reader set aside terabytes: one stored as it is lies
+/// inside the file, and one in a compressed chunk, which may be longer than
+/// the file, is no longer than [`LONGEST_RECORD`].
+pub(crate) fn record_length_limit(file_length: u64) -> usize {
+    usize::try_from(file_length.max(LONGEST_RECORD)).unwrap_or(usize::MAX)
+}
+
+/// A recording read for an MCAP reader, which never sets aside room for
+/// more than is left of the file: a reader asking for more is reading a
+/// record whose length runs past the file's end.
+pub(crate) struct Source {
+    file: File,
+    position: u64,
+    length: u64,
+}
+
+impl Source {
+    pub(crate) fn open(path: &Path) -> std::io::Result<Self> {
+        let file = File::open(path)?;
+        let length = file.metadata()?.len();
+        Ok(Self {
+            file,
+            position: 0,
+            length,
+        })
+    }
+
+    /// The file's length when opened.
+    pub(crate) fn length(&self) -> u64 {
+        self.length
+    }
+
+    /// Reads up to `need` bytes into `reader`; `None` if fewer are left.
+    fn read_into(
+        &mut self,
+        reader: &mut LinearReader,
+        need: usize,
+    ) -> Option<std::io::Result<usize>> {
+        let need_bytes = u64::try_from(need).unwrap_or(u64::MAX);
+        if self.length.saturating_sub(self.position) < need_bytes {
+            // A recording still being written grows while it is read.
+            self.length = self.file.metadata().map_or(self.length, |m| m.len());
+            if self.length.saturating_sub(self.position) < need_bytes {
+                return None;
+            }
+        }
+        let read = self.file.read(reader.insert(need));
+        if let Ok(read) = read {
+            self.position += read as u64;
+            reader.notify_read(read);
+        }
+        Some(read)
+    }
+}
+
+/// Why a recording whose first record runs past the end of the file can't
+/// be read at all.
+const PAST_THE_END: &str = "it is empty or too short to be an MCAP recording, or its first record runs past the end of the file";
+
+/// A linear reader for a file of `length` bytes, every record's length held
+/// to what such a file can hold.
+fn linear_reader(length: u64) -> LinearReader {
+    LinearReader::new_with_options(
+        LinearReaderOptions::default().with_record_length_limit(record_length_limit(length)),
+    )
+}
 
 /// A channel of the recording: one stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -129,8 +203,8 @@ pub fn read_channels(
             .detail(detail)
             .context("file", path.display().to_string())
     };
-    let mut file = File::open(path).map_err(|error| unreadable(error.to_string()))?;
-    let mut reader = LinearReader::new();
+    let mut file = Source::open(path).map_err(|error| unreadable(error.to_string()))?;
+    let mut reader = linear_reader(file.length());
     let mut schemas: BTreeMap<u16, RecordedSchema> = BTreeMap::new();
     let mut channels: BTreeMap<u16, RecordedChannel> = BTreeMap::new();
     let mut summary = ReadSummary::default();
@@ -148,12 +222,18 @@ pub fn read_channels(
             Err(error) => return Err(unreadable(error.to_string())),
         };
         match event {
-            LinearReadEvent::ReadRequest(need) => {
-                let read = file
-                    .read(reader.insert(need))
-                    .map_err(|error| unreadable(error.to_string()))?;
-                reader.notify_read(read);
-            }
+            LinearReadEvent::ReadRequest(need) => match file.read_into(&mut reader, need) {
+                Some(read) => {
+                    read.map_err(|error| unreadable(error.to_string()))?;
+                }
+                // A record running past the end: what came before is kept,
+                // as for a recording cut off part-way.
+                None if read_anything => {
+                    summary.cut_off = true;
+                    break;
+                }
+                None => return Err(unreadable(PAST_THE_END.to_owned())),
+            },
             LinearReadEvent::Record { opcode, data } => {
                 read_anything = true;
                 let Ok(record) = mcap::parse_record(opcode, data) else {
@@ -230,18 +310,19 @@ pub fn read_start(path: &Path) -> Result<RecordingStart, KaptoError> {
             .detail(detail)
             .context("file", path.display().to_string())
     };
-    let mut file = File::open(path).map_err(|error| unreadable(error.to_string()))?;
-    let mut reader = LinearReader::new();
+    let mut file = Source::open(path).map_err(|error| unreadable(error.to_string()))?;
+    let mut reader = linear_reader(file.length());
     let mut start = RecordingStart::default();
     let mut read_anything = false;
     while let Some(event) = reader.next_event() {
         match event {
-            Ok(LinearReadEvent::ReadRequest(need)) => {
-                let read = file
-                    .read(reader.insert(need))
-                    .map_err(|error| unreadable(error.to_string()))?;
-                reader.notify_read(read);
-            }
+            Ok(LinearReadEvent::ReadRequest(need)) => match file.read_into(&mut reader, need) {
+                Some(read) => {
+                    read.map_err(|error| unreadable(error.to_string()))?;
+                }
+                None if read_anything => break,
+                None => return Err(unreadable(PAST_THE_END.to_owned())),
+            },
             Ok(LinearReadEvent::Record { opcode, data }) => {
                 read_anything = true;
                 match mcap::parse_record(opcode, data) {
@@ -309,10 +390,13 @@ pub fn recorded_channels(path: &Path) -> Result<Vec<ChannelSummary>, KaptoError>
 fn channels_from_summary(path: &Path) -> Option<Vec<ChannelSummary>> {
     use std::io::Seek;
 
-    use mcap::sans_io::summary_reader::{SummaryReadEvent, SummaryReader};
+    use mcap::sans_io::summary_reader::{SummaryReadEvent, SummaryReader, SummaryReaderOptions};
 
     let mut file = File::open(path).ok()?;
-    let mut reader = SummaryReader::new();
+    // Its size holds every record's length to what is left of the file.
+    let size = file.metadata().ok()?.len();
+    let mut reader =
+        SummaryReader::new_with_options(SummaryReaderOptions::default().with_file_size(size));
     while let Some(event) = reader.next_event() {
         match event.ok()? {
             SummaryReadEvent::ReadRequest(need) => {

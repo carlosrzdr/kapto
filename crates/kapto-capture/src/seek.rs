@@ -7,21 +7,29 @@
 //!
 //! The file is read in pieces: its summary at the end, each chunk's small
 //! index of the channel's messages, and one chunk per message asked for,
-//! so a recording of any size is read in bounded memory.
+//! so a recording of any size is read in bounded memory. Every length and
+//! offset the indexes give is checked against the file before anything is
+//! set aside for it: a damaged recording is refused, never read into
+//! memory it doesn't hold.
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use kapto_core::{ErrorCode, KaptoError};
-use mcap::records::{ChunkIndex, MessageIndexEntry, Record, op};
+use mcap::records::{MessageIndexEntry, Record, op};
+use mcap::sans_io::linear_reader::{LinearReadEvent, LinearReader, LinearReaderOptions};
 use mcap::sans_io::summary_reader::{SummaryReadEvent, SummaryReader, SummaryReaderOptions};
 use mcap::{Summary, parse_record};
+
+use crate::reader::record_length_limit;
 
 /// One channel's messages, found by the recording's indexes.
 #[derive(Debug)]
 pub struct ChannelIndex {
     path: PathBuf,
+    /// The file's length when its indexes were read.
+    length: u64,
     summary: Summary,
     /// Every message, in receive-time order.
     messages: Vec<Indexed>,
@@ -54,6 +62,10 @@ impl ChannelIndex {
                 .context("file", path.display().to_string())
         };
         let mut file = File::open(path).map_err(|error| unreadable(error.to_string()))?;
+        let length = file
+            .metadata()
+            .map_err(|error| unreadable(error.to_string()))?
+            .len();
         let cut_off = || {
             unreadable(
                 "it has no index to find messages by: it was cut off before it was finished"
@@ -77,7 +89,7 @@ impl ChannelIndex {
             let Some(&offset) = index.message_index_offsets.get(&channel) else {
                 continue;
             };
-            let entries = read_message_index(&mut file, offset, channel)
+            let entries = read_message_index(&mut file, length, offset, channel)
                 .map_err(|error| unreadable(format!("its index of a chunk: {error}")))?;
             messages.extend(entries.into_iter().map(|entry| Indexed {
                 log_time: entry.log_time,
@@ -90,6 +102,7 @@ impl ChannelIndex {
         messages.sort_by_key(|message| (message.log_time, message.chunk, message.offset));
         Ok(Self {
             path: path.to_path_buf(),
+            length,
             summary,
             messages,
         })
@@ -126,7 +139,8 @@ impl ChannelIndex {
     ///
     /// # Errors
     ///
-    /// `recording.unreadable` if its chunk can't be read.
+    /// `recording.unreadable` if its chunk can't be read, or the recording's
+    /// indexes put it where the file can't hold it.
     pub fn read(&self, n: usize) -> Result<Option<(u64, Vec<u8>)>, KaptoError> {
         let Some(message) = self.messages.get(n) else {
             return Ok(None);
@@ -136,27 +150,78 @@ impl ChannelIndex {
                 .detail(detail)
                 .context("file", self.path.display().to_string())
         };
-        let index = &self.summary.chunk_indexes[message.chunk];
+        let index = self
+            .summary
+            .chunk_indexes
+            .get(message.chunk)
+            .ok_or_else(|| unreadable("its index of chunks has no such chunk".to_owned()))?;
+        // The summary's word for where the chunk is and how long: a damaged
+        // recording's could ask for more than the disk holds.
+        let start = index.chunk_start_offset;
+        let fits = start
+            .checked_add(index.chunk_length)
+            .is_some_and(|end| end <= self.length);
+        if !fits || index.chunk_length < RECORD_HEADER {
+            return Err(unreadable(format!(
+                "its index puts a chunk of {} bytes at byte {start}, which a file of {} bytes can't hold: the recording is damaged",
+                index.chunk_length, self.length
+            )));
+        }
         let mut chunk = vec![0; to_usize(index.chunk_length)];
         let mut file = File::open(&self.path).map_err(|error| unreadable(error.to_string()))?;
-        file.seek(SeekFrom::Start(index.chunk_start_offset))
+        file.seek(SeekFrom::Start(start))
             .and_then(|_| file.read_exact(&mut chunk))
             .map_err(|error| unreadable(format!("its chunk: {error}")))?;
-        // The chunk read on its own: its offsets count from its start.
-        let local = ChunkIndex {
-            chunk_start_offset: 0,
-            ..index.clone()
-        };
-        let entry = MessageIndexEntry {
-            log_time: message.log_time,
-            offset: message.offset,
-        };
-        let found = self
-            .summary
-            .seek_message(&chunk, &local, &entry)
+        let found = message_in_chunk(&chunk, message.offset, record_length_limit(self.length))
             .map_err(|error| unreadable(format!("a message in its chunk: {error}")))?;
-        Ok(Some((found.log_time, found.data.into_owned())))
+        Ok(Some(found))
     }
+}
+
+/// A record's opcode and length before its content: one byte and eight.
+const RECORD_HEADER: u64 = 9;
+
+/// The message starting `offset` bytes into the records of `chunk`, a whole
+/// chunk record, with its receive time. Each record's length inside it is
+/// held to `limit` before anything is set aside for it.
+fn message_in_chunk(chunk: &[u8], offset: u64, limit: usize) -> Result<(u64, Vec<u8>), String> {
+    let mut reader = LinearReader::new_with_options(
+        LinearReaderOptions::default()
+            .with_skip_start_magic(true)
+            .with_skip_end_magic(true)
+            .with_validate_chunk_crcs(true)
+            .with_record_length_limit(limit),
+    );
+    let mut remaining = chunk;
+    // Where the next record starts among the chunk's records, decompressed.
+    let mut at = 0_u64;
+    while let Some(event) = reader.next_event() {
+        match event.map_err(|error| error.to_string())? {
+            LinearReadEvent::ReadRequest(need) => {
+                // Never more than the chunk holds: past it, the reader
+                // finds the chunk ends early.
+                let len = need.min(remaining.len());
+                reader.insert(len).copy_from_slice(&remaining[..len]);
+                reader.notify_read(len);
+                remaining = &remaining[len..];
+            }
+            LinearReadEvent::Record { opcode, data } => {
+                if at == offset {
+                    return match parse_record(opcode, data).map_err(|error| error.to_string())? {
+                        Record::Message { header, data } => {
+                            Ok((header.log_time, data.into_owned()))
+                        }
+                        _ => Err("its index points at a record that isn't a message".to_owned()),
+                    };
+                }
+                at = at.saturating_add(RECORD_HEADER + data.len() as u64);
+                if at > offset {
+                    break;
+                }
+            }
+        }
+    }
+    Err("no message starts where its index says".to_owned())
 }
 
 fn to_usize(value: u64) -> usize {
@@ -183,9 +248,11 @@ fn read_summary(file: &mut File) -> Result<Option<Summary>, mcap::McapError> {
     Ok(reader.finish())
 }
 
-/// The message index record at `offset`, of `channel`.
+/// The message index record at `offset`, of `channel`, in a file of
+/// `length` bytes.
 fn read_message_index(
     file: &mut File,
+    length: u64,
     offset: u64,
     channel: u16,
 ) -> io::Result<Vec<MessageIndexEntry>> {
@@ -196,9 +263,14 @@ fn read_message_index(
     if header[0] != op::MESSAGE_INDEX {
         return Err(bad("not a message index where the summary says"));
     }
-    let mut length = [0; 8];
-    length.copy_from_slice(&header[1..]);
-    let mut body = vec![0; to_usize(u64::from_le_bytes(length))];
+    let mut size = [0; 8];
+    size.copy_from_slice(&header[1..]);
+    let size = u64::from_le_bytes(size);
+    let left = length.saturating_sub(offset.saturating_add(RECORD_HEADER));
+    if size > left {
+        return Err(bad("a message index running past the end of the file"));
+    }
+    let mut body = vec![0; to_usize(size)];
     file.read_exact(&mut body)?;
     match parse_record(op::MESSAGE_INDEX, &body) {
         Ok(Record::MessageIndex(index)) if index.channel_id == channel => Ok(index.records),

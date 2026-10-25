@@ -148,6 +148,79 @@ fn a_recording_cut_off_or_without_the_channel_is_refused_with_its_cause() {
     assert!(cut.message().contains("cut off"), "{}", cut.message());
 }
 
+/// Where the recording's summary puts its first chunk index, its summary's
+/// checksum cleared so that a change to it is read as written.
+fn first_chunk_index(bytes: &mut [u8]) -> usize {
+    // The footer: its opcode and length, where the summary starts, where
+    // its offsets start, and its checksum, then the closing magic.
+    let footer = bytes.len() - mcap::MAGIC.len() - (1 + 8 + 8 + 8 + 4);
+    bytes[footer + 25..footer + 29].fill(0);
+    let mut at = usize::try_from(u64::from_le_bytes(
+        bytes[footer + 9..footer + 17].try_into().unwrap(),
+    ))
+    .unwrap();
+    while bytes[at] != mcap::records::op::CHUNK_INDEX {
+        let length = u64::from_le_bytes(bytes[at + 1..at + 9].try_into().unwrap());
+        at += 9 + usize::try_from(length).unwrap();
+    }
+    at
+}
+
+/// Where a chunk index's fields are from its record's start, after its
+/// opcode and length: its messages' first and last times, where its chunk
+/// starts, how long it is, then its map of each channel's message index
+/// offset, as a byte length and entries of a channel and an offset.
+const CHUNK_LENGTH: usize = 9 + 24;
+const MESSAGE_INDEX_OFFSETS: usize = 9 + 32;
+
+#[test]
+fn a_chunk_the_indexes_put_past_the_end_of_the_file_is_refused_with_its_cause() {
+    let file = TempFile::new("damaged-chunk");
+    record(&file, &[2_000; 20], 4 * 1024, Compression::Lz4);
+    let whole = std::fs::read(&file.0).unwrap();
+    // A byte past the end, a petabyte no reader could set aside, and one
+    // that overflows where it would end.
+    for length in [whole.len() as u64, 1 << 50, u64::MAX] {
+        let mut bytes = whole.clone();
+        let index = first_chunk_index(&mut bytes);
+        bytes[index + CHUNK_LENGTH..index + CHUNK_LENGTH + 8]
+            .copy_from_slice(&length.to_le_bytes());
+        std::fs::write(&file.0, &bytes).unwrap();
+
+        let index = ChannelIndex::open(&file.0, "camera").unwrap();
+        let error = index.read(0).unwrap_err();
+        assert_eq!(error.code(), ErrorCode::RecordingUnreadable, "{length}");
+        assert!(error.message().contains("damaged"), "{}", error.message());
+    }
+}
+
+#[test]
+fn a_message_index_running_past_the_end_of_the_file_is_refused_with_its_cause() {
+    let file = TempFile::new("damaged-message-index");
+    record(&file, &[2_000; 20], 4 * 1024, Compression::Lz4);
+    let mut bytes = std::fs::read(&file.0).unwrap();
+    let index = first_chunk_index(&mut bytes);
+    // Every channel's index of the first chunk.
+    let map = index + MESSAGE_INDEX_OFFSETS;
+    let map_length = u32::from_le_bytes(bytes[map..map + 4].try_into().unwrap()) as usize;
+    for entry in (map + 4..map + 4 + map_length).step_by(2 + 8) {
+        let at = entry + 2;
+        let message_index =
+            usize::try_from(u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap())).unwrap();
+        assert_eq!(bytes[message_index], mcap::records::op::MESSAGE_INDEX);
+        bytes[message_index + 1..message_index + 9].copy_from_slice(&(1_u64 << 50).to_le_bytes());
+    }
+    std::fs::write(&file.0, &bytes).unwrap();
+
+    let error = ChannelIndex::open(&file.0, "camera").unwrap_err();
+    assert_eq!(error.code(), ErrorCode::RecordingUnreadable);
+    assert!(
+        error.message().contains("past the end of the file"),
+        "{}",
+        error.message()
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(16))]
 
