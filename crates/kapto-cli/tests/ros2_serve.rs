@@ -138,6 +138,7 @@ fn a_ros_2_robot_moves_live_and_its_episode_is_recorded_checked_and_replayed_wit
                 transport: Transport::Ros2,
                 wait_for_subscribers: None,
                 camera: None,
+                raw_camera: false,
             };
             run_until(&config, &stop, |_, _| {}).unwrap()
         });

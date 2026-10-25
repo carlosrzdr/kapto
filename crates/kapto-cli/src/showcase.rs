@@ -116,6 +116,7 @@ fn run(flags: &SettingFlags, args: &ShowcaseArgs) -> Outcome<()> {
         transport: Transport::Udp,
         wait_for_subscribers: None,
         camera: None,
+        raw_camera: false,
     };
     let faults = Faults::new();
     let stop = AtomicBool::new(false);

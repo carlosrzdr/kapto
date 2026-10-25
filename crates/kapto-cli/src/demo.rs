@@ -105,6 +105,7 @@ fn run(flags: &SettingFlags, args: &DemoArgs) -> Outcome<()> {
         transport: Transport::Udp,
         wait_for_subscribers: None,
         camera: None,
+        raw_camera: false,
     };
     // Kapto listens for the camera, which connects again until it does.
     let camera = camera_port.map(|port| Config {
@@ -116,6 +117,7 @@ fn run(flags: &SettingFlags, args: &DemoArgs) -> Outcome<()> {
         transport: Transport::TcpConnect,
         wait_for_subscribers: None,
         camera: Some(CAMERA_SIZE),
+        raw_camera: false,
     });
     let thread_failed = |name: &str, error: &dyn std::fmt::Display| {
         vec![KaptoError::new(ErrorCode::CaptureThreadFailed).detail(format!("{name}: {error}"))]

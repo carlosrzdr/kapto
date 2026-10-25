@@ -30,9 +30,7 @@ use super::page::{Delays, Page, percentiles};
 use super::place::Place;
 use super::report::{Check, Load, Machine, Report, Targets};
 use super::viewer::{Bridged, DELAY_P95_MS, mapping_of_first_stream, start_bridge};
-use super::{
-    CAMERA_MAX_BYTES, Cameras, Spec, free_ports, measured, start_recording, work_dir, write_reports,
-};
+use super::{Cameras, Spec, free_ports, measured, start_recording, work_dir, write_reports};
 use crate::ros2::{self as image, Middleware};
 
 /// The reference load as ROS 2 topics, with the live view open.
@@ -51,6 +49,10 @@ pub(crate) struct Ros2Args {
     /// `sensor_msgs/msg/CompressedImage` topic of JPEG frames.
     #[arg(long, default_value_t = 0)]
     cameras: u16,
+    /// The cameras' frames raw instead, each a `sensor_msgs/msg/Image` in
+    /// rgb8.
+    #[arg(long)]
+    raw_cameras: bool,
     /// Frames a second from each camera.
     #[arg(long, default_value_t = 60)]
     camera_fps: u32,
@@ -97,6 +99,7 @@ impl Ros2Args {
             fps: self.camera_fps,
             width: self.camera_size.0,
             height: self.camera_size.1,
+            raw: self.raw_cameras,
         })
     }
 }
@@ -265,7 +268,7 @@ pub(crate) fn run(root: &Path, args: &Ros2Args) -> ExitCode {
         }
         let script = format!(
             "{exported}cargo xtask bench ros2 --streams {} --seconds {} --middleware {} \
-             --cameras {} --camera-fps {} --camera-size {}x{}{}{flags}",
+             --cameras {} --camera-fps {} --camera-size {}x{}{}{}{flags}",
             args.streams,
             args.seconds,
             args.middleware.name(),
@@ -273,6 +276,11 @@ pub(crate) fn run(root: &Path, args: &Ros2Args) -> ExitCode {
             args.camera_fps,
             args.camera_size.0,
             args.camera_size.1,
+            if args.raw_cameras {
+                " --raw-cameras"
+            } else {
+                ""
+            },
             if args.keep_recordings {
                 " --keep-recordings"
             } else {
@@ -535,7 +543,7 @@ fn start_cameras(binaries: &Path, args: &Ros2Args) -> Result<Option<Sending>, St
         .args(["--rate", &cameras.fps.to_string()])
         .args(["--duration", &(args.seconds + 2).to_string()])
         .args(["--wait-for-subscribers", &DISCOVERY_SECONDS.to_string()])
-        .args(["--camera", &format!("{}x{}", cameras.width, cameras.height)])
+        .args(cameras.generator_args())
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|error| format!("can't start the cameras: {error}"))?;
@@ -604,17 +612,30 @@ fn streams_toml(streams: u16, cameras: Option<Cameras>) -> String {
                {{ name = \"gripper\", type = \"f64\", path = \"position[7]\" }} ] }}\n\n"
         );
     }
-    for camera in 0..cameras.map_or(0, |cameras| cameras.count) {
+    let Some(cameras) = cameras else {
+        return text;
+    };
+    // As the load generator publishes them: raw on `image_raw`, JPEG on
+    // its `compressed` topic.
+    let (suffix, message_type, header_bytes) = if cameras.raw {
+        // An `Image`'s fields before its pixels: header, size, encoding,
+        // endianness and step, well under a page.
+        ("", "sensor_msgs/msg/Image", 256)
+    } else {
+        ("/compressed", "sensor_msgs/msg/CompressedImage", 0)
+    };
+    for camera in 0..cameras.count {
         let topic = match camera {
-            0 => "/camera/image_raw/compressed".to_owned(),
-            _ => format!("/camera_{camera}/image_raw/compressed"),
+            0 => format!("/camera/image_raw{suffix}"),
+            _ => format!("/camera_{camera}/image_raw{suffix}"),
         };
         let _ = write!(
             text,
-            "[streams.camera_{camera}]\nrate_hz = {}\nmax_message_bytes = {CAMERA_MAX_BYTES}\n\
-             ros2 = {{ topic = \"{topic}\", type = \"sensor_msgs/msg/CompressedImage\", \
+            "[streams.camera_{camera}]\nrate_hz = {}\nmax_message_bytes = {}\n\
+             ros2 = {{ topic = \"{topic}\", type = \"{message_type}\", \
              qos = {{ reliability = \"reliable\", depth = 10 }} }}\n\n",
-            cameras.map_or(0, |cameras| cameras.fps)
+            cameras.fps,
+            cameras.max_message_bytes(header_bytes)
         );
     }
     text

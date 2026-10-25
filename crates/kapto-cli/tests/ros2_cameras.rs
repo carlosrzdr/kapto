@@ -179,6 +179,7 @@ fn compressed_camera_frames_are_recorded_whole_every_one_from_the_first() {
         transport: Transport::Ros2,
         wait_for_subscribers: Some(Duration::from_secs(8)),
         camera: Some((640, 480)),
+        raw_camera: false,
     };
     let (sent, _) = run(&camera, |_, _| {}).unwrap();
     assert_eq!(sent.send_errors, 0);
@@ -230,6 +231,7 @@ fn two_cameras_each_have_every_frame_from_the_first_run_after_run() {
             transport: Transport::Ros2,
             wait_for_subscribers: Some(Duration::from_secs(6)),
             camera: Some((320, 240)),
+            raw_camera: false,
         };
         let (sent, _) = run(&cameras, |_, _| {}).unwrap();
         assert_eq!(sent.send_errors, 0);

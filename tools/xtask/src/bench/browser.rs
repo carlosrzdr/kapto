@@ -290,7 +290,7 @@ pub(super) fn watch(
             .args(["--duration", &spec.seconds.to_string()])
             .args(["--target", &format!("127.0.0.1:{}", port + spec.streams)])
             .args(["--transport", "tcp-connect"])
-            .args(["--camera", &format!("{}x{}", sent.width, sent.height)]);
+            .args(sent.generator_args());
         generators.push(generator);
     }
     let started: Result<Vec<_>, _> = generators

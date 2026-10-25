@@ -49,6 +49,11 @@ pub(crate) struct ScenarioArgs {
     /// recording data mostly have.
     #[arg(long, value_enum, default_value_t = Scenario::Cameras)]
     scenario: Scenario,
+    /// The cameras' frames raw, each pixel in rgb8, instead of JPEG, as a
+    /// simulator or a depth camera sends them: what the viewer bridge
+    /// encodes itself.
+    #[arg(long)]
+    raw_cameras: bool,
     /// How long the load runs, in seconds.
     #[arg(long, default_value_t = 20)]
     seconds: u32,
@@ -80,6 +85,27 @@ pub(crate) enum Scenario {
     FiveCameras,
 }
 
+impl ScenarioArgs {
+    fn spec(self, seconds: u32) -> Spec {
+        let mut spec = self.scenario.spec(seconds);
+        if let Some(cameras) = &mut spec.cameras {
+            cameras.raw = self.raw_cameras;
+        }
+        spec
+    }
+
+    /// The load's name, raw cameras' apart from JPEG ones' so a report
+    /// never takes one for the other.
+    fn name(self) -> String {
+        let name = self.scenario.name();
+        if self.raw_cameras {
+            format!("raw-{name}")
+        } else {
+            name.to_owned()
+        }
+    }
+}
+
 impl Scenario {
     fn spec(self, seconds: u32) -> Spec {
         let cameras = match self {
@@ -95,6 +121,7 @@ impl Scenario {
                 fps: 60,
                 width: 1920,
                 height: 1080,
+                raw: false,
             }),
             rate: 2_000,
             seconds,
@@ -198,8 +225,8 @@ pub(crate) fn trace(root: &Path, args: TraceArgs) -> ExitCode {
 
 fn profiled(root: &Path, args: ScenarioArgs) -> Result<(PathBuf, String), String> {
     build(root)?;
-    let work = work_dir(root, &format!("profile-{}", args.scenario.name()));
-    let spec = args.scenario.spec(args.seconds);
+    let work = work_dir(root, &format!("profile-{}", args.name()));
+    let spec = args.spec(args.seconds);
     let mut perf = None;
     let mut watcher = None;
     let run = record_load_watched(
@@ -229,7 +256,7 @@ fn profiled(root: &Path, args: ScenarioArgs) -> Result<(PathBuf, String), String
     let script = perf_script(&work)?;
     let profile = stacks::Profile::new(&script, &threads);
     let measured = &run.measured;
-    let report = profile.markdown(args.scenario.name(), args.seconds)
+    let report = profile.markdown(&args.name(), args.seconds)
         + &recorded(
             run.generator,
             measured.written,
@@ -240,11 +267,7 @@ fn profiled(root: &Path, args: ScenarioArgs) -> Result<(PathBuf, String), String
         std::fs::write(work.join(name), text)
             .map_err(|error| format!("can't write {name}: {error}"))
     };
-    let title = format!(
-        "kapto record, the {} load, {} s",
-        args.scenario.name(),
-        args.seconds
-    );
+    let title = format!("kapto record, the {} load, {} s", args.name(), args.seconds);
     write("flamegraph.svg", &profile.flamegraph(&title))?;
     write("stacks.folded", &profile.folded())?;
     write("profile.md", &report)?;

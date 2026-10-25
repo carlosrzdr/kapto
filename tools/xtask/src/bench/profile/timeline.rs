@@ -116,10 +116,10 @@ fn traced_with(
     storage: Option<&str>,
 ) -> Result<(PathBuf, String), String> {
     let binaries = root.join(TARGET_DIR).join("release");
-    let work = work_dir(root, &format!("trace-{}", args.scenario.name()));
+    let work = work_dir(root, &format!("trace-{}", args.name()));
     let traces = work.join("traces");
     std::fs::create_dir_all(&traces).map_err(|error| error.to_string())?;
-    let spec = args.scenario.spec(args.seconds);
+    let spec = args.spec(args.seconds);
     let run = record_load_watched(&binaries, &work, &spec, &[(TRACE_VAR, &traces)], |_| {})?;
     let worked = worker_jobs(&binaries, &work, &traces, storage)?;
     let events = merged(&traces)?;
@@ -134,7 +134,7 @@ fn traced_with(
         serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?,
     )
     .map_err(|error| format!("can't write {SUMMARY_FILE}: {error}"))?;
-    let mut report = markdown(&events, args.scenario.name(), args.seconds, worked.minutes);
+    let mut report = markdown(&events, &args.name(), args.seconds, worked.minutes);
     let measured = &run.measured;
     report.push_str(&super::recorded(
         run.generator,

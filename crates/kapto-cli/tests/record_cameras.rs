@@ -92,6 +92,7 @@ fn send_camera(port: &str) {
         transport: Transport::TcpConnect,
         wait_for_subscribers: None,
         camera: Some((320, 240)),
+        raw_camera: false,
     };
     let (sent, _) = run(&camera, |_, _| {}).unwrap();
     assert_eq!(sent.send_errors, 0);

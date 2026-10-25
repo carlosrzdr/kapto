@@ -335,7 +335,9 @@ before its first message, so none is published before it can be
 received. With `--camera 640x480` each stream is a camera instead: a
 second of JPEG frames of a moving picture, encoded once and played in a
 loop, each frame a message over TCP or a `sensor_msgs/msg/CompressedImage`
-on `/camera/image_raw/compressed` over ROS 2. `packages/arm7` is the
+on `/camera/image_raw/compressed` over ROS 2; with `--raw` too, the same
+pictures' pixels in `rgb8`, uncompressed, a `sensor_msgs/msg/Image` on
+`/camera/image_raw` over ROS 2. `packages/arm7` is the
 robot those joint positions belong to: a seven-joint arm described in URDF,
 with a `streams.toml` that declares the synthetic robot's stream and its
 message layout. `packages/arm7_ros2` is the same arm as a ROS 2 robot: its

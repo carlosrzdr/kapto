@@ -62,6 +62,7 @@ fn four_streams_at_2_khz_for_2_seconds_deliver_every_message_in_order() {
         transport: Transport::Udp,
         wait_for_subscribers: None,
         camera: None,
+        raw_camera: false,
     };
     let (stats, _elapsed) = run(&config, |_, _| {}).unwrap();
     assert_eq!(stats.ticks + stats.skipped_ticks, 4_000);
@@ -103,6 +104,7 @@ fn every_interval_is_reported_once_per_second_of_schedule() {
         transport: Transport::Udp,
         wait_for_subscribers: None,
         camera: None,
+        raw_camera: false,
     };
     let mut reported = Vec::new();
     let (stats, _) = run(&config, |at, interval| reported.push((at, interval.ticks))).unwrap();
@@ -140,6 +142,7 @@ fn tcp_config(target: SocketAddr, streams: u16, transport: Transport) -> Config 
         transport,
         wait_for_subscribers: None,
         camera: None,
+        raw_camera: false,
     }
 }
 
@@ -204,6 +207,7 @@ fn a_camera_over_tcp_sends_every_frame_a_jpeg_of_its_size_at_its_rate() {
         rate_hz: 30,
         duration: Some(Duration::from_secs(4)),
         camera: Some((320, 240)),
+        raw_camera: false,
         ..tcp_config(target, 2, Transport::TcpConnect)
     };
     let (stats, _) = run(&config, |_, _| {}).unwrap();

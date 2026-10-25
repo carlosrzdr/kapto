@@ -134,6 +134,7 @@ fn record_load(name: &str, count: u16, rate_hz: u32, send_seconds: u64, transpor
         transport,
         wait_for_subscribers: None,
         camera: None,
+        raw_camera: false,
     };
     let (sent, _) = kapto_loadgen::run(&config, |_, _| {}).unwrap();
     assert_eq!(sent.send_errors, 0);
@@ -233,6 +234,7 @@ fn a_viewer_that_stops_reading_never_costs_the_recording_a_message() {
         transport: Transport::Udp,
         wait_for_subscribers: None,
         camera: None,
+        raw_camera: false,
     };
     let (sent, _) = kapto_loadgen::run(&config, |_, _| {}).unwrap();
     let output = child.wait_with_output().unwrap();
@@ -653,6 +655,7 @@ fn chunk_compressions(name: &str, args: &[&str]) -> Vec<String> {
         transport: Transport::Udp,
         wait_for_subscribers: None,
         camera: None,
+        raw_camera: false,
     };
     kapto_loadgen::run(&config, |_, _| {}).unwrap();
     assert!(child.wait_with_output().unwrap().status.success());

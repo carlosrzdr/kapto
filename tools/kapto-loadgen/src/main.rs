@@ -51,6 +51,11 @@ struct Cli {
     /// over ROS 2. Not over UDP, which a frame doesn't fit.
     #[arg(long, value_name = "WIDTHxHEIGHT", value_parser = frame_size)]
     camera: Option<(u16, u16)>,
+    /// With --camera, send each frame's pixels in rgb8, uncompressed,
+    /// instead of JPEG: over ROS 2 a `sensor_msgs/msg/Image` on
+    /// `/camera/image_raw`.
+    #[arg(long)]
+    raw: bool,
 }
 
 /// A frame size written `WIDTHxHEIGHT`.
@@ -115,6 +120,7 @@ fn main() -> ExitCode {
         transport: cli.transport.into(),
         wait_for_subscribers,
         camera: cli.camera,
+        raw_camera: cli.raw,
     };
     if let Err(problem) = config.validate() {
         eprintln!("{problem}");
@@ -137,7 +143,8 @@ fn main() -> ExitCode {
         )
     };
     let what = config.camera.map_or_else(String::new, |(width, height)| {
-        format!(" of {width}x{height} JPEG frames")
+        let format = if config.raw_camera { "rgb8" } else { "JPEG" };
+        format!(" of {width}x{height} {format} frames")
     });
     println!(
         "Sending {} stream(s){what} at {} Hz over {} to {to}",

@@ -81,6 +81,9 @@ pub(crate) struct SystemArgs {
     /// Cameras sent beside the streams over TCP, each its JPEG frames.
     #[arg(long, default_value_t = 0)]
     cameras: u16,
+    /// The cameras' frames raw, each pixel in rgb8, instead of JPEG.
+    #[arg(long)]
+    raw_cameras: bool,
     /// Frames a second from each camera.
     #[arg(long, default_value_t = 60)]
     camera_fps: u32,
@@ -164,13 +167,41 @@ struct Spec {
 }
 
 /// Cameras sent beside a load's streams: TCP streams of JPEG frames, Kapto
-/// listening, each declaring [`CAMERA_MAX_BYTES`].
+/// listening, each declaring [`CAMERA_MAX_BYTES`]; or of raw frames, each
+/// declaring its frame's size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct Cameras {
     pub(crate) count: u16,
     pub(crate) fps: u32,
     pub(crate) width: u16,
     pub(crate) height: u16,
+    /// Each frame's pixels in `rgb8`, uncompressed, instead of JPEG.
+    pub(crate) raw: bool,
+}
+
+impl Cameras {
+    /// The `max_message_bytes` each camera's stream declares, a frame
+    /// with `header_bytes` before it: the raw frame's own size, as large
+    /// as a message has to be, rather than a JPEG's mebibyte.
+    pub(crate) fn max_message_bytes(&self, header_bytes: u32) -> u32 {
+        if self.raw {
+            u32::from(self.width) * u32::from(self.height) * 3 + header_bytes
+        } else {
+            CAMERA_MAX_BYTES
+        }
+    }
+
+    /// The load generator's arguments sending these frames.
+    pub(crate) fn generator_args(&self) -> Vec<String> {
+        let mut args = vec![
+            "--camera".to_owned(),
+            format!("{}x{}", self.width, self.height),
+        ];
+        if self.raw {
+            args.push("--raw".to_owned());
+        }
+        args
+    }
 }
 
 /// The largest frame a benchmark's camera declares: 1 MiB, above a
@@ -198,6 +229,7 @@ pub(crate) fn system(root: &Path, args: &SystemArgs) -> ExitCode {
             fps: args.camera_fps,
             width: args.camera_size.0,
             height: args.camera_size.1,
+            raw: args.raw_cameras,
         }),
         rate: args.rate,
         seconds: args.seconds,
@@ -493,7 +525,7 @@ fn record_load_watched(
             .args(["--duration", &spec.seconds.to_string()])
             .args(["--target", &format!("127.0.0.1:{}", port + spec.streams)])
             .args(["--transport", "tcp-connect"])
-            .args(["--camera", &format!("{}x{}", sent.width, sent.height)])
+            .args(sent.generator_args())
             .stdout(Stdio::piped())
             .spawn()
             .map_err(|error| format!("can't start the cameras: {error}"))?;
@@ -749,11 +781,19 @@ fn write_streams(dir: &Path, port: u16, spec: &Spec) -> Result<PathBuf, String> 
             let address = format!("127.0.0.1:{}", port + spec.streams + camera);
             let _ = write!(
                 text,
-                "[streams.camera_{camera}]\nrate_hz = {}\nmax_message_bytes = {CAMERA_MAX_BYTES}\n\
+                "[streams.camera_{camera}]\nrate_hz = {}\nmax_message_bytes = {}\n\
                  tcp = {{ listen = \"{address}\", framing = {{ kind = \"length_prefix\", length_bytes = 4 }} }}\n",
-                cameras.fps
+                cameras.fps,
+                // Each message carries its 4-byte length prefix.
+                cameras.max_message_bytes(4)
             );
-            if spec.decoded {
+            if spec.decoded && cameras.raw {
+                let _ = writeln!(
+                    text,
+                    "camera = {{ format = \"raw\", width = {}, height = {}, encoding = \"rgb8\" }}",
+                    cameras.width, cameras.height
+                );
+            } else if spec.decoded {
                 text.push_str("camera = { format = \"jpeg\" }\n");
             }
             text.push('\n');
@@ -780,6 +820,7 @@ mod tests {
                 fps: 60,
                 width: 1920,
                 height: 1080,
+                raw: false,
             }),
             rate: 2_000,
             seconds: 1,
@@ -804,6 +845,49 @@ mod tests {
         assert_eq!(
             tcp.endpoint,
             kapto_config::TcpEndpointDeclaration::Listen("127.0.0.1:30003".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn raw_cameras_declare_their_frames_size_and_encoding() {
+        let dir = std::env::temp_dir().join(format!("kapto-bench-raw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let spec = Spec {
+            streams: 1,
+            tcp_streams: 0,
+            cameras: Some(Cameras {
+                count: 1,
+                fps: 60,
+                width: 1920,
+                height: 1080,
+                raw: true,
+            }),
+            rate: 2_000,
+            seconds: 1,
+            max_message_bytes: None,
+            place: Place::Native,
+            tap_socket: None,
+            decoded: true,
+        };
+        let path = write_streams(&dir, 30_000, &spec).unwrap();
+        let file = kapto_config::ConfigFile {
+            contents: std::fs::read_to_string(&path).unwrap(),
+            path,
+        };
+        let streams = kapto_config::parse_streams(&file).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(streams[1].max_message_bytes, Some(1920 * 1080 * 3 + 4));
+        assert_eq!(
+            streams[1].camera,
+            Some(kapto_config::CameraDeclaration::Raw {
+                width: 1920,
+                height: 1080,
+                encoding: kapto_config::PixelEncoding::Rgb8,
+            })
+        );
+        assert_eq!(
+            spec.cameras.unwrap().generator_args(),
+            ["--camera", "1920x1080", "--raw"]
         );
     }
 }

@@ -138,7 +138,14 @@ impl Output {
                 let topics: Vec<String> = (0..config.streams)
                     .map(|stream| config.stream_topic(stream))
                     .collect();
-                let publishers = crate::ros2::Publishers::open(&topics, config.camera.is_some())?;
+                let kind = match config.camera {
+                    None => crate::ros2::Kind::Joints,
+                    Some((width, height)) if config.raw_camera => {
+                        crate::ros2::Kind::Raw(width, height)
+                    }
+                    Some(_) => crate::ros2::Kind::Compressed,
+                };
+                let publishers = crate::ros2::Publishers::open(&topics, kind)?;
                 if let Some(limit) = config.wait_for_subscribers {
                     publishers.wait_for_subscribers(limit)?;
                 }

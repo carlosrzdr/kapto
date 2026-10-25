@@ -56,6 +56,10 @@ pub struct Config {
     /// A camera's JPEG frames of this width and height instead of joint
     /// states, over TCP or ROS 2 (`sensor_msgs/msg/CompressedImage`).
     pub camera: Option<(u16, u16)>,
+    /// The camera's frames as their pixels in `rgb8` instead, uncompressed,
+    /// as a simulator's or a depth camera's driver sends them: over ROS 2
+    /// a `sensor_msgs/msg/Image`.
+    pub raw_camera: bool,
 }
 
 impl Config {
@@ -95,6 +99,9 @@ impl Config {
                 return Err("--camera needs a frame of at least 8x8".to_owned());
             }
         }
+        if self.raw_camera && self.camera.is_none() {
+            return Err("--raw needs --camera, the frames' size".to_owned());
+        }
         if self.wait_for_subscribers.is_some() && self.transport != Transport::Ros2 {
             return Err("--wait-for-subscribers is only for --transport ros2".to_owned());
         }
@@ -111,14 +118,15 @@ impl Config {
     /// first, as a robot's arm would, then `/joint_states_1` and on; a
     /// camera's on `/camera/image_raw/compressed`, then
     /// `/camera_1/image_raw/compressed` and on, as `image_transport` names
-    /// them.
+    /// them, or without `/compressed` if raw.
     #[must_use]
     pub fn stream_topic(&self, stream: u16) -> String {
+        let compressed = if self.raw_camera { "" } else { "/compressed" };
         match (self.camera, stream) {
             (None, 0) => "/joint_states".to_owned(),
             (None, _) => format!("/joint_states_{stream}"),
-            (Some(_), 0) => "/camera/image_raw/compressed".to_owned(),
-            (Some(_), _) => format!("/camera_{stream}/image_raw/compressed"),
+            (Some(_), 0) => format!("/camera/image_raw{compressed}"),
+            (Some(_), _) => format!("/camera_{stream}/image_raw{compressed}"),
         }
     }
 
@@ -216,7 +224,13 @@ pub struct Prepared<'a> {
 pub fn prepare(config: &Config) -> io::Result<Prepared<'_>> {
     let frames = config
         .camera
-        .map(|(width, height)| camera::Frames::new(width, height, config.rate_hz))
+        .map(|(width, height)| {
+            if config.raw_camera {
+                Ok(camera::Frames::raw(width, height, config.rate_hz))
+            } else {
+                camera::Frames::new(width, height, config.rate_hz)
+            }
+        })
         .transpose()?;
     let output = Output::open(config)?;
     Ok(Prepared {
@@ -351,6 +365,7 @@ mod tests {
             transport: Transport::Udp,
             wait_for_subscribers: None,
             camera: None,
+            raw_camera: false,
         };
         let stop = AtomicBool::new(false);
         let (total, elapsed) = std::thread::scope(|scope| {
@@ -373,6 +388,7 @@ mod tests {
             transport: Transport::Udp,
             wait_for_subscribers: None,
             camera: None,
+            raw_camera: false,
         }
     }
 
@@ -406,6 +422,9 @@ mod tests {
         config.camera = Some((640, 480));
         assert_eq!(config.stream_topic(0), "/camera/image_raw/compressed");
         assert_eq!(config.stream_topic(1), "/camera_1/image_raw/compressed");
+        config.raw_camera = true;
+        assert_eq!(config.stream_topic(0), "/camera/image_raw");
+        assert_eq!(config.stream_topic(1), "/camera_1/image_raw");
     }
 
     #[test]
@@ -450,6 +469,14 @@ mod tests {
                     ..config("127.0.0.1:9000", 1, 30)
                 },
                 "--camera needs a frame of at least 8x8",
+            ),
+            (
+                Config {
+                    raw_camera: true,
+                    transport: Transport::TcpConnect,
+                    ..config("127.0.0.1:9000", 1, 30)
+                },
+                "--raw needs --camera",
             ),
             (
                 Config {

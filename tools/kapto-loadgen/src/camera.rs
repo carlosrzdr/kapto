@@ -10,6 +10,10 @@
 //! circling the middle, so consecutive frames differ as a camera's do,
 //! with a grain over every pixel, so they compress to a real scene's sizes
 //! (about 360 KB at 1920x1080) rather than a flat picture's.
+//!
+//! Raw frames are the same pictures' pixels, uncompressed, as a simulator
+//! or a depth camera sends them; fewer of them loop, [`RAW_FRAMES`], as
+//! each is megabytes.
 
 use std::io;
 
@@ -17,6 +21,9 @@ use jpeg_encoder::{ColorType, Encoder};
 
 /// The most frames encoded, a second's worth at 120 fps.
 pub const MOST_FRAMES: usize = 120;
+
+/// The most raw frames kept: ten at 1920x1080 hold 62 MB.
+pub const RAW_FRAMES: usize = 10;
 
 /// JPEG quality, as a camera's driver commonly sends.
 const QUALITY: u8 = 80;
@@ -77,6 +84,20 @@ impl Frames {
         Ok(Self {
             frames: frames.into_iter().collect::<io::Result<_>>()?,
         })
+    }
+
+    /// `width` × `height` frames of pixels in `rgb8`, row after row with
+    /// no padding: as many as a second at `rate_hz` up to [`RAW_FRAMES`].
+    #[must_use]
+    pub fn raw(width: u16, height: u16, rate_hz: u32) -> Self {
+        let count = usize::try_from(rate_hz)
+            .unwrap_or(RAW_FRAMES)
+            .clamp(1, RAW_FRAMES);
+        #[allow(clippy::cast_precision_loss, reason = "at most ten frames")]
+        let frames = (0..count)
+            .map(|frame| picture(width, height, frame as f64 / count as f64))
+            .collect();
+        Self { frames }
     }
 
     /// The frame stream `stream` sends at `tick`.
@@ -173,6 +194,15 @@ mod tests {
             Frames::new(16, 16, 1_000).unwrap().frames.len(),
             MOST_FRAMES
         );
+    }
+
+    #[test]
+    fn raw_frames_are_each_pixel_in_rgb8_and_fewer_loop() {
+        let frames = Frames::raw(64, 48, 60);
+        assert_eq!(frames.frames.len(), RAW_FRAMES);
+        assert_eq!(frames.largest(), 64 * 48 * 3);
+        assert_ne!(frames.frame(0, 0), frames.frame(0, 1), "the picture moves");
+        assert_eq!(Frames::raw(64, 48, 2).frames.len(), 2);
     }
 
     #[test]

@@ -37,6 +37,30 @@ pub(crate) struct PageArgs {
     /// How long the main thread is profiled, in seconds, in the middle.
     #[arg(long, default_value_t = 20)]
     profile_seconds: u32,
+    /// The cameras' frames raw, each pixel in rgb8, instead of JPEG: the
+    /// viewer bridge encodes them before the page gets them.
+    #[arg(long)]
+    raw_cameras: bool,
+}
+
+impl PageArgs {
+    fn spec(&self, seconds: u32) -> Spec {
+        let mut spec = self.scenario.spec(seconds);
+        if let Some(cameras) = &mut spec.cameras {
+            cameras.raw = self.raw_cameras;
+        }
+        spec
+    }
+
+    /// The load's name, raw cameras' apart from JPEG ones'.
+    fn name(&self) -> String {
+        let name = self.scenario.name();
+        if self.raw_cameras {
+            format!("raw-{name}")
+        } else {
+            name.to_owned()
+        }
+    }
 }
 
 /// The loads the page is profiled under.
@@ -68,6 +92,7 @@ impl PageScenario {
                 fps: 60,
                 width: 1920,
                 height: 1080,
+                raw: false,
             }),
             rate: 2_000,
             seconds,
@@ -248,8 +273,8 @@ pub(super) fn profiled_page(
     let budget = std::fs::read_to_string(root.join("perf-budget.toml"))
         .map_err(|error| format!("can't read perf-budget.toml: {error}"))
         .and_then(|text| read_budget(&text))?;
-    let work = work_dir(root, &format!("page-{}", args.scenario.name()));
-    let spec = args.scenario.spec(args.minutes * 60 + 180);
+    let work = work_dir(root, &format!("page-{}", args.name()));
+    let spec = args.spec(args.minutes * 60 + 180);
     let environment = [
         ("KAPTO_WATCH_SECONDS", (args.minutes * 60).to_string()),
         ("KAPTO_PROFILE_SECONDS", args.profile_seconds.to_string()),
@@ -297,7 +322,7 @@ fn markdown(
         "# Page profile: the {} load, {} minutes\n\n\
          Drawn by {}. Samples taken while the profiler ran are left out of the checks.\n\n\
          | Measure | Measured | Allowed | Within |\n|---|---|---|---|\n",
-        args.scenario.name(),
+        args.name(),
         args.minutes,
         watched.renderer
     );
@@ -487,6 +512,7 @@ mod tests {
             scenario: PageScenario::Large,
             minutes: 3,
             profile_seconds: 10,
+            raw_cameras: false,
         };
         let (report, checks) = markdown(args, &watched, &profile, &budget);
         assert!(checks.iter().all(|check| check.within), "{report}");

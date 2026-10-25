@@ -17,13 +17,13 @@
 //! A camera ([`crate::camera`]) publishes each frame as a
 //! `sensor_msgs/msg/CompressedImage` instead, its format `jpeg`, its
 //! header's stamp the frame's source time, keeping 10 of them, as a
-//! camera's driver does.
+//! camera's driver does; or, raw, as a `sensor_msgs/msg/Image` in `rgb8`.
 
 use std::io;
 use std::time::{Duration, Instant};
 
 use r2r::builtin_interfaces::msg::Time;
-use r2r::sensor_msgs::msg::{CompressedImage, JointState};
+use r2r::sensor_msgs::msg::{CompressedImage, Image, JointState};
 use r2r::{Context, Node, Publisher, QosProfile};
 
 use crate::payload::{JOINTS, Sample};
@@ -48,6 +48,17 @@ const FRAMES_KEPT: usize = 10;
 enum Topics {
     Joints(Vec<Publisher<JointState>>),
     Frames(Vec<Publisher<CompressedImage>>),
+    Pictures(Vec<Publisher<Image>>),
+}
+
+/// What a generator publishes.
+#[derive(Clone, Copy)]
+pub(crate) enum Kind {
+    Joints,
+    /// A camera's JPEG frames.
+    Compressed,
+    /// A camera's frames of this width and height in `rgb8`.
+    Raw(u16, u16),
 }
 
 /// The node and a publisher per stream.
@@ -62,12 +73,15 @@ pub(crate) struct Publishers {
     message: JointState,
     /// The frame's message, its data rewritten for each frame in place.
     image: CompressedImage,
+    /// The same, raw.
+    picture: Image,
 }
 
 impl Publishers {
-    /// Starts the node and a publisher on each of `topics`, stream by
-    /// stream: of a camera's frames if `camera`, else of joint states.
-    pub(crate) fn open(topics: &[String], camera: bool) -> io::Result<Self> {
+    /// Starts the node and a publisher of `kind` on each of `topics`,
+    /// stream by stream.
+    pub(crate) fn open(topics: &[String], kind: Kind) -> io::Result<Self> {
+        let camera = !matches!(kind, Kind::Joints);
         let context = Context::create().map_err(|error| failed(&error))?;
         let mut node =
             // Its own name when it is a camera, so a camera and the joints
@@ -78,22 +92,28 @@ impl Publishers {
             depth,
             ..QosProfile::default()
         };
-        let publishers = if camera {
-            Topics::Frames(
+        let publishers = match kind {
+            Kind::Compressed => Topics::Frames(
                 topics
                     .iter()
                     .map(|topic| node.create_publisher(topic, qos(FRAMES_KEPT)))
                     .collect::<Result<_, _>>()
                     .map_err(|error| failed(&error))?,
-            )
-        } else {
-            Topics::Joints(
+            ),
+            Kind::Raw(..) => Topics::Pictures(
+                topics
+                    .iter()
+                    .map(|topic| node.create_publisher(topic, qos(FRAMES_KEPT)))
+                    .collect::<Result<_, _>>()
+                    .map_err(|error| failed(&error))?,
+            ),
+            Kind::Joints => Topics::Joints(
                 topics
                     .iter()
                     .map(|topic| node.create_publisher(topic, qos(DEPTH)))
                     .collect::<Result<_, _>>()
                     .map_err(|error| failed(&error))?,
-            )
+            ),
         };
         let message = JointState {
             name: JOINT_NAMES.map(str::to_owned).to_vec(),
@@ -104,12 +124,24 @@ impl Publishers {
             format: "jpeg".to_owned(),
             ..CompressedImage::default()
         };
+        let (width, height) = match kind {
+            Kind::Raw(width, height) => (u32::from(width), u32::from(height)),
+            Kind::Joints | Kind::Compressed => (0, 0),
+        };
+        let picture = Image {
+            width,
+            height,
+            encoding: "rgb8".to_owned(),
+            step: width * 3,
+            ..Image::default()
+        };
         Ok(Self {
             _node: node,
             topics: publishers,
             names: topics.to_vec(),
             message,
             image,
+            picture,
         })
     }
 
@@ -123,6 +155,10 @@ impl Publishers {
                 .map(|publisher| count(publisher.get_inter_process_subscription_count()))
                 .collect(),
             Topics::Frames(publishers) => publishers
+                .iter()
+                .map(|publisher| count(publisher.get_inter_process_subscription_count()))
+                .collect(),
+            Topics::Pictures(publishers) => publishers
                 .iter()
                 .map(|publisher| count(publisher.get_inter_process_subscription_count()))
                 .collect(),
@@ -185,16 +221,27 @@ impl Publishers {
     /// Publishes a camera's `frame` on stream `stream`'s topic, stamped
     /// `source_time_ns`; whether it went.
     pub(crate) fn send_frame(&mut self, stream: usize, frame: &[u8], source_time_ns: u64) -> bool {
-        let Topics::Frames(publishers) = &self.topics else {
-            return false;
-        };
-        let Some(publisher) = publishers.get(stream) else {
-            return false;
-        };
-        self.image.header.stamp = stamp(source_time_ns);
-        self.image.data.clear();
-        self.image.data.extend_from_slice(frame);
-        publisher.publish(&self.image).is_ok()
+        match &self.topics {
+            Topics::Frames(publishers) => {
+                let Some(publisher) = publishers.get(stream) else {
+                    return false;
+                };
+                self.image.header.stamp = stamp(source_time_ns);
+                self.image.data.clear();
+                self.image.data.extend_from_slice(frame);
+                publisher.publish(&self.image).is_ok()
+            }
+            Topics::Pictures(publishers) => {
+                let Some(publisher) = publishers.get(stream) else {
+                    return false;
+                };
+                self.picture.header.stamp = stamp(source_time_ns);
+                self.picture.data.clear();
+                self.picture.data.extend_from_slice(frame);
+                publisher.publish(&self.picture).is_ok()
+            }
+            Topics::Joints(_) => false,
+        }
     }
 }
 
