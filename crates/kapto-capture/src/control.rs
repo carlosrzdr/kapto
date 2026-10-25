@@ -569,11 +569,51 @@ type Connections<'a> = (
     &'a Arc<Watchers>,
 );
 
-fn accept(listener: &UnixListener, (max, requests, supervision, watchers): Connections<'_>) {
+fn accept(listener: &UnixListener, connections: Connections<'_>) {
+    take(listener.incoming(), std::thread::sleep, connections);
+}
+
+/// The first wait after the control socket fails to take a connection.
+const ACCEPT_RETRY_FIRST: Duration = Duration::from_millis(10);
+/// The longest: still quick to answer once it can take one again.
+const ACCEPT_RETRY_MOST: Duration = Duration::from_secs(1);
+
+/// How long to wait after a failed accept that came `after` the last.
+fn accept_retry(after: Option<Duration>) -> Duration {
+    after.map_or(ACCEPT_RETRY_FIRST, |last| (last * 2).min(ACCEPT_RETRY_MOST))
+}
+
+/// Answers each of `incoming`, as [`accept`] does the listener's. One that
+/// fails is waited after, longer and longer, rather than tried again at
+/// once: the failure may last (too many files open), and the thread would
+/// otherwise take a core from capture. Said once a run of failures.
+fn take(
+    incoming: impl Iterator<Item = io::Result<UnixStream>>,
+    mut wait: impl FnMut(Duration),
+    (max, requests, supervision, watchers): Connections<'_>,
+) {
     let open = Arc::new(AtomicUsize::new(0));
-    for connection in listener.incoming() {
-        let Ok(connection) = connection else {
-            continue;
+    let mut retry = None;
+    for connection in incoming {
+        let connection = match connection {
+            Ok(connection) => {
+                retry = None;
+                connection
+            }
+            Err(error) => {
+                if retry.is_none() {
+                    kapto_core::say!(
+                        "{}",
+                        KaptoError::new(ErrorCode::CaptureControlAcceptFailed)
+                            .detail(error.to_string())
+                            .report()
+                    );
+                }
+                let next = accept_retry(retry);
+                retry = Some(next);
+                wait(next);
+                continue;
+            }
         };
         // Only this thread adds, so a place counted free is still free.
         if open.load(Ordering::Acquire) >= max {
@@ -936,4 +976,57 @@ fn refused(code: &str, message: &str) -> KaptoError {
 fn unexpected(response: &Response) -> KaptoError {
     KaptoError::new(ErrorCode::CaptureControlUnexpectedAnswer)
         .detail(format!("unexpected answer: {response:?}"))
+}
+
+#[cfg(test)]
+mod accept_tests {
+    use super::*;
+
+    /// What a process at its open files limit gets from `accept`.
+    fn too_many_files() -> io::Result<UnixStream> {
+        Err(io::Error::from_raw_os_error(24))
+    }
+
+    fn take_all(incoming: Vec<io::Result<UnixStream>>) -> Vec<Duration> {
+        let (requests, _pending) = mpsc::channel();
+        let supervision = Arc::new(Supervision::default());
+        let watchers = Arc::new(Watchers::default());
+        let mut waits = Vec::new();
+        take(
+            incoming.into_iter(),
+            |wait| waits.push(wait),
+            (4, &requests, &supervision, &watchers),
+        );
+        waits
+    }
+
+    #[test]
+    fn a_socket_that_keeps_failing_is_waited_after_longer_each_time_rather_than_spun_on() {
+        let waits = take_all((0..10).map(|_| too_many_files()).collect());
+        let ms = |ms| Duration::from_millis(ms);
+        assert_eq!(
+            waits[..7],
+            [ms(10), ms(20), ms(40), ms(80), ms(160), ms(320), ms(640)]
+        );
+        assert_eq!(waits[7..], [ACCEPT_RETRY_MOST; 3]);
+    }
+
+    #[test]
+    fn a_connection_taken_starts_the_waits_over() {
+        let (connection, _client) = UnixStream::pair().unwrap();
+        let waits = take_all(vec![
+            too_many_files(),
+            too_many_files(),
+            Ok(connection),
+            too_many_files(),
+        ]);
+        assert_eq!(
+            waits,
+            [
+                ACCEPT_RETRY_FIRST,
+                ACCEPT_RETRY_FIRST * 2,
+                ACCEPT_RETRY_FIRST
+            ]
+        );
+    }
 }

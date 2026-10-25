@@ -48,6 +48,13 @@ error_codes! {
         remedy: "The system may be out of threads or memory: check free memory and the user's process limit (`ulimit -u`). If it happens again, report it with the full message.",
     }
 
+    /// The control socket couldn't take a connection, again and again: the
+    /// process may have as many files open as it is allowed.
+    CaptureControlAcceptFailed = "capture.control_accept_failed" {
+        summary: "Can't take control connections for now",
+        remedy: "Usually the process has as many files open as it may: raise its limit (`ulimit -n`, or `LimitNOFILE=` for a service), or find what holds them. Recording goes on, and connections are taken again once one can be.",
+    }
+
     /// The capture process can't listen on its control socket.
     CaptureControlSocketFailed = "capture.control_socket_failed" {
         summary: "Can't listen for control requests",
