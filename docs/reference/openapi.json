@@ -1534,6 +1534,62 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [],
+        "summary": "Save a layout under a new name, read by every browser: written to the\nfile named from it, checked as `layout.toml` is.",
+        "operationId": "create_layout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NamedLayoutInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamedLayout"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't a named layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name is empty, too long or taken, the layout breaks a rule of layout.toml, or Kapto runs no robot package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The file can't be written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/layouts/{id}": {
@@ -1651,6 +1707,83 @@
           },
           "500": {
             "description": "The file can't be removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [],
+        "summary": "Rename a named layout: its file moves to the one named from the new\nname, the rest kept as written. Answers with its new `id`.",
+        "operationId": "rename_layout",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The layout's `id`, as `/api/layouts` lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutName"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamedLayout"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't a name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name is empty, too long or taken, its file breaks a rule of layout.toml, or Kapto runs no robot package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The file can't be moved",
             "content": {
               "application/json": {
                 "schema": {
@@ -3329,6 +3462,19 @@
           }
         }
       },
+      "LayoutName": {
+        "type": "object",
+        "description": "A named layout's new name.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The name, held to the rules of [`NamedLayoutInput::name`]. Its file\nmoves to the one named from it."
+          }
+        }
+      },
       "LiveViewCounts": {
         "type": "object",
         "description": "What became of a camera's frames on their way to the live view.",
@@ -3392,6 +3538,27 @@
           "name": {
             "type": "string",
             "description": "Its name, as its file gives it."
+          }
+        }
+      },
+      "NamedLayoutInput": {
+        "type": "object",
+        "description": "A layout to be saved under a name of its own.",
+        "required": [
+          "name",
+          "columns"
+        ],
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ColumnInput"
+            },
+            "description": "Its columns, left to right."
+          },
+          "name": {
+            "type": "string",
+            "description": "Its name: at most 64 characters, with a letter or digit, unique\namong the package's layouts. Its file is named from it."
           }
         }
       },

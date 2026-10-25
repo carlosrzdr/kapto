@@ -52,6 +52,7 @@ for how to read an error report.
 | `layout.write_failed` | The layout couldn't be saved | Check that the configuration folder exists and that Kapto may write in its `layouts` folder; the message says which file and why. |
 | `layout.name_empty` | The layout has no name | Give the layout a name with at least one letter or digit, e.g. `Wrist view`: its file is named from them. |
 | `layout.name_too_long` | The layout's name is too long | Shorten the name to 64 characters or fewer. |
+| `layout.name_taken` | Another layout has that name | Choose another name, or rename or delete the layout that has it. Names that differ only in case, spaces or punctuation are taken as the same, as their files would be. |
 | `layout.not_found` | No such layout | List the package's layouts with `GET /api/layouts`; each is asked for by its `id`, its file's name without `.toml`. |
 | `qa.unknown_key` | Unknown key in qa.toml | Remove the key or correct its spelling. A check's settings are in the table named after its ID, e.g. `[streams.complete]`; the robot package format reference (docs/reference/package.md) lists every setting. |
 | `package.missing_file` | A file of the robot package is missing | Add the file to the package folder, or correct its path in `package.toml`. Paths are relative to the folder that holds `package.toml`. |

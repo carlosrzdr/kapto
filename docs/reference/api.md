@@ -45,8 +45,10 @@ once a second. A page from another site may not open it
 | GET | `/api/events` | Events as they happen, over a WebSocket. Each message is one `Event` as JSON. Connections from another site's web page are refused. |
 | POST | `/api/layout/check` | What a layout lacks: the layout as the live view draws it, each panel with what the robot's streams lack of it, by the rules every layout is held to. For one the operator keeps in their browser; nothing is saved. |
 | GET | `/api/layouts` | The named layouts of the robot package Kapto runs, as their files in `layouts/<package id>/` of the configuration folder hold them now: *Default* (`default`) first, the rest by name, and why any file doesn't read. |
+| POST | `/api/layouts` | Save a layout under a new name, read by every browser: written to the file named from it, checked as `layout.toml` is. |
 | PUT | `/api/layouts/{id}` | Save a layout over a named one, keeping its name. `default` is the package's *Default*, which `/api/robot` gives from then on, made if there is none. |
 | DELETE | `/api/layouts/{id}` | Delete a named layout, if it is there. Deleting `default` arranges the live view by the package's own layout again, or the one made from it. Answers with the layout `/api/robot` now gives. |
+| PATCH | `/api/layouts/{id}` | Rename a named layout: its file moves to the one named from the new name, the rest kept as written. Answers with its new `id`. |
 | POST | `/api/preflight` | Run pre-flight again: watch the streams for `capture.preflight_window` and test the disk, then answer with each check's result. A run already going is waited for rather than started again. Only between episodes: its test file would compete with a recording's writes. |
 | GET | `/api/processes` | Kapto's processes, the server first: whether each runs, since when, how often it was started again, and its CPU, memory and threads. Answers even while the capture process doesn't. |
 | GET | `/api/profiles` | The profiles saved in the configuration folder, each marked available if it records the robot package Kapto runs, and what is wrong with any that can't be read. Read again on each request. |

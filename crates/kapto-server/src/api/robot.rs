@@ -13,7 +13,7 @@ use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use kapto_core::{ErrorCode, KaptoError};
 
-use crate::layouts::{NamedLayout, NamedLayouts};
+use crate::layouts::{LayoutName, NamedLayout, NamedLayoutInput, NamedLayouts};
 use crate::robot::{LayoutInput, RobotOverview, ViewLayout};
 use crate::scene::RobotScene;
 
@@ -51,6 +51,28 @@ pub(super) async fn layouts(
     on_disk(move || layouts.list()).await
 }
 
+/// Save a layout under a new name, read by every browser: written to the
+/// file named from it, checked as `layout.toml` is.
+#[utoipa::path(
+    post,
+    path = "/api/layouts",
+    request_body = NamedLayoutInput,
+    responses(
+        (status = 200, body = NamedLayout),
+        (status = 400, description = "The body isn't a named layout", body = ApiError),
+        (status = 409, description = "The name is empty, too long or taken, the layout breaks a rule of layout.toml, or Kapto runs no robot package", body = ApiError),
+        (status = 500, description = "The file can't be written", body = ApiError)
+    )
+)]
+pub(super) async fn create_layout(
+    State(state): State<Arc<ApiState>>,
+    request: Result<Json<NamedLayoutInput>, JsonRejection>,
+) -> Result<Json<NamedLayout>, Failure> {
+    let Json(input) = request.map_err(|rejection| invalid(&rejection))?;
+    let layouts = state.layouts.clone();
+    on_disk(move || layouts.create(&input)).await
+}
+
 /// Save a layout over a named one, keeping its name. `default` is the
 /// package's *Default*, which `/api/robot` gives from then on, made if
 /// there is none.
@@ -75,6 +97,31 @@ pub(super) async fn write_layout(
     let Json(input) = request.map_err(|rejection| invalid(&rejection))?;
     let layouts = state.layouts.clone();
     on_disk(move || layouts.write(&id, &input)).await
+}
+
+/// Rename a named layout: its file moves to the one named from the new
+/// name, the rest kept as written. Answers with its new `id`.
+#[utoipa::path(
+    patch,
+    path = "/api/layouts/{id}",
+    params(("id" = String, Path, description = "The layout's `id`, as `/api/layouts` lists it.")),
+    request_body = LayoutName,
+    responses(
+        (status = 200, body = NamedLayout),
+        (status = 400, description = "The body isn't a name", body = ApiError),
+        (status = 404, description = "No such layout", body = ApiError),
+        (status = 409, description = "The name is empty, too long or taken, its file breaks a rule of layout.toml, or Kapto runs no robot package", body = ApiError),
+        (status = 500, description = "The file can't be moved", body = ApiError)
+    )
+)]
+pub(super) async fn rename_layout(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+    request: Result<Json<LayoutName>, JsonRejection>,
+) -> Result<Json<NamedLayout>, Failure> {
+    let Json(LayoutName { name }) = request.map_err(|rejection| invalid(&rejection))?;
+    let layouts = state.layouts.clone();
+    on_disk(move || layouts.rename(&id, &name)).await
 }
 
 /// What a layout lacks: the layout as the live view draws it, each panel

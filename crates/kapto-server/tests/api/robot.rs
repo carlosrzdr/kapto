@@ -521,3 +521,217 @@ async fn a_layout_not_there_is_not_found() {
     }
     assert!(!folder.join("config/layouts").exists());
 }
+
+/// `SAVED` as a named layout's body, named `name`.
+fn named(name: &str) -> String {
+    let columns: Value = serde_json::from_str(SAVED).unwrap();
+    json!({"name": name, "columns": columns["columns"]}).to_string()
+}
+
+#[tokio::test]
+async fn named_layouts_are_saved_listed_renamed_and_deleted_each_in_a_file_named_from_it() {
+    let folder = scratch("layouts-named");
+    let api = arranged(&folder, Some("arm7"));
+    let layouts = folder.join("config/layouts/arm7");
+    for name in ["Wrist view", "  arm, close up "] {
+        let (status, body) = call(
+            api.clone(),
+            "POST",
+            "/api/layouts",
+            Some(("application/json", &named(name))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["layout"]["source"], "named");
+    }
+    assert!(layouts.join("wrist-view.toml").exists());
+    let (status, list) = call(api.clone(), "GET", "/api/layouts", None).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let ids: Vec<(&str, &str)> = list["layouts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|each| (each["id"].as_str().unwrap(), each["name"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("arm-close-up", "arm, close up"),
+            ("wrist-view", "Wrist view")
+        ]
+    );
+    // Saving over one keeps its name; the view isn't arranged by it.
+    let (status, body) = call(
+        api.clone(),
+        "PUT",
+        "/api/layouts/wrist-view",
+        Some(("application/json", SAVED)),
+    )
+    .await;
+    assert_eq!(
+        (status, &body["name"]),
+        (StatusCode::OK, &json!("Wrist view"))
+    );
+    assert_eq!(api.layouts.current().unwrap().source, "made");
+
+    let (status, body) = call(
+        api.clone(),
+        "PATCH",
+        "/api/layouts/wrist-view",
+        Some(("application/json", r#"{"name": "Gripper"}"#)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        (&body["id"], &body["name"]),
+        (&json!("gripper"), &json!("Gripper"))
+    );
+    assert!(!layouts.join("wrist-view.toml").exists());
+    // Renamed to Default, it is the one the view is arranged by.
+    let (status, _) = call(
+        api.clone(),
+        "PATCH",
+        "/api/layouts/gripper",
+        Some(("application/json", r#"{"name": "Default"}"#)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(api.layouts.current().unwrap().source, "default");
+
+    let (status, body) = call(api.clone(), "DELETE", "/api/layouts/default", None).await;
+    assert_eq!((status, &body["source"]), (StatusCode::OK, &json!("made")));
+    let (_, body) = call(api.clone(), "DELETE", "/api/layouts/arm-close-up", None).await;
+    assert_eq!(body["source"], "made");
+    let (_, list) = call(api, "GET", "/api/layouts", None).await;
+    assert_eq!(list, json!({"layouts": [], "problems": []}));
+}
+
+#[tokio::test]
+async fn a_name_taken_too_long_or_empty_or_a_layout_not_there_is_refused_with_its_cause() {
+    let folder = scratch("layouts-refused");
+    let api = arranged(&folder, Some("arm7"));
+    let first = named("Wrist view");
+    let (status, _) = call(
+        api.clone(),
+        "POST",
+        "/api/layouts",
+        Some(("application/json", &first)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let long = "x".repeat(65);
+    for (method, uri, body, status, code) in [
+        (
+            "POST",
+            "/api/layouts",
+            named("Wrist view"),
+            StatusCode::CONFLICT,
+            "layout.name_taken",
+        ),
+        (
+            "POST",
+            "/api/layouts",
+            named("WRIST  view!"),
+            StatusCode::CONFLICT,
+            "layout.name_taken",
+        ),
+        (
+            "POST",
+            "/api/layouts",
+            named(&long),
+            StatusCode::CONFLICT,
+            "layout.name_too_long",
+        ),
+        (
+            "POST",
+            "/api/layouts",
+            named(" ?! "),
+            StatusCode::CONFLICT,
+            "layout.name_empty",
+        ),
+        (
+            "POST",
+            "/api/layouts",
+            r#"{"name": 3}"#.to_owned(),
+            StatusCode::BAD_REQUEST,
+            "api.invalid_request",
+        ),
+        (
+            "PATCH",
+            "/api/layouts/elbow",
+            r#"{"name": "Elbow"}"#.to_owned(),
+            StatusCode::NOT_FOUND,
+            "layout.not_found",
+        ),
+        (
+            "PATCH",
+            "/api/layouts/wrist-view",
+            format!(r#"{{"name": "{long}"}}"#),
+            StatusCode::CONFLICT,
+            "layout.name_too_long",
+        ),
+    ] {
+        let (got, error) = call(api.clone(), method, uri, Some(("application/json", &body))).await;
+        assert_eq!(
+            (got, error["code"].as_str()),
+            (status, Some(code)),
+            "{method} {uri} {body}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn default_cant_be_made_while_another_file_holds_a_layout_named_so() {
+    let folder = scratch("layouts-default-taken");
+    let api = arranged(&folder, Some("arm7"));
+    let (status, _) = call(
+        api.clone(),
+        "POST",
+        "/api/layouts",
+        Some(("application/json", &named("default"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    std::fs::rename(
+        folder.join("config/layouts/arm7/default.toml"),
+        folder.join("config/layouts/arm7/mine.toml"),
+    )
+    .unwrap();
+    let (status, error) = call(
+        api,
+        "PUT",
+        "/api/layouts/default",
+        Some(("application/json", SAVED)),
+    )
+    .await;
+    assert_eq!(
+        (status, &error["code"]),
+        (StatusCode::CONFLICT, &json!("layout.name_taken"))
+    );
+}
+
+#[tokio::test]
+async fn a_hand_edited_layout_renamed_keeps_the_rest_as_written() {
+    let folder = scratch("layouts-renamed-by-hand");
+    let api = arranged(&folder, Some("arm7"));
+    let layouts = folder.join("config/layouts/arm7");
+    std::fs::create_dir_all(&layouts).unwrap();
+    let text = "# kept for the night shift\nname = \"Night (by hand)\"\n\n[[columns]]\npanels = [{ kind = \"health\" }]\n";
+    std::fs::write(layouts.join("Night.toml"), text).unwrap();
+    let (status, body) = call(
+        api,
+        "PATCH",
+        "/api/layouts/Night",
+        Some(("application/json", r#"{"name": "Night shift"}"#)),
+    )
+    .await;
+    assert_eq!(
+        (status, &body["id"]),
+        (StatusCode::OK, &json!("night-shift"))
+    );
+    assert_eq!(
+        std::fs::read_to_string(layouts.join("night-shift.toml")).unwrap(),
+        text.replace("\"Night (by hand)\"", "\"Night shift\"")
+    );
+    assert!(!layouts.join("Night.toml").exists());
+}

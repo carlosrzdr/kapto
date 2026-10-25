@@ -566,6 +566,15 @@ export interface LayoutInput {
   columns: ColumnInput[];
 }
 
+/** A named layout's new name. */
+export interface LayoutName {
+  /**
+   * The name, held to the rules of [`NamedLayoutInput::name`]. Its file
+   * moves to the one named from it.
+   */
+  name: string;
+}
+
 /** What became of a camera's frames on their way to the live view. */
 export interface LiveViewCounts {
   /** Frames not sent because no viewer bridge was listening. */
@@ -599,6 +608,17 @@ export interface NamedLayout {
    */
   layout: ViewLayout;
   /** Its name, as its file gives it. */
+  name: string;
+}
+
+/** A layout to be saved under a name of its own. */
+export interface NamedLayoutInput {
+  /** Its columns, left to right. */
+  columns: ColumnInput[];
+  /**
+   * Its name: at most 64 characters, with a letter or digit, unique
+   * among the package's layouts. Its file is named from it.
+   */
   name: string;
 }
 

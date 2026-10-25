@@ -290,6 +290,13 @@ error_codes! {
         remedy: "Shorten the name to 64 characters or fewer.",
     }
 
+    /// Another of the package's named layouts has the name, or one its
+    /// file would share.
+    LayoutNameTaken = "layout.name_taken" {
+        summary: "Another layout has that name",
+        remedy: "Choose another name, or rename or delete the layout that has it. Names that differ only in case, spaces or punctuation are taken as the same, as their files would be.",
+    }
+
     /// No named layout of the package has the file asked for.
     LayoutNotFound = "layout.not_found" {
         summary: "No such layout",

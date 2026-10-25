@@ -10,11 +10,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use kapto_config::{
-    ConfigFile, DEFAULT_NAMED_LAYOUT, Layout, package_layouts_folder, parse_named_layout,
+    ConfigFile, DEFAULT_NAMED_LAYOUT, Layout, check_layout_name, layout_file_stem,
+    package_layouts_folder, parse_named_layout, renamed_layout,
 };
 use kapto_core::{ErrorCode, KaptoError};
 use kapto_robot::Declared;
-use kapto_viz::page_layout::{LayoutInput, ViewLayout, view_of};
+use kapto_viz::page_layout::{ColumnInput, LayoutInput, ViewLayout, view_of};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -43,6 +44,24 @@ pub struct NamedLayouts {
     pub layouts: Vec<NamedLayout>,
     /// Why each of the others doesn't, with its file and line.
     pub problems: Vec<ApiError>,
+}
+
+/// A layout to be saved under a name of its own.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct NamedLayoutInput {
+    /// Its name: at most 64 characters, with a letter or digit, unique
+    /// among the package's layouts. Its file is named from it.
+    pub name: String,
+    /// Its columns, left to right.
+    pub columns: Vec<ColumnInput>,
+}
+
+/// A named layout's new name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct LayoutName {
+    /// The name, held to the rules of [`NamedLayoutInput::name`]. Its file
+    /// moves to the one named from it.
+    pub name: String,
 }
 
 /// The layouts the live view may be arranged by.
@@ -152,6 +171,23 @@ impl Layouts {
         })
     }
 
+    /// Saves `input` as a new named layout, in the file named from its name.
+    ///
+    /// # Errors
+    ///
+    /// `layout.name_empty`, `layout.name_too_long` or `layout.name_taken`
+    /// for its name; the layout's problems; `layout.without_package`;
+    /// `layout.write_failed`.
+    pub fn create(&self, input: &NamedLayoutInput) -> Result<NamedLayout, Problems> {
+        self.with(|arranged, folder| {
+            let id = free_stem(folder, &input.name, None)?;
+            let layout = LayoutInput {
+                columns: input.columns.clone(),
+            };
+            arranged.save(folder, &id, input.name.trim(), &layout)
+        })
+    }
+
     /// Saves `input` as the named layout `id`, keeping its name; `default`,
     /// the package's *Default*, is made if there is none.
     ///
@@ -164,10 +200,42 @@ impl Layouts {
         self.with(|arranged, folder| {
             let name = match read(&file_of(folder, id))? {
                 Some((_, name)) => name,
-                None if id == DEFAULT_NAMED_LAYOUT => DEFAULT_NAME.to_owned(),
+                None if id == DEFAULT_NAMED_LAYOUT => {
+                    free_stem(folder, DEFAULT_NAME, None)?;
+                    DEFAULT_NAME.to_owned()
+                }
                 None => return Err(vec![not_found(id)]),
             };
             arranged.save(folder, id, &name, input)
+        })
+    }
+
+    /// Renames the named layout `id`, its file moved to the one named from
+    /// `name` and otherwise kept as written.
+    ///
+    /// # Errors
+    ///
+    /// `layout.not_found`; the problems of its file if it doesn't read;
+    /// `layout.name_empty`, `layout.name_too_long` or `layout.name_taken`;
+    /// `layout.without_package`; `layout.write_failed`.
+    pub fn rename(&self, id: &str, name: &str) -> Result<NamedLayout, Problems> {
+        self.with(|arranged, folder| {
+            let file = file_of(folder, id);
+            let Some((layout, _)) = read(&file)? else {
+                return Err(vec![not_found(id)]);
+            };
+            let name = name.trim();
+            let new = free_stem(folder, name, Some(id))?;
+            let text =
+                std::fs::read_to_string(&file).map_err(|error| vec![failed(&file, &error)])?;
+            let text = renamed_layout(&text, name).ok_or_else(|| vec![not_found(id)])?;
+            move_renamed(&file, &file_of(folder, &new), &text).map_err(|error| vec![error])?;
+            arranged.forget(id);
+            let renamed = Layout {
+                name: Some(name.to_owned()),
+                ..layout
+            };
+            Ok(arranged.keep(new, name.to_owned(), &renamed))
         })
     }
 
@@ -189,7 +257,7 @@ impl Layouts {
     }
 
     /// Runs `work` on the layouts and the folder of the package's named
-    /// ones, one change at a time.
+    /// ones, one change at a time, so a name can't be taken twice.
     fn with<T>(
         &self,
         work: impl FnOnce(&mut Arranged, &Path) -> Result<T, Problems>,
@@ -255,6 +323,26 @@ impl Arranged {
     }
 }
 
+/// The file stem `name` is saved as, unless it breaks a rule of a name or
+/// another of the layouts in `folder` (but `except`) has it or its file.
+fn free_stem(folder: &Path, name: &str, except: Option<&str>) -> Result<String, Problems> {
+    check_layout_name(name).map_err(|error| vec![error])?;
+    let stem = layout_file_stem(name);
+    for (id, read) in files(folder)? {
+        let theirs = match read {
+            Ok(Some((_, name))) => layout_file_stem(&name),
+            _ => String::new(),
+        };
+        if Some(id.as_str()) != except && (id == stem || theirs == stem) {
+            return Err(vec![
+                KaptoError::new(ErrorCode::LayoutNameTaken)
+                    .detail(format!("`{}` is taken by `{id}.toml`", name.trim())),
+            ]);
+        }
+    }
+    Ok(stem)
+}
+
 /// Every `.toml` file in `folder`, by stem, as it reads; none if there is no
 /// folder.
 fn files(folder: &Path) -> Result<Vec<(String, Read)>, Problems> {
@@ -302,6 +390,23 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\'])
 }
 
+/// Moves the layout in `file` to `moved`, holding `text`: written over it
+/// whole first, then moved by one rename, so a crash or failure between
+/// leaves the layout once, under its old file with its new name, never in
+/// two files.
+fn move_renamed(file: &Path, moved: &Path, text: &str) -> Result<(), KaptoError> {
+    write(file, text)?;
+    if moved == file {
+        return Ok(());
+    }
+    std::fs::rename(file, moved)
+        .and_then(|()| match moved.parent() {
+            Some(folder) => std::fs::File::open(folder).and_then(|folder| folder.sync_all()),
+            None => Ok(()),
+        })
+        .map_err(|error| failed(moved, &error))
+}
+
 fn remove(file: &Path) -> Result<(), Problems> {
     match std::fs::remove_file(file) {
         Ok(()) => Ok(()),
@@ -343,4 +448,38 @@ fn failed(file: &Path, error: &std::io::Error) -> KaptoError {
     KaptoError::new(ErrorCode::LayoutWriteFailed)
         .detail(error.to_string())
         .context("file", file.display().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entries(folder: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_rename_that_cant_move_the_file_leaves_the_layout_once_under_its_old_file() {
+        let folder = kapto_testkit::scratch("layouts-move-fails");
+        let file = folder.join("wrist.toml");
+        std::fs::write(&file, "name = \"Wrist\"\n").unwrap();
+        // The move's target is in a folder that isn't there: the rename fails
+        // after the new name is written.
+        let moved = folder.join("missing/gripper.toml");
+        let error = move_renamed(&file, &moved, "name = \"Gripper\"\n").unwrap_err();
+        assert_eq!(error.code(), ErrorCode::LayoutWriteFailed);
+        assert_eq!(entries(&folder), ["wrist.toml"]);
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "name = \"Gripper\"\n"
+        );
+
+        move_renamed(&file, &folder.join("gripper.toml"), "name = \"Gripper\"\n").unwrap();
+        assert_eq!(entries(&folder), ["gripper.toml"]);
+    }
 }

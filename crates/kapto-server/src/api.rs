@@ -62,7 +62,7 @@ use crate::episode::{
     EpisodeProfile, EpisodeRecovered, EpisodeStream, EpisodeTask,
 };
 use crate::episode_events::EpisodeEvents;
-use crate::layouts::{Layouts, NamedLayout, NamedLayouts};
+use crate::layouts::{LayoutName, Layouts, NamedLayout, NamedLayoutInput, NamedLayouts};
 use crate::preflight::{PreflightCheck, PreflightRequest, PreflightRun};
 use crate::processes::{ProcessState, ProcessStatus, Processes};
 use crate::quality::{
@@ -101,9 +101,9 @@ use replay::{
     replay_window,
 };
 use robot::{
-    __path_check_layout, __path_delete_layout, __path_layouts, __path_mesh, __path_robot,
-    __path_scene, __path_write_layout, check_layout, delete_layout, layouts, mesh, robot, scene,
-    write_layout,
+    __path_check_layout, __path_create_layout, __path_delete_layout, __path_layouts, __path_mesh,
+    __path_rename_layout, __path_robot, __path_scene, __path_write_layout, check_layout,
+    create_layout, delete_layout, layouts, mesh, rename_layout, robot, scene, write_layout,
 };
 use status::{
     __path_processes, __path_settings, __path_status, __path_storage, __path_version, processes,
@@ -166,8 +166,11 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/processes", get(processes))
         .route("/api/storage", get(storage))
         .route("/api/robot", get(robot))
-        .route("/api/layouts", get(layouts))
-        .route("/api/layouts/{id}", put(write_layout).delete(delete_layout))
+        .route("/api/layouts", get(layouts).post(create_layout))
+        .route(
+            "/api/layouts/{id}",
+            put(write_layout).patch(rename_layout).delete(delete_layout),
+        )
         .route("/api/layout/check", post(check_layout))
         .route("/api/robot/scene", get(scene))
         .route("/api/robot/meshes/{n}", get(mesh))
@@ -276,7 +279,9 @@ async fn stopped(stop: Arc<AtomicBool>) {
         storage,
         robot,
         layouts,
+        create_layout,
         write_layout,
+        rename_layout,
         delete_layout,
         check_layout,
         scene,
@@ -337,6 +342,8 @@ async fn stopped(stop: Arc<AtomicBool>) {
         LayoutInput,
         NamedLayout,
         NamedLayouts,
+        NamedLayoutInput,
+        LayoutName,
         ColumnInput,
         PanelInput,
         RobotScene,
@@ -460,6 +467,9 @@ impl From<KaptoError> for Failure {
             | ErrorCode::TaskUnknownKey
             | ErrorCode::LayoutUnknownKey
             | ErrorCode::LayoutWithoutPackage
+            | ErrorCode::LayoutNameEmpty
+            | ErrorCode::LayoutNameTooLong
+            | ErrorCode::LayoutNameTaken
             | ErrorCode::EventsUnknownKind
             | ErrorCode::ConfigInvalidValue
             | ErrorCode::ConfigInvalidSyntax

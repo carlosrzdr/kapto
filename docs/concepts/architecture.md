@@ -890,7 +890,7 @@ and the layout the live view is arranged
 by: the package's *Default*, else the package's `layout.toml`, else one
 made from its roles, cameras and fields, each panel with what it names
 that the package lacks), the package's named layouts (`/api/layouts`
-lists, writes and deletes them: files in `layouts/<package
+lists, writes, renames and deletes them: files in `layouts/<package
 id>/` of the configuration folder, each starting with its `name` and
 named from it, read as written when edited by hand; `default.toml` among
 them is *Default*), what each process is doing and costs
