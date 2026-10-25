@@ -98,8 +98,9 @@ sha2 = "0.11"
 signal-hook = { version = "0.4", default-features = false }
 socket2 = "0.6"
 # The live view's WebSocket, served from the bridge's own threads; already
-# in the tree through axum.
-tungstenite = "0.30"
+# in the tree through axum, so kept at the version axum's `ws` uses (as is
+# kapto-server's tokio-tungstenite), or both versions are built.
+tungstenite = "0.29"
 tokio = { version = "1.53", features = ["rt-multi-thread", "net", "time"] }
 toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 tower = { version = "0.5", features = ["util"] }
