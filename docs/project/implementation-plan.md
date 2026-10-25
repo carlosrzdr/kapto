@@ -645,10 +645,8 @@ need, without ever costing capture anything. The views are Kapto's own
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M5-01 `feat(capture): pre-roll and post-roll` | As [pre-roll and post-roll](../design/pre-roll-and-post-roll.md) says, in PRs: `pre_roll_s`, `post_roll_s` and `capture.pre_roll_max` with the rings set aside at startup; the writer holding and writing the pre-roll; loss before Start counted; post-roll after Stop; `commanded_*` times, `pre_roll`/`post_roll` counts and the replay's marks | Pre-roll content equals the last N s sent; memory bound; loss in the pre-roll counted; zero-allocation test and before/after `bench model` | Memory budget declared at startup (PERF-5b) |
 | M5-03 `test(fault): power-cut VM job` | Nightly QEMU job: record, hard reset, verify loss ≤ fsync window | Nightly result | How the durability claim is proven |
 | M5-07b `feat(server): resource history` | Each process's CPU and memory samples kept in SQLite runtime state (after M5-08), and shown in the web UI over time and for the span of any episode; never written into `episode.json` or the manifest, which hold only what was recorded (EFF-8) | Samples survive a restart of serve; an episode's span shows the samples taken during it; old samples are removed past the retention limit | **Open question:** how long samples are kept and at what resolution (e.g. one a second for a day, then thinned), as settings with defaults |
-| M5-08i `perf(worker): job costs in profile traces` (with the profiling tooling) | Per-job spans in `profiling` builds so `profile trace` reports a cost per episode-minute for each job kind (PROF-4 worker part) | `profile trace` on a scenario reports a cost per episode-minute for each job kind | — |
 | M5-09 `test(fault): isolation suite` | NFR-1 fault injection under load for worker, server, bridge, with capture's counters unchanged (serve killed outright, its capture finishing the episode and ending, and a supervisor fallen silent are tested already); a small tmpfs filled during an episode, which capture finalises before it is full and never leaves corrupt (the disk limits of M5-06, there tested with configured limits and a pretend disk) | Fault suite | Exit: power-cut and kill -9 lose ≤ fsync window; disk-full ends clean |
 
 ### WP M6: ROS 2 transport *(parallel after M2)*
@@ -712,13 +710,15 @@ a package made from the URDF the robot was imported into Isaac Sim from, so
 the live view and replays show it as the simulation moves it. What
 simulation adds is time that isn't the wall clock's, uncompressed camera
 images, and episodes that a script runs, many after another, each with the
-settings it was run with. **Open question:** whether the bridge's DDS and
-Kapto's image meet as they are (Isaac Sim ships its own ROS 2 libraries),
-or Kapto runs beside Isaac Sim on the same middleware.
+settings it was run with. The bridge's Fast DDS (Isaac Sim ships its own
+ROS 2 Jazzy libraries) and the `kapto-ros2` image meet as they are, on the
+host's network, as the guide shows. On a laptop, Isaac Sim delivered about
+40 camera pictures a second across two cameras, whatever their sizes, of
+the 60 asked for; Kapto records what arrives and counts the rest as lost
+before it.
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M20-01 `docs(guides): record a robot in isaac sim` | A guide: a robot in Isaac Sim recorded over its ROS 2 bridge, from its package to a replay; what doesn't work yet listed as the rows below, or as new ones | The guide's steps, run against Isaac Sim's headless container on a machine with its GPU | The robot moves in Kapto as in Isaac Sim |
 | M20-02 `feat(capture): simulated time` | The simulation's `/clock` as each message's source time and the episode's, so a paused, slowed or sped-up simulation records and replays at its own pace | Loadgen with a `/clock` running at half and twice real time: replay at simulated time | — |
 | M20-03 `perf(viz): raw pictures at the size a page shows them` | With a page open, five raw 1080p cameras fill the bridge's one frames thread (1.0 cores, the page within its budget at 20 ms): it encodes each picture a page's share takes whole, though a page shows five cameras in panels a fraction of 1080p wide. Each page would tell the bridge how wide it draws each camera, and the bridge encode a raw picture no wider than the widest page's panel, made smaller from its pixels as the look-back's already are; the page asks again as its panels change. **Open question:** whether a picture smaller than the camera's, shown live, is acceptable, with the whole one a replay away | `profile page --scenario five-cameras --raw-cameras`: the bridge under half a core, the page within its budget | — |
 | M20-04 `feat(server): episodes a simulation runs` | Episodes started and stopped by the simulation's script through the API, each with what it was run with (scene, seed, randomised parameters) kept in the recording, and marked as simulated | A script running fifty short episodes: each has its parameters and none is mixed with a real robot's in the list's filter | — |
@@ -787,10 +787,6 @@ configuration complete (§4.15).
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
 | M10-02 `feat(qa): streaming checks` | Rate drop, gaps, frozen stream, sequence loss, clock skew (QA-2) | Synthetic signals: positive and negative case each | — |
-| M10-03a `feat(qa): episode duration and stream presence` | Gates `episode.short` (under `min_seconds`, 2 s) and `streams.present` (a critical stream, or with none named every stream but the kept, without messages); advisories `episode.long` (over `max_seconds`, 600 s) and `streams.empty` (the other empty streams), set in `qa.toml` | Positive and negative synthetic episodes; contract suite | — |
-| M10-03b `feat(qa): camera frames` | Gate `camera.format` (a camera's first frame isn't what its declared `format` says, e.g. no JPEG start-of-image marker) and advisory `camera.small_frames` (frames under a share of the median size: black, blank or broken), from the recording's index and first frame | Fixture frames, good and broken | — |
-| M10-03c `feat(qa): stream timing` | Advisories for a stream starting `N` s after the episode or ending `N` s before it, measured rate off its declared `rate_hz` by more than a share, rate at the end below a share of the start, and the longest silence on a stream (a gate for critical streams), each with where it is; from per-message times in the recording's index | Synthetic recordings with each fault | — |
-| M10-03d `feat(qa): segments` | From subtask events: none, a gap between subtasks over `N` s, coverage under a share of the episode, a subtask under `N` s, one with an empty prompt (a gate) | Synthetic event sequences | — |
 | M10-03e `feat(qa): monotonic time and size bounds` | Log times out of order within a channel; episode size outside bounds | Same | — |
 | M10-05 `feat(qa): sync checks` | Inter-camera sync, teleop lag, action/observation alignment (cross-correlation) | Injected known lags recovered within tolerance | — |
 | M10-06 `feat(qa): video quality` | Sharpness, exposure, motion on sampled frames | Fixture frames | CPU cost recorded |
@@ -926,8 +922,6 @@ the rest of Phase B, in this order, when nothing more important is waiting.
 - Pausing never stops receiving or the live view, only writing; a paused
   span is recorded in the episode, so its counts still explain every
   message.
-- Storage warnings build on the pre-flight check (M5-05): the same free
-  space measurement, watched during the session.
 - TLS uses `rustls` with certificates and keys referenced like other
   secrets (never stored in config); loopback-only setups keep working
   without any of it.
@@ -935,7 +929,6 @@ the rest of Phase B, in this order, when nothing more important is waiting.
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
 | M19-01 `feat(capture): pause and resume episodes` | `pause` and `resume` in the control protocol, API, CLI and UI; while paused, messages are received and shown live but not written; each paused span in `episode.json` (new optional field) with the messages received during it counted separately, never as loss | Counts during and around a pause explain every message; schema lock and snapshot; pausing twice or resuming while not paused refused with a cause code | How a paused span looks in `episode.json` and in the UI |
-| M19-02 `feat(server): storage warnings` | Free space of the data directory watched while running: a warning in `/api/status` and the UI below a threshold, with the minutes left at the current data rate; starting an episode refused below a minimum, with a cause code; thresholds as settings | Fake filesystem statistics: thresholds crossed in both directions; start refused below the minimum | Default thresholds and what the operator is told to do |
 | M19-03 `feat(server): https for the ui and api` | TLS for the API and UI with a configured certificate and key, or a self-signed one generated on first start for a local network; the viewer page and its data port follow; HTTPS required before binding beyond loopback when enabled | TLS handshake tests; plain HTTP refused when TLS is required; certificate reload on change | How a certificate is provided in a container |
 | M19-04 `feat(server): client certificates` | Mutual TLS for the API: clients (browser, Python client, other programs) present a certificate signed by a configured authority; works alongside token authentication (M9-11) | Unknown, expired and revoked certificates refused with cause codes; a valid one accepted | Which clients need certificates, and how they get them |
 | M19-05 `feat(transport): authenticated tcp inputs` | TLS for TCP inputs, optionally mutual so only robots with a certificate from the configured authority can send; UDP stays with interface binding and the source allow-list (SEC-2), documented as its limit | Handshake and refusal tests against the TCP conformance suite; a robot without a valid certificate is refused and counted | The trade-off for UDP, where per-message authentication isn't standard |
@@ -994,7 +987,7 @@ reference.
    the live view's memory over hours (M15-06f); `tokio-console`
    (M15-06b) once its open question is answered.
 4. Recording a robot simulated in Isaac Sim (WP M20), starting with
-   M20-01.
+   M20-02.
 
 The other work packages wait until then.
 
