@@ -24,7 +24,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use kapto_core::{EpisodeId, ErrorCode, KaptoError};
-use kapto_store::manifest::{FINALISED_FILE, MANIFEST_FILE, Manifest, sync_directory};
+use kapto_store::manifest::{FINALISED_FILE, FileEntry, MANIFEST_FILE, Manifest, sync_directory};
 
 /// The folder, under the output folder, where episodes are written.
 pub const STAGING_DIR: &str = ".recording";
@@ -169,8 +169,18 @@ impl Staged {
     ///
     /// The first step's failure; see each step.
     pub fn finalise(self) -> Result<Finalised, KaptoError> {
+        self.finalise_with(&[])
+    }
+
+    /// The same, the manifest taking each file's entry from `hashed` if the
+    /// file still has its size (see `Manifest::of_directory_with`).
+    ///
+    /// # Errors
+    ///
+    /// As [`Staged::finalise`].
+    pub fn finalise_with(self, hashed: &[FileEntry]) -> Result<Finalised, KaptoError> {
         let _span = kapto_core::span!("finalise");
-        self.rename()?.write_manifest()?.mark_finalised()
+        self.rename()?.write_manifest_with(hashed)?.mark_finalised()
     }
 
     /// Deletes the folder and everything in it, for an episode that was
@@ -202,9 +212,19 @@ impl Renamed {
     ///
     /// `manifest.write_failed`.
     pub fn write_manifest(self) -> Result<Manifested, KaptoError> {
+        self.write_manifest_with(&[])
+    }
+
+    /// The same, taking each file's entry from `hashed` if the file still
+    /// has its size, instead of reading it again.
+    ///
+    /// # Errors
+    ///
+    /// `manifest.write_failed`.
+    pub fn write_manifest_with(self, hashed: &[FileEntry]) -> Result<Manifested, KaptoError> {
         let _span = kapto_core::span!("write the manifest");
         kapto_core::failpoint!("closing.manifest");
-        Manifest::of_directory(&self.dir, &self.episode)?.write(&self.dir)?;
+        Manifest::of_directory_with(&self.dir, &self.episode, hashed)?.write(&self.dir)?;
         Ok(Manifested {
             dir: self.dir,
             held: self.held,

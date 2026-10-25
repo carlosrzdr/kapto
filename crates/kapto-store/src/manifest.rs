@@ -77,12 +77,34 @@ impl Manifest {
     /// `manifest.write_failed` if a file can't be read, or the folder holds
     /// something other than regular files and folders.
     pub fn of_directory(dir: &Path, episode: &EpisodeId) -> Result<Self, KaptoError> {
+        Self::of_directory_with(dir, episode, &[])
+    }
+
+    /// The same, taking each file's entry from `hashed`, as hashed while it
+    /// was written, instead of reading it again, if the file has the size
+    /// it gives. Every other file is read and hashed.
+    ///
+    /// # Errors
+    ///
+    /// As [`Manifest::of_directory`].
+    pub fn of_directory_with(
+        dir: &Path,
+        episode: &EpisodeId,
+        hashed: &[FileEntry],
+    ) -> Result<Self, KaptoError> {
         let mut files = Vec::new();
         list_files(dir, "", &mut files).map_err(|error| write_failed(dir, error))?;
         files.sort();
         let files = files
             .into_iter()
             .map(|path| {
+                if let Some(entry) = hashed.iter().find(|entry| {
+                    entry.path == path
+                        && fs::metadata(dir.join(&path))
+                            .is_ok_and(|metadata| metadata.len() == entry.bytes)
+                }) {
+                    return Ok(entry.clone());
+                }
                 let (bytes, sha256) = hash_file(&dir.join(&path), &mut || Ok(())).map_err(
                     |stopped| match stopped {
                         Stopped::Read(error) => write_failed(dir, error),
@@ -436,6 +458,44 @@ mod tests {
         let error = Manifest::of_directory(&dir.0, &episode()).unwrap_err();
         assert_eq!(error.code(), ErrorCode::ManifestWriteFailed);
         assert!(error.message().contains("link is not a regular file"));
+    }
+
+    #[test]
+    fn a_file_hashed_as_it_was_written_is_taken_as_hashed_and_not_read_again() {
+        let dir = sample("hashed");
+        // Not the file's hash: taken as given, so it wasn't read again.
+        let hashed = FileEntry {
+            path: "recording.mcap".to_owned(),
+            bytes: 3,
+            sha256: "0".repeat(64),
+        };
+        let manifest =
+            Manifest::of_directory_with(&dir.0, &episode(), std::slice::from_ref(&hashed)).unwrap();
+        assert_eq!(manifest.files[1], hashed);
+        // The other file is hashed as usual.
+        assert_eq!(
+            manifest.files[0],
+            Manifest::of_directory(&dir.0, &episode()).unwrap().files[0]
+        );
+    }
+
+    #[test]
+    fn a_file_hashed_as_it_was_written_whose_size_differs_now_is_hashed_again() {
+        let dir = sample("hashed-other-size");
+        let hashed = FileEntry {
+            path: "recording.mcap".to_owned(),
+            bytes: 2,
+            sha256: "0".repeat(64),
+        };
+        let manifest = Manifest::of_directory_with(&dir.0, &episode(), &[hashed]).unwrap();
+        assert_eq!(
+            manifest,
+            Manifest::of_directory(&dir.0, &episode()).unwrap()
+        );
+        assert_eq!(
+            manifest.files[1].sha256,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[test]
