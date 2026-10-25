@@ -40,6 +40,14 @@ What has to hold:
   long. The cameras should show the moment looked at, not carry on live.
   Ten minutes of two 1080p cameras at 60 fps as received is about 25 GB.
 
+The writer offers each camera's newest frame up to `viewer.camera_max_fps`
+times a second (30 by default) whether or not anything will use it. With
+no page open, the bridge uses 5 a second, for the thinned history; with a
+page showing five cameras, 12 each. A raw 1080p camera's frame is about
+6 MB, so the copies the writer makes and the tap sends that the bridge
+then drops are about 470 MB/s per raw camera with no page open: memory
+bandwidth on the recording machine, for nothing.
+
 ## Approach
 
 **Capture hands each camera's newest frame to the bridge over a stream
@@ -51,17 +59,27 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   stream that says so: `camera = { format = "jpeg" }`, or
   `camera = { format = "raw", width, height, encoding }` for raw frames
   of a fixed layout.
-- **The writer offers the newest frame.** As it writes a batch, the writer
-  thread copies a camera's newest frame into a slot set aside for that
-  camera (three, of its `max_message_bytes`), at most
-  `viewer.camera_max_fps` times a second (30 by default), and only into a
-  slot the tap thread has finished with; otherwise the frame is skipped and
-  counted. Three slots keep the newest frame the one that waits while the
+- **The writer offers the newest frame, as often as the bridge wants
+  it.** As it writes a batch, the writer thread copies a camera's newest
+  frame into a slot set aside for that camera (three, of its
+  `max_message_bytes`), at most `viewer.camera_max_fps` times a second (30
+  by default), and no more often than the bridge last asked for that
+  camera, and only into a slot the tap thread has finished with; otherwise
+  the frame is skipped and counted. Three slots keep the newest frame the one that waits while the
   bridge is slow: one is being sent, one waits, and the writer fills the
   third, which then takes the waiting one's place. With two, the writer
   would skip every newer frame, and the frame sent next would be as old
   as the bridge's delay. Nothing happens on the receivers, and the copies are bounded by
   the cap, not the camera's rate.
+  The bridge says, on the frame socket's other direction, how many frames
+  a second it wants of each camera: the history's rate
+  (`viewer.camera_history_fps`) with no page open, the largest page share
+  of that camera otherwise, and again whenever that changes (a page opens
+  or closes, a camera is shown or hidden). The tap thread reads these
+  without blocking and keeps each camera's interval in an atomic the
+  writer reads once per batch: no lock or syscall on the writer. With no
+  bridge connected, or before it has said anything, the cap alone
+  applies, as today.
 - **The tap thread sends it.** It writes each frame offered, with its
   stream and receive time, to the bridge's frame socket
   (`viewer.frame_socket`, beside the tap socket), a Unix stream socket,
@@ -183,6 +201,13 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   0.85.
 - The viewer stream gains a question and its answer; a page that doesn't
   ask is sent nothing more.
+- With no page open, capture copies 5 frames a second per camera instead
+  of 30, a sixth of the memory traffic, the history unchanged. A page that
+  opens gets the full rate from the next answer, within one frame
+  interval, its first picture coming as today from the next frame.
+- The frame socket carries a few bytes the other way, versioned with the
+  frames' wire format, so a bridge and capture of different builds refuse
+  each other as they already do.
 
 ## Alternatives considered
 
@@ -236,6 +261,12 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   only pages on the robot's network, as Kapto makes no outbound connection
   for STUN or TURN. Kept for when many cameras must be watched over slow
   links.
+- **The bridge closing the socket when it wants nothing.** No new
+  message, but the history needs 5 a second from every camera all the
+  time, so it would never close.
+- **A lower `viewer.camera_max_fps` by default.** No protocol change, but
+  pages would see fewer pictures even when the link and bridge could carry
+  more.
 - **Kept as received, at a lower rate.** No decoding or encoding in the
   bridge, but a 1080p picture is about twelve times the size of one 640
   pixels wide, so the same budget would keep less than a minute.
