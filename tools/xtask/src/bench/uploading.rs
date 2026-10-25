@@ -196,7 +196,7 @@ fn record_while(
     let port = free_ports(spec.streams)?;
     let streams = write_streams(work, port, &spec)?;
     let binaries = root.join("target/release");
-    let (mut record, pid, _, _) = start_recording(&binaries, &streams, work, &spec)?;
+    let (mut record, pid, _, _) = start_recording(&binaries, &streams, work, &spec, &[])?;
     let start = Instant::now();
     let generator = Command::new(binaries.join("kapto-loadgen"))
         .args(["--streams", &spec.streams.to_string()])

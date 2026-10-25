@@ -9,6 +9,7 @@
 
 mod flamegraph;
 mod stacks;
+mod timeline;
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode};
@@ -37,16 +38,16 @@ const FREQUENCY: &str = "999";
 /// How often each thread's times are read.
 const READ_EVERY: Duration = Duration::from_millis(200);
 
-/// Arguments of `profile record`.
+/// Arguments of `profile record` and `profile trace`.
 #[derive(Args, Clone, Copy, Debug)]
-pub(crate) struct RecordArgs {
-    /// The load to record while sampling.
+pub(crate) struct ScenarioArgs {
+    /// The load to record.
     #[arg(long, value_enum)]
     scenario: Scenario,
     /// How long the load runs, in seconds.
     #[arg(long, default_value_t = 20)]
     seconds: u32,
-    /// Keep the recording in `target/bench/` once it is profiled.
+    /// Keep the recording in `target/bench/` once it is profiled or traced.
     #[arg(long)]
     keep_recordings: bool,
 }
@@ -90,7 +91,7 @@ impl Scenario {
 
 /// Records the scenario's load while sampling every thread of `kapto
 /// record`, and writes the profile beside the recording.
-pub(crate) fn record(root: &Path, args: RecordArgs) -> ExitCode {
+pub(crate) fn record(root: &Path, args: ScenarioArgs) -> ExitCode {
     match profiled(root, args) {
         Ok((work, report)) => {
             println!("{report}");
@@ -107,7 +108,26 @@ pub(crate) fn record(root: &Path, args: RecordArgs) -> ExitCode {
     }
 }
 
-fn profiled(root: &Path, args: RecordArgs) -> Result<(PathBuf, String), String> {
+/// Records the scenario's load with a profiling build, has the worker do
+/// the episode's jobs, and writes their timeline and its report.
+pub(crate) fn trace(root: &Path, args: ScenarioArgs) -> ExitCode {
+    match timeline::traced(root, args) {
+        Ok((work, report)) => {
+            println!("{report}");
+            eprintln!(
+                "The trace is in {}: trace.md, and trace.json for Perfetto",
+                work.display()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn profiled(root: &Path, args: ScenarioArgs) -> Result<(PathBuf, String), String> {
     build(root)?;
     let work = work_dir(root, &format!("profile-{}", args.scenario.name()));
     let spec = args.scenario.spec(args.seconds);
@@ -117,6 +137,7 @@ fn profiled(root: &Path, args: RecordArgs) -> Result<(PathBuf, String), String> 
         &root.join(TARGET_DIR).join("release"),
         &work,
         &spec,
+        &[],
         |pid| {
             perf = Some(sample(&work, pid));
             watcher = Some(std::thread::spawn(move || watch(pid)));

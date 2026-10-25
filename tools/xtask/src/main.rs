@@ -142,7 +142,13 @@ enum ProfileCommand {
     /// record` (in Docker, with `CAP_PERFMON`): each thread's time on a core,
     /// waiting for one and blocked, the functions its samples land in, and
     /// a flamegraph.
-    Record(bench::profile::RecordArgs),
+    Record(bench::profile::ScenarioArgs),
+    /// Record a scenario's load with a build with the `profiling` feature,
+    /// then have the worker do the episode's jobs: every span written into
+    /// one trace for Perfetto, each stage's cost per batch, how long
+    /// batches wait for the writer, and each job's cost per minute
+    /// recorded.
+    Trace(bench::profile::ScenarioArgs),
 }
 
 fn main() -> ExitCode {
@@ -160,6 +166,7 @@ fn main() -> ExitCode {
         Command::Profile(ProfileCommand::Record(args)) => {
             bench::profile::record(&repo_root(), args)
         }
+        Command::Profile(ProfileCommand::Trace(args)) => bench::profile::trace(&repo_root(), args),
         Command::Ui { task } => ui::run(&repo_root(), task),
         Command::Clean { workspace, all } => clean::run(
             &repo_root(),

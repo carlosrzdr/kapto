@@ -332,7 +332,7 @@ fn measure_load(root: &Path, args: &Ros2Args) -> Result<Ros2Report, String> {
         decoded: true,
     };
 
-    let (mut record, pid, _, _) = start_recording(&binaries, &streams, &work, &spec)?;
+    let (mut record, pid, _, _) = start_recording(&binaries, &streams, &work, &spec, &[])?;
     let stream_port = free_ports(1)?.to_string();
     let bridged = Bridged {
         streams: &streams,

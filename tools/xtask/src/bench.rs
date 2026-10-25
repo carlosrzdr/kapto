@@ -440,16 +440,18 @@ fn work_dir(root: &Path, kind: &str) -> PathBuf {
 
 /// Records one load into `work` and measures it.
 fn record_load(root: &Path, work: &Path, spec: &Spec) -> Result<Run, String> {
-    record_load_watched(&root.join("target/release"), work, spec, |_| {})
+    record_load_watched(&root.join("target/release"), work, spec, &[], |_| {})
 }
 
 /// Records one load into `work` with the binaries in `binaries` and
-/// measures it; `watch` is given the recording process's ID once it
+/// measures it, `kapto record` run natively with `environment` besides
+/// what ROS 2 needs; `watch` is given the recording process's ID once it
 /// records, before the load starts.
 fn record_load_watched(
     binaries: &Path,
     work: &Path,
     spec: &Spec,
+    environment: &[(&str, &Path)],
     watch: impl FnOnce(u32),
 ) -> Result<Run, String> {
     std::fs::create_dir_all(work)
@@ -458,7 +460,8 @@ fn record_load_watched(
     let port = free_ports(spec.streams + cameras)?;
     let streams = write_streams(work, port, spec)?;
 
-    let (mut record, pid, lines, mut output) = start_recording(binaries, &streams, work, spec)?;
+    let (mut record, pid, lines, mut output) =
+        start_recording(binaries, &streams, work, spec, environment)?;
     watch(pid);
     let start = Instant::now();
     // UDP streams from `port`, then TCP streams, each from its own generator.
@@ -540,6 +543,7 @@ fn start_recording(
     streams: &Path,
     work: &Path,
     spec: &Spec,
+    environment: &[(&str, &Path)],
 ) -> Result<(Child, u32, mpsc::Receiver<String>, Vec<String>), String> {
     let mut kapto_args = vec![
         "record".to_owned(),
@@ -563,7 +567,8 @@ fn start_recording(
             command
                 .args(&kapto_args)
                 .env_clear()
-                .envs(ros2_environment());
+                .envs(ros2_environment())
+                .envs(environment.iter().copied());
             command
         }
         Place::Container { limited } => {

@@ -226,7 +226,7 @@ fn measure(root: &Path, args: &ViewerArgs) -> Result<ViewerReport, String> {
     std::fs::write(&mapping, mapping_of_first_stream()).map_err(|error| error.to_string())?;
     let binaries = root.join("target/release");
 
-    let (mut record, pid, _, _) = start_recording(&binaries, &streams, &work, &spec)?;
+    let (mut record, pid, _, _) = start_recording(&binaries, &streams, &work, &spec, &[])?;
     let start = Instant::now();
     let mut generator = Command::new(binaries.join("kapto-loadgen"))
         .args(["--streams", &spec.streams.to_string()])
