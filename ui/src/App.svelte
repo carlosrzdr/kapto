@@ -764,6 +764,7 @@
             onfilter={filterEpisodes}
             {replay}
             onreplay={(id, moment) => void replayEpisode(id, moment)}
+            onretry={retry}
             {inBin}
             onbin={showBin}
             keepDays={Number(settings?.settings.find((setting) => setting.key === "bin.keep_days")?.value ?? 7)}

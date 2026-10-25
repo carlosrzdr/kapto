@@ -50,14 +50,14 @@ test("with the capture process stopped, the page says why and can't record", asy
 
   // The episodes too.
   await open(page, /^Episodes/);
-  await page.getByRole("listitem").filter({ hasText: "messages" }).first().getByTitle("Show this episode in full").click();
+  await page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first().getByTitle("Show this episode in full").click();
   await expect(page.getByRole("region", { name: /^Episode / })).toContainText(/ in \d+ files/);
 
   // The filter lists the rejected episodes only: the flows record some
   // shorter than the 2 s an episode is accepted from.
   const quality = page.getByRole("combobox", { name: "Quality" });
   await quality.selectOption("rejected");
-  const listed = page.getByRole("listitem").filter({ hasText: "messages" });
+  const listed = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") });
   await expect(listed.first().or(page.getByText("No rejected episodes."))).toBeVisible();
   // Retried: the list shown before stays until the server answers the filter.
   await expect(listed.filter({ hasNotText: "rejected" })).toHaveCount(0);
@@ -85,11 +85,20 @@ test("with the capture process stopped, the page says why and can't record", asy
       },
     }),
   );
-  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first().getByTitle("Show this episode in full");
+  // And the 12 it dropped, which the episode itself then counts.
+  await page.route(/\/api\/episodes\/[^/?]+$/, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { streams: { dropped_by_us: number }[] };
+    body.streams[0]!.dropped_by_us = 12;
+    await route.fulfill({ response, json: body });
+  });
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first().getByTitle("Show this episode in full");
   await episode.click();
   await episode.click();
   const details = page.getByRole("region", { name: /^Episode / });
   await expect(details).toContainText("rejected: a gate failed · settings 1");
   await expect(details.getByRole("row", { name: /^streams\.complete/ })).toContainText("Kapto dropped 12 messages");
+  // The loss is said in the summary.
+  await expect(details.getByRole("definition").filter({ hasText: "12 dropped by Kapto" })).toBeVisible();
   expect(elsewhere).toEqual([]);
 });

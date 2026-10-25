@@ -10,6 +10,7 @@ import type {
   ReplayState,
   ReplayStatus,
 } from "./api-types";
+import { ApiFailure } from "./api";
 import EpisodeList from "./EpisodeList.svelte";
 import { offset } from "./format";
 
@@ -76,7 +77,7 @@ describe("EpisodeList", () => {
   it("asks to show an episode in full when it is clicked, and to close it again", async () => {
     const onselect = vi.fn();
     const { rerender } = render(EpisodeList, { episodes: [summary], open: null, onselect });
-    const button = screen.getByRole("button", { name: /messages/ });
+    const button = screen.getByTitle("Show this episode in full");
     expect(button.getAttribute("aria-expanded")).toBe("false");
     await fireEvent.click(button);
     expect(onselect).toHaveBeenCalledWith(summary.id);
@@ -100,7 +101,7 @@ describe("EpisodeList", () => {
     const base = screen.getByRole("row", { name: /^base/ });
     expect(base.textContent).toContain("12 · 2 disconnects");
     expect(base.textContent).toContain("silences (estimate)");
-    expect(base.querySelectorAll("td")[3]?.classList.contains("problem")).toBe(true);
+    expect(base.querySelectorAll("td")[3]?.classList.contains("warning")).toBe(true);
     const kept = screen.getByRole("row", { name: /^tf_static/ });
     expect(kept.querySelectorAll("td")[0]?.textContent?.trim()).toBe("0 + 2 kept");
   });
@@ -126,12 +127,12 @@ describe("EpisodeList", () => {
     const recovered = { at_utc_ns: 1_772_701_000_000_000_000, bytes_cut: 4096, last_message_utc_ns: 1_772_700_462_000_000_000, reason: "recording stopped" };
     const salvaged: EpisodeSummary = { ...summary, id: "20260310T130000.000Z-00000002", recovered };
     render(EpisodeList, { episodes: [summary, salvaged], open: { ...detail, id: salvaged.id, recovered }, onselect: vi.fn() });
-    const [finished, cut] = screen.getAllByRole("button", { name: /messages/ });
-    expect(finished?.textContent).toContain("complete");
-    expect(finished?.textContent).not.toContain("recovered");
+    const [finished, cut] = screen.getAllByTitle("Show this episode in full");
+    // A complete one says nothing of its loss; the recovered one does, in danger's colour.
+    expect(finished?.textContent).not.toMatch(/recovered|loss unknown|missing|complete/);
     expect(cut?.textContent).toContain("recovered");
+    expect(cut?.querySelector(".recovered")).toBeTruthy();
     expect(cut?.textContent).toContain("loss unknown");
-    expect(cut?.textContent).not.toContain("complete");
     const details = screen.getByRole("region", { name: `Episode ${salvaged.id}` });
     expect(details.textContent).toContain("4.0 KiB cut off its end · last message at 1:02 · what it lost isn't known");
     expect(details.textContent).toContain("not known for a recovered episode, nor its buffers and clock");
@@ -203,7 +204,9 @@ describe("EpisodeList", () => {
     const check = screen.getByRole("row", { name: /^streams\.complete/ });
     expect(check.textContent).toContain("gate");
     expect(check.textContent).toContain("Kapto dropped 12 messages");
-    expect(check.querySelector("td")?.classList.contains("problem")).toBe(true);
+    // A failed gate rejects the episode: danger, the same as Delete's.
+    expect(check.querySelector("td")?.classList.contains("danger")).toBe(true);
+    expect(within(details).getByText(/rejected: a gate failed/).classList.contains("danger")).toBe(true);
   });
 
   it("lists the moments a check found, each opening its replay there, and counts those past the first five", async () => {
@@ -311,6 +314,115 @@ describe("EpisodeList", () => {
     const none: EpisodeStatistics = { computed_utc_ns: null, statistics: [] };
     render(EpisodeList, { episodes: [summary], open: detail, statistics: none, onselect: vi.fn() });
     expect(screen.queryByRole("table", { name: "Statistics" })).toBeNull();
+  });
+});
+
+describe("EpisodeList's open episode", () => {
+  const clean: EpisodeDetail = {
+    ...detail,
+    streams: [{ ...detail.streams[0]!, rejected: null }],
+  };
+  const statistics: EpisodeStatistics = { computed_utc_ns: 1, statistics: [{ name: "episode.duration_s", value: 75 }] };
+  const check = {
+    check: "streams.complete",
+    version: 1,
+    kind: "gate",
+    verdict: "passed",
+    message: "every message kept",
+    values: {},
+    ranges: [],
+  };
+  const accepted: EpisodeQuality = { accepted: true, params_version: "1", computed_utc_ns: 1, checks: [check] };
+  const failed: EpisodeQuality = { ...accepted, accepted: false, checks: [{ ...check, verdict: "failed" }] };
+  const upload = {
+    episode: summary.id,
+    destination: "nas",
+    state: "failed" as const,
+    key: "ep1",
+    bytes_sent: 0,
+    bytes_total: 1024,
+    throttled: 0,
+    started_utc_ns: 1,
+    failure_code: "upload.denied",
+    failure_message: "the store refused Kapto's credentials",
+    objects: [],
+  };
+  it("shows its summary, then events, quality, uploads, streams, statistics and how it was recorded", () => {
+    const events: EpisodeEvents = {
+      read: true,
+      events: [{ kind: "note", phase: "moment", at_utc_ns: summary.started_utc_ns, until_utc_ns: null, id: null, source: "page", text: null, attributes: {} }],
+      unended: [],
+    };
+    render(EpisodeList, {
+      props: {
+        episodes: [summary],
+        open: clean,
+        quality: accepted,
+        statistics,
+        events,
+        uploads: { stored_here: true, uploads: [] },
+        onselect: vi.fn(),
+      },
+    });
+    const details = screen.getByRole("region", { name: `Episode ${summary.id}` });
+    expect([...details.querySelectorAll("h3")].map((heading) => heading.textContent)).toEqual([
+      "Events",
+      "Quality checks",
+      "Uploads",
+      "Streams",
+      "Statistics",
+      "Recording details",
+    ]);
+    expect(details.querySelector("dl")?.textContent).toContain("1:15");
+    expect(details.textContent).toContain("99 % within 520 ms");
+    // Nothing wrong, so nothing said to be.
+    expect(details.querySelector(".danger, .warning")).toBeNull();
+  });
+
+  it("says every problem in its summary, first", () => {
+    render(EpisodeList, {
+      episodes: [summary],
+      open: { ...detail, clock: { ...detail.clock, steps: 3 } },
+      quality: failed,
+      statistics,
+      uploads: { stored_here: true, uploads: [upload] },
+      onselect: vi.fn(),
+    });
+    const first = screen.getByRole("region", { name: `Episode ${summary.id}` }).querySelector("dl") as HTMLElement;
+    for (const problem of [
+      "12 lost before Kapto",
+      "4 from sources not allowed",
+      "stepped 3 times",
+      "rejected: a gate failed · settings 1",
+    ]) {
+      expect(within(first).getByText(problem, { exact: false, selector: "dd" })).toBeTruthy();
+    }
+    const nas = within(first).getByText("failed", { selector: "dd span" });
+    expect(nas.classList.contains("danger")).toBe(true);
+  });
+
+  it("tries its failed uploads again from its summary, and says why when refused", async () => {
+    const onretry = vi.fn(() => Promise.resolve());
+    const props = { episodes: [summary], open: clean, uploads: { stored_here: true, uploads: [upload] }, onselect: vi.fn() };
+    const { unmount } = render(EpisodeList, { ...props, onretry });
+    await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onretry).toHaveBeenCalledWith(summary.id);
+    unmount();
+
+    const refused = vi.fn(() => Promise.reject(new ApiFailure({ code: "upload.unknown", message: "no such upload", remedy: "" })));
+    render(EpisodeList, { ...props, onretry: refused });
+    await fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("no such upload")).toBeTruthy();
+  });
+
+  it("offers no retry while nothing has failed", () => {
+    render(EpisodeList, {
+      episodes: [summary],
+      open: clean,
+      uploads: { stored_here: true, uploads: [{ ...upload, state: "uploaded" as const, failure_code: null, failure_message: null }] },
+      onselect: vi.fn(),
+    });
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 });
 

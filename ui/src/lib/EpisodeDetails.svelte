@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { ApiFailure } from "./api";
   import EpisodeUploadsList from "./EpisodeUploads.svelte";
   import Icon from "./Icon.svelte";
   import type {
@@ -11,7 +12,7 @@
     ReplayState,
     UploadDestination,
   } from "./api-types";
-  import { breakable, bytes, count, duration, figure, lasting, milliseconds, offset, time } from "./format";
+  import { breakable, bytes, count, duration, figure, lasting, milliseconds, offset, plain, time } from "./format";
   import { eventRows } from "./viewer/episode-events";
 
   interface Props {
@@ -35,6 +36,8 @@
     uploads?: EpisodeUploads | null;
     /** The destinations configured, for where each is. */
     destinations?: UploadDestination[];
+    /** Tries its failed uploads again now. */
+    onretry?: () => Promise<void>;
     /** How many days an episode deleted stays in the bin (`bin.keep_days`). */
     keepDays?: number;
     /** Asked to delete it, into the bin, once confirmed. */
@@ -53,6 +56,7 @@
     onreplay = () => {},
     uploads = null,
     destinations = [],
+    onretry = () => Promise.resolve(),
     keepDays = 7,
     ondelete = () => {},
     onrestore = () => {},
@@ -108,22 +112,82 @@
     publisher_count: "publishers' counts",
     undetectable: "not detectable",
   };
+
+  /** What it was recorded for and with, in a few words: the task, then the profile. */
+  const session = $derived(
+    [episode.task ? (episode.task.name ?? episode.task.id) : null, episode.profile?.id ?? null]
+      .filter((part) => part !== null)
+      .join(" · "),
+  );
+  /** The same in full, each with what was said about it. */
+  const sessionInFull = $derived(
+    [
+      episode.task
+        ? [
+            episode.task.name ?? episode.task.id,
+            episode.task.prompt ? `“${episode.task.prompt}”` : null,
+            episode.task.subtasks.length > 0 ? episode.task.subtasks.join(" → ") : null,
+          ]
+            .filter((part) => part !== null)
+            .join(" · ")
+        : null,
+      episode.profile
+        ? [
+            episode.profile.id,
+            episode.profile.operator,
+            episode.profile.mode,
+            episode.profile.environment,
+            episode.profile.tags.length > 0 ? episode.profile.tags.join(", ") : null,
+          ]
+            .filter((part) => part != null)
+            .join(" · ")
+        : null,
+    ],
+  );
+
+  /** Messages lost, by whom, over every stream: never folded away. */
+  const sum = (pick: (stream: EpisodeDetail["streams"][number]) => number) =>
+    episode.streams.reduce((total, stream) => total + pick(stream), 0);
+  const dropped = $derived(sum((stream) => stream.dropped_by_us));
+  const lostUpstream = $derived(sum((stream) => stream.lost_upstream));
+  const undecoded = $derived(sum((stream) => Math.max(0, stream.received - stream.decoded)));
+  const refused = $derived(sum((stream) => stream.rejected ?? 0));
+
+  const failedUploads = $derived(uploads?.uploads.filter((upload) => upload.state === "failed") ?? []);
+  /** Retrying, or why the retry was refused. */
+  let retrying = $state<true | ApiFailure | null>(null);
+  async function retry() {
+    retrying = true;
+    try {
+      await onretry();
+      retrying = null;
+    } catch (error) {
+      retrying = error as ApiFailure;
+    }
+  }
 </script>
 
 <section aria-label="Episode {episode.id}">
-  <button
-    type="button"
-    class="replay"
-    title={!episode.stored_here
-      ? notHere
-      : asked
-        ? "The viewer shows this episode; Back to live shows the robot again"
-        : "Watch this episode again in the viewer"}
-    disabled={asked || !episode.stored_here}
-    onclick={() => onreplay(null)}
-  >
-    {#if replay === "ready"}Replaying{:else if asked}Preparing…{:else}Replay{/if}
-  </button>
+  <div class="actions">
+    <button
+      type="button"
+      class="replay"
+      title={!episode.stored_here
+        ? notHere
+        : asked
+          ? "The viewer shows this episode; Back to live shows the robot again"
+          : "Watch this episode again in the viewer"}
+      disabled={asked || !episode.stored_here}
+      onclick={() => onreplay(null)}
+    >
+      {#if replay === "ready"}Replaying{:else if asked}Preparing…{:else}Replay{/if}
+    </button>
+    {#if episode.stored_here && episode.binned_utc_ns == null && !confirming}
+      <button type="button" class="delete" title="Put this episode in the bin" onclick={() => (confirming = true)}
+        >Delete…</button
+      >
+    {/if}
+  </div>
   {#if episode.stored_here && episode.binned_utc_ns != null}
     <div class="bin" role="group" aria-label="In the bin">
       <p>
@@ -148,20 +212,24 @@
       >
       <button type="button" class="cancel" onclick={() => (confirming = false)}>Cancel</button>
     </div>
-  {:else if episode.stored_here}
-    <button type="button" class="delete ask" title="Put this episode in the bin" onclick={() => (confirming = true)}
-      >Delete…</button
-    >
   {/if}
-  <dl>
+
+  <!-- The summary: what it is and anything wrong with it, never folded. -->
+  <dl class="summary">
     <dt>Recorded</dt>
-    <dd>
-      {time(episode.started_utc_ns)} · {duration((episode.ended_utc_ns - episode.started_utc_ns) / 1e9)} · Kapto {episode.kapto_version}
+    <dd>{time(episode.started_utc_ns)} · {duration((episode.ended_utc_ns - episode.started_utc_ns) / 1e9)}</dd>
+    <dt>Quality</dt>
+    <dd class:danger={quality?.accepted === false} class:pending={quality?.accepted == null}>
+      {#if quality?.accepted === false}<Icon name="attention" />{/if}{decided}
     </dd>
+    {#if session}
+      <dt>For</dt>
+      <dd>{session}</dd>
+    {/if}
     {#if episode.recovered}
       <dt>Recovered</dt>
-      <dd class="problem" title="Recording stopped without finishing it: {episode.recovered.reason}">
-        {[
+      <dd class="danger" title="Recording stopped without finishing it: {episode.recovered.reason}">
+        <Icon name="attention" />{[
           time(episode.recovered.at_utc_ns),
           `${bytes(episode.recovered.bytes_cut)} cut off its end`,
           episode.recovered.last_message_utc_ns == null
@@ -171,74 +239,57 @@
         ].join(" · ")}
       </dd>
     {/if}
-    <dt>Robot</dt>
-    {#if episode.package}
-      <dd title="Content hash {episode.package.hash}">
-        {episode.package.id} {episode.package.version} · {episode.package.hash.slice(0, 12)}
-      </dd>
-    {:else}
-      <dd class="problem">unchecked: recorded without a robot package</dd>
-    {/if}
-    {#if episode.task}
-      <dt>Task</dt>
-      <dd title={episode.task.hash ? `Content hash ${episode.task.hash}` : undefined}>
-        {[
-          episode.task.name ?? episode.task.id,
-          episode.task.prompt ? `“${episode.task.prompt}”` : null,
-          episode.task.subtasks.length > 0 ? episode.task.subtasks.join(" → ") : null,
+    {#if dropped + lostUpstream > 0}
+      <dt>Missing</dt>
+      <dd class="warning">
+        <Icon name="attention" />{[
+          dropped > 0 ? `${count(dropped)} dropped by Kapto` : null,
+          lostUpstream > 0 ? `${count(lostUpstream)} lost before Kapto` : null,
         ]
           .filter((part) => part !== null)
           .join(" · ")}
       </dd>
     {/if}
-    {#if episode.profile}
-      <dt>Profile</dt>
-      <dd title={episode.profile.hash ? `Content hash ${episode.profile.hash}` : undefined}>
-        {[
-          episode.profile.id,
-          episode.profile.operator,
-          episode.profile.mode,
-          episode.profile.environment,
-          episode.profile.tags.length > 0 ? episode.profile.tags.join(", ") : null,
-        ]
-          .filter((part) => part != null)
-          .join(" · ")}
-      </dd>
+    {#if undecoded > 0}
+      <dt>Not decoded</dt>
+      <dd class="warning"><Icon name="attention" />{count(undecoded)} messages kept but not read</dd>
     {/if}
-    <dt>Quality</dt>
-    <dd class:problem={quality?.accepted === false} class:pending={quality?.accepted == null}>{decided}</dd>
-    <dt>Size</dt>
-    <dd>{bytes(size)} in {episode.files.length} files</dd>
-    {#if episode.recovered}
-      <!-- Only finishing a recording measures these. -->
-      <dt>On disk</dt>
-      <dd class="pending">not known for a recovered episode, nor its buffers and clock</dd>
-    {:else}
-      <dt>On disk</dt>
-      <dd>
-        99 % within {milliseconds(episode.durability.p99_unsynced_ns)}, all within {milliseconds(episode.durability.max_unsynced_ns)}
-      </dd>
-      <dt>Buffers</dt>
-      <dd>
-        peak {episode.buffers.peak_batches} of {episode.buffers.batches} batches · {bytes(episode.buffers.memory_bytes)}
-      </dd>
+    {#if refused > 0}
+      <dt>Refused</dt>
+      <dd class="warning"><Icon name="attention" />{count(refused)} from sources not allowed</dd>
+    {/if}
+    {#if !episode.recovered && episode.clock.steps > 0}
       <dt>Clock</dt>
-      <dd class:problem={episode.clock.steps > 0}>
-        {episode.clock.steps === 0 ? "steady" : `stepped ${episode.clock.steps} times`} · uncertainty up to
-        {milliseconds(episode.clock.max_uncertainty_ns)}
-      </dd>
+      <dd class="warning"><Icon name="attention" />stepped {episode.clock.steps} times</dd>
     {/if}
-    <dt>Folder</dt>
-    {#if episode.stored_here}
-      <dd class="folder">{episode.folder}</dd>
-    {:else}
-      <dd class="pending" title="Was {episode.folder}">deleted here, stored only remotely</dd>
+    {#if !episode.package}
+      <dt>Robot</dt>
+      <dd class="warning"><Icon name="attention" />unchecked: recorded without a robot package</dd>
+    {/if}
+    {#if uploads && uploads.uploads.length > 0}
+      <dt>Uploads</dt>
+      <dd class="uploaded">
+        <span>
+          {#each uploads.uploads as upload, index (upload.destination)}{index > 0 ? " · " : ""}{upload.destination}
+            {#if upload.state === "failed"}<span class="danger"><Icon name="attention" />failed</span
+              >{:else if upload.state === "uploading"}uploading{:else}uploaded{/if}{/each}
+        </span>
+        {#if failedUploads.length > 0}
+          <button
+            type="button"
+            class="retry"
+            disabled={retrying === true}
+            aria-busy={retrying === true}
+            title="Try its failed uploads again now"
+            onclick={() => void retry()}>{retrying === true ? "Retrying…" : "Retry"}</button
+          >
+          {#if retrying !== null && retrying !== true}
+            <span class="danger">{plain(retrying.message)}</span>
+          {/if}
+        {/if}
+      </dd>
     {/if}
   </dl>
-
-  {#if uploads}
-    <EpisodeUploadsList {uploads} {destinations} />
-  {/if}
 
   {#if events && !events.read}
     <p class="pending">Events: not read yet. The worker reads them after the episode is recorded.</p>
@@ -259,7 +310,7 @@
             <th scope="row">
               {names[row.kind] ?? row.kind}{#if row.endOnly}{" ended"}{/if}{#if row.stream}<span class="stream"
                   >{` · ${row.stream}`}</span
-                >{/if}{#if row.open}<span class="problem" title="Nothing ended it before the recording ended"
+                >{/if}{#if row.open}<span class="warning" title="Nothing ended it before the recording ended"
                   >{" · never ended"}</span
                 >{:else if row.untilNs !== null && row.untilNs > row.fromNs}<span class="lasted"
                   >{` · ${lasting((row.untilNs - row.fromNs) / 1e9)}`}</span
@@ -299,7 +350,12 @@
               {#each breakable(check.check) as piece, index (index)}{piece}<wbr />{/each}
               <span class="kind">{check.kind}</span>
             </th>
-            <td class:problem={check.verdict === "failed"}>{verdicts[check.verdict] ?? check.verdict}</td>
+            <!-- A failed gate rejects the episode; a failed advisory only says so. -->
+            <td
+              class:danger={check.verdict === "failed" && check.kind === "gate"}
+              class:warning={check.verdict === "failed" && check.kind !== "gate"}
+              >{verdicts[check.verdict] ?? check.verdict}</td
+            >
             <td class="found">
               {check.message}
               {#if check.ranges.length > 0}
@@ -328,6 +384,42 @@
       </tbody>
     </table>
   {/if}
+
+  {#if uploads}
+    <EpisodeUploadsList {uploads} {destinations} />
+  {/if}
+
+  <h3>Streams</h3>
+  <table aria-label="Streams">
+    <thead>
+      <tr>
+        <th scope="col">Stream</th>
+        <th scope="col">Written</th>
+        <th scope="col">Decoded</th>
+        <th scope="col">Dropped</th>
+        <th scope="col">Lost</th>
+        <th scope="col">Loss seen by</th>
+      </tr>
+    </thead>
+    <tbody>
+      {#each episode.streams as stream (stream.stream)}
+        <tr>
+          <th scope="row">{#each breakable(stream.stream) as piece, index (index)}{piece}<wbr />{/each}</th>
+          <td title={stream.carried ? "kept from before the episode, written at its start" : undefined}>
+            {count(stream.written)}{stream.carried ? ` + ${count(stream.carried)} kept` : ""}
+          </td>
+          <td class:warning={stream.decoded < stream.received}>{count(stream.decoded)}</td>
+          <td class:warning={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
+          <td class:warning={stream.lost_upstream > 0}>
+            {count(stream.lost_upstream)}{stream.disconnects ? ` · ${stream.disconnects} disconnects` : ""}{stream.rejected
+              ? ` · ${count(stream.rejected)} from sources not allowed`
+              : ""}
+          </td>
+          <td class="detection">{detection[stream.loss_detection] ?? stream.loss_detection}</td>
+        </tr>
+      {/each}
+    </tbody>
+  </table>
 
   {#if statistics && statistics.statistics.length > 0}
     <h3>Statistics</h3>
@@ -361,37 +453,52 @@
     </table>
   {/if}
 
-  <h3>Streams</h3>
-  <table>
-    <thead>
-      <tr>
-        <th scope="col">Stream</th>
-        <th scope="col">Written</th>
-        <th scope="col">Decoded</th>
-        <th scope="col">Dropped</th>
-        <th scope="col">Lost</th>
-        <th scope="col">Loss seen by</th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each episode.streams as stream (stream.stream)}
-        <tr>
-          <th scope="row">{#each breakable(stream.stream) as piece, index (index)}{piece}<wbr />{/each}</th>
-          <td title={stream.carried ? "kept from before the episode, written at its start" : undefined}>
-            {count(stream.written)}{stream.carried ? ` + ${count(stream.carried)} kept` : ""}
-          </td>
-          <td class:problem={stream.decoded < stream.received}>{count(stream.decoded)}</td>
-          <td class:problem={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
-          <td class:problem={stream.lost_upstream > 0}>
-            {count(stream.lost_upstream)}{stream.disconnects ? ` · ${stream.disconnects} disconnects` : ""}{stream.rejected
-              ? ` · ${count(stream.rejected)} from sources not allowed`
-              : ""}
-          </td>
-          <td class="detection">{detection[stream.loss_detection] ?? stream.loss_detection}</td>
-        </tr>
-      {/each}
-    </tbody>
-  </table>
+  <h3>Recording details</h3>
+  <dl>
+    {#if sessionInFull[0]}
+      <dt>Task</dt>
+      <dd title={episode.task?.hash ? `Content hash ${episode.task.hash}` : undefined}>{sessionInFull[0]}</dd>
+    {/if}
+    {#if sessionInFull[1]}
+      <dt>Profile</dt>
+      <dd title={episode.profile?.hash ? `Content hash ${episode.profile.hash}` : undefined}>{sessionInFull[1]}</dd>
+    {/if}
+    <dt>Kapto</dt>
+    <dd>{episode.kapto_version}</dd>
+    <dt>Size</dt>
+    <dd>{bytes(size)} in {episode.files.length} files</dd>
+    {#if episode.package}
+      <dt>Robot</dt>
+      <dd title="Content hash {episode.package.hash}">
+        {episode.package.id} {episode.package.version} · {episode.package.hash.slice(0, 12)}
+      </dd>
+    {/if}
+    {#if episode.recovered}
+      <!-- Only finishing a recording measures these. -->
+      <dt>On disk</dt>
+      <dd class="pending">not known for a recovered episode, nor its buffers and clock</dd>
+    {:else}
+      <dt>On disk</dt>
+      <dd>
+        99 % within {milliseconds(episode.durability.p99_unsynced_ns)}, all within {milliseconds(episode.durability.max_unsynced_ns)}
+      </dd>
+      <dt>Buffers</dt>
+      <dd>
+        peak {episode.buffers.peak_batches} of {episode.buffers.batches} batches · {bytes(episode.buffers.memory_bytes)}
+      </dd>
+      <dt>Clock</dt>
+      <dd>
+        {episode.clock.steps === 0 ? "steady" : `stepped ${episode.clock.steps} times`} · uncertainty up to
+        {milliseconds(episode.clock.max_uncertainty_ns)}
+      </dd>
+    {/if}
+    <dt>Folder</dt>
+    {#if episode.stored_here}
+      <dd class="folder">{episode.folder}</dd>
+    {:else}
+      <dd class="pending" title="Was {episode.folder}">deleted here, stored only remotely</dd>
+    {/if}
+  </dl>
 </section>
 
 <style>
@@ -412,9 +519,24 @@
   dd {
     margin: 0;
   }
-  .replay {
+  dd :global(.icon) {
+    margin-right: 0.3em;
+    vertical-align: -0.125em;
+  }
+  .uploaded {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+  .actions {
     float: right;
-    margin: 0.4rem 0 0.4rem 0.5rem;
+    display: flex;
+    gap: var(--space-2);
+    margin: 0 0 0.4rem 0.5rem;
+  }
+  .replay,
+  .retry {
     padding: 0.25rem 0.75rem;
     border: 1px solid var(--accent);
     border-radius: var(--radius);
@@ -423,9 +545,9 @@
     font: inherit;
     cursor: pointer;
   }
-  .ask {
-    float: right;
-    margin: 0.4rem 0 0.4rem 0.5rem;
+  .retry {
+    padding: 0 var(--space-2);
+    font-size: var(--text-sm);
   }
   .bin {
     clear: both;
@@ -461,6 +583,10 @@
   }
   .restore {
     border-color: var(--accent);
+  }
+  h3 {
+    margin: var(--space-4) 0 var(--space-2);
+    font-size: var(--text-md);
   }
   .moments {
     list-style: none;
@@ -519,7 +645,13 @@
     color: var(--muted);
     font-size: var(--text-sm);
   }
-  .problem {
+  /* One scale: danger for data rejected, at risk or not where it should be;
+     warning for degraded but usable. Each with a word, never colour alone. */
+  .danger {
+    color: var(--danger);
+    font-weight: 600;
+  }
+  .warning {
     color: var(--warning);
     font-weight: 600;
   }

@@ -123,9 +123,10 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await expect(page.getByText("Live, not recording")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Episodes (1)" })).toBeVisible();
   await open(page, /^Episodes/);
-  const episodes = page.getByRole("listitem").filter({ hasText: "messages" });
+  const episodes = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") });
   await expect(episodes).toHaveCount(1);
-  await expect(episodes).toContainText("complete");
+  // Nothing missing, which the row leaves unsaid.
+  await expect(episodes).not.toContainText(/missing|loss unknown/);
   await expect(episodes).toContainText("Pick and place · lab_ana");
   // The worker checks it a moment later, and the list follows.
   await expect(episodes).toContainText("accepted", { timeout: 30_000 });
@@ -133,13 +134,15 @@ test("the page shows the robot's stream, records an episode and lists it", async
   // The episode in full.
   await episodes.getByTitle("Show this episode in full").click();
   const details = page.getByRole("region", { name: /^Episode / });
-  await expect(details).toContainText("99 % within");
-  await expect(details.getByRole("row", { name: /^arm_joints/ })).toContainText("sequence numbers");
+  // Its summary first, then how it was recorded.
+  await expect(details.getByRole("definition").filter({ hasText: "Pick and place · lab_ana" })).toBeVisible();
+  await expect(details.getByText(/^99 % within/)).toBeVisible();
   await expect(details).toContainText("lab_ana · Ana · teleoperated · shift-a");
   await expect(details).toContainText("reach → grasp → lift → place");
   // Checked with the quality settings the sample arm's recording carries.
   await expect(details).toContainText("accepted · settings 1");
   await expect(details.getByRole("row", { name: /^streams\.complete/ })).toContainText("passed");
+  await expect(details.getByRole("row", { name: /^arm_joints/ })).toContainText("sequence numbers");
   // With its statistics: the joints the sample arm moves have speeds.
   const statistics = details.getByRole("table", { name: "Statistics" });
   await expect(statistics.getByRole("row", { name: /^episode\.duration_s/ })).toBeVisible();
@@ -175,7 +178,7 @@ test("an episode is replayed in the live view, saying why one can't be, and the 
   expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
 
   await open(page, /^Episodes/);
-  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await episode.getByTitle("Show this episode in full").click();
   const opened = page.waitForResponse((response) => response.url().includes("/replay/opening"), { timeout: 90_000 });
   const windowed = page.waitForResponse((response) => response.url().includes("/replay/window?"), { timeout: 90_000 });
@@ -302,7 +305,7 @@ test("a moment a check found opens the episode's replay just before it, and anot
   );
 
   await open(page, /^Episodes/);
-  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await episode.getByTitle("Show this episode in full").click();
   const moments = page.getByRole("list", { name: "Moments motion.jump found" });
   await expect(moments).toContainText("at 0:07–0:08");
@@ -350,7 +353,7 @@ test("an episode recorded elsewhere is listed even when the page misses its anno
   const { episode: id } = (await (await page.request.post("/api/episodes/start", json)).json()) as { episode: string };
   await expect(page.getByText(/^Recording · /)).toBeVisible();
   // Newest first: the episode listed first before this one ends.
-  const newest = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const newest = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   const before = (await newest.count()) > 0 ? await newest.textContent() : null;
   expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
   // The status shows recording stopped, and the list follows: this one first.
@@ -391,7 +394,7 @@ test("an episode recovered after recording stopped without finishing is marked, 
   await page.route(`**/api/episodes/${id}`, said);
 
   await open(page, /^Episodes/);
-  const listed = page.getByRole("listitem").filter({ hasText: "messages" });
+  const listed = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") });
   const episode = listed.filter({ hasText: "recovered" });
   await expect(episode).toHaveCount(1);
   await expect(episode).toContainText("loss unknown");
@@ -783,7 +786,7 @@ test("episodes go up to each destination, one that can't take them says why and 
 
   // The episode's own details say where each of its objects went.
   await open(page, /^Episodes/);
-  await page.getByRole("listitem").filter({ hasText: "messages" }).first().getByTitle("Show this episode in full").click();
+  await page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first().getByTitle("Show this episode in full").click();
   const there = page.getByRole("region", { name: "Upload to archive" });
   await expect(there).toContainText(/uploaded \d{4}-/);
   await expect(there).toContainText(/file:\/\/\/.*\/archive\//);
@@ -795,6 +798,12 @@ test("episodes go up to each destination, one that can't take them says why and 
   await expect(objects.getByRole("row", { name: /recording\.mcap/ })).toBeVisible();
   await expect(objects.getByRole("row", { name: /episode\.json/ })).toBeVisible();
   await expect(page.getByRole("region", { name: "Upload to nas" })).toContainText("upload.destination_unusable");
+  // The failed upload is in the summary, unfolded, with a retry beside it.
+  const summary = page.getByRole("region", { name: /^Episode / }).getByRole("definition").filter({ hasText: /nas\s+failed/ });
+  await expect(summary).toBeVisible();
+  const retriedHere = page.waitForResponse((response) => response.url().endsWith("/uploads/retry"));
+  await summary.getByRole("button", { name: "Retry" }).click();
+  expect((await retriedHere).status()).toBe(202);
   expect(elsewhere).toEqual([]);
 });
 
@@ -849,7 +858,7 @@ test("a replay is arranged by the layout its recording carries", async ({ page }
     await route.fulfill({ response, json: opening });
   });
   await open(page, /^Episodes/);
-  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await episode.getByTitle("Show this episode in full").click();
   await page.getByRole("button", { name: "Replay", exact: true }).click();
   await expect(page.getByRole("status", { name: "Replay" })).toContainText(/Episode over/, { timeout: 90_000 });
@@ -958,7 +967,7 @@ test("an episode deleted goes to the bin, is restored from it, and a refused del
   await page.waitForTimeout(1_500);
   expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
   await open(page, /^Episodes/);
-  const listed = page.getByRole("listitem").filter({ hasText: "messages" });
+  const listed = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") });
   await listed.first().getByTitle("Show this episode in full").click();
   const details = page.getByRole("region", { name: /^Episode / });
   const id = ((await details.getAttribute("aria-label")) ?? "").replace("Episode ", "");
@@ -1163,7 +1172,7 @@ test("a replayed camera steps through every frame recorded, and says why one can
   expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
 
   await open(page, /^Episodes/);
-  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await episode.getByTitle("Show this episode in full").click();
   await page.getByRole("button", { name: "Replay", exact: true }).click();
   const bar = page.getByRole("status", { name: "Replay" });
@@ -1242,7 +1251,7 @@ test("nothing in the side panel is cut off, at a laptop's width or a tablet's", 
       expect(apart, `${name}'s dot ${at}`).toBeLessThan(4);
     }
     await open(page, /^Episodes/);
-    const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+    const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
     if ((await episode.getByRole("button", { expanded: true }).count()) === 0) {
       await episode.getByTitle("Show this episode in full").click();
     }

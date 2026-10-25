@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { QualityFilter } from "./api";
+  import { type QualityFilter, retryUploads } from "./api";
   import type {
     EpisodeDetail,
     EpisodeEvents,
@@ -45,6 +45,8 @@
     replay?: ReplayStatus | null;
     /** Asked to watch an episode again in the viewer, at a moment if given. */
     onreplay?: (id: string, moment?: CheckRange | null) => void;
+    /** Tries an episode's failed uploads again now; the next refresh shows them queued. */
+    onretry?: (id: string) => Promise<void>;
     /** Whether the episodes listed are those in the bin. */
     inBin?: boolean;
     /** Asked to list those in the bin, or the others. */
@@ -75,6 +77,9 @@
     onfilter = () => {},
     replay = null,
     onreplay = () => {},
+    onretry = async (id: string) => {
+      await retryUploads(id);
+    },
     inBin = false,
     onbin = () => {},
     keepDays = 7,
@@ -86,7 +91,7 @@
   /** Whether Empty the bin was pressed once, and waits to be confirmed. */
   let emptying = $state(false);
 
-  const total = (episode: EpisodeSummary, field: "written" | "dropped_by_us" | "lost_upstream") =>
+  const total = (episode: EpisodeSummary, field: "dropped_by_us" | "lost_upstream") =>
     episode.streams.reduce((sum, stream) => sum + stream[field], 0);
 
   /** Why a recovered episode is marked, in a sentence. */
@@ -192,11 +197,11 @@
             >{/if}
         </span>
         <span>{duration((episode.ended_utc_ns - episode.started_utc_ns) / 1e9)}</span>
-        <span>{count(total(episode, "written"))} messages</span>
+        <!-- Nothing missing is the normal case, left unsaid; anything else is said. -->
         {#if episode.recovered}
-          <span class="problem" title="Only finishing a recording counts what it lost">loss unknown</span>
-        {:else}
-          <span class:problem={lost > 0}>{lost > 0 ? `${count(lost)} missing` : "complete"}</span>
+          <span class="warning" title="Only finishing a recording counts what it lost">loss unknown</span>
+        {:else if lost > 0}
+          <span class="warning">{count(lost)} missing</span>
         {/if}
         <span class="session">
           {#if episode.accepted === false}<span
@@ -221,6 +226,7 @@
           {names}
           replay={replay?.episode === episode.id ? replay.state : null}
           onreplay={(moment) => onreplay(episode.id, moment)}
+          onretry={() => onretry(episode.id)}
           {keepDays}
           ondelete={() => ondelete(episode.id)}
           onrestore={() => onrestore(episode.id)}
@@ -249,7 +255,7 @@
   }
   button {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 0.75rem;
     width: 100%;
     /* Its highlight reaches the panel's edges; its text stays off them. */
@@ -272,7 +278,9 @@
   .when {
     color: var(--muted);
   }
-  .problem {
+  /* One scale: danger for rejected or at risk, warning for degraded but
+     usable; each said in a word, never by colour alone. */
+  .warning {
     color: var(--warning);
   }
   .filters {
@@ -316,7 +324,7 @@
     font-size: var(--text-sm);
   }
   .rejected {
-    color: var(--warning);
+    color: var(--danger);
     font-weight: 600;
   }
   .unchecked,
@@ -329,8 +337,8 @@
     font-size: var(--text-xs);
   }
   .recovered {
-    border-color: var(--warning);
-    color: var(--warning);
+    border-color: var(--danger);
+    color: var(--danger);
   }
   .remote {
     color: var(--muted);

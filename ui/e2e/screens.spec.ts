@@ -166,7 +166,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await expect(page.getByText("Live, not recording")).toBeVisible();
 
   await tab(page, /^Episodes/);
-  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await expect(episode).toContainText("not checked yet");
   await shot(aside, "episodes-not-checked");
   // Let go once a request held now has been answered: one answered after
@@ -426,7 +426,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await page.unroute("**/api/settings");
   // An episode's details: where each of its objects went.
   await tab(page, /^Episodes/);
-  const listed = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const listed = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await listed.getByTitle("Show this episode in full").click();
   const uploadsShown = page.getByRole("region", { name: "Upload to archive" });
   await expect(uploadsShown).toContainText(/uploaded \d{4}-/, { timeout: 30_000 });
@@ -531,7 +531,7 @@ test("a screenshot of each tab at a tablet's width", async ({ page }) => {
   await shot(page, "tablet-live");
   await viewer(page, false);
   await tab(page, /^Episodes/);
-  const episode = page.getByRole("listitem").filter({ hasText: "messages" }).first();
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await episode.getByTitle("Show this episode in full").click();
   await expect(page.getByRole("region", { name: /^Episode / })).toBeVisible();
   await shot(page, "tablet-episode");
