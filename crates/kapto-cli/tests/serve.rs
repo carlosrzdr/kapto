@@ -12,7 +12,8 @@
 
 mod common;
 
-use std::net::TcpListener;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -519,4 +520,48 @@ fn a_mistake_in_the_robots_files_is_reported_before_anything_starts() {
             .iter()
             .any(|line| line.starts_with("[serve] started"))
     );
+}
+
+#[test]
+fn serve_stops_while_clients_hold_the_event_stream_and_a_request_open() {
+    let folder = scratch("held");
+    let mut serve = Serve::start(&folder, &root().join("packages/arm7/mapping.toml"));
+    serve.wait_for("Kapto is running: ", 1);
+    let capture = serve.child_pid("capture", 1);
+    let address = serve
+        .api()
+        .trim_start_matches("http://")
+        .trim_end_matches("/api")
+        .to_owned();
+    let mut stream = TcpStream::connect(&address).unwrap();
+    write!(
+        stream,
+        "GET /api/events HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\n\
+         Upgrade: websocket\r\nSec-WebSocket-Version: 13\r\n\
+         Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+    )
+    .unwrap();
+    let mut answer = [0_u8; 12];
+    stream.read_exact(&mut answer).unwrap();
+    assert_eq!(&answer, b"HTTP/1.1 101");
+    // A request whose end never comes.
+    let mut half = TcpStream::connect(&address).unwrap();
+    write!(half, "GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\n").unwrap();
+
+    signal("-TERM", serve.pid());
+    let mut child = serve.child.take().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            panic!("serve waited on its clients");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(status.success());
+    assert!(!alive(capture));
+    drop((stream, half));
 }

@@ -580,7 +580,11 @@ again once it has run for a minute (`supervisor.restart_delay`,
 `restart_max_delay`, `stable_after`). Ctrl-C, SIGINT or SIGTERM stops them
 all: each gets SIGTERM, capture up to 30 s to finalise an episode
 (`capture.stop_grace`), the bridge 5 s (`viewer.stop_grace`), the worker 5 s
-(it stops at once), and whatever is left is killed. The robot's files are checked before anything starts,
+(it stops at once), and whatever is left is killed. Only then does the API
+stop, with 2 s for the requests and event streams still open, so no client
+can hold `serve` or capture's stop grace up. However `serve` leaves the
+code that runs them, by an error or a panic, the children are stopped the
+same way. The robot's files are checked before anything starts,
 and `serve` confirms that capture answers on its control socket in the
 same protocol version. Children write straight to `serve`'s own output
 rather than through it, so if `serve` itself dies, capture keeps recording

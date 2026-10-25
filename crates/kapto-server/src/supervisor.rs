@@ -5,7 +5,10 @@
 //! Each child gets a thread (`srv-<name>`) that starts it, waits for it to
 //! exit and starts it again after a delay that doubles with each quick
 //! failure, so a child that can't start doesn't spin. Stopping sends each
-//! child SIGTERM, waits up to its grace period, then kills what is left.
+//! child SIGTERM, waits up to its grace period, then kills what is left. A
+//! supervisor dropped stops its children the same way, so however the
+//! server leaves the code holding it, by an error or a panic, no child is
+//! left behind.
 //!
 //! Children write to the supervisor's own standard output and error rather
 //! than through pipes: if the supervisor dies, a child writing to a pipe
@@ -158,8 +161,15 @@ impl Supervisor {
     }
 
     /// Sends every child SIGTERM, waits for each up to its grace period,
-    /// kills those still running, and returns once all have ended.
+    /// kills those still running, and returns once all have ended. Dropping
+    /// the supervisor does the same.
     pub fn stop(self) {
+        drop(self);
+    }
+}
+
+impl Drop for Supervisor {
+    fn drop(&mut self) {
         self.stopping.store(true, Ordering::SeqCst);
         let started = Instant::now();
         for child in &self.children {
@@ -175,7 +185,7 @@ impl Supervisor {
                 thread::sleep(Duration::from_millis(20));
             }
         }
-        for child in self.children {
+        for child in self.children.drain(..) {
             let _ = child.thread.join();
         }
     }

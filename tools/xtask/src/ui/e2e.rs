@@ -188,7 +188,15 @@ impl Kapto {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| format!("can't start kapto: {error}"))?;
-        let stderr = child.stderr.take().ok_or("kapto's output is missing")?;
+        let stderr = child.stderr.take();
+        // Stopped when dropped, so a start that fails leaves nothing
+        // running.
+        let mut kapto = Self {
+            child,
+            url: format!("http://localhost:{port}"),
+            capture: 0,
+        };
+        let stderr = stderr.ok_or("kapto's output is missing")?;
         let (lines, received) = mpsc::channel();
         // Echoed, so a failing flow comes with Kapto's side of it.
         std::thread::spawn(move || {
@@ -199,9 +207,18 @@ impl Kapto {
         });
         let mut capture = None;
         loop {
-            let line = received
-                .recv_timeout(START_TIMEOUT)
-                .map_err(|_| "kapto didn't start".to_owned())?;
+            // Ended before it said it runs: why is in its output above.
+            if let Ok(Some(status)) = kapto.child.try_wait() {
+                return Err(format!("kapto ended as it started ({status})"));
+            }
+            let line = match received.recv_timeout(START_TIMEOUT) {
+                Ok(line) => line,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => return Err("kapto didn't start".to_owned()),
+            };
             if let Some(pid) = line
                 .strip_prefix("[serve] started capture (pid ")
                 .and_then(|rest| rest.strip_suffix(')'))
@@ -212,17 +229,23 @@ impl Kapto {
                 break;
             }
         }
-        Ok(Self {
-            child,
-            url: format!("http://localhost:{port}"),
-            capture: capture.ok_or("kapto didn't say which process is capture")?,
-        })
+        kapto.capture = capture.ok_or("kapto didn't say which process is capture")?;
+        Ok(kapto)
     }
 
-    /// Stops it as Ctrl-C would, so it stops its children too.
+    /// Stops it as Ctrl-C would, so it stops its children too, unless it
+    /// has ended already.
     fn stop(&mut self) {
-        let _ = kill("-INT", self.child.id());
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let _ = kill("-INT", self.child.id());
+        }
         let _ = self.child.wait();
+    }
+}
+
+impl Drop for Kapto {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 

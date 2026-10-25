@@ -206,9 +206,12 @@ pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
         thread::sleep(Duration::from_millis(100));
     }
     eprintln!("Stopping…");
+    // The processes first, so capture has its whole stop grace to finalise
+    // an episode, whatever the API's clients do; the API then has a moment
+    // to finish what is open (`api::DRAIN`).
+    running.stop();
     api_stop.store(true, Ordering::Relaxed);
     let served = api.join();
-    running.stop();
     if let Ok(Err(error)) = served {
         return Err(vec![
             KaptoError::new(ErrorCode::ServerListenFailed)

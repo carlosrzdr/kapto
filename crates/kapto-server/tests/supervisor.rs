@@ -208,3 +208,36 @@ fn a_program_that_cannot_be_started_is_retried_and_reported() {
     };
     assert!(reason.starts_with("couldn't start it:"), "{reason}");
 }
+
+#[test]
+fn a_supervisor_dropped_without_being_stopped_stops_its_children() {
+    let (listener, events) = recorder();
+    let supervisor = Supervisor::start(
+        vec![shell("sleeper", "exec sleep 30", Duration::from_secs(5))],
+        QUICK,
+        &listener,
+    )
+    .unwrap();
+    wait_until("started", || supervisor.pid("sleeper").is_some());
+    let pid = supervisor.pid("sleeper").unwrap();
+    let dropped = Instant::now();
+    drop(supervisor);
+
+    assert!(dropped.elapsed() < Duration::from_secs(5), "waited for it");
+    assert!(
+        !std::path::Path::new(&format!("/proc/{pid}")).exists()
+            || !std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .status()
+                .unwrap()
+                .success(),
+        "the child outlived its supervisor"
+    );
+    assert_eq!(
+        events.lock().unwrap().last(),
+        Some(&Event::Stopped {
+            name: "sleeper".into(),
+            killed: false,
+        })
+    );
+}

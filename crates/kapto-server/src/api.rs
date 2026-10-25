@@ -209,8 +209,15 @@ pub fn router(state: ApiState) -> Router {
         .with_state(state)
 }
 
+/// How long the requests and event streams open when the API is told to
+/// stop may take to finish; past it they are cut off, so a client that
+/// never lets go, or a request waiting on capture, can't keep the server
+/// from ending.
+pub const DRAIN: Duration = Duration::from_secs(2);
+
 /// Serves the API on `listener` until `stop` is set, on a small runtime of
-/// its own (`srv-api` threads).
+/// its own (`srv-api` threads), then lets what is open finish for
+/// [`DRAIN`] at most.
 ///
 /// # Errors
 ///
@@ -222,17 +229,30 @@ pub fn run(listener: TcpListener, state: ApiState, stop: &Arc<AtomicBool>) -> st
         .thread_name("srv-api")
         .enable_all()
         .build()?;
-    runtime.block_on(async {
+    let served = runtime.block_on(async {
         let listener = tokio::net::TcpListener::from_std(listener)?;
-        let stop = Arc::clone(stop);
-        axum::serve(listener, router(state))
-            .with_graceful_shutdown(async move {
-                while !stop.load(Ordering::Relaxed) {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            })
-            .await
-    })
+        let serving = axum::serve(listener, router(state))
+            .with_graceful_shutdown(stopped(Arc::clone(stop)))
+            .into_future();
+        tokio::select! {
+            served = serving => served,
+            () = async {
+                stopped(Arc::clone(stop)).await;
+                tokio::time::sleep(DRAIN).await;
+            } => Ok(()),
+        }
+    });
+    // Whatever still runs, a blocking call to capture among it, is left to
+    // end with the process rather than waited for.
+    runtime.shutdown_background();
+    served
+}
+
+/// Once `stop` is set.
+async fn stopped(stop: Arc<AtomicBool>) {
+    while !stop.load(Ordering::Relaxed) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// The OpenAPI document.
