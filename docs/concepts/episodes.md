@@ -66,6 +66,18 @@ Kapto never overwrites an episode folder. If a folder with the same ID
 already exists, finishing stops with `episode.already_exists` and the staged
 recording is left where it is.
 
+## When an episode is deleted
+
+An episode deleted by hand, from the web UI, the API or `kapto episode
+delete`, isn't removed at once: its folder is moved, as it is, into
+`.bin/` in the data directory, and `kapto episode restore` (or *Restore*
+in the web UI) moves it back. The bin is emptied after `bin.keep_days`
+(7 by default), sooner for the oldest while the disk is low, or by hand.
+An episode deleted for good, from the bin or once uploaded as
+`upload.delete_local` says, is first renamed to `.deleting-<id>`, so
+nothing ever finds half an episode that looks whole, and only then
+removed.
+
 ## When recording stops without finishing
 
 A crash, a kill or a power cut can stop recording at any step above. The

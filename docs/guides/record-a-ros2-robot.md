@@ -95,8 +95,9 @@ qos = { reliability = "reliable", depth = 1000 }
 10 messages, which matches every publisher; subscribe reliably when the
 robot publishes reliably and nothing should be lost between it and Kapto,
 and raise `depth` for a fast topic. `rate_hz` lets Kapto notice silences:
-`JointState` has no sequence number, so a lost message can't be counted
-exactly.
+`JointState` has no sequence number, so over a middleware that doesn't give
+each message its publisher's count of it (Cyclone DDS; Fast DDS and Zenoh
+do), a lost message can't be counted exactly.
 
 Kapto stores every message exactly as it arrived, serialised as ROS 2 does.
 To draw the robot and check it, it also needs values out of the messages:

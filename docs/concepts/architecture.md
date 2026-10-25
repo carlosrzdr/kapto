@@ -497,7 +497,15 @@ also keeps what it streamed for the last ten minutes
 second, and a page can ask for any stretch of it merged to the points it
 can draw, each value's minimum and maximum kept, so the operator can look
 back at something odd; whatever the page keeps, its memory stays bounded
-however long it is open. It also watches the capture process's control
+however long it is open. The plots show the last 10 s, 30 s, 2 min or
+10 min, or *All*, as they open: all the bridge keeps, from the episode's
+start while one is recorded, filled from the left for its first five
+seconds and then zoomed out as it grows, never jumping. Following now, a
+plot draws a quarter of a second behind its newest sample, so samples
+arrive past its right edge and slide into view; showing more than the
+page keeps of its own, it asks the bridge again each second, in parts of
+a fixed length, and merges its live samples into them, so what it showed
+already stays as it was. It also watches the capture process's control
 socket, like any other client, for the events capture takes and each
 episode's start and end, keeps them for as long, and tells every page all
 it keeps when it connects, then each new one as it comes, for the
@@ -703,8 +711,10 @@ anomalies](quality.md) explains every check, statistic and detector). Each
 check is a **gate**,
 deterministic and structural, or an **advisory**, which only flags; an
 episode is accepted unless a gate failed, so nothing advisory can reject
-it. For now there is one check, the gate `streams.complete`: every message
-that reached Kapto was written. The checks are made from the `qa.toml` the
+it. The checks look at the streams (every message that reached Kapto
+written, critical streams present, each stream's start, end, rate and
+silences), the episode's length, its cameras' frames, the subtasks marked
+and the robot's motion (`kapto_qa::checks`). The checks are made from the `qa.toml` the
 episode's recording carries, the settings it was recorded with, never the
 package as it is now; a recording without one is checked with every
 check's defaults. Checks read an episode's values by role
@@ -792,8 +802,23 @@ renames the episode's folder aside as `.deleting-<id>`, out of the episodes,
 reports it with its `episode.json`, and removes it only once serve has
 recorded the deletion. A crash, or serve not answering, leaves the folder
 aside, never half an episode looking whole, and the worker finishes it the
-next time it reaches serve; one serve refuses is put back. `wrk-upload` takes only
-those jobs, on a connection of
+next time it reaches serve; one serve refuses is put back.
+An episode deleted by hand goes into a **bin** first
+([design](../design/deleting-episodes-through-a-bin.md)):
+`DELETE /api/episodes/{id}`, *Delete* in the web UI or `kapto episode
+delete` has serve rename its folder to `.bin/<id>` in the data directory,
+as it is, and record in `kapto.db` when and from where
+(`kapto_server::episode_bin`). Its replay is dropped from the cache, an
+upload of it stops at its next step and is given back, and its jobs wait
+until it is put back (`POST /api/episodes/{id}/restore`, *Restore*,
+`kapto episode restore`), when the folder is renamed back. Serve hands
+the worker a `delete` job for each episode in the bin longer than
+`bin.keep_days`, for the oldest first while free space is below
+`capture.disk_warn_below`, and for every one when the bin is emptied by
+hand (`POST /api/bin/empty`); the retention executor deletes it as it
+deletes an uploaded one, so it is still the only code that removes raw
+data. `wrk-upload` takes only
+upload jobs, on a connection of
 its own, while `wrk-sched` takes every other kind: a long upload never
 holds up checking the next episode. The lane runs a small tokio runtime
 (helper threads `wrk-upload-io`), started after the worker lowers its
@@ -840,9 +865,9 @@ whose tables differ from it is deleted and made again.
 
 ```
 kapto serve ─┬─ kapto capture      (cap-rx-*, cap-writer, cap-tap, cap-hash, cap-finalise, cap-control, cap-control-tell, cap-control-conn, cap-recover, cap-preflight, cap-preflight-router)
-  srv-api    ├─ kapto viz-bridge   (viz-stream, viz-stream-page, viz-marks)
-             └─ kapto worker       (wrk-sched, wrk-cpu-0, wrk-watch, wrk-upload) ── worker.sock
-  srv-watch, srv-stats, srv-announce, srv-index, srv-jobs ── worker.sock
+  srv-api    ├─ kapto viz-bridge   (viz-stream, viz-stream-page, viz-marks, viz-cameras)
+             └─ kapto worker       (wrk-sched, wrk-cpu-0, wrk-watch, wrk-upload, wrk-upload-io) ── worker.sock
+  srv-watch, srv-status, srv-stats, srv-announce, srv-index, srv-jobs, srv-jobs-* ── worker.sock
   srv-db ── kapto.db
 ```
 
@@ -899,7 +924,11 @@ episodes, each with whether the quality checks accepted it, filtered by
 that if asked, and shown in full when clicked, with each check's result,
 its statistics and its uploads: each destination's, with the URI of each
 object there to copy; one deleted here, verified elsewhere, is marked as
-stored only remotely, its results still shown and its replay not; **Uploads** each destination's uploaded, uploading,
+stored only remotely, its results still shown and its replay not; its
+streams and statistics in folds that stay opened or closed as the operator
+left them while the details refresh; *Delete…*, after a confirmation,
+puts it in the bin, and *In the bin* lists those there, each with
+*Restore* in its details, and *Empty the bin…*; **Uploads** each destination's uploaded, uploading,
 failed and throttled counts with a *Test* button that writes, reads back and
 removes a probe there, the episodes waiting, each upload going with how fast
 it goes and how long it has left (from the bytes and the times the worker

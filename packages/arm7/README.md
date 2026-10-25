@@ -13,6 +13,7 @@ no mesh files.
 | `urdf/arm7.urdf` | The arm: links, joints (`joint_1` to `joint_7`, and `gripper`, which `gripper_mirror` follows) and their limits |
 | `streams.toml` | What the robot sends: one stream, `arm_joints`, with the message layout of the synthetic robot in `tools/kapto-loadgen` |
 | `mapping.toml` | Which decoded value drives which joint: `arm_joints.joint_positions[0]` to `[6]` for `joint_1` to `joint_7`, `arm_joints.gripper` for `gripper` |
+| `qa.toml` | Which quality checks run on its episodes, and their thresholds: the gate `streams.complete` with no message dropped, every other check with its defaults |
 
 The synthetic robot sends exactly what `streams.toml` declares: a sequence
 number, the time it sent the message, the seven joint positions in radians
@@ -45,7 +46,7 @@ cargo run --bin kapto -- episode start --data-dir /tmp/kapto
 cargo run --bin kapto -- episode stop --data-dir /tmp/kapto
 ```
 
-The same through the API, as the web UI will do it:
+The same through the API, as the web UI does it:
 
 ```sh
 curl -s -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:7700/api/episodes/start

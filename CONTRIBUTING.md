@@ -10,7 +10,7 @@ apply to humans and AI coding agents and are not repeated here.
    documents in `docs/project/` describe what comes next.
 2. The only prerequisite for building is Docker with BuildKit:
    `docker compose build`. For working on the Rust code directly, install
-   the toolchain pinned in `rust-toolchain.toml` *(once the code exists)*.
+   the toolchain pinned in `rust-toolchain.toml`.
 3. Install the two cargo plugins the checks use, once:
    `cargo install --locked cargo-nextest cargo-deny`.
 4. Run `cargo xtask ci` before opening a pull request. It runs the same
@@ -93,7 +93,6 @@ Not built yet:
 
 | Task | Command |
 |---|---|
-| Profiling, development only (AGENTS.md section 6.7) *(planned)* | `cargo xtask profile record --scenario <name>` · `cargo xtask profile trace --scenario <name>` · `cargo xtask profile report` |
 | Golden recordings *(planned)* | `cargo xtask golden generate` |
 | UI development *(planned)* | `docker compose --profile ui-dev up` |
 
