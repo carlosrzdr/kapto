@@ -68,7 +68,7 @@ describe("UploadsPanel", () => {
     expect(nas.textContent).toContain("file:///srv/kapto");
     expect(within(nas).getByText("1 failed").classList.contains("failed")).toBe(true);
     // Nothing going up there: not said.
-    expect(within(nas).getByText(/uploaded/).textContent).not.toContain("uploading");
+    expect(within(nas).getByText(/uploaded/).textContent?.trim()).toBe("0 uploaded · 1 failed");
     const shown = screen.getByRole("listitem", { name: "archive" });
     expect(within(shown).getByText(/uploaded/).textContent?.trim()).toBe("4 uploaded · 1 uploading");
     // None failed there: not said either.

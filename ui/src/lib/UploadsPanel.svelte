@@ -86,7 +86,7 @@
         <p class="figures">
           <!-- Only what is happening: no "0 uploading", no "0 failed". -->
           {count(destination.uploaded)} uploaded{#if destination.uploading > 0}{` · ${count(destination.uploading)} uploading`}{/if}{#if destination.failed > 0}
-            · <span class="problem failed">{count(destination.failed)} failed</span>{/if}
+            {" · "}<span class="problem failed">{count(destination.failed)} failed</span>{/if}
           {#if destination.throttled > 0}<span title="Requests it asked Kapto to slow down for"
               >{` · ${count(destination.throttled)} throttled`}</span
             >{/if}
@@ -190,7 +190,6 @@
     font-variant-numeric: tabular-nums;
   }
   .failed {
-    color: var(--danger);
     font-weight: 600;
   }
   .url,
