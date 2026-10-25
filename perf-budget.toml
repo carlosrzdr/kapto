@@ -122,40 +122,42 @@ per_kib_ns = 5
 reason = "As tap_offer, plus a look at each message for the cameras' newest frames; only a batch with a frame due (at most thirty a second per camera) looks again, to copy it."
 
 # What each worker job may take per minute recorded at the reference load
-# (16 streams at 2 kHz), measured by `cargo xtask profile trace` from its
-# spans: the wall-clock time of each, in a build with the `profiling`
-# feature, the worker at its low priority. Checked by `cargo xtask profile
-# report`, which also calls a job under a tenth of its budget unexpectedly
-# cheap. Set at about three times the maintainer's machine.
+# with two 1080p cameras at 60 fps beside it (16 streams at 2 kHz; the
+# cameras make up almost all of the 2.6 GB a minute), measured by `cargo
+# xtask profile trace`, whose default load it is, from its spans: the
+# wall-clock time of each, in a build with the `profiling` feature, the
+# worker at its low priority. Checked by `cargo xtask profile report`,
+# which also calls a job under a tenth of its budget unexpectedly cheap.
+# Set at about three times the maintainer's machine.
 [job.verify]
-ms_per_minute = 400
-reason = "Hashes the recording, about 160 MB a minute at the reference load, and compares it with the manifest: 125 ms a minute measured, all of it hashing."
+ms_per_minute = 5_000
+reason = "Hashes the recording, about 2.6 GB a minute, and compares it with the manifest: 1.7 s a minute measured, all of it hashing."
 
 [job.events]
-ms_per_minute = 700
-reason = "Reads the recording through once for its events: 250 ms a minute measured."
+ms_per_minute = 4_500
+reason = "Reads the recording through once for its events, every camera frame decompressed on the way: 1.5 s a minute measured."
 
 [job.qa]
-ms_per_minute = 1_000
-reason = "Decodes every message and runs the checks and statistics over them: 340 ms a minute measured."
+ms_per_minute = 6_000
+reason = "Decodes every message and runs the checks and statistics over them, reading the cameras' frames past: 2.0 s a minute measured."
 
 [job.replay]
-ms_per_minute = 1_500
-reason = "Decodes every message into the replay view's steps and draws the robot's pose 60 times a second: 520 ms a minute measured."
+ms_per_minute = 9_000
+reason = "Decodes every message into the replay view's steps, draws the robot's pose 60 times a second and indexes the cameras' frames: 3.0 s a minute measured."
 
 [job.upload]
-ms_per_minute = 4_000
-reason = "Hashes the episode again, then sends it in parts to RustFS on the same machine: 1.2 s a minute measured, mostly waiting for the server, so a slower destination takes longer without costing more."
+ms_per_minute = 16_000
+reason = "Hashes the episode again, then sends it in parts to RustFS on the same machine: 5.3 s a minute measured, mostly waiting for the server, so a slower destination takes longer without costing more."
 
 # Hashing, in the worker's checks and uploads, on one core.
 [checksum]
 s_per_gb = 2.0
-reason = "SHA-256 over 256 KiB reads: 0.8 s per GB measured."
+reason = "SHA-256 over 256 KiB reads: 0.6 s per GB measured over 2.8 GB."
 
 # The upload lane's threads, `wrk-upload` and its runtime's, per GB sent.
 [upload]
 cpu_s_per_gb = 4.0
-reason = "Reads each part, hashes it for the server to check and sends it: 1.5 CPU-seconds per GB measured to RustFS on the same machine, 1.4 by `bench upload` with the default settings."
+reason = "Reads each part, hashes it for the server to check and sends it: 1.2 CPU-seconds per GB measured over 1.4 GB to RustFS on the same machine, 1.4 by `bench upload` with the default settings."
 
 # What the live view may cost the page, checked by `cargo xtask profile
 # page` against each scenario's load: Chromium drawing with the graphics

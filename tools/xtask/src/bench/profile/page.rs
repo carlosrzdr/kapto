@@ -26,8 +26,9 @@ const TOP_FUNCTIONS: usize = 15;
 /// Arguments of `profile page`.
 #[derive(Args, Clone, Copy, Debug)]
 pub(crate) struct PageArgs {
-    /// The load the page shows.
-    #[arg(long, value_enum)]
+    /// The load the page shows; by default the largest, which its budget
+    /// is stated for.
+    #[arg(long, value_enum, default_value_t = PageScenario::Large)]
     scenario: PageScenario,
     /// How long the page is watched, in minutes; at least 3, as the first
     /// is left out of the memory's comparison while the page warms up.
@@ -47,15 +48,23 @@ pub(crate) enum PageScenario {
     Cameras,
     /// 50 streams at 2 kHz and two 1080p cameras at 60 fps: a large robot.
     Large,
+    /// The reference load with five 1080p cameras at 60 fps beside it: the
+    /// cameras' path under stress.
+    FiveCameras,
 }
 
 impl PageScenario {
     fn spec(self, seconds: u32) -> Spec {
+        let cameras = match self {
+            Self::Reference => 0,
+            Self::Cameras | Self::Large => 2,
+            Self::FiveCameras => 5,
+        };
         Spec {
             streams: if self == Self::Large { 50 } else { 16 },
             tcp_streams: 0,
-            cameras: (self != Self::Reference).then_some(Cameras {
-                count: 2,
+            cameras: (cameras > 0).then_some(Cameras {
+                count: cameras,
                 fps: 60,
                 width: 1920,
                 height: 1080,
@@ -74,6 +83,7 @@ impl PageScenario {
             Self::Reference => "reference",
             Self::Cameras => "cameras",
             Self::Large => "large",
+            Self::FiveCameras => "five-cameras",
         }
     }
 }

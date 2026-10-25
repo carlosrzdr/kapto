@@ -135,6 +135,13 @@ fn traced_with(
     )
     .map_err(|error| format!("can't write {SUMMARY_FILE}: {error}"))?;
     let mut report = markdown(&events, args.scenario.name(), args.seconds, worked.minutes);
+    let measured = &run.measured;
+    report.push_str(&super::recorded(
+        run.generator,
+        measured.written,
+        measured.dropped_by_us,
+        measured.lost_upstream,
+    ));
     if let Some(uploaded) = worked.uploaded {
         let _ = write!(report, "{}", uploaded.markdown());
     }

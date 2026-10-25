@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use clap::{Args, ValueEnum};
 
+use super::measure::GeneratorTotals;
 use super::place::{Place, current_ids};
 use super::{Cameras, Spec, record_load_watched, tidy, work_dir};
 pub(crate) use page::PageArgs;
@@ -44,8 +45,9 @@ const READ_EVERY: Duration = Duration::from_millis(200);
 /// Arguments of `profile record` and `profile trace`.
 #[derive(Args, Clone, Copy, Debug)]
 pub(crate) struct ScenarioArgs {
-    /// The load to record.
-    #[arg(long, value_enum)]
+    /// The load to record; by default with two cameras, as robots
+    /// recording data mostly have.
+    #[arg(long, value_enum, default_value_t = Scenario::Cameras)]
     scenario: Scenario,
     /// How long the load runs, in seconds.
     #[arg(long, default_value_t = 20)]
@@ -73,15 +75,23 @@ pub(crate) enum Scenario {
     Reference,
     /// The reference load with two 1080p cameras at 60 fps beside it.
     Cameras,
+    /// The reference load with five 1080p cameras at 60 fps beside it: the
+    /// cameras' path under stress.
+    FiveCameras,
 }
 
 impl Scenario {
     fn spec(self, seconds: u32) -> Spec {
+        let cameras = match self {
+            Self::Reference => 0,
+            Self::Cameras => 2,
+            Self::FiveCameras => 5,
+        };
         Spec {
             streams: 16,
             tcp_streams: 0,
-            cameras: (self == Self::Cameras).then_some(Cameras {
-                count: 2,
+            cameras: (cameras > 0).then_some(Cameras {
+                count: cameras,
                 fps: 60,
                 width: 1920,
                 height: 1080,
@@ -99,6 +109,7 @@ impl Scenario {
         match self {
             Self::Reference => "reference",
             Self::Cameras => "cameras",
+            Self::FiveCameras => "five-cameras",
         }
     }
 }
@@ -217,7 +228,14 @@ fn profiled(root: &Path, args: ScenarioArgs) -> Result<(PathBuf, String), String
     }
     let script = perf_script(&work)?;
     let profile = stacks::Profile::new(&script, &threads);
-    let report = profile.markdown(args.scenario.name(), args.seconds);
+    let measured = &run.measured;
+    let report = profile.markdown(args.scenario.name(), args.seconds)
+        + &recorded(
+            run.generator,
+            measured.written,
+            measured.dropped_by_us,
+            measured.lost_upstream,
+        );
     let write = |name: &str, text: &str| {
         std::fs::write(work.join(name), text)
             .map_err(|error| format!("can't write {name}: {error}"))
@@ -232,6 +250,30 @@ fn profiled(root: &Path, args: ScenarioArgs) -> Result<(PathBuf, String), String
     write("profile.md", &report)?;
     tidy(&run.work, args.keep_recordings);
     Ok((work, report))
+}
+
+/// Whether the load was recorded whole: under a heavy scenario, what a
+/// profile shows means little if the load generator fell behind or Kapto
+/// dropped messages.
+fn recorded(generator: GeneratorTotals, written: u64, dropped_by_us: u64, lost: u64) -> String {
+    let kept_up = if generator.kept_up() {
+        "kept up".to_owned()
+    } else {
+        format!(
+            "**fell behind** ({} ticks skipped, {} send errors)",
+            generator.skipped, generator.send_errors
+        )
+    };
+    let dropped = if dropped_by_us == 0 {
+        "none dropped by Kapto".to_owned()
+    } else {
+        format!("**{dropped_by_us} dropped by Kapto**")
+    };
+    format!(
+        "\n## Recorded\n\n{written} messages written of {} sent, {dropped}, {lost} lost \
+         upstream; the load generator {kept_up}.\n",
+        generator.sent
+    )
 }
 
 /// Builds Kapto and the load generator with frame pointers, so `perf`
@@ -369,4 +411,32 @@ fn watch(pid: u32) -> Vec<ThreadTimes> {
         std::thread::sleep(READ_EVERY);
     }
     threads
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_profile_says_whether_the_load_was_recorded_whole() {
+        let generator = GeneratorTotals {
+            sent: 1_000,
+            skipped: 0,
+            send_errors: 0,
+        };
+        assert!(
+            recorded(generator, 1_000, 0, 0)
+                .contains("1000 messages written of 1000 sent, none dropped by Kapto, 0 lost upstream; the load generator kept up.")
+        );
+        let behind = GeneratorTotals {
+            skipped: 3,
+            ..generator
+        };
+        let text = recorded(behind, 990, 10, 0);
+        assert!(text.contains("**10 dropped by Kapto**"), "{text}");
+        assert!(
+            text.contains("**fell behind** (3 ticks skipped, 0 send errors)"),
+            "{text}"
+        );
+    }
 }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! `cargo xtask profile report`: every measurement against
-//! `perf-budget.toml` in one place, from the newest runs in `target/bench/`:
+//! `perf-budget.toml` in one place, from the newest runs in `target/bench/`
+//! of the loads the budgets are stated for:
 //! the hot path's stages and the jobs per batch from `bench model`, each
 //! job per minute recorded and checksums and uploads per GB from `profile
 //! trace`, and the live view from `profile page`. Each is within its budget,
@@ -126,10 +127,12 @@ pub(super) fn report(root: &Path) -> Result<(String, bool), String> {
     };
     let model = read("model", "report.json")
         .and_then(|(folder, text)| Some((folder, serde_json::from_str(&text).ok()?)));
-    let trace = read("trace", SUMMARY_FILE)
+    // Of the loads the budgets are stated for: two cameras for the jobs,
+    // the largest robot for the page.
+    let trace = read("trace-cameras", SUMMARY_FILE)
         .and_then(|(folder, text)| Some((folder, serde_json::from_str(&text).ok()?)));
     // Held against the budget as it is now, not as it was when measured.
-    let page = read("page", MEASURES_FILE).and_then(|(folder, text)| {
+    let page = read("page-large", MEASURES_FILE).and_then(|(folder, text)| {
         let measures: PageMeasures = serde_json::from_str(&text).ok()?;
         Some((folder, measures.checks(&page_budget)))
     });
@@ -199,9 +202,7 @@ fn trace_section(trace: Found<TraceSummary>, budgets: &Budgets) -> (String, bool
     let mut text =
         String::from("\n## Each job per minute recorded, checksums and uploads per GB\n\n");
     let Some((folder, summary)) = trace else {
-        text.push_str(
-            "Not measured: run `cargo xtask profile trace --scenario reference --upload`.\n",
-        );
+        text.push_str("Not measured: run `cargo xtask profile trace --upload`.\n");
         return (text, false);
     };
     let mut over = false;
@@ -261,7 +262,7 @@ fn trace_section(trace: Found<TraceSummary>, budgets: &Budgets) -> (String, bool
 fn page_section(page: Found<Vec<PageCheck>>) -> (String, bool) {
     let mut text = String::from("\n## The live view\n\n");
     let Some((folder, checks)) = page else {
-        text.push_str("Not measured: run `cargo xtask profile page --scenario large`.\n");
+        text.push_str("Not measured: run `cargo xtask profile page`.\n");
         return (text, false);
     };
     let _ = write!(
@@ -381,18 +382,21 @@ reason = \"r\"
     }
 
     #[test]
-    fn the_newest_run_of_a_kind_is_found_by_when_it_started() {
+    fn the_newest_run_of_a_load_is_found_by_when_it_started() {
         let root = std::env::temp_dir().join(format!("xtask-report-{}", std::process::id()));
         for name in [
-            "trace-reference-100",
+            "trace-cameras-100",
             "trace-cameras-300",
-            "trace-reference-200",
-            "page-large-900",
+            "trace-five-cameras-500",
+            "trace-reference-900",
         ] {
             std::fs::create_dir_all(root.join("target/bench").join(name)).unwrap();
         }
-        let found = newest(&root, "trace");
+        let cameras = newest(&root, "trace-cameras");
+        let page = newest(&root, "page-large");
         std::fs::remove_dir_all(&root).unwrap();
-        assert_eq!(found, Some(root.join("target/bench/trace-cameras-300")));
+        // Not the newer run of five cameras, nor of the reference load alone.
+        assert_eq!(cameras, Some(root.join("target/bench/trace-cameras-300")));
+        assert_eq!(page, None);
     }
 }
