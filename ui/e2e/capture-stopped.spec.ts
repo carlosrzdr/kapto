@@ -98,7 +98,10 @@ test("with the capture process stopped, the page says why and can't record", asy
   const details = page.getByRole("region", { name: /^Episode / });
   await expect(details).toContainText("rejected: a gate failed · settings 1");
   await expect(details.getByRole("row", { name: /^streams\.complete/ })).toContainText("Kapto dropped 12 messages");
-  // The loss is said in the summary.
+  // The loss is said in the summary, never folded, and opens the streams it is in;
+  // how it was recorded stays folded.
   await expect(details.getByRole("definition").filter({ hasText: "12 dropped by Kapto" })).toBeVisible();
+  await expect(details.getByRole("table", { name: "Streams" }).getByRole("row").nth(1)).toBeVisible();
+  await expect(details.getByText(/^99 % within/)).toBeHidden();
   expect(elsewhere).toEqual([]);
 });

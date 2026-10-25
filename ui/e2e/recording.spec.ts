@@ -134,16 +134,22 @@ test("the page shows the robot's stream, records an episode and lists it", async
   // The episode in full.
   await episodes.getByTitle("Show this episode in full").click();
   const details = page.getByRole("region", { name: /^Episode / });
-  // Its summary first, then how it was recorded.
+  // Its summary first; how it was recorded folded away, opened on demand.
   await expect(details.getByRole("definition").filter({ hasText: "Pick and place · lab_ana" })).toBeVisible();
+  await expect(details.getByText(/^99 % within/)).toBeHidden();
+  await details.getByRole("heading", { name: "Recording details" }).click();
   await expect(details.getByText(/^99 % within/)).toBeVisible();
   await expect(details).toContainText("lab_ana · Ana · teleoperated · shift-a");
   await expect(details).toContainText("reach → grasp → lift → place");
   // Checked with the quality settings the sample arm's recording carries.
   await expect(details).toContainText("accepted · settings 1");
   await expect(details.getByRole("row", { name: /^streams\.complete/ })).toContainText("passed");
+  // Streams and statistics, nothing wrong in them, folded too.
+  await expect(details.getByRole("row", { name: /^arm_joints/ })).toBeHidden();
+  await details.getByRole("heading", { name: "Streams" }).click();
   await expect(details.getByRole("row", { name: /^arm_joints/ })).toContainText("sequence numbers");
   // With its statistics: the joints the sample arm moves have speeds.
+  await details.getByRole("heading", { name: "Statistics" }).click();
   const statistics = details.getByRole("table", { name: "Statistics" });
   await expect(statistics.getByRole("row", { name: /^episode\.duration_s/ })).toBeVisible();
   await expect(statistics.getByRole("row", { name: /^joints\.joint_1\.speed/ })).toBeVisible();

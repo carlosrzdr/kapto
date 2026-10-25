@@ -152,6 +152,10 @@
   const lostUpstream = $derived(sum((stream) => stream.lost_upstream));
   const undecoded = $derived(sum((stream) => Math.max(0, stream.received - stream.decoded)));
   const refused = $derived(sum((stream) => stream.rejected ?? 0));
+  /** A stream with anything missing, undecoded or refused opens the streams' table. */
+  const streamTrouble = $derived(dropped + lostUpstream + undecoded + refused > 0);
+  /** Statistics carry no verdict of their own: they are opened to explain a failed check. */
+  const checkFailed = $derived(quality?.checks.some((check) => check.verdict === "failed") ?? false);
 
   const failedUploads = $derived(uploads?.uploads.filter((upload) => upload.state === "failed") ?? []);
   /** Retrying, or why the retry was refused. */
@@ -389,116 +393,133 @@
     <EpisodeUploadsList {uploads} {destinations} />
   {/if}
 
-  <h3>Streams</h3>
-  <table aria-label="Streams">
-    <thead>
-      <tr>
-        <th scope="col">Stream</th>
-        <th scope="col">Written</th>
-        <th scope="col">Decoded</th>
-        <th scope="col">Dropped</th>
-        <th scope="col">Lost</th>
-        <th scope="col">Loss seen by</th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each episode.streams as stream (stream.stream)}
-        <tr>
-          <th scope="row">{#each breakable(stream.stream) as piece, index (index)}{piece}<wbr />{/each}</th>
-          <td title={stream.carried ? "kept from before the episode, written at its start" : undefined}>
-            {count(stream.written)}{stream.carried ? ` + ${count(stream.carried)} kept` : ""}
-          </td>
-          <td class:warning={stream.decoded < stream.received}>{count(stream.decoded)}</td>
-          <td class:warning={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
-          <td class:warning={stream.lost_upstream > 0}>
-            {count(stream.lost_upstream)}{stream.disconnects ? ` · ${stream.disconnects} disconnects` : ""}{stream.rejected
-              ? ` · ${count(stream.rejected)} from sources not allowed`
-              : ""}
-          </td>
-          <td class="detection">{detection[stream.loss_detection] ?? stream.loss_detection}</td>
-        </tr>
-      {/each}
-    </tbody>
-  </table>
-
-  {#if statistics && statistics.statistics.length > 0}
-    <h3>Statistics</h3>
-    <table aria-label="Statistics" class="statistics">
+  <details class="fold" open={streamTrouble}>
+    <summary>
+      <Icon name="chevron" />
+      <h3>Streams</h3>
+      <span class="hint">{episode.streams.length} {episode.streams.length === 1 ? "stream" : "streams"}</span>
+      {#if streamTrouble}<span class="warning">messages missing or unread</span>{/if}
+    </summary>
+    <table aria-label="Streams">
       <thead>
         <tr>
-          <th scope="col">Statistic</th>
-          <th scope="col">Median</th>
-          <th scope="col">90 %</th>
-          <th scope="col">99 %</th>
-          <th scope="col">Max</th>
+          <th scope="col">Stream</th>
+          <th scope="col">Written</th>
+          <th scope="col">Decoded</th>
+          <th scope="col">Dropped</th>
+          <th scope="col">Lost</th>
+          <th scope="col">Loss seen by</th>
         </tr>
       </thead>
       <tbody>
-        {#each statistics.statistics as statistic (statistic.name)}
+        {#each episode.streams as stream (stream.stream)}
           <tr>
-            <th scope="row">
-              {#each breakable(statistic.name) as piece, index (index)}{piece}<wbr />{/each}
-            </th>
-            {#if statistic.value != null}
-              <td colspan="4">{figure(statistic.value)}</td>
-            {:else}
-              <td>{shown(statistic.p50)}</td>
-              <td>{shown(statistic.p90)}</td>
-              <td>{shown(statistic.p99)}</td>
-              <td>{shown(statistic.max)}</td>
-            {/if}
+            <th scope="row">{#each breakable(stream.stream) as piece, index (index)}{piece}<wbr />{/each}</th>
+            <td title={stream.carried ? "kept from before the episode, written at its start" : undefined}>
+              {count(stream.written)}{stream.carried ? ` + ${count(stream.carried)} kept` : ""}
+            </td>
+            <td class:warning={stream.decoded < stream.received}>{count(stream.decoded)}</td>
+            <td class:warning={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
+            <td class:warning={stream.lost_upstream > 0}>
+              {count(stream.lost_upstream)}{stream.disconnects ? ` · ${stream.disconnects} disconnects` : ""}{stream.rejected
+                ? ` · ${count(stream.rejected)} from sources not allowed`
+                : ""}
+            </td>
+            <td class="detection">{detection[stream.loss_detection] ?? stream.loss_detection}</td>
           </tr>
         {/each}
       </tbody>
     </table>
+  </details>
+
+  {#if statistics && statistics.statistics.length > 0}
+    <details class="fold" open={checkFailed}>
+      <summary>
+        <Icon name="chevron" />
+        <h3>Statistics</h3>
+        <span class="hint">{statistics.statistics.length}</span>
+      </summary>
+      <table aria-label="Statistics" class="statistics">
+        <thead>
+          <tr>
+            <th scope="col">Statistic</th>
+            <th scope="col">Median</th>
+            <th scope="col">90 %</th>
+            <th scope="col">99 %</th>
+            <th scope="col">Max</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each statistics.statistics as statistic (statistic.name)}
+            <tr>
+              <th scope="row">
+                {#each breakable(statistic.name) as piece, index (index)}{piece}<wbr />{/each}
+              </th>
+              {#if statistic.value != null}
+                <td colspan="4">{figure(statistic.value)}</td>
+              {:else}
+                <td>{shown(statistic.p50)}</td>
+                <td>{shown(statistic.p90)}</td>
+                <td>{shown(statistic.p99)}</td>
+                <td>{shown(statistic.max)}</td>
+              {/if}
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </details>
   {/if}
 
-  <h3>Recording details</h3>
-  <dl>
-    {#if sessionInFull[0]}
-      <dt>Task</dt>
-      <dd title={episode.task?.hash ? `Content hash ${episode.task.hash}` : undefined}>{sessionInFull[0]}</dd>
-    {/if}
-    {#if sessionInFull[1]}
-      <dt>Profile</dt>
-      <dd title={episode.profile?.hash ? `Content hash ${episode.profile.hash}` : undefined}>{sessionInFull[1]}</dd>
-    {/if}
-    <dt>Kapto</dt>
-    <dd>{episode.kapto_version}</dd>
-    <dt>Size</dt>
-    <dd>{bytes(size)} in {episode.files.length} files</dd>
-    {#if episode.package}
-      <dt>Robot</dt>
-      <dd title="Content hash {episode.package.hash}">
-        {episode.package.id} {episode.package.version} · {episode.package.hash.slice(0, 12)}
-      </dd>
-    {/if}
-    {#if episode.recovered}
-      <!-- Only finishing a recording measures these. -->
-      <dt>On disk</dt>
-      <dd class="pending">not known for a recovered episode, nor its buffers and clock</dd>
-    {:else}
-      <dt>On disk</dt>
-      <dd>
-        99 % within {milliseconds(episode.durability.p99_unsynced_ns)}, all within {milliseconds(episode.durability.max_unsynced_ns)}
-      </dd>
-      <dt>Buffers</dt>
-      <dd>
-        peak {episode.buffers.peak_batches} of {episode.buffers.batches} batches · {bytes(episode.buffers.memory_bytes)}
-      </dd>
-      <dt>Clock</dt>
-      <dd>
-        {episode.clock.steps === 0 ? "steady" : `stepped ${episode.clock.steps} times`} · uncertainty up to
-        {milliseconds(episode.clock.max_uncertainty_ns)}
-      </dd>
-    {/if}
-    <dt>Folder</dt>
-    {#if episode.stored_here}
-      <dd class="folder">{episode.folder}</dd>
-    {:else}
-      <dd class="pending" title="Was {episode.folder}">deleted here, stored only remotely</dd>
-    {/if}
-  </dl>
+  <details class="fold">
+    <summary>
+      <Icon name="chevron" />
+      <h3>Recording details</h3>
+      <span class="hint">{bytes(size)} in {episode.files.length} files</span>
+    </summary>
+    <dl>
+      {#if sessionInFull[0]}
+        <dt>Task</dt>
+        <dd title={episode.task?.hash ? `Content hash ${episode.task.hash}` : undefined}>{sessionInFull[0]}</dd>
+      {/if}
+      {#if sessionInFull[1]}
+        <dt>Profile</dt>
+        <dd title={episode.profile?.hash ? `Content hash ${episode.profile.hash}` : undefined}>{sessionInFull[1]}</dd>
+      {/if}
+      <dt>Kapto</dt>
+      <dd>{episode.kapto_version}</dd>
+      {#if episode.package}
+        <dt>Robot</dt>
+        <dd title="Content hash {episode.package.hash}">
+          {episode.package.id} {episode.package.version} · {episode.package.hash.slice(0, 12)}
+        </dd>
+      {/if}
+      {#if episode.recovered}
+        <!-- Only finishing a recording measures these. -->
+        <dt>On disk</dt>
+        <dd class="pending">not known for a recovered episode, nor its buffers and clock</dd>
+      {:else}
+        <dt>On disk</dt>
+        <dd>
+          99 % within {milliseconds(episode.durability.p99_unsynced_ns)}, all within {milliseconds(episode.durability.max_unsynced_ns)}
+        </dd>
+        <dt>Buffers</dt>
+        <dd>
+          peak {episode.buffers.peak_batches} of {episode.buffers.batches} batches · {bytes(episode.buffers.memory_bytes)}
+        </dd>
+        <dt>Clock</dt>
+        <dd>
+          {episode.clock.steps === 0 ? "steady" : `stepped ${episode.clock.steps} times`} · uncertainty up to
+          {milliseconds(episode.clock.max_uncertainty_ns)}
+        </dd>
+      {/if}
+      <dt>Folder</dt>
+      {#if episode.stored_here}
+        <dd class="folder">{episode.folder}</dd>
+      {:else}
+        <dd class="pending" title="Was {episode.folder}">deleted here, stored only remotely</dd>
+      {/if}
+    </dl>
+  </details>
 </section>
 
 <style>
@@ -588,6 +609,39 @@
     margin: var(--space-4) 0 var(--space-2);
     font-size: var(--text-md);
   }
+  /* A section folded away, the System tab's way: a chevron, its name, and
+     how much it holds. */
+  .fold {
+    margin-top: var(--space-3);
+  }
+  .fold summary {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    list-style: none;
+    cursor: pointer;
+  }
+  .fold summary::-webkit-details-marker {
+    display: none;
+  }
+  .fold summary h3 {
+    margin: 0;
+  }
+  .fold summary :global(.icon) {
+    align-self: center;
+    color: var(--muted);
+    transition: transform 150ms ease-out;
+  }
+  .fold[open] > summary :global(.icon) {
+    transform: rotate(90deg);
+  }
+  .fold[open] > summary {
+    margin-bottom: var(--space-2);
+  }
+  .hint {
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
   .moments {
     list-style: none;
     margin: 0.2rem 0 0;
@@ -654,6 +708,9 @@
   .warning {
     color: var(--warning);
     font-weight: 600;
+  }
+  .hint + .warning {
+    font-size: var(--text-sm);
   }
   .pending {
     color: var(--muted);

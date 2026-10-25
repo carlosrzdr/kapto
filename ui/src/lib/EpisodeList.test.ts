@@ -317,7 +317,7 @@ describe("EpisodeList", () => {
   });
 });
 
-describe("EpisodeList's open episode", () => {
+describe("EpisodeList's open episode, folded", () => {
   const clean: EpisodeDetail = {
     ...detail,
     streams: [{ ...detail.streams[0]!, rejected: null }],
@@ -347,7 +347,10 @@ describe("EpisodeList's open episode", () => {
     failure_message: "the store refused Kapto's credentials",
     objects: [],
   };
-  it("shows its summary, then events, quality, uploads, streams, statistics and how it was recorded", () => {
+  const fold = (name: string) => screen.getByRole("table", { name }).closest("details");
+  const recording = () => screen.getByText("Recording details").closest("details");
+
+  it("shows its summary, then events, quality, uploads, streams and statistics, folding away what is normal", () => {
     const events: EpisodeEvents = {
       read: true,
       events: [{ kind: "note", phase: "moment", at_utc_ns: summary.started_utc_ns, until_utc_ns: null, id: null, source: "page", text: null, attributes: {} }],
@@ -374,12 +377,15 @@ describe("EpisodeList's open episode", () => {
       "Recording details",
     ]);
     expect(details.querySelector("dl")?.textContent).toContain("1:15");
-    expect(details.textContent).toContain("99 % within 520 ms");
+    expect(fold("Streams")?.open).toBe(false);
+    expect(fold("Statistics")?.open).toBe(false);
+    expect(recording()?.open).toBe(false);
+    expect(recording()?.textContent).toContain("99 % within 520 ms");
     // Nothing wrong, so nothing said to be.
     expect(details.querySelector(".danger, .warning")).toBeNull();
   });
 
-  it("says every problem in its summary, first", () => {
+  it("keeps every problem outside the folds, and opens the sections that hold one", () => {
     render(EpisodeList, {
       episodes: [summary],
       open: { ...detail, clock: { ...detail.clock, steps: 3 } },
@@ -389,6 +395,7 @@ describe("EpisodeList's open episode", () => {
       onselect: vi.fn(),
     });
     const first = screen.getByRole("region", { name: `Episode ${summary.id}` }).querySelector("dl") as HTMLElement;
+    expect(first.closest("details")).toBeNull();
     for (const problem of [
       "12 lost before Kapto",
       "4 from sources not allowed",
@@ -398,7 +405,11 @@ describe("EpisodeList's open episode", () => {
       expect(within(first).getByText(problem, { exact: false, selector: "dd" })).toBeTruthy();
     }
     const nas = within(first).getByText("failed", { selector: "dd span" });
+    expect(nas.closest("details")).toBeNull();
     expect(nas.classList.contains("danger")).toBe(true);
+    expect(fold("Streams")?.open).toBe(true);
+    expect(fold("Statistics")?.open).toBe(true);
+    expect(recording()?.open).toBe(false);
   });
 
   it("tries its failed uploads again from its summary, and says why when refused", async () => {
