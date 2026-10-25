@@ -139,6 +139,8 @@ fn in_image(root: &Path, target: &str, inputs: &[String], libfuzzer: &[String]) 
     Command::new("docker")
         .args(["run", "--rm", "--user", &user(), "-e", "HOME=/tmp"])
         .args(["-e", "CARGO_HOME=/src/target/fuzz/cargo"])
+        // The host's limit on build jobs, if it sets one.
+        .args(["-e", "CARGO_BUILD_JOBS"])
         .arg("-v")
         .arg(format!("{}:/src", root.display()))
         .args([
