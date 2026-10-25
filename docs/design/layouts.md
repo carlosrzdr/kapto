@@ -62,6 +62,18 @@ declares.**
 
   At most 24 panels, and a plot at most 16 fields: beyond, the page can't
   keep its frame rate. Below 70rem the columns stack, in order.
+- **Health in one place, said once.** The header carries one chip, beside
+  Record: "All well" in the quiet style while every stream receives at its
+  rate with nothing lost or dropped, pre-flight passed, the disk has room,
+  and every process and destination answers; otherwise the one thing most
+  in need of attention ("arm_joints 12 lost", "Disk 4 % free", "Capture not
+  reachable"), with "+2" when there are more, in the colour of the worst.
+  Clicking it opens the console's tab that shows that problem (Live for
+  streams, pre-flight and the disk, System for processes, Uploads for
+  destinations) at its row. The console stops repeating what the chip says while all is well, so the side panel
+  opens on Episodes by default and Live becomes the place for details. The
+  chip is computed in one function over the status the page already
+  receives, so it adds no request and no field to the API.
 - **Where a layout comes from**, the first found:
   1. **The operator's own**, kept in their browser per package ID, as they
      left it.
@@ -77,8 +89,8 @@ declares.**
      each camera; a plot per role group, joints first
      (`joints.*.position`), then the package's other roles, then each
      decoded stream's other fields. Not the streams' health, which the
-     console shows beside the view. The same package always gives the same
-     layout.
+     header sums up and the console shows in full. The same package always
+     gives the same layout.
 - **Reading one.** A layout that doesn't parse is reported with its file
   and line (`config.*` cause codes) and the next one is used. A panel
   naming what the package doesn't have is shown as a placeholder saying
@@ -106,6 +118,11 @@ declares.**
 - The live view's fixed arrangement gives way to the generated layout:
   the sample arm's view is arranged by its roles (its joints' positions
   and its gripper), no longer by one stream's fields picked from a list.
+- An operator sees whether anything is wrong without reading the side
+  panel, and the side panel can stay on Episodes during a session.
+- One ranking of problems to keep in step with what the status can say: a
+  new kind of problem must be given a rank, checked by a test that every
+  cause code the status can carry has one.
 
 ## Alternatives considered
 
@@ -122,3 +139,8 @@ declares.**
   changes its hash.
 - **Foxglove's layout format**: an existing format, but tied to its panels
   and their options, not Kapto's, and changing with Foxglove.
+- **A banner per problem**: louder, but it shifts the layout and stacks
+  when several things go wrong, when the operator most needs a steady
+  screen.
+- **Health only in the Live tab**: no new element, but the Live tab must
+  then stay open to notice a problem, which is what fills the screen today.

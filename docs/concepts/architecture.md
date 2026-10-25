@@ -835,7 +835,13 @@ a client. [Control recording from your own programs](../guides/control-recording
 shows how a robot program uses it.
 
 The same address serves the **web UI**: the robot moving in the embedded
-viewer and a Record/Stop button, with five tabs beside them. **Live** has
+viewer and a Record/Stop button, with five tabs beside them. Beside Record,
+one chip sums up the health: "All well" while every stream receives at its
+rate with nothing lost or dropped, pre-flight passed, the disk has room and
+every process and destination answers; otherwise the problem most in need of
+attention, with how many more there are, in the colour of the worst, which
+opens the tab holding it at its row ([layouts](../design/layouts.md)). The
+side panel opens on Episodes, or on the tab last chosen. **Live** has
 pre-flight's latest run, each failed check with what to do about it, a
 *Run again* button and *Record anyway*, which starts an episode waiving
 exactly the checks that failed; each stream's rate (marked when it falls silent or well below the rate
