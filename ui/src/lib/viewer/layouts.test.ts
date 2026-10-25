@@ -3,15 +3,17 @@ import { describe, expect, it } from "vitest";
 import type { LayoutInput } from "../api-types";
 import {
   added,
+  apportioned,
   browserLayouts,
   editable,
-  heightened,
   laidOut,
   MAX_PANELS,
   moved,
   panelCount,
+  placed,
   removed,
-  widened,
+  withHeights,
+  withWidths,
 } from "./layouts";
 
 /** The robot on the left; the camera and a plot on the right. */
@@ -56,17 +58,37 @@ describe("editing a layout", () => {
     expect(kinds(removed(layout, 0, 0))).toEqual([["camera", "plot"]]);
   });
 
-  it("resizes panels and columns from 1 to 12", () => {
-    expect(heightened(layout, 1, 1, 2).columns[1]!.panels[1]!.height).toBe(3);
-    expect(heightened(layout, 1, 1, -5).columns[1]!.panels[1]!.height).toBe(1);
-    expect(widened(layout, 0, 20).columns[0]!.width).toBe(12);
+  it("drops a dragged panel before any panel of any column, or as a new column between two", () => {
+    // Down its own column: before the panel it was dropped on, past itself.
+    expect(kinds(placed(layout, 1, 0, { column: 1, at: 2 }))).toEqual([["robot"], ["plot", "camera"]]);
+    expect(kinds(placed(layout, 1, 1, { column: 1, at: 0 }))).toEqual([["robot"], ["plot", "camera"]]);
+    // Into another column, at the top; the one it leaves empty goes.
+    expect(kinds(placed(layout, 0, 0, { column: 1, at: 0 }))).toEqual([["robot", "camera", "plot"]]);
+    // A new column on the left, as wide as the narrowest beside it.
+    const apart = placed(layout, 1, 1, { between: 0 });
+    expect(kinds(apart)).toEqual([["plot"], ["robot"], ["camera"]]);
+    expect(apart.columns.map((column) => column.width)).toEqual([3, 3, 2]);
+    expect(kinds(placed(layout, 1, 0, { between: 2 }))).toEqual([["robot"], ["plot"], ["camera"]]);
+    // Beside the column it is alone in, or on itself: nothing moves.
+    expect(placed(layout, 0, 0, { between: 1 })).toBe(layout);
+    expect(kinds(placed(layout, 1, 0, { column: 1, at: 1 }))).toEqual(kinds(layout));
+    expect(placed(layout, 5, 0, { column: 0, at: 0 })).toBe(layout);
+  });
+
+  it("turns sizes dragged on the page into shares of 1 to 12 in the same proportions", () => {
+    expect(apportioned([600, 300])).toEqual([12, 6]);
+    expect(apportioned([900, 300, 10])).toEqual([12, 4, 1]);
+    expect(withWidths(layout, [5, 7]).columns.map((column) => column.width)).toEqual([5, 7]);
+    expect(withHeights(layout, 1, [2]).columns[1]!.panels.map((panel) => panel.height)).toEqual([2, 1]);
   });
 
   it("never changes the layout it is given", () => {
     const before = structuredClone(layout);
+    placed(layout, 1, 0, { between: 0 });
+    withWidths(layout, [9, 9]);
     moved(layout, 1, 0, "left");
     removed(layout, 0, 0);
-    heightened(layout, 0, 0, 1);
+    withHeights(layout, 0, [4]);
     expect(layout).toEqual(before);
   });
 });

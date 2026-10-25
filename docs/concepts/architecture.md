@@ -527,9 +527,12 @@ layout `/api/robot` gives, the package's own or the one made from its
 roles: columns of panels (the robot, a camera, a plot of fields or roles,
 the streams' counts, the marks), one under another below 70rem; the
 robot's 3D view is made once and moved to the panel that shows it. An
-operator arranges their own view with *Arrange*: kept in that browser for
-the package, before every other layout, until saved as the package's
-default or reset. A
+operator arranges their own view with *Arrange*, on the view itself: a
+panel dragged by its grip into any column or beside one as a new column,
+an edge between two columns or panels dragged to share the room anew, each
+by the arrow keys too; saved as the same whole shares of 1 to 12. Kept in
+that browser for the package, before every other layout, until saved as
+the package's default or reset. A
 replay is arranged by the layout its recording carries, or one made from
 what the recording declares, which the worker stores in the replay view. The page loads nothing from
 elsewhere and its Content-Security-Policy lets it reach only Kapto's API

@@ -95,6 +95,18 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await page.getByRole("button", { name: "Arrange" }).click();
   await page.waitForTimeout(500);
   await shot(page, "live-arrange");
+  // A panel carried by its grip: where it would go is marked.
+  const grips = page.getByRole("button", { name: /^Drag the .* to another place$/ });
+  const grip = await grips.first().boundingBox();
+  const target = await grips.last().boundingBox();
+  if (grip && target) {
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(target.x + target.width / 2, target.y + 40, { steps: 6 });
+    await shot(page, "live-arrange-dragging");
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2, { steps: 6 });
+    await page.mouse.up();
+  }
   await page.getByRole("button", { name: "Arrange" }).click();
   await viewer(page, false);
 

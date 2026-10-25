@@ -124,23 +124,71 @@ export function moved(layout: LayoutInput, column: number, place: number, move: 
   return next;
 }
 
-/** `layout` with the panel at `place` of `column` made `step` taller (or shorter), from 1 to 12. */
-export function heightened(layout: LayoutInput, column: number, place: number, step: number): LayoutInput {
+/** Where a dragged panel is dropped: into a column before its panel `at`, or as a new column `between` two. */
+export type Place = { column: number; at: number } | { between: number };
+
+/**
+ * `layout` with the panel at `at` of `column` dropped at `to`, as when it
+ * is dragged: a column it leaves empty goes, and a new one is as wide as
+ * the narrowest beside it.
+ */
+export function placed(layout: LayoutInput, column: number, at: number, to: Place): LayoutInput {
   const next = copy(layout);
-  const panel = next.columns[column]?.panels[place];
-  if (panel) {
-    panel.height = clamp(panel.height + step);
+  const panel = next.columns[column]?.panels[at];
+  if (!panel) {
+    return layout;
   }
+  if ("between" in to) {
+    const between = Math.max(0, Math.min(to.between, next.columns.length));
+    // Dropped beside the column it is alone in: nothing moves.
+    if (next.columns[column]!.panels.length === 1 && (between === column || between === column + 1)) {
+      return layout;
+    }
+    const beside = [next.columns[between - 1], next.columns[between]].filter((each) => each !== undefined);
+    const width = Math.min(...beside.map((each) => each.width));
+    next.columns[column]!.panels.splice(at, 1);
+    next.columns.splice(between, 0, { width, panels: [panel] });
+  } else {
+    const into = next.columns[to.column];
+    if (!into) {
+      return layout;
+    }
+    // Before the panel it was dropped on, as it stood with this one still there.
+    let before = Math.max(0, Math.min(to.at, into.panels.length));
+    if (to.column === column && before > at) {
+      before -= 1;
+    }
+    next.columns[column]!.panels.splice(at, 1);
+    into.panels.splice(before, 0, panel);
+  }
+  next.columns = next.columns.filter((each) => each.panels.length > 0);
   return next;
 }
 
-/** `layout` with column `column` made `step` wider (or narrower), from 1 to 12. */
-export function widened(layout: LayoutInput, column: number, step: number): LayoutInput {
+/**
+ * Sizes on the page, in pixels, as shares of 1 to 12 in the same
+ * proportions, as near as whole shares come: the largest is 12.
+ */
+export function apportioned(pixels: number[]): number[] {
+  const largest = Math.max(...pixels, 1);
+  return pixels.map((each) => clamp(Math.round((each / largest) * MAX_SHARE)));
+}
+
+/** `layout` with its columns `widths` wide; any not given stay as they are. */
+export function withWidths(layout: LayoutInput, widths: number[]): LayoutInput {
   const next = copy(layout);
-  const each = next.columns[column];
-  if (each) {
-    each.width = clamp(each.width + step);
-  }
+  next.columns.forEach((each, place) => {
+    each.width = clamp(widths[place] ?? each.width);
+  });
+  return next;
+}
+
+/** `layout` with the panels of `column` `heights` tall; any not given stay as they are. */
+export function withHeights(layout: LayoutInput, column: number, heights: number[]): LayoutInput {
+  const next = copy(layout);
+  next.columns[column]?.panels.forEach((panel, place) => {
+    panel.height = clamp(heights[place] ?? panel.height);
+  });
   return next;
 }
 

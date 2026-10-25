@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LayoutInput } from "./api-types";
+import { chooseValue } from "./controls/testing";
 import LayoutEditor from "./LayoutEditor.svelte";
 
 const layout: LayoutInput = {
@@ -23,16 +24,10 @@ function editor(more: object = {}) {
 const kinds = (next: LayoutInput) => next.columns.map((column) => column.panels.map((panel) => panel.kind));
 
 describe("LayoutEditor", () => {
-  it("moves, resizes and removes each panel, and widens each column", async () => {
-    const { onchange } = editor();
-    await fireEvent.click(screen.getByRole("button", { name: "Move Plot of role:gripper.opening to the column on the left" }));
-    expect(kinds(onchange.mock.lastCall![0])).toEqual([["robot", "plot"]]);
-    await fireEvent.click(screen.getByRole("button", { name: "Robot taller" }));
-    expect(onchange.mock.lastCall![0].columns[0]!.panels[0]!.height).toBe(2);
-    await fireEvent.click(screen.getByRole("button", { name: "Column 2 wider" }));
-    expect(onchange.mock.lastCall![0].columns[1]!.width).toBe(3);
-    await fireEvent.click(screen.getByRole("button", { name: "Remove Robot" }));
-    expect(kinds(onchange.mock.lastCall![0])).toEqual([["plot"]]);
+  it("leaves moving, resizing and removing to the view, saying so", () => {
+    editor();
+    expect(screen.getByText(/Drag a panel by its grip, or an edge between two, on the view/)).toBeTruthy();
+    expect(screen.queryAllByRole("button", { name: /^(Move|Remove) / })).toHaveLength(0);
   });
 
   it("adds a plot of the fields and roles picked, to the column chosen", async () => {
@@ -40,7 +35,7 @@ describe("LayoutEditor", () => {
     const add = screen.getByRole("button", { name: "Add" });
     expect((add as HTMLButtonElement).disabled).toBe(true);
     await fireEvent.click(screen.getByRole("checkbox", { name: "arm_joints.joint_positions" }));
-    await fireEvent.change(screen.getByRole("combobox", { name: "In" }), { target: { value: "2" } });
+    await chooseValue("In", "2");
     await fireEvent.click(add);
     expect(onchange.mock.lastCall![0].columns[2]).toEqual({
       width: 1,
@@ -52,8 +47,8 @@ describe("LayoutEditor", () => {
 
   it("adds a camera the package has", async () => {
     const { onchange } = editor();
-    await fireEvent.change(screen.getByRole("combobox", { name: "Shows" }), { target: { value: "camera" } });
-    await fireEvent.change(screen.getByRole("combobox", { name: "Camera" }), { target: { value: "wrist_camera" } });
+    await chooseValue("Shows", "camera");
+    await chooseValue("Camera", "wrist_camera");
     await fireEvent.click(screen.getByRole("button", { name: "Add" }));
     expect(onchange.mock.lastCall![0].columns[0]!.panels[1]).toEqual({ kind: "camera", height: 1, stream: "wrist_camera", fields: [] });
   });

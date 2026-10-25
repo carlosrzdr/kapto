@@ -951,9 +951,9 @@ test("the operator arranges their own view, keeps it, and saves it for every bro
   const editor = page.getByRole("region", { name: "Arrange the view" });
   // The gripper's plot removed; the joints' positions as one plot of their
   // own, in a column of its own.
-  await editor.getByRole("button", { name: "Remove Plot of role:gripper.opening" }).click();
+  await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click();
   await editor.getByRole("checkbox", { name: "arm_joints.joint_positions" }).check();
-  await editor.getByRole("combobox", { name: "In" }).selectOption({ label: "a new column" });
+  await choose(page, "In", "a new column");
   await editor.getByRole("button", { name: "Add" }).click();
   const added = panels.getByRole("region", { name: "Plot of arm_joints.joint_positions" });
   await expect(added).toBeVisible();
@@ -981,6 +981,86 @@ test("the operator arranges their own view, keeps it, and saves it for every bro
   await expect(editor.getByRole("status")).toHaveText("Back to the package's layout, in every browser.");
   await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
   await expect(added).toHaveCount(0);
+});
+
+test("the operator arranges the view by dragging its panels and the edges between them", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  await page.evaluate(
+    (columns) => localStorage.setItem("kapto.layout.arm7", JSON.stringify({ columns })),
+    [
+      { width: 1, panels: [panel("robot")] },
+      { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] },
+    ],
+  );
+  await page.reload();
+  const kept = async () =>
+    page.evaluate(
+      () => JSON.parse(localStorage.getItem("kapto.layout.arm7") ?? "{}") as { columns: { width: number; panels: { kind: string; height: number }[] }[] },
+    );
+  const kinds = async () => (await kept()).columns.map((column) => column.panels.map((each) => each.kind));
+  await page.getByRole("button", { name: "Arrange" }).click();
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const drag = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    await page.mouse.up();
+  };
+  const middle = (box: { x: number; y: number; width: number; height: number } | null) => ({
+    x: (box?.x ?? 0) + (box?.width ?? 0) / 2,
+    y: (box?.y ?? 0) + (box?.height ?? 0) / 2,
+  });
+
+  // The marks' panel dragged by its grip to the robot's left side: a
+  // column of its own there.
+  const robot = await panels
+    .locator(".panel")
+    .filter({ has: page.getByRole("button", { name: "Drag the robot panel to another place" }) })
+    .boundingBox();
+  await drag(middle(await panels.getByRole("button", { name: "Drag the events panel to another place" }).boundingBox()), {
+    x: (robot?.x ?? 0) + 4,
+    y: (robot?.y ?? 0) + 150,
+  });
+  await expect.poll(kinds).toEqual([["events"], ["robot"], ["plot"]]);
+
+  // Dropped on its own place, nothing moves.
+  const before = await kept();
+  const grip = middle(await panels.getByRole("button", { name: "Drag the robot panel to another place" }).boundingBox());
+  await drag(grip, { x: grip.x, y: grip.y + 5 });
+  expect(await kept()).toEqual(before);
+
+  // The edge between the robot and the plot dragged right: the robot's
+  // column wider than the plot's, the same whole shares kept.
+  const edge = panels.getByRole("separator", { name: "Between columns 2 and 3" });
+  const at = middle(await edge.boundingBox());
+  await drag(at, { x: at.x + 200, y: at.y });
+  await expect.poll(async () => (await kept()).columns.map((column) => column.width)).toEqual([expect.any(Number), 12, expect.any(Number)]);
+  const [, wide, narrow] = (await kept()).columns.map((column) => column.width);
+  expect(narrow).toBeLessThan(wide!);
+  // And by the keyboard, a share at a time.
+  await edge.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(async () => (await kept()).columns[1]!.width).toBe(11);
+  await expect(edge).toHaveAttribute("aria-valuenow", "11");
+
+  // A grip moved by the arrow keys keeps the focus as its panel goes: the
+  // plot to the robot's column, under it, then removed from the view.
+  const plot = panels.getByRole("button", { name: "Drag the plot of role:gripper.opening to another place" });
+  await plot.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(kinds).toEqual([["events"], ["robot", "plot"]]);
+  await expect(plot).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(kinds).toEqual([["events"], ["plot", "robot"]]);
+  await expect(plot).toBeFocused();
+  // Already first in the first place it can go: nothing moves.
+  await page.keyboard.press("ArrowUp");
+  expect(await kinds()).toEqual([["events"], ["plot", "robot"]]);
+  await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click();
+  await expect.poll(kinds).toEqual([["events"], ["robot"]]);
+  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
 });
 
 test("a layout kept in the browser naming a field the package lacks says so in its place", async ({ page }) => {

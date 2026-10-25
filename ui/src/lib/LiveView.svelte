@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
-  import { onMount, type Snippet, untrack } from "svelte";
+  import { onMount, type Snippet, tick, untrack } from "svelte";
   import * as THREE from "three";
   import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
@@ -37,7 +37,22 @@
     type Placed,
     recolor,
   } from "./viewer/environment";
-  import { browserLayouts, editable, laidOut, type LayoutStore, type Offered } from "./viewer/layouts";
+  import { type ColumnBoxes, dragged, dropPlace } from "./viewer/dragging";
+  import {
+    apportioned,
+    browserLayouts,
+    editable,
+    laidOut,
+    type LayoutStore,
+    MAX_SHARE,
+    type Offered,
+    type Place,
+    moved,
+    placed as droppedAt,
+    removed,
+    withHeights,
+    withWidths,
+  } from "./viewer/layouts";
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
@@ -126,6 +141,23 @@
         return `The ${panel.kind} panel`;
     }
   }
+  /** What a panel is, in a word or two, on its grip. */
+  function titled(panel: ViewPanel): string {
+    switch (panel.kind) {
+      case "camera":
+        return panel.stream ?? "Camera";
+      case "plot":
+        return panel.fields.length === 1 ? panel.fields[0]! : `Plot of ${panel.fields.length}`;
+      case "health":
+        return "Streams' health";
+      case "events":
+        return "Marks";
+      default:
+        return "Robot";
+    }
+  }
+  /** What a panel is, in words, within a sentence. */
+  const inWords = (panel: ViewPanel) => named(panel).replace(/^The /, "the ");
   /** The replay's plots, made from its opening. */
   let replayPlots = $state.raw<PlotStream[]>([]);
   /** Whether the replay was recorded without a robot, so only its plots are shown. */
@@ -405,6 +437,154 @@
       layouts.save(packageId, next);
     }
   }
+
+  // Arranging on the view itself: a panel dragged by its grip to another
+  // place, or moved by the arrow keys; an edge between two columns or two
+  // panels dragged to share the room between them anew. Saved as the same
+  // whole shares, set when the drag ends.
+  let grid = $state<HTMLDivElement | null>(null);
+  /** The panel being dragged, and where it would go if dropped now. */
+  let carried = $state<{ column: number; at: number; to: Place | null } | null>(null);
+  /** Shares an edge being dragged gives, shown before they are set: the columns', or one column's panels'. */
+  let sharing = $state<{ column: number | null; shares: number[] } | null>(null);
+  let sharingFrom: { at: number; sizes: number[]; edge: number } | null = null;
+
+  /** Whether the columns run one under another, as on a narrow page. */
+  const stacked = () => (grid ? getComputedStyle(grid).flexDirection === "column" : false);
+  const columnBoxes = (): HTMLElement[] => (grid ? [...grid.querySelectorAll<HTMLElement>(":scope > .column")] : []);
+  const panelBoxes = (column: HTMLElement): HTMLElement[] => [...column.querySelectorAll<HTMLElement>(":scope > .panel")];
+  const editing = () => own ?? editable(liveLayout);
+
+  function measured(): ColumnBoxes[] {
+    return columnBoxes().map((column) => ({
+      box: column.getBoundingClientRect(),
+      panels: panelBoxes(column).map((panel) => panel.getBoundingClientRect()),
+    }));
+  }
+
+  function carry(event: PointerEvent, column: number, at: number) {
+    if (event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    carried = { column, at, to: null };
+  }
+
+  function carrying(event: PointerEvent) {
+    if (carried) {
+      carried = { ...carried, to: dropPlace(measured(), event.clientX, event.clientY, stacked()) };
+    }
+  }
+
+  function drop() {
+    const was = carried;
+    carried = null;
+    if (was?.to) {
+      // Dropped where it was, nothing is arranged: the package's layout stays the one shown.
+      const next = droppedAt(editing(), was.column, was.at, was.to);
+      if (JSON.stringify(next) !== JSON.stringify(editing())) {
+        arrange(next);
+      }
+    }
+  }
+
+  /**
+   * The panel's grip by the keyboard: the arrows move it up or down its
+   * column, or to the end of the column beside it (a new one past the
+   * last), its grip keeping the focus; Escape lets go of a drag.
+   */
+  async function step(event: KeyboardEvent, column: number, at: number) {
+    if (event.key === "Escape") {
+      carried = null;
+      return;
+    }
+    const move = ({ ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" } as const)[event.key as string];
+    if (move === undefined) {
+      return;
+    }
+    event.preventDefault();
+    const layout = editing();
+    const next = moved(layout, column, at, move);
+    if (next === layout) {
+      return;
+    }
+    arrange(next);
+    // Where it went: along its column, or last in the one beside it, which
+    // is one place further left when the column it left is gone.
+    const alone = layout.columns[column]!.panels.length === 1;
+    const into = move === "up" || move === "down" ? column : move === "left" ? column - 1 : alone ? column : column + 1;
+    const place = move === "up" ? at - 1 : move === "down" ? at + 1 : next.columns[into]!.panels.length - 1;
+    await tick();
+    columnBoxes()[into]?.querySelectorAll<HTMLElement>(":scope > .panel .grip:not(.remove)")[place]?.focus();
+  }
+
+  /** The column dropping now would put the panel into, before panel `at`. */
+  const dropsBefore = (column: number, at: number) =>
+    carried?.to !== null && carried?.to !== undefined && "column" in carried.to && carried.to.column === column && carried.to.at === at;
+  /** Whether dropping now would make a new column `between`. */
+  const dropsBetween = (between: number) => carried?.to !== null && carried?.to !== undefined && "between" in carried.to && carried.to.between === between;
+
+  /** Starts dragging the edge after `edge`: of the columns, or of the panels of `column`. */
+  function grab(event: PointerEvent, column: number | null, edge: number) {
+    if (event.button !== 0) {
+      return;
+    }
+    const boxes = column === null ? columnBoxes() : panelBoxes(columnBoxes()[column]!);
+    // Columns run across the page, panels down a column; turned on a narrow page.
+    const across = (column === null) !== stacked();
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    sharingFrom = {
+      at: across ? event.clientX : event.clientY,
+      sizes: boxes.map((box) => (across ? box.getBoundingClientRect().width : box.getBoundingClientRect().height)),
+      edge,
+    };
+    sharing = { column, shares: apportioned(sharingFrom.sizes) };
+  }
+
+  function pull(event: PointerEvent) {
+    if (!sharing || !sharingFrom) {
+      return;
+    }
+    const across = (sharing.column === null) !== stacked();
+    const by = (across ? event.clientX : event.clientY) - sharingFrom.at;
+    sharing = { ...sharing, shares: apportioned(dragged(sharingFrom.sizes, sharingFrom.edge, by)) };
+  }
+
+  function release() {
+    const was = sharing;
+    sharing = null;
+    sharingFrom = null;
+    if (was) {
+      arrange(was.column === null ? withWidths(editing(), was.shares) : withHeights(editing(), was.column, was.shares));
+    }
+  }
+
+  /** The edge after `edge` moved one share by the keyboard: the one before grows, the one after shrinks. */
+  function nudge(event: KeyboardEvent, column: number | null, edge: number) {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    if (step === undefined) {
+      return;
+    }
+    event.preventDefault();
+    const layout = editing();
+    const shares = column === null ? layout.columns.map((each) => each.width) : (layout.columns[column]?.panels.map((each) => each.height) ?? []);
+    const before = shares[edge];
+    const after = shares[edge + 1];
+    if (before === undefined || after === undefined || before + step < 1 || after - step < 1 || before + step > MAX_SHARE || after - step > MAX_SHARE) {
+      return;
+    }
+    shares[edge] = before + step;
+    shares[edge + 1] = after - step;
+    arrange(column === null ? withWidths(layout, shares) : withHeights(layout, column, shares));
+  }
+
+  /** A column's width share as shown: the one being dragged to, while it is. */
+  const widthOf = (place: number, width: number) => (sharing?.column === null ? (sharing.shares[place] ?? width) : width);
+  const heightOf = (place: number, at: number, height: number) => (sharing?.column === place ? (sharing.shares[at] ?? height) : height);
+  /** Whether the view can be arranged on: only the live view, of a package. */
+  const onView = $derived(arranging && packageId !== null && packageId !== undefined && replay === null);
 
   /** Runs a save or a reset, then follows what the API now gives, forgetting this browser's own. */
   async function settle(call: () => Promise<ViewLayout>, done: string) {
@@ -1134,11 +1314,79 @@
   </p>
 </div>
 </div>
-<div class="columns" role="group" aria-label="The view's panels">
+<div
+  class="columns"
+  class:on-view={onView}
+  class:carrying={carried !== null}
+  class:drop-last={dropsBetween(columns.length)}
+  role="group"
+  aria-label="The view's panels"
+  bind:this={grid}
+>
   {#each columns as column, place (place)}
-    <div class={`column grow-${column.width}`}>
+    {#if onView && place > 0}
+      <!-- A focusable separator with a value is ARIA's window splitter, a widget of its own, which these checks don't know. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+      <div
+        class="edge between-columns"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label={`Between columns ${place} and ${place + 1}`}
+        aria-valuenow={widthOf(place - 1, columns[place - 1]!.width)}
+        aria-valuemin={1}
+        aria-valuemax={MAX_SHARE}
+        onpointerdown={(event) => grab(event, null, place - 1)}
+        onpointermove={pull}
+        onpointerup={release}
+        onpointercancel={() => (sharing = null)}
+        onkeydown={(event) => nudge(event, null, place - 1)}
+      ></div>
+    {/if}
+    <div class={`column grow-${widthOf(place, column.width)}`} class:drop-new={dropsBetween(place)} class:drop-end={dropsBefore(place, column.panels.length)}>
       {#each column.panels as panel, at (at)}
-        <div class={`panel grow-${panel.height}`}>
+        {#if onView && at > 0}
+          <!-- A focusable separator with a value is ARIA's window splitter, a widget of its own, which these checks don't know. -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+          <div
+            class="edge between-panels"
+            role="separator"
+            tabindex="0"
+            aria-orientation="horizontal"
+            aria-label={`Between ${inWords(column.panels[at - 1]!)} and ${inWords(panel)}`}
+            aria-valuenow={heightOf(place, at - 1, column.panels[at - 1]!.height)}
+            aria-valuemin={1}
+            aria-valuemax={MAX_SHARE}
+            onpointerdown={(event) => grab(event, place, at - 1)}
+            onpointermove={pull}
+            onpointerup={release}
+            onpointercancel={() => (sharing = null)}
+            onkeydown={(event) => nudge(event, place, at - 1)}
+          ></div>
+        {/if}
+        <div
+          class={`panel grow-${heightOf(place, at, panel.height)}`}
+          class:drop-before={dropsBefore(place, at)}
+          class:carried={carried?.column === place && carried.at === at}
+        >
+          {#if onView}
+            <div class="grip-bar">
+              <button
+                type="button"
+                class="grip"
+                aria-label={`Drag ${inWords(panel)} to another place`}
+                title="Drag to another place, or move it with the arrow keys"
+                onpointerdown={(event) => carry(event, place, at)}
+                onpointermove={carrying}
+                onpointerup={drop}
+                onpointercancel={() => (carried = null)}
+                onkeydown={(event) => void step(event, place, at)}><Icon name="grip" /><span>{titled(panel)}</span></button
+              >
+              <button type="button" class="grip remove" aria-label={`Remove ${inWords(panel)}`} onclick={() => arrange(removed(editing(), place, at))}
+                ><Icon name="bin" /></button
+              >
+            </div>
+          {/if}
           {#if panel.missing.length > 0}
             <div class="placeholder" role="note">
               <p>{named(panel)} can't be shown: {panel.missing.join("; ")}.</p>
@@ -1219,7 +1467,7 @@
   {/if}
 </div>
 {#if arranging && packageId && replay === null}
-  <div class="arranging">
+  <div class="arranging" class:faded={carried !== null || sharing !== null}>
     <LayoutEditor
       layout={own ?? editable(liveLayout)}
       {offered}
@@ -1307,6 +1555,100 @@
   .grow-12 {
     flex-grow: 12;
   }
+  /* Arranged on: the room between columns and panels is the edges to drag,
+     and the columns make room for the editor beside them rather than
+     going under it. */
+  .columns.on-view,
+  .on-view .column {
+    gap: 0;
+  }
+  .columns.on-view {
+    margin-right: calc(min(30rem, 100%) + 0.5rem);
+  }
+  .on-view .panel {
+    position: relative;
+    outline: 1px dashed var(--line);
+    outline-offset: -1px;
+    border-radius: var(--radius);
+  }
+  .edge {
+    flex: none;
+    border-radius: var(--radius);
+    touch-action: none;
+  }
+  .edge:hover,
+  .edge:focus-visible {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+    outline: none;
+  }
+  .between-columns {
+    width: 0.5rem;
+    cursor: col-resize;
+  }
+  .between-panels {
+    height: 0.5rem;
+    cursor: row-resize;
+  }
+  /* A header of its own while arranging, so the grip never covers what the
+     panel shows (the robot's own buttons, a plot's key). */
+  .on-view .panel > .grip-bar {
+    display: flex;
+    flex: none;
+    gap: var(--space-1);
+    justify-content: space-between;
+    min-height: 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .grip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0.25rem;
+    padding: 0.1rem 0.45rem;
+    border: 1px solid var(--control-line);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--background) 85%, transparent);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: grab;
+    touch-action: none;
+  }
+  .grip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .grip.remove {
+    margin-left: 0;
+    border-color: var(--warning);
+  }
+  .carrying,
+  .carrying .grip {
+    cursor: grabbing;
+  }
+  .panel.carried {
+    opacity: 0.45;
+  }
+  /* Where the panel carried would go: before a panel, at a column's end,
+     or as a new column beside one. */
+  .panel.drop-before {
+    box-shadow: 0 -3px 0 var(--accent);
+  }
+  .column.drop-end {
+    box-shadow: inset 0 -3px 0 var(--accent);
+  }
+  .column.drop-new {
+    box-shadow: -3px 0 0 var(--accent);
+  }
+  .columns.drop-last > .column:last-of-type {
+    box-shadow: 3px 0 0 var(--accent);
+  }
+  .arranging.faded {
+    opacity: 0.25;
+    pointer-events: none;
+  }
   /* Narrower, as on a tablet: the columns one under another, each one's
      panels side by side, never over the controls below. */
   @media (max-width: 70rem) {
@@ -1315,6 +1657,36 @@
     }
     .column {
       flex-direction: row;
+    }
+    /* No room beside: the editor goes under the view instead. */
+    .columns.on-view {
+      margin-right: 0;
+    }
+    .arranging {
+      position: static;
+      width: 100%;
+    }
+    .between-columns {
+      width: auto;
+      height: 0.5rem;
+      cursor: row-resize;
+    }
+    .between-panels {
+      width: 0.5rem;
+      height: auto;
+      cursor: col-resize;
+    }
+    .panel.drop-before {
+      box-shadow: -3px 0 0 var(--accent);
+    }
+    .column.drop-end {
+      box-shadow: inset -3px 0 0 var(--accent);
+    }
+    .column.drop-new {
+      box-shadow: 0 -3px 0 var(--accent);
+    }
+    .columns.drop-last > .column:last-of-type {
+      box-shadow: 0 3px 0 var(--accent);
     }
   }
   .slot {
