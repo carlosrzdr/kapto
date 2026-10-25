@@ -62,7 +62,7 @@ use crate::episode::{
     EpisodeProfile, EpisodeRecovered, EpisodeStream, EpisodeTask,
 };
 use crate::episode_events::EpisodeEvents;
-use crate::layouts::Layouts;
+use crate::layouts::{Layouts, NamedLayout, NamedLayouts};
 use crate::preflight::{PreflightCheck, PreflightRequest, PreflightRun};
 use crate::processes::{ProcessState, ProcessStatus, Processes};
 use crate::quality::{
@@ -101,8 +101,9 @@ use replay::{
     replay_window,
 };
 use robot::{
-    __path_check_layout, __path_mesh, __path_remove_layout, __path_robot, __path_save_layout,
-    __path_scene, check_layout, mesh, remove_layout, robot, save_layout, scene,
+    __path_check_layout, __path_delete_layout, __path_layouts, __path_mesh, __path_robot,
+    __path_scene, __path_write_layout, check_layout, delete_layout, layouts, mesh, robot, scene,
+    write_layout,
 };
 use status::{
     __path_processes, __path_settings, __path_status, __path_storage, __path_version, processes,
@@ -165,7 +166,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/processes", get(processes))
         .route("/api/storage", get(storage))
         .route("/api/robot", get(robot))
-        .route("/api/layout", put(save_layout).delete(remove_layout))
+        .route("/api/layouts", get(layouts))
+        .route("/api/layouts/{id}", put(write_layout).delete(delete_layout))
         .route("/api/layout/check", post(check_layout))
         .route("/api/robot/scene", get(scene))
         .route("/api/robot/meshes/{n}", get(mesh))
@@ -273,9 +275,10 @@ async fn stopped(stop: Arc<AtomicBool>) {
         processes,
         storage,
         robot,
-        save_layout,
+        layouts,
+        write_layout,
+        delete_layout,
         check_layout,
-        remove_layout,
         scene,
         mesh,
         settings,
@@ -332,6 +335,8 @@ async fn stopped(stop: Arc<AtomicBool>) {
         ViewColumn,
         ViewPanel,
         LayoutInput,
+        NamedLayout,
+        NamedLayouts,
         ColumnInput,
         PanelInput,
         RobotScene,
@@ -443,7 +448,8 @@ impl From<KaptoError> for Failure {
             | ErrorCode::ViewerCameraNotFound
             | ErrorCode::ProfileNotFound
             | ErrorCode::TaskNotFound
-            | ErrorCode::UploadNoDestination => StatusCode::NOT_FOUND,
+            | ErrorCode::UploadNoDestination
+            | ErrorCode::LayoutNotFound => StatusCode::NOT_FOUND,
             // What the request asks for can't be done with what capture is
             // doing or found, or with what is saved.
             ErrorCode::CaptureAlreadyRecording

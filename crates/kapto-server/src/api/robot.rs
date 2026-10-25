@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The robot as serve loaded it: its overview, the layout the live view is
-//! arranged by, and its scene and meshes for drawing it.
+//! The robot as serve loaded it: its overview, the layouts the live view
+//! may be arranged by, and its scene and meshes for drawing it.
 
 use std::sync::Arc;
 
 use axum::Json;
 use axum::body::Body;
-use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
+use axum::extract::{Path, State};
 use axum::http::{HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use kapto_core::{ErrorCode, KaptoError};
 
+use crate::layouts::{NamedLayout, NamedLayouts};
 use crate::robot::{LayoutInput, RobotOverview, ViewLayout};
 use crate::scene::RobotScene;
 
@@ -30,28 +31,50 @@ pub(super) async fn robot(State(state): State<Arc<ApiState>>) -> Json<RobotOverv
     Json(robot)
 }
 
-/// Save a layout as the default for the robot package Kapto runs, read by
-/// every browser: written to `layouts/<package id>.toml` in the
-/// configuration folder, checked as `layout.toml` is. Answers with it as
-/// `/api/robot` now gives it, each panel with what the package lacks.
+/// The named layouts of the robot package Kapto runs, as their files in
+/// `layouts/<package id>/` of the configuration folder hold them now:
+/// *Default* (`default`) first, the rest by name, and why any file doesn't
+/// read.
+#[utoipa::path(
+    get,
+    path = "/api/layouts",
+    responses(
+        (status = 200, body = NamedLayouts),
+        (status = 409, description = "Kapto runs no robot package", body = ApiError),
+        (status = 500, description = "The folder can't be read", body = ApiError)
+    )
+)]
+pub(super) async fn layouts(
+    State(state): State<Arc<ApiState>>,
+) -> Result<Json<NamedLayouts>, Failure> {
+    let layouts = state.layouts.clone();
+    on_disk(move || layouts.list()).await
+}
+
+/// Save a layout over a named one, keeping its name. `default` is the
+/// package's *Default*, which `/api/robot` gives from then on, made if
+/// there is none.
 #[utoipa::path(
     put,
-    path = "/api/layout",
+    path = "/api/layouts/{id}",
+    params(("id" = String, Path, description = "The layout's `id`, as `/api/layouts` lists it.")),
     request_body = LayoutInput,
     responses(
-        (status = 200, body = ViewLayout),
+        (status = 200, body = NamedLayout),
         (status = 400, description = "The body isn't a layout", body = ApiError),
-        (status = 409, description = "The layout breaks a rule of layout.toml, or Kapto runs no robot package", body = ApiError),
+        (status = 404, description = "No such layout", body = ApiError),
+        (status = 409, description = "The layout or its file breaks a rule of layout.toml, or Kapto runs no robot package", body = ApiError),
         (status = 500, description = "The file can't be written", body = ApiError)
     )
 )]
-pub(super) async fn save_layout(
+pub(super) async fn write_layout(
     State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
     request: Result<Json<LayoutInput>, JsonRejection>,
-) -> Result<Json<ViewLayout>, Failure> {
+) -> Result<Json<NamedLayout>, Failure> {
     let Json(input) = request.map_err(|rejection| invalid(&rejection))?;
     let layouts = state.layouts.clone();
-    on_disk(move || layouts.save(&input)).await
+    on_disk(move || layouts.write(&id, &input)).await
 }
 
 /// What a layout lacks: the layout as the live view draws it, each panel
@@ -79,30 +102,32 @@ pub(super) async fn check_layout(
     })
 }
 
-/// Remove the default layout saved for the robot package Kapto runs: the
-/// live view is arranged by the package's own layout again, or the one
-/// made from it. Answers with it.
+/// Delete a named layout, if it is there. Deleting `default` arranges the
+/// live view by the package's own layout again, or the one made from it.
+/// Answers with the layout `/api/robot` now gives.
 #[utoipa::path(
     delete,
-    path = "/api/layout",
+    path = "/api/layouts/{id}",
+    params(("id" = String, Path, description = "The layout's `id`, as `/api/layouts` lists it.")),
     responses(
         (status = 200, body = ViewLayout),
         (status = 409, description = "Kapto runs no robot package", body = ApiError),
         (status = 500, description = "The file can't be removed", body = ApiError)
     )
 )]
-pub(super) async fn remove_layout(
+pub(super) async fn delete_layout(
     State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
 ) -> Result<Json<ViewLayout>, Failure> {
     let layouts = state.layouts.clone();
-    on_disk(move || layouts.remove()).await
+    on_disk(move || layouts.remove(&id)).await
 }
 
 /// Runs `work`, which reads or writes files, off the API's threads; its
 /// first problem is the answer if it has any.
-async fn on_disk(
-    work: impl FnOnce() -> Result<ViewLayout, Vec<KaptoError>> + Send + 'static,
-) -> Result<Json<ViewLayout>, Failure> {
+async fn on_disk<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, Vec<KaptoError>> + Send + 'static,
+) -> Result<Json<T>, Failure> {
     let done = tokio::task::spawn_blocking(work).await.map_err(|error| {
         Failure::from(KaptoError::new(ErrorCode::LayoutWriteFailed).detail(error.to_string()))
     })?;
@@ -136,7 +161,7 @@ pub(super) async fn scene(State(state): State<Arc<ApiState>>) -> Json<RobotScene
 )]
 pub(super) async fn mesh(
     State(state): State<Arc<ApiState>>,
-    axum::extract::Path(n): axum::extract::Path<String>,
+    Path(n): Path<String>,
 ) -> Result<Response, Failure> {
     let n = n.parse::<usize>().map_err(|_| {
         Failure::from(

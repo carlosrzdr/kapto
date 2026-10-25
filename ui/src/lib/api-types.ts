@@ -586,6 +586,30 @@ export interface LiveViewCounts {
   superseded: number;
 }
 
+/** One of a package's named layouts. */
+export interface NamedLayout {
+  /**
+   * Its file's name without `.toml`, which the API asks for it by:
+   * `default` for the package's *Default*.
+   */
+  id: string;
+  /**
+   * It as the view draws it, each panel with what the package lacks of
+   * it; `source` is `default` for *Default*, else `named`.
+   */
+  layout: ViewLayout;
+  /** Its name, as its file gives it. */
+  name: string;
+}
+
+/** A package's named layouts, *Default* first and the rest by name. */
+export interface NamedLayouts {
+  /** The ones that read. */
+  layouts: NamedLayout[];
+  /** Why each of the others doesn't, with its file and line. */
+  problems: ApiError[];
+}
+
 /** A panel of a layout to be saved. */
 export interface PanelInput {
   /**
@@ -1321,8 +1345,10 @@ export interface ViewLayout {
   /** Its columns, left to right. */
   columns: ViewColumn[];
   /**
-   * Where it comes from: `package` (the package's `layout.toml`) or
-   * `made` (made from what the package declares).
+   * Where it comes from: `package` (the package's `layout.toml`),
+   * `made` (made from what the package declares), `default` (the
+   * package's *Default* in the configuration folder), `named` (another
+   * of its named layouts there) or `own` (one the page sent to check).
    */
   source: string;
 }

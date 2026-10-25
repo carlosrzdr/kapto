@@ -31,21 +31,23 @@ use crate::reader::{FileKey, Reader};
 /// A package's layout, beside its `package.toml` unless that names another.
 pub const LAYOUT_FILE: &str = "layout.toml";
 
-/// The folder of the configuration folder holding each package's default
-/// layout, as `<package id>.toml`.
+/// The folder of the configuration folder holding each package's named
+/// layouts, as `<package id>/<file>.toml`.
 pub const LAYOUTS_FOLDER: &str = "layouts";
 
-/// Where the default layout of package `id` is saved in `config_folder`.
-#[must_use]
-pub fn default_layout_path(config_folder: &std::path::Path, id: &str) -> std::path::PathBuf {
-    config_folder
-        .join(LAYOUTS_FOLDER)
-        .join(format!("{id}.toml"))
-}
+/// The file stem of the named layout that is a package's *Default*: the one
+/// a browser that hasn't picked one opens on.
+pub const DEFAULT_NAMED_LAYOUT: &str = "default";
 
 /// The longest name a named layout may have, in characters: it is shown in
 /// a list and its file is named from it.
 pub const MAX_LAYOUT_NAME: usize = 64;
+
+/// The folder of `config_folder` holding package `id`'s named layouts.
+#[must_use]
+pub fn package_layouts_folder(config_folder: &std::path::Path, id: &str) -> std::path::PathBuf {
+    config_folder.join(LAYOUTS_FOLDER).join(id)
+}
 
 /// The file stem a layout named `name` is saved as: its letters and digits
 /// in lower case, every run of anything else one `-`, so `Wrist view` is
@@ -665,7 +667,7 @@ panels = [
 
     #[test]
     fn a_layouts_file_is_named_from_its_letters_and_digits() {
-        assert_eq!(layout_file_stem("Default"), "default");
+        assert_eq!(layout_file_stem("Default"), DEFAULT_NAMED_LAYOUT);
         assert_eq!(
             layout_file_stem("  Wrist view: close-up! "),
             "wrist-view-close-up"

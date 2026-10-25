@@ -249,19 +249,25 @@ async fn a_layout_saved_as_default_is_written_for_the_package_and_given_from_the
     let (status, body) = call(
         api.clone(),
         "PUT",
-        "/api/layout",
+        "/api/layouts/default",
         Some(("application/json", SAVED)),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        (&body["id"], &body["name"]),
+        (&json!("default"), &json!("Default"))
+    );
+    let body = body["layout"].clone();
     assert_eq!(body["source"], "default");
     assert_eq!(body["columns"][0]["panels"][0]["height"], 3);
     assert_eq!(
         body["columns"][1]["panels"][0]["missing"],
         json!(["no stream `wrist_camera`"])
     );
-    let file = folder.join("config/layouts/arm7.toml");
+    let file = folder.join("config/layouts/arm7/default.toml");
     let written = std::fs::read_to_string(&file).unwrap();
+    assert!(written.starts_with("name = \"Default\"\n"), "{written}");
     assert!(
         written.contains("fields = [\"arm_joints.gripper\"], height = 3"),
         "{written}"
@@ -274,7 +280,7 @@ async fn a_layout_saved_as_default_is_written_for_the_package_and_given_from_the
     assert_eq!(again.layouts.current().unwrap().source, "default");
 
     // Removed, the package's own layout is back.
-    let (status, body) = call(api.clone(), "DELETE", "/api/layout", None).await;
+    let (status, body) = call(api.clone(), "DELETE", "/api/layouts/default", None).await;
     assert_eq!((status, &body["source"]), (StatusCode::OK, &json!("made")));
     assert!(!file.exists());
     let (_, robot) = call(api, "GET", "/api/robot", None).await;
@@ -342,7 +348,7 @@ async fn a_layout_breaking_a_rule_of_layout_toml_is_refused_and_nothing_is_writt
         let (status, error) = call(
             api.clone(),
             "PUT",
-            "/api/layout",
+            "/api/layouts/default",
             Some(("application/json", body)),
         )
         .await;
@@ -359,7 +365,7 @@ async fn a_layout_breaking_a_rule_of_layout_toml_is_refused_and_nothing_is_writt
     let (status, error) = call(
         api,
         "PUT",
-        "/api/layout",
+        "/api/layouts/default",
         Some(("application/json", "{\"rows\": 2}")),
     )
     .await;
@@ -376,7 +382,7 @@ async fn a_layout_cant_be_saved_without_a_package_or_a_folder_to_write_it_in() {
     let (status, error) = call(
         arranged(&folder, None),
         "PUT",
-        "/api/layout",
+        "/api/layouts/default",
         Some(("application/json", SAVED)),
     )
     .await;
@@ -384,18 +390,22 @@ async fn a_layout_cant_be_saved_without_a_package_or_a_folder_to_write_it_in() {
         (status, &error["code"]),
         (StatusCode::CONFLICT, &json!("layout.without_package"))
     );
-    let (status, error) = call(arranged(&folder, None), "DELETE", "/api/layout", None).await;
-    assert_eq!(
-        (status, &error["code"]),
-        (StatusCode::CONFLICT, &json!("layout.without_package"))
-    );
+    for (method, uri) in [("DELETE", "/api/layouts/default"), ("GET", "/api/layouts")] {
+        let (status, error) = call(arranged(&folder, None), method, uri, None).await;
+        assert_eq!(
+            (status, &error["code"]),
+            (StatusCode::CONFLICT, &json!("layout.without_package")),
+            "{method} {uri}"
+        );
+    }
 
     // The configuration folder is a file: nothing can be written under it.
+    let api = arranged(&folder, Some("arm7"));
     std::fs::write(folder.join("config"), "").unwrap();
     let (status, error) = call(
-        arranged(&folder, Some("arm7")),
+        api,
         "PUT",
-        "/api/layout",
+        "/api/layouts/default",
         Some(("application/json", SAVED)),
     )
     .await;
@@ -411,10 +421,10 @@ async fn a_layout_cant_be_saved_without_a_package_or_a_folder_to_write_it_in() {
 #[test]
 fn a_saved_default_that_doesnt_read_is_a_problem_and_the_packages_layout_is_used() {
     let folder = scratch("layout-unread");
-    std::fs::create_dir_all(folder.join("config/layouts")).unwrap();
+    std::fs::create_dir_all(folder.join("config/layouts/arm7")).unwrap();
     std::fs::write(
-        folder.join("config/layouts/arm7.toml"),
-        "[[columns]]\npanels = [{ kind = \"robot\", heigth = 2 }]\n",
+        folder.join("config/layouts/arm7/default.toml"),
+        "name = \"Default\"\n[[columns]]\npanels = [{ kind = \"robot\", heigth = 2 }]\n",
     )
     .unwrap();
     let own = kapto_server::robot::ViewLayout::default();
@@ -427,4 +437,87 @@ fn a_saved_default_that_doesnt_read_is_a_problem_and_the_packages_layout_is_used
     let codes: Vec<&str> = problems.iter().map(|problem| problem.code().id()).collect();
     assert_eq!(codes, ["layout.unknown_key"]);
     assert_eq!(layouts.current(), Some(own));
+}
+
+#[tokio::test]
+async fn hand_edited_layouts_are_listed_as_written_saved_over_and_deleted() {
+    let folder = scratch("layouts-by-hand");
+    let api = arranged(&folder, Some("arm7"));
+    let layouts = folder.join("config/layouts/arm7");
+    std::fs::create_dir_all(&layouts).unwrap();
+    let night = "# kept for the night shift\nname = \"Night (by hand)\"\n\n[[columns]]\npanels = [{ kind = \"health\" }]\n";
+    std::fs::write(layouts.join("Night.toml"), night).unwrap();
+    std::fs::write(
+        layouts.join("broken.toml"),
+        "name = \"Broken\"\n[[columns]]\n",
+    )
+    .unwrap();
+    std::fs::write(layouts.join("notes.txt"), "not a layout").unwrap();
+    std::fs::write(layouts.join("arm.toml"), format!("name = \"arm\"\n{night}")).unwrap();
+
+    let (status, list) = call(api.clone(), "GET", "/api/layouts", None).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let listed: Vec<(&str, &str)> = list["layouts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|each| (each["id"].as_str().unwrap(), each["name"].as_str().unwrap()))
+        .collect();
+    assert_eq!(listed, [("Night", "Night (by hand)")]);
+    let shown = &list["layouts"][0]["layout"];
+    assert_eq!(shown["source"], "named");
+    assert_eq!(shown["columns"][0]["panels"][0]["kind"], "health");
+    // Each file that doesn't read, by its file and line.
+    let problems: Vec<&str> = list["problems"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|problem| problem["message"].as_str().unwrap())
+        .collect();
+    assert_eq!(problems.len(), 2, "{list}");
+    assert!(
+        problems
+            .iter()
+            .any(|message| message.starts_with("`broken.toml` line 1: ")),
+        "{list}"
+    );
+
+    // Saved over, it keeps its name; the view isn't arranged by it.
+    let (status, body) = call(
+        api.clone(),
+        "PUT",
+        "/api/layouts/Night",
+        Some(("application/json", SAVED)),
+    )
+    .await;
+    assert_eq!(
+        (status, &body["name"]),
+        (StatusCode::OK, &json!("Night (by hand)"))
+    );
+    let written = std::fs::read_to_string(layouts.join("Night.toml")).unwrap();
+    assert!(
+        written.starts_with("name = \"Night (by hand)\"\n"),
+        "{written}"
+    );
+    assert_eq!(api.layouts.current().unwrap().source, "made");
+
+    let (status, body) = call(api.clone(), "DELETE", "/api/layouts/Night", None).await;
+    assert_eq!((status, &body["source"]), (StatusCode::OK, &json!("made")));
+    assert!(!layouts.join("Night.toml").exists());
+}
+
+#[tokio::test]
+async fn a_layout_not_there_is_not_found() {
+    let folder = scratch("layouts-not-found");
+    let api = arranged(&folder, Some("arm7"));
+    for uri in ["/api/layouts/elbow", "/api/layouts/..%2Fdefault"] {
+        let (status, error) =
+            call(api.clone(), "PUT", uri, Some(("application/json", SAVED))).await;
+        assert_eq!(
+            (status, &error["code"]),
+            (StatusCode::NOT_FOUND, &json!("layout.not_found")),
+            "{uri}"
+        );
+    }
+    assert!(!folder.join("config/layouts").exists());
 }

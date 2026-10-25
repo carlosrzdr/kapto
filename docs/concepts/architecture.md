@@ -523,7 +523,8 @@ and shapes for it come from `/api/robot/scene`
 reaches, which serve works out once at start, sampling joint values within
 their limits through the same forward kinematics, so the page frames the
 robot once and it stays in view as it moves. The view is arranged by the
-layout `/api/robot` gives, the package's own or the one made from its
+layout `/api/robot` gives, the package's *Default* among its named
+layouts in the configuration folder, its own, or the one made from its
 roles: columns of panels (the robot, a camera, a plot of fields or roles,
 the streams' counts, the marks), one under another below 70rem; the
 robot's 3D view is made once and moved to the panel that shows it. An
@@ -532,7 +533,7 @@ panel dragged by its grip into any column or beside one as a new column,
 an edge between two columns or panels dragged to share the room anew, each
 by the arrow keys too; saved as the same whole shares of 1 to 12. Kept in
 that browser for the package, before every other layout, until saved as
-the package's default or reset. A
+the package's *Default* or reset. A
 replay is arranged by the layout its recording carries, or one made from
 what the recording declares, which the worker stores in the replay view. The page loads nothing from
 elsewhere and its Content-Security-Policy lets it reach only Kapto's API
@@ -886,10 +887,13 @@ doing, the robot and its streams as serve loaded them (`/api/robot`: each
 joint with its limits and the decoded value that drives it, each stream
 with its input, rate and fields, each role with the value that plays it,
 and the layout the live view is arranged
-by: the default saved for the package (`PUT /api/layout` writes
-`layouts/<package id>.toml` in the configuration folder, `DELETE` removes
-it), else the package's `layout.toml`, else one made from its roles,
-cameras and fields, each panel with what it names that the package lacks), what each process is doing and costs
+by: the package's *Default*, else the package's `layout.toml`, else one
+made from its roles, cameras and fields, each panel with what it names
+that the package lacks), the package's named layouts (`/api/layouts`
+lists, writes and deletes them: files in `layouts/<package
+id>/` of the configuration folder, each starting with its `name` and
+named from it, read as written when edited by hand; `default.toml` among
+them is *Default*), what each process is doing and costs
 (`/api/processes`, which answers even while capture doesn't), the
 settings it runs with and where each came from (`/api/settings`), how much room the data directory
 has and what its episodes take (`/api/storage`), the finalised episodes

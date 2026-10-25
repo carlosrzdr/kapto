@@ -1450,100 +1450,6 @@
         }
       }
     },
-    "/api/layout": {
-      "put": {
-        "tags": [],
-        "summary": "Save a layout as the default for the robot package Kapto runs, read by\nevery browser: written to `layouts/<package id>.toml` in the\nconfiguration folder, checked as `layout.toml` is. Answers with it as\n`/api/robot` now gives it, each panel with what the package lacks.",
-        "operationId": "save_layout",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LayoutInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ViewLayout"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The body isn't a layout",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The layout breaks a rule of layout.toml, or Kapto runs no robot package",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The file can't be written",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [],
-        "summary": "Remove the default layout saved for the robot package Kapto runs: the\nlive view is arranged by the package's own layout again, or the one\nmade from it. Answers with it.",
-        "operationId": "remove_layout",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ViewLayout"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Kapto runs no robot package",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "The file can't be removed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/layout/check": {
       "post": {
         "tags": [],
@@ -1581,6 +1487,170 @@
           },
           "409": {
             "description": "The layout breaks a rule of layout.toml",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/layouts": {
+      "get": {
+        "tags": [],
+        "summary": "The named layouts of the robot package Kapto runs, as their files in\n`layouts/<package id>/` of the configuration folder hold them now:\n*Default* (`default`) first, the rest by name, and why any file doesn't\nread.",
+        "operationId": "layouts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamedLayouts"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Kapto runs no robot package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The folder can't be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/layouts/{id}": {
+      "put": {
+        "tags": [],
+        "summary": "Save a layout over a named one, keeping its name. `default` is the\npackage's *Default*, which `/api/robot` gives from then on, made if\nthere is none.",
+        "operationId": "write_layout",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The layout's `id`, as `/api/layouts` lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamedLayout"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't a layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The layout or its file breaks a rule of layout.toml, or Kapto runs no robot package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The file can't be written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "summary": "Delete a named layout, if it is there. Deleting `default` arranges the\nlive view by the package's own layout again, or the one made from it.\nAnswers with the layout `/api/robot` now gives.",
+        "operationId": "delete_layout",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The layout's `id`, as `/api/layouts` lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewLayout"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Kapto runs no robot package",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The file can't be removed",
             "content": {
               "application/json": {
                 "schema": {
@@ -3299,6 +3369,53 @@
             "format": "int64",
             "description": "Frames replaced by newer ones before they could be sent: the\nviewer bridge was slower than the camera.",
             "minimum": 0
+          }
+        }
+      },
+      "NamedLayout": {
+        "type": "object",
+        "description": "One of a package's named layouts.",
+        "required": [
+          "id",
+          "name",
+          "layout"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Its file's name without `.toml`, which the API asks for it by:\n`default` for the package's *Default*."
+          },
+          "layout": {
+            "$ref": "#/components/schemas/ViewLayout",
+            "description": "It as the view draws it, each panel with what the package lacks of\nit; `source` is `default` for *Default*, else `named`."
+          },
+          "name": {
+            "type": "string",
+            "description": "Its name, as its file gives it."
+          }
+        }
+      },
+      "NamedLayouts": {
+        "type": "object",
+        "description": "A package's named layouts, *Default* first and the rest by name.",
+        "required": [
+          "layouts",
+          "problems"
+        ],
+        "properties": {
+          "layouts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NamedLayout"
+            },
+            "description": "The ones that read."
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiError"
+            },
+            "description": "Why each of the others doesn't, with its file and line."
           }
         }
       },
@@ -5143,7 +5260,7 @@
           },
           "source": {
             "type": "string",
-            "description": "Where it comes from: `package` (the package's `layout.toml`) or\n`made` (made from what the package declares)."
+            "description": "Where it comes from: `package` (the package's `layout.toml`),\n`made` (made from what the package declares), `default` (the\npackage's *Default* in the configuration folder), `named` (another\nof its named layouts there) or `own` (one the page sent to check)."
           }
         }
       },

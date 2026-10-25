@@ -24,8 +24,10 @@ pub struct RobotRole {
 /// stack of panels, as `docs/reference/package.md` describes `layout.toml`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ViewLayout {
-    /// Where it comes from: `package` (the package's `layout.toml`) or
-    /// `made` (made from what the package declares).
+    /// Where it comes from: `package` (the package's `layout.toml`),
+    /// `made` (made from what the package declares), `default` (the
+    /// package's *Default* in the configuration folder), `named` (another
+    /// of its named layouts there) or `own` (one the page sent to check).
     pub source: String,
     /// Its columns, left to right.
     pub columns: Vec<ViewColumn>,

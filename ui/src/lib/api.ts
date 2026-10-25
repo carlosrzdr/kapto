@@ -22,6 +22,7 @@ import {
   type ReplayOpening,
   type ReplayStatus,
   type LayoutInput,
+  type NamedLayout,
   type RobotOverview,
   type ViewLayout,
   type RobotScene,
@@ -316,19 +317,19 @@ export const getEventKinds = (): Promise<EventVocabulary> => request<EventVocabu
 /** Sends an event: recorded in the episode being recorded, if one is. */
 export const sendEvent = (event: SendEvent): Promise<EventSent> => post<EventSent>("/api/episodes/events", event);
 
-/** Saves `layout` as the robot package's default, for every browser: what `/api/robot` gives from then on. */
+/** Saves `layout` as the robot package's *Default*, for every browser: what `/api/robot` gives from then on. */
 export const saveDefaultLayout = (layout: LayoutInput): Promise<ViewLayout> =>
-  request<ViewLayout>("/api/layout", {
+  request<NamedLayout>("/api/layouts/default", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(layout),
-  });
+  }).then((saved) => saved.layout);
 
 /** `layout` as the view draws it, each panel with what the robot's streams lack of it; nothing is saved. */
 export const checkLayout = (layout: LayoutInput): Promise<ViewLayout> => post<ViewLayout>("/api/layout/check", layout);
 
-/** Removes the robot package's default layout: its own is back. */
-export const removeDefaultLayout = (): Promise<ViewLayout> => request<ViewLayout>("/api/layout", { method: "DELETE" });
+/** Deletes the robot package's *Default*: its own layout is back. */
+export const removeDefaultLayout = (): Promise<ViewLayout> => request<ViewLayout>("/api/layouts/default", { method: "DELETE" });
 
 /** How long to wait before opening the event stream again after it closed. */
 const RECONNECT_MS = 2000;

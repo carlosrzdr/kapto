@@ -1021,8 +1021,8 @@ fn profiles() -> String {
 /// The package page's section on `layout.toml`.
 fn layout_section() -> String {
     use kapto_config::{
-        LAYOUT_COLUMN_KEYS, LAYOUT_EXAMPLE, LAYOUT_FILE, LAYOUT_KEYS, LAYOUT_PANEL_KEYS,
-        LAYOUTS_FOLDER, MAX_PANELS,
+        DEFAULT_NAMED_LAYOUT, LAYOUT_COLUMN_KEYS, LAYOUT_EXAMPLE, LAYOUT_FILE, LAYOUT_KEYS,
+        LAYOUT_PANEL_KEYS, LAYOUTS_FOLDER, MAX_PANELS,
     };
     let mut page = String::new();
     let _ = write!(
@@ -1038,10 +1038,14 @@ fn layout_section() -> String {
          and clocks, which only ever climb); the streams' health is beside the view\n\
          in the console. At most {MAX_PANELS} panels: beyond, the page can't\n\
          keep its frame rate. A panel naming a stream, field or role the package\n\
-         doesn't have is shown as a placeholder saying what is missing. A layout\n\
-         saved as the package's default, `{LAYOUTS_FOLDER}/<package id>.toml` in the\n\
-         configuration folder (`PUT /api/layout`), comes before the package's own,\n\
-         in every browser, until it is removed (`DELETE /api/layout`).\n\n\
+         doesn't have is shown as a placeholder saying what is missing.\n\n\
+         An operator's own layouts for the package are named layouts in the\n\
+         configuration folder, `{LAYOUTS_FOLDER}/<package id>/<file>.toml`, in the same\n\
+         format, each starting with its `name`, its file named from the name's letters\n\
+         and digits (`Wrist view` is `wrist-view.toml`). The web UI writes them through\n\
+         the API (`/api/layouts`); a file edited by hand is read as written.\n\
+         `{DEFAULT_NAMED_LAYOUT}.toml` among them is the package's *Default*, which comes\n\
+         before the package's own in every browser until it is deleted.\n\n\
          ```toml\n{LAYOUT_EXAMPLE}```\n\n\
          The file:\n\n\
          | Key | Required | Meaning |\n|---|---|---|\n"

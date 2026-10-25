@@ -264,17 +264,17 @@ error_codes! {
         remedy: "Remove the key or correct its spelling. A layout holds its `name` and `[[columns]]` tables, each with `width` and `panels`; a panel has `kind`, `height`, and `stream` for a camera or `fields` for a plot. The robot package format reference (docs/reference/package.md) describes them.",
     }
 
-    /// A layout was to be saved as a package's default, but Kapto runs no
-    /// robot package to save it for.
+    /// A named layout was to be listed or saved, but Kapto runs no robot
+    /// package to keep it for.
     LayoutWithoutPackage = "layout.without_package" {
-        summary: "No robot package to save the layout for",
-        remedy: "A default layout is saved for a robot package, in `layouts/<package id>.toml` of the configuration folder. Start `kapto serve` with a package's `streams.toml`, or arrange the view in `layout.toml` beside the streams.",
+        summary: "No robot package to keep the layout for",
+        remedy: "Named layouts are kept for a robot package, in `layouts/<package id>/` of the configuration folder. Start `kapto serve` with a package's `streams.toml`, or arrange the view in `layout.toml` beside the streams.",
     }
 
-    /// A default layout couldn't be written to, or removed from, the
+    /// A named layout couldn't be written to, or removed from, the
     /// configuration folder.
     LayoutWriteFailed = "layout.write_failed" {
-        summary: "The default layout couldn't be saved",
+        summary: "The layout couldn't be saved",
         remedy: "Check that the configuration folder exists and that Kapto may write in its `layouts` folder; the message says which file and why.",
     }
 
@@ -288,6 +288,12 @@ error_codes! {
     LayoutNameTooLong = "layout.name_too_long" {
         summary: "The layout's name is too long",
         remedy: "Shorten the name to 64 characters or fewer.",
+    }
+
+    /// No named layout of the package has the file asked for.
+    LayoutNotFound = "layout.not_found" {
+        summary: "No such layout",
+        remedy: "List the package's layouts with `GET /api/layouts`; each is asked for by its `id`, its file's name without `.toml`.",
     }
 
     /// A robot package's `qa.toml` has a key that isn't a setting.

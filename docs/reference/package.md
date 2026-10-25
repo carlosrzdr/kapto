@@ -132,10 +132,15 @@ its own), a plot per stream of the fields no role covers (but its counters
 and clocks, which only ever climb); the streams' health is beside the view
 in the console. At most 24 panels: beyond, the page can't
 keep its frame rate. A panel naming a stream, field or role the package
-doesn't have is shown as a placeholder saying what is missing. A layout
-saved as the package's default, `layouts/<package id>.toml` in the
-configuration folder (`PUT /api/layout`), comes before the package's own,
-in every browser, until it is removed (`DELETE /api/layout`).
+doesn't have is shown as a placeholder saying what is missing.
+
+An operator's own layouts for the package are named layouts in the
+configuration folder, `layouts/<package id>/<file>.toml`, in the same
+format, each starting with its `name`, its file named from the name's letters
+and digits (`Wrist view` is `wrist-view.toml`). The web UI writes them through
+the API (`/api/layouts`); a file edited by hand is read as written.
+`default.toml` among them is the package's *Default*, which comes
+before the package's own in every browser until it is deleted.
 
 ```toml
 [[columns]]
