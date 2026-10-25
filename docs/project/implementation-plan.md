@@ -915,6 +915,7 @@ fit), which is robust to delay spikes. Written in the repo (§2.7).
 | M18-02 `feat(capture): mcap and ros 2 bag importers` | MCAP and ROS 2 bags (`.mcap`; `.db3` via `rusqlite`) | Fixtures from real `ros2 bag record` | — |
 | M18-03 `feat(transport): ros 2 record-all` | Discovery-driven subscriptions with include/exclude (TRN-13) | ROS image test with several talkers | Exit criterion |
 | M18-04 `feat(ui): ros 2 topics in the robot tab` | What `kapto topics --streams` finds, in the web UI: each topic of the ROS 2 network with its type, measured rate and whether a stream already declares it, and the `streams.toml` declarations of those not declared, to copy; an endpoint over the same discovery, answered only in the ROS 2 image, saying why elsewhere | Handler and error-code tests (outside the ROS 2 image); ROS image test with several talkers, one declared; Playwright happy path and the not-in-this-image path | Declarations pasted into a package lint clean |
+| M18-05 `feat(docker): a robot's own message types mounted into the ros 2 image` | As the [ROS 2 design](../design/ros-2-through-rcl.md) says: the image's entrypoint sources every `/overlays/<name>/setup.sh` after ROS 2's own, stopping at start on a folder without one; a type's `.msg` files from the installation alone where there is one, the package's `msg/` folder only where there isn't, a package copy that differs refused (`config.ros2_msg_differs`); `kapto topics` says whether each topic's type loads, with the remedy; the ROS 2 guide shows building a package's interfaces against the image's distribution and mounting them | ROS image test: a message package built for it, mounted, a topic of its type recorded and decoded; the same topic refused without the mount (`transport.ros2.type_unavailable`); an overlay without `setup.sh` stops the container; a package `msg/` copy differing from the installation refused, naming both files; without an installation the package's copy decodes | A robot's own types recorded without an image of the user's |
 
 ### WP M19: Operator and security extras *(low priority, not needed for v1)*
 
@@ -1029,10 +1030,12 @@ The other work packages wait until then.
    chunk, so the writer's per-chunk allocations come with each frame;
    proposed, chunks stay 1 MiB, as the writer takes 0.16 cores with two
    1080p cameras at 60 fps.
-6. **A robot's own ROS 2 message types.** Kapto loads a type's support
-   library from the image's installation; proposed, the robot's built
-   interfaces mounted into the image and named in `AMENT_PREFIX_PATH` and
-   `LD_LIBRARY_PATH`, with a test over a message package built for it.
+6. **Capture's threads in its declared memory.** The closing design says
+   capture's threads are counted in what it declares, but only the rings
+   are: `cap-finalise` and `cap-hash` (a 256 KiB buffer each, beside their
+   stacks) aren't. Proposed: each thread's buffers and stack size added to
+   the declaration when capture starts, with a test that the declared
+   total covers what a recording with one episode closing allocates.
 7. **Fixed transforms in the ROS 2 demo.** Whether the synthetic robot also
    publishes the sample arm's fixed transforms (a camera's mount on
    `/tf_static`), so the ROS 2 demo shows a kept stream.
