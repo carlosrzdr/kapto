@@ -240,7 +240,7 @@ known at start:
 
 | Thread | At most | Holds for itself |
 |---|---|---|
-| `cap-rx-udp-0`, `cap-rx-tcp-<n>`, `cap-rx-ros2`, `cap-rx-ros2-<n>` | one per input | a TCP input's framing buffer: its stream's `max_message_bytes` and one read, allocated whole when it opens |
+| `cap-rx-udp-0`, `cap-rx-tcp-<n>`, `cap-rx-ros2`, `cap-rx-ros2-<n>` | one per input | a TCP input's framing buffer: its stream's `max_message_bytes` and one read, allocated whole when it opens; a ROS 2 input's buffer per subscription for its messages still serialised, counted at its stream's `max_message_bytes` and summed over the input's topics |
 | `cap-writer` | one | |
 | `cap-hash` | two: the episode recorded, and one just stopped until its next read | 256 KiB to read the file back |
 | `cap-finalise` | one, closing one episode at a time | 256 KiB to read the rest, then the other files |
@@ -252,8 +252,12 @@ known at start:
 
 An episode waiting to be closed behind another keeps no thread or buffer,
 only its digest and its open file; a control connection beyond the bound
-is answered `capture.control_busy` and closed. The main thread, and threads
-rcl and the ROS 2 middleware start, aren't counted.
+is answered `capture.control_busy` and closed. A ROS 2 subscription's
+buffer starts empty and rcl grows it to the largest message taken, larger
+than `max_message_bytes` too for a message then counted truncated, so a
+topic sending more than its stream declares holds more than is counted.
+The main thread, and the threads and memory of rcl and the ROS 2
+middleware, its queues and copies of each message, aren't counted.
 
 Each recording is written in a staging folder, then moved, listed in a
 manifest with every file's checksum, and marked `_FINALISED` last, so a

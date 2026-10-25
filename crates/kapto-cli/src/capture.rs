@@ -54,7 +54,9 @@ use crate::SettingFlags;
 use crate::closing::Closer;
 use crate::own_events::{Counts, OwnEvents, silences};
 use crate::preflight::Preflight;
-use crate::record::{Plan, RecordSettings, describe, load_plan, package_of, recover};
+use crate::record::{
+    Plan, ReceiverBuffers, RecordSettings, describe, load_plan, package_of, recover,
+};
 use crate::station::{Live, Next, Outcome, Station};
 use crate::viz_bridge::warning;
 
@@ -90,7 +92,10 @@ fn say_receiving(station: &Station, deployment: &DeploymentConfig) {
     }
     say!(
         "{}",
-        threads_said(&station.threads(control_connections(deployment)))
+        threads_said(
+            &station.threads(control_connections(deployment)),
+            station.plan.receiver_buffers_held(),
+        )
     );
 }
 
@@ -100,19 +105,29 @@ fn control_connections(deployment: &DeploymentConfig) -> usize {
     usize::try_from(deployment.control_max_connections.value).unwrap_or(usize::MAX)
 }
 
-/// What capture's threads take at most, said when it starts.
-fn threads_said(memory: &ThreadMemory) -> String {
+/// What capture's threads take at most, said when it starts, with what its
+/// receivers hold for themselves, `held`, among it.
+fn threads_said(memory: &ThreadMemory, held: ReceiverBuffers) -> String {
     #[allow(
         clippy::cast_precision_loss,
         reason = "a size shown to a tenth of a MiB"
     )]
     let mib = |bytes: usize| bytes as f64 / f64::from(1 << 20);
-    let framing = match memory.receiver_buffer_bytes() {
-        0 => String::new(),
-        bytes => format!(" (the TCP inputs' framing buffers {:.1} MiB)", mib(bytes)),
+    let named: Vec<String> = [
+        (held.tcp, "the TCP inputs' framing buffers"),
+        (held.ros2, "the ROS 2 subscriptions' message buffers"),
+    ]
+    .into_iter()
+    .filter(|&(bytes, _)| bytes > 0)
+    .map(|(bytes, what)| format!("{what} {:.1} MiB", mib(bytes)))
+    .collect();
+    let receivers = if named.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", named.join(", "))
     };
     format!(
-        "Threads: {}, their stacks and own buffers {:.1} MiB{framing}, with an episode being \
+        "Threads: {}, their stacks and own buffers {:.1} MiB{receivers}, with an episode being \
          closed while the next is recorded and {} control connections open, the most \
          answered at once; an episode waiting to be closed keeps only its digest and its open \
          file.",
@@ -750,22 +765,48 @@ mod tests {
         // buffers of pre-flight (1 MiB), two cap-hash and cap-finalise
         // (256 KiB each).
         assert_eq!(
-            threads_said(&ThreadMemory::capture(&[0], true, 16)),
+            threads_said(
+                &ThreadMemory::capture(&[0], true, 16),
+                ReceiverBuffers::default()
+            ),
             "Threads: 27, their stacks and own buffers 57.4 MiB, with an episode being closed \
              while the next is recorded and 16 control connections open, the most answered at \
              once; an episode waiting to be closed keeps only its digest and its open file."
         );
         // A TCP camera of 32 MiB frames, read 64 KiB at a time.
         assert_eq!(
-            threads_said(&ThreadMemory::capture(
-                &[0, (32 << 20) + (64 << 10)],
-                true,
-                16
-            )),
+            threads_said(
+                &ThreadMemory::capture(&[0, (32 << 20) + (64 << 10)], true, 16),
+                ReceiverBuffers {
+                    tcp: (32 << 20) + (64 << 10),
+                    ros2: 0
+                }
+            ),
             "Threads: 28, their stacks and own buffers 91.6 MiB (the TCP inputs' framing \
              buffers 32.1 MiB), with an episode being closed while the next is recorded and 16 \
              control connections open, the most answered at once; an episode waiting to be \
              closed keeps only its digest and its open file."
+        );
+    }
+
+    #[test]
+    fn capture_names_the_ros_2_subscriptions_buffers_beside_the_tcp_framing_buffers() {
+        // A TCP camera of 32 MiB frames, and a ROS 2 camera of 8 MiB frames
+        // beside its small topics of 4 KiB and 1472 bytes.
+        let ros2 = (8 << 20) + 4096 + 1472;
+        assert_eq!(
+            threads_said(
+                &ThreadMemory::capture(&[(32 << 20) + (64 << 10), 4096 + 1472, 8 << 20], true, 16),
+                ReceiverBuffers {
+                    tcp: (32 << 20) + (64 << 10),
+                    ros2
+                }
+            ),
+            "Threads: 29, their stacks and own buffers 101.6 MiB (the TCP inputs' framing \
+             buffers 32.1 MiB, the ROS 2 subscriptions' message buffers 8.0 MiB), with an \
+             episode being closed while the next is recorded and 16 control connections open, \
+             the most answered at once; an episode waiting to be closed keeps only its digest \
+             and its open file."
         );
     }
 

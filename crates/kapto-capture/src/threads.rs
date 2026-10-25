@@ -23,7 +23,15 @@
 //! A receiver's own buffer is counted at its bound, known at start: a TCP
 //! input's framing buffer, room for its stream's `max_message_bytes`, a
 //! delimiter and one read, is allocated whole when the input opens rather
-//! than grown, its pages taken by the system as bytes first reach them.
+//! than grown, its pages taken by the system as bytes first reach them. A
+//! ROS 2 input's subscriptions each keep a buffer for their messages, still
+//! serialised, counted at their stream's `max_message_bytes` and summed
+//! over the input's subscriptions. That one starts empty and rcl grows it
+//! to the largest message taken, never shrinking it, and grows it for a
+//! message over `max_message_bytes` too, which is then counted truncated:
+//! a topic sending larger messages than its stream declares holds more
+//! than is counted. The middleware's own memory, its queues and its copies
+//! of each message, stays outside the count with its threads.
 
 use std::thread;
 
@@ -72,8 +80,8 @@ pub struct ThreadMemory {
 
 impl ThreadMemory {
     /// Capture's threads, with a receiver thread for each of `receivers`,
-    /// the buffer it holds for itself (a TCP input's framing buffer, 0 for
-    /// others), the live view's `cap-tap` if it runs, and a
+    /// the buffer it holds for itself (a TCP input's framing buffer, a ROS 2
+    /// input's subscriptions' message buffers, 0 for UDP), the live view's `cap-tap` if it runs, and a
     /// `cap-control-conn` for each of the `control_connections` answered at
     /// once (`capture.control_max_connections`), whether or not they are
     /// open.
@@ -127,7 +135,8 @@ impl ThreadMemory {
     }
 
     /// What the receiver threads hold for themselves, in bytes: their TCP
-    /// inputs' framing buffers.
+    /// inputs' framing buffers and their ROS 2 subscriptions' message
+    /// buffers.
     #[must_use]
     pub fn receiver_buffer_bytes(&self) -> usize {
         self.threads

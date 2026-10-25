@@ -402,7 +402,8 @@ impl Station {
     }
 
     /// What capture's threads take at most: one receiver thread per input,
-    /// with a TCP input's framing buffer, the live view's if it runs, and
+    /// with a TCP input's framing buffer or a ROS 2 input's subscriptions'
+    /// message buffers, the live view's if it runs, and
     /// one for each of `control_connections` answered at once.
     pub(crate) fn threads(&self, control_connections: usize) -> ThreadMemory {
         ThreadMemory::capture(
@@ -1271,7 +1272,7 @@ fn open_transport(source: &Source, udp: UdpOptions) -> Result<Box<dyn Transport>
         }
         Source::Tcp(config) => Ok(Box::new(TcpTransport::open(config)?)),
         #[cfg(feature = "ros2")]
-        Source::Ros2 { node, topics } => Ok(Box::new(Ros2Transport::open(node, topics)?)),
+        Source::Ros2 { node, topics, .. } => Ok(Box::new(Ros2Transport::open(node, topics)?)),
         #[cfg(not(feature = "ros2"))]
         Source::Ros2 { topics, .. } => Err(KaptoError::new(ErrorCode::TransportRos2NotBuilt)
             .detail(format!(

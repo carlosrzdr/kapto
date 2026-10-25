@@ -4,7 +4,8 @@
 //! a `sensor_msgs/msg/CompressedImage` stream from the synthetic camera and
 //! a `sensor_msgs/msg/Image` one from a node of its own, each frame far
 //! larger than a datagram, each found byte for byte in the recording, which
-//! ROS 2's own tools read. Only with the `ros2` feature, run in the ROS 2
+//! ROS 2's own tools read; and what `kapto capture` declares for a camera
+//! topic's subscription when it starts. Only with the `ros2` feature, run in the ROS 2
 //! image over each middleware by `cargo xtask ros2`.
 
 #![cfg(all(unix, feature = "ros2"))]
@@ -15,6 +16,7 @@
 )]
 
 use std::fmt::Write as _;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, PoisonError};
@@ -308,5 +310,38 @@ fn raw_camera_frames_of_900_kib_are_recorded_whole() {
         assert!(data.iter().all(|&byte| byte == n), "frame {n} changed");
     }
     bag_info_says(&episode, "sensor_msgs/msg/Image", messages.len());
+    let _ = std::fs::remove_dir_all(folder);
+}
+
+#[test]
+fn a_camera_topics_subscription_declares_at_least_its_largest_frame_when_capture_starts() {
+    let topic = format!("/kapto_declared_camera_{}", std::process::id());
+    let folder = package("declared", &topic, "sensor_msgs/msg/Image");
+    let mut capture = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .args(["capture", "--capture-preflight", "warn", "--streams"])
+        .arg(folder.join("streams.toml"))
+        .arg("--data-dir")
+        .arg(folder.join("data"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let threads = BufReader::new(capture.stderr.take().unwrap())
+        .lines()
+        .map(Result::unwrap)
+        .find(|line| line.starts_with("Threads: "));
+    let _ = capture.kill();
+    let _ = capture.wait();
+    let threads = threads.unwrap_or_else(|| panic!("capture never said its threads"));
+    let said = "the ROS 2 subscriptions' message buffers ";
+    let mib: f64 = threads
+        .split_once(said)
+        .and_then(|(_, rest)| rest.split_once(" MiB"))
+        .map_or_else(
+            || panic!("no subscriptions' buffers in: {threads}"),
+            |(mib, _)| mib.parse().unwrap(),
+        );
+    // Each frame up to 2 MiB, as `package` declares it.
+    assert!(mib >= 2.0, "{threads}");
     let _ = std::fs::remove_dir_all(folder);
 }

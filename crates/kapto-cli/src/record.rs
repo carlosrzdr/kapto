@@ -156,16 +156,37 @@ pub(crate) struct Input {
 
 impl Plan {
     /// What each receiver thread holds for itself, in input order: a TCP
-    /// input's framing buffer, nothing for the others.
+    /// input's framing buffer, a ROS 2 input's subscriptions' message
+    /// buffers, nothing for UDP.
     pub(crate) fn receiver_buffers(&self) -> Vec<usize> {
         self.inputs
             .iter()
-            .map(|input| match &input.source {
-                Source::Tcp(tcp) => tcp.framing_buffer_bytes(),
-                Source::Udp(_) | Source::Ros2 { .. } => 0,
-            })
+            .map(|input| input.source.buffer_bytes())
             .collect()
     }
+
+    /// What the receiver threads hold for themselves, by kind of input.
+    pub(crate) fn receiver_buffers_held(&self) -> ReceiverBuffers {
+        let mut held = ReceiverBuffers::default();
+        for input in &self.inputs {
+            match &input.source {
+                Source::Tcp(_) => held.tcp += input.source.buffer_bytes(),
+                Source::Ros2 { .. } => held.ros2 += input.source.buffer_bytes(),
+                Source::Udp(_) => {}
+            }
+        }
+        held
+    }
+}
+
+/// What the receiver threads hold for themselves, in bytes, by kind of
+/// input.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ReceiverBuffers {
+    /// The TCP inputs' framing buffers.
+    pub(crate) tcp: usize,
+    /// The ROS 2 subscriptions' serialised-message buffers.
+    pub(crate) ros2: usize,
 }
 
 /// How many times its planned size an input's ring may grow to.
@@ -183,6 +204,20 @@ pub(crate) enum Source {
         )]
         node: String,
         topics: Vec<Ros2Subscription>,
+        /// The buffers its subscriptions keep, in bytes: each its stream's
+        /// `max_message_bytes`, summed.
+        ///
+        /// Each subscription takes its messages still serialised into a
+        /// buffer of its own, kept for the input's life, which starts empty
+        /// and which the middleware grows to the largest message taken
+        /// (`rcl_take_serialized_message` allocates "enough memory for the
+        /// message" whenever the buffer is too small), never shrinking it.
+        /// A message larger than its stream's `max_message_bytes` is
+        /// counted truncated, but rcl has still grown the buffer to take
+        /// it, so a topic sending more than it declares holds more than is
+        /// counted here. The middleware's own memory (its queues, its
+        /// copies of each message, its threads) stays outside the count.
+        buffer_bytes: usize,
     },
 }
 
@@ -193,6 +228,17 @@ impl Source {
             Self::Udp(sockets) => sockets.iter().map(|socket| socket.stream).collect(),
             Self::Tcp(tcp) => vec![tcp.stream],
             Self::Ros2 { topics, .. } => topics.iter().map(|topic| topic.stream).collect(),
+        }
+    }
+
+    /// The buffer its receiver thread holds for itself, in bytes: a TCP
+    /// input's framing buffer, a ROS 2 input's subscriptions' buffers, none
+    /// for UDP, which receives into its ring.
+    fn buffer_bytes(&self) -> usize {
+        match self {
+            Self::Udp(_) => 0,
+            Self::Tcp(tcp) => tcp.framing_buffer_bytes(),
+            Self::Ros2 { buffer_bytes, .. } => *buffer_bytes,
         }
     }
 }
@@ -223,7 +269,7 @@ pub(crate) fn plan(
     let mut sockets = Vec::new();
     let (mut udp_rate, mut udp_slot) = (0_u64, 1_u32);
     let mut topics = Vec::new();
-    let (mut ros2_rate, mut ros2_slot) = (0_u64, 1_u32);
+    let (mut ros2_rate, mut ros2_slot, mut ros2_buffers) = (0_u64, 1_u32, 0_usize);
     let mut large_topics = Vec::new();
     let ring = |rate: u64, slot: u32| {
         let latency = ReceiverConfig::default().max_batch_latency;
@@ -277,6 +323,8 @@ pub(crate) fn plan(
                 topics.push(subscription(index, topic));
                 ros2_rate += u64::from(rate_hz);
                 ros2_slot = ros2_slot.max(slot);
+                ros2_buffers =
+                    ros2_buffers.saturating_add(usize::try_from(slot).unwrap_or(usize::MAX));
             }
         }
         plan.streams.push(ChannelSpec {
@@ -302,7 +350,7 @@ pub(crate) fn plan(
     }
     plan.inputs.extend(ros2_inputs(
         topics,
-        (ros2_rate, ros2_slot),
+        (ros2_rate, ros2_slot, ros2_buffers),
         large_topics,
         &ring,
     ));
@@ -313,11 +361,12 @@ pub(crate) fn plan(
 type LargeTopic<'a> = (StreamIndex, StreamId, &'a Ros2Declaration, u32, u32);
 
 /// The ROS 2 inputs: the small topics together, at their total rate and
-/// largest slot, then each large topic on a receiver, a node and a ring of
-/// its own, so its frames never hold up the small topics.
+/// largest slot, holding `ros2_buffers` for their subscriptions, then each
+/// large topic on a receiver, a node and a ring of its own, so its frames
+/// never hold up the small topics.
 fn ros2_inputs(
     topics: Vec<Ros2Subscription>,
-    (ros2_rate, ros2_slot): (u64, u32),
+    (ros2_rate, ros2_slot, ros2_buffers): (u64, u32, usize),
     large_topics: Vec<LargeTopic<'_>>,
     ring: &dyn Fn(u64, u32) -> RingConfig,
 ) -> Vec<Input> {
@@ -328,6 +377,7 @@ fn ros2_inputs(
             source: Source::Ros2 {
                 node: "kapto".to_owned(),
                 topics,
+                buffer_bytes: ros2_buffers,
             },
             ring: ring(ros2_rate, ros2_slot),
             max_batches: ring(ros2_rate, ros2_slot).batches * GROWTH_LIMIT,
@@ -339,6 +389,7 @@ fn ros2_inputs(
             source: Source::Ros2 {
                 node: format!("kapto_{id}"),
                 topics: vec![subscription(index, topic)],
+                buffer_bytes: usize::try_from(slot).unwrap_or(usize::MAX),
             },
             ring: ring(u64::from(rate_hz), slot),
             max_batches: ring(u64::from(rate_hz), slot).batches * GROWTH_LIMIT,
@@ -1023,7 +1074,7 @@ mod tests {
                 ("cap-rx-ros2-1", 1, 1 << 20, 62),
             ]
         );
-        let Source::Ros2 { node, topics } = &plan.inputs[2].source else {
+        let Source::Ros2 { node, topics, .. } = &plan.inputs[2].source else {
             panic!("not ROS 2")
         };
         assert_eq!(node, "kapto_camera");
@@ -1383,6 +1434,50 @@ mod tests {
         assert_eq!(memory.receiver_buffer_bytes(), buffers[1]);
         let without = kapto_capture::threads::ThreadMemory::capture(&[0, 0], false, 16);
         assert!(memory.total_bytes() - without.total_bytes() >= n);
+    }
+
+    #[test]
+    fn each_ros_2_subscription_declares_its_largest_message_for_its_receiver() {
+        let camera = 2 * 1024 * 1024;
+        let file = ConfigFile {
+            path: PathBuf::from("streams.toml"),
+            contents: format!(
+                "[streams.arm]\nrate_hz = 1000\nudp = {{ bind = \"127.0.0.1:9000\" }}\n\
+                 [streams.force]\nrate_hz = 500\nmax_message_bytes = 64\n\
+                 ros2 = {{ topic = \"/force\", type = \"std_msgs/msg/Float64\" }}\n\
+                 [streams.joints]\nrate_hz = 100\n\
+                 ros2 = {{ topic = \"/joints\", type = \"sensor_msgs/msg/JointState\" }}\n\
+                 [streams.camera]\nrate_hz = 30\nmax_message_bytes = {camera}\n\
+                 ros2 = {{ topic = \"/camera\", type = \"sensor_msgs/msg/Image\" }}\n"
+            ),
+        };
+        // Each type a one-field message: its definition doesn't matter here.
+        let streams =
+            parse_streams_with(&file, &mut |_, _| Some("float64 data\n".to_owned())).unwrap();
+        let plan = plan(
+            &streams,
+            Path::new("streams.toml"),
+            &RecordSettings::default(),
+        )
+        .unwrap();
+        let default = usize::try_from(RecordSettings::default().default_max_message_bytes).unwrap();
+        // UDP, the small topics together, then the camera on its own: one
+        // buffer per subscription, at its own stream's largest message.
+        assert_eq!(plan.receiver_buffers(), [0, 64 + default, camera]);
+        assert_eq!(
+            plan.receiver_buffers_held(),
+            ReceiverBuffers {
+                tcp: 0,
+                ros2: 64 + default + camera
+            }
+        );
+        let memory =
+            kapto_capture::threads::ThreadMemory::capture(&plan.receiver_buffers(), false, 16);
+        let without = kapto_capture::threads::ThreadMemory::capture(&[0; 3], false, 16);
+        assert_eq!(
+            memory.total_bytes() - without.total_bytes(),
+            64 + default + camera
+        );
     }
 
     #[test]
