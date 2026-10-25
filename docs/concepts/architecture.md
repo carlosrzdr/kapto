@@ -99,7 +99,7 @@ live from any thread:
 | `received` | Messages that reached Kapto |
 | `decoded` | Received messages whose live fields, such as the sequence number, could be read |
 | `written` | Received messages stored in the recording |
-| `dropped_by_us` | Received messages Kapto discarded, e.g. because the writer fell behind |
+| `dropped_by_us` | Received messages Kapto discarded, e.g. because the writer fell behind, a datagram was too long for its slot, or (UDP on Linux) the operating system dropped it because the socket's buffer was full before Kapto read it, counted as the next datagram arrives |
 | `lost_upstream` | Messages the source sent that never reached Kapto |
 
 The receiver thread updates them once per batch. `lost_upstream` comes from

@@ -86,6 +86,71 @@ fn every_port_is_read_when_more_are_ready_at_once_than_one_wait_reports() {
 }
 
 #[test]
+fn ports_with_more_waiting_than_a_batch_holds_are_each_served_first_in_turn() {
+    // Each port has two batches' worth waiting: the second batch starts
+    // with the other port, rather than the first again, so under load the
+    // same port's buffer isn't always the one left to overflow.
+    let mut transport = open(&[
+        UdpSocketConfig::new(0, "127.0.0.1:0".parse().unwrap()),
+        UdpSocketConfig::new(1, "127.0.0.1:0".parse().unwrap()),
+    ]);
+    let ports: Vec<_> = transport.local_addrs().collect();
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    for _ in 0..8 {
+        for port in &ports {
+            sender.send_to(b"x", port).unwrap();
+        }
+    }
+    let mut batch = Batch::new(4, 4);
+    let mut firsts = Vec::new();
+    for _ in 0..2 {
+        while !batch.is_full() && transport.receive(&mut batch, WAIT).unwrap() > 0 {}
+        firsts.push(batch.messages().next().unwrap().0);
+        batch.clear();
+    }
+    assert_ne!(firsts[0], firsts[1], "{firsts:?}");
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn datagrams_the_kernel_drops_for_want_of_buffer_are_counted_as_the_next_one_arrives() {
+    // A buffer for a few datagrams only, sent many more than it holds
+    // while nothing reads.
+    let mut transport = UdpTransport::open(
+        &[UdpSocketConfig::new(0, "127.0.0.1:0".parse().unwrap())],
+        UdpOptions {
+            receive_buffer_bytes: 4096,
+        },
+    )
+    .unwrap();
+    let port = transport.local_addrs().next().unwrap();
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let sent: u64 = 2_000;
+    for number in 0..sent {
+        sender.send_to(&number.to_le_bytes(), port).unwrap();
+    }
+    let mut batch = Batch::new(64, 8);
+    let mut received = 0;
+    let mut drain = |transport: &mut UdpTransport, batch: &mut Batch| {
+        while transport.receive(batch, WAIT).unwrap() > 0 {
+            received += batch.len() as u64;
+            batch.clear();
+        }
+    };
+    drain(&mut transport, &mut batch);
+    // The kernel says how many it dropped with the next datagram it keeps.
+    sender.send_to(&sent.to_le_bytes(), port).unwrap();
+    drain(&mut transport, &mut batch);
+    let dropped = transport.stats().overflowed(0);
+    assert!(dropped > 0, "the buffer holds far fewer than were sent");
+    assert_eq!(
+        received + dropped,
+        sent + 1,
+        "every datagram received or counted dropped"
+    );
+}
+
+#[test]
 fn many_waiting_datagrams_arrive_in_order_across_batches() {
     let (mut transport, send) = udp_on("127.0.0.1");
     for number in 0_u32..150 {

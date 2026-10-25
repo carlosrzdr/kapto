@@ -143,8 +143,11 @@ impl<T: Transport> Receiver<T> {
             };
             self.counters
                 .add_dropped_by_us(stream, self.ring.dropped_messages(stream));
-            self.counters
-                .add_discarded_on_arrival(stream, self.transport.stats().truncated(stream));
+            let stats = self.transport.stats();
+            self.counters.add_discarded_on_arrival(
+                stream,
+                stats.truncated(stream) + stats.overflowed(stream),
+            );
         }
         // Last: the writer may end the phase once it sees this.
         self.filler.close();

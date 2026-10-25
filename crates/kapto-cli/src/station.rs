@@ -1188,7 +1188,11 @@ impl Live<'_> {
         for spec in self.specs {
             let stream = spec.stream;
             let totals = self.counters.totals(stream);
-            let truncated: u64 = self.transports.iter().map(|t| t.truncated(stream)).sum();
+            let truncated: u64 = self
+                .transports
+                .iter()
+                .map(|t| t.truncated(stream) + t.overflowed(stream))
+                .sum();
             let ring_dropped: u64 = self.rings.iter().map(|r| r.dropped_messages(stream)).sum();
             disconnects += self
                 .transports
@@ -1251,7 +1255,11 @@ impl Live<'_> {
         self.specs.iter().map(|spec| {
             let stream = spec.stream;
             let mut totals = self.counters.totals(stream);
-            let truncated: u64 = self.transports.iter().map(|t| t.truncated(stream)).sum();
+            let truncated: u64 = self
+                .transports
+                .iter()
+                .map(|t| t.truncated(stream) + t.overflowed(stream))
+                .sum();
             let ring_dropped: u64 = self.rings.iter().map(|r| r.dropped_messages(stream)).sum();
             totals.received += truncated;
             totals.dropped_by_us += ring_dropped + truncated;

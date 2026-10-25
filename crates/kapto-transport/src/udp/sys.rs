@@ -91,10 +91,10 @@ impl Readiness {
         Ok(ready.len())
     }
 
-    /// Whether each socket, in order, has something to read (or an error to
-    /// report, which the next read returns).
-    pub(super) fn readable(&self) -> impl Iterator<Item = bool> + '_ {
-        self.readable.iter().copied()
+    /// Whether the socket at `index` has something to read (or an error to
+    /// report, which the next read returns) after the last wait.
+    pub(super) fn is_readable(&self, index: usize) -> bool {
+        self.readable.get(index).copied().unwrap_or(false)
     }
 }
 
@@ -105,6 +105,10 @@ pub(super) struct Readiness(Vec<libc::pollfd>);
 #[cfg(not(target_os = "linux"))]
 impl Readiness {
     /// Lists `sockets` to be waited on, in order.
+    #[allow(
+        clippy::unnecessary_wraps,
+        reason = "as the Linux one, whose epoll can fail to be made"
+    )]
     pub(super) fn new<'a>(sockets: impl Iterator<Item = &'a UdpSocket>) -> io::Result<Self> {
         Ok(Self(
             sockets
@@ -132,10 +136,10 @@ impl Readiness {
         }
     }
 
-    /// Whether each socket, in order, has something to read (or an error to
-    /// report, which the next read returns).
-    pub(super) fn readable(&self) -> impl Iterator<Item = bool> + '_ {
-        self.0.iter().map(|fd| fd.revents != 0)
+    /// Whether the socket at `index` has something to read (or an error to
+    /// report, which the next read returns) after the last wait.
+    pub(super) fn is_readable(&self, index: usize) -> bool {
+        self.0.get(index).is_some_and(|fd| fd.revents != 0)
     }
 }
 
@@ -148,23 +152,73 @@ impl fmt::Debug for Readiness {
     }
 }
 
+/// Room for the control message the kernel adds to each datagram: how many
+/// it has dropped on the socket so far, a `u32` with its header (`CMSG_SPACE`
+/// of 4 bytes is 16 or 24, whatever the platform).
+#[cfg(target_os = "linux")]
+const CONTROL_LEN: usize = 32;
+
+/// One datagram's control message, aligned as the kernel writes it.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+#[repr(C, align(8))]
+struct Control([u8; CONTROL_LEN]);
+
+/// Asks the kernel to say, with each datagram, how many it has dropped on
+/// `socket` for want of room in its receive buffer. Without it (an old
+/// kernel) those drops can't be counted.
+#[cfg(target_os = "linux")]
+pub(super) fn report_overflow(socket: &impl AsRawFd) -> io::Result<()> {
+    let on: libc::c_int = 1;
+    #[allow(clippy::cast_possible_truncation, reason = "the size is 4 bytes")]
+    let len = size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: the option's value is a valid c_int of the length given,
+    // living for the call.
+    let set = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RXQ_OVFL,
+            std::ptr::from_ref(&on).cast(),
+            len,
+        )
+    };
+    if set == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Elsewhere, drops can't be counted.
+#[cfg(not(target_os = "linux"))]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "as the Linux one, whose setsockopt can fail"
+)]
+pub(super) fn report_overflow(_socket: &impl AsRawFd) -> io::Result<()> {
+    Ok(())
+}
+
 /// Reads the datagrams waiting on `socket`, without waiting, into
 /// consecutive `slot_len`-byte slots of `slots`, describing each in `out`.
-/// Returns how many were read.
+/// Returns how many were read, and how many the kernel has dropped on the
+/// socket so far, as of the last one, if it said.
 #[cfg(target_os = "linux")]
 pub(super) fn receive(
     socket: &UdpSocket,
     slots: &mut [u8],
     slot_len: usize,
     out: &mut [Datagram; CHUNK],
-) -> io::Result<usize> {
+) -> io::Result<(usize, Option<u32>)> {
     #[allow(clippy::cast_possible_truncation, reason = "the size is 128 bytes")]
     const ADDRESS_LEN: libc::socklen_t = size_of::<libc::sockaddr_storage>() as libc::socklen_t;
 
     let count = slots.len().checked_div(slot_len).unwrap_or(0).min(CHUNK);
     if count == 0 {
-        return Ok(0);
+        return Ok((0, None));
     }
+    let mut controls = [Control([0; CONTROL_LEN]); CHUNK];
     // SAFETY: these are C structs of integers and pointers, for which all
     // zero bytes is a valid value.
     let (mut addresses, mut iovecs, mut headers) = unsafe {
@@ -178,11 +232,18 @@ pub(super) fn receive(
         iovec.iov_base = slot.as_mut_ptr().cast();
         iovec.iov_len = slot_len;
     }
-    for ((header, iovec), address) in headers.iter_mut().zip(&mut iovecs).zip(&mut addresses) {
+    for (((header, iovec), address), control) in headers
+        .iter_mut()
+        .zip(&mut iovecs)
+        .zip(&mut addresses)
+        .zip(&mut controls)
+    {
         header.msg_hdr.msg_name = std::ptr::from_mut(address).cast();
         header.msg_hdr.msg_namelen = ADDRESS_LEN;
         header.msg_hdr.msg_iov = iovec;
         header.msg_hdr.msg_iovlen = 1;
+        header.msg_hdr.msg_control = control.0.as_mut_ptr().cast();
+        header.msg_hdr.msg_controllen = CONTROL_LEN as _;
     }
     let vlen = libc::c_uint::try_from(count).unwrap_or(0);
     // SAFETY: the first `count` headers each point to one address buffer of
@@ -200,7 +261,7 @@ pub(super) fn receive(
         )
     };
     let Ok(received) = usize::try_from(received) else {
-        return interrupted_is_nothing(io::Error::last_os_error());
+        return interrupted_is_nothing(io::Error::last_os_error()).map(|none| (none, None));
     };
     for ((datagram, header), address) in out.iter_mut().zip(&headers).zip(&addresses).take(received)
     {
@@ -210,35 +271,68 @@ pub(super) fn receive(
             source: source_ip(address),
         };
     }
-    Ok(received)
+    let dropped = received
+        .checked_sub(1)
+        .and_then(|last| headers.get(last))
+        .and_then(|last| dropped_so_far(&last.msg_hdr));
+    Ok((received, dropped))
+}
+
+/// The kernel's count of datagrams dropped on the socket so far, from the
+/// control messages of the datagram `header` describes, if it holds one.
+#[cfg(target_os = "linux")]
+fn dropped_so_far(header: &libc::msghdr) -> Option<u32> {
+    // SAFETY: `header` was filled in by recvmmsg, its control buffer and
+    // length describing control messages the kernel wrote; CMSG_FIRSTHDR
+    // and CMSG_NXTHDR walk them within that length, returning null past it.
+    let mut message = unsafe { libc::CMSG_FIRSTHDR(header) };
+    while !message.is_null() {
+        // SAFETY: not null, so a header within the control buffer.
+        let control = unsafe { &*message };
+        if control.cmsg_level == libc::SOL_SOCKET && control.cmsg_type == libc::SO_RXQ_OVFL {
+            // SAFETY: SO_RXQ_OVFL's data is one u32, within the control
+            // message; it may not be aligned for a u32.
+            return Some(unsafe {
+                std::ptr::read_unaligned(libc::CMSG_DATA(message).cast::<u32>())
+            });
+        }
+        // SAFETY: as for the first, within the length the kernel gave.
+        message = unsafe { libc::CMSG_NXTHDR(header, message) };
+    }
+    None
 }
 
 /// Reads the datagrams waiting on `socket`, without waiting, into
-/// consecutive `slot_len`-byte slots of `slots`, describing each in `out`.
-/// Returns how many were read. This fallback can't tell that a datagram was
-/// cut to fit its slot.
+/// consecutive `slot_len`-byte slots of `slots`, describing each in `out`,
+/// one cut to fit its slot marked so, as the system's `MSG_TRUNC` says.
+/// Returns how many were read, and never how many the kernel dropped,
+/// which it doesn't say here.
 #[cfg(not(target_os = "linux"))]
 pub(super) fn receive(
     socket: &UdpSocket,
     slots: &mut [u8],
     slot_len: usize,
     out: &mut [Datagram; CHUNK],
-) -> io::Result<usize> {
+) -> io::Result<(usize, Option<u32>)> {
+    let socket = socket2::SockRef::from(socket);
     let mut received = 0;
     for (slot, datagram) in slots.chunks_exact_mut(slot_len.max(1)).zip(out) {
-        match socket.recv_from(slot) {
-            Ok((len, source)) => {
+        // SAFETY: a `u8` and a `MaybeUninit<u8>` have the same layout, and
+        // the system only writes bytes into the slot, never uninitialised ones.
+        let slot = unsafe { &mut *(std::ptr::from_mut(slot) as *mut [std::mem::MaybeUninit<u8>]) };
+        match socket.recv_from_vectored(&mut [socket2::MaybeUninitSlice::new(slot)]) {
+            Ok((len, flags, source)) => {
                 *datagram = Datagram {
                     len,
-                    truncated: false,
-                    source: Some(source.ip()),
+                    truncated: flags.is_truncated(),
+                    source: source.as_socket().map(|source| source.ip()),
                 };
                 received += 1;
             }
-            Err(error) => return interrupted_is_nothing(error).map(|_| received),
+            Err(error) => return interrupted_is_nothing(error).map(|_| (received, None)),
         }
     }
-    Ok(received)
+    Ok((received, None))
 }
 
 /// Having nothing to read, or being interrupted by a signal, means "nothing

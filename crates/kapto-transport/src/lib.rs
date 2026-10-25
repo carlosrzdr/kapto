@@ -64,7 +64,9 @@ impl<T: Transport + ?Sized> Transport for Box<T> {
 pub struct TransportStats {
     rejected: Box<[AtomicU64]>,
     truncated: Box<[AtomicU64]>,
+    overflowed: Box<[AtomicU64]>,
     disconnects: Box<[AtomicU64]>,
+    publishers_replaced: Box<[AtomicU64]>,
 }
 
 impl TransportStats {
@@ -74,7 +76,9 @@ impl TransportStats {
         Self {
             rejected: (0..streams).map(|_| AtomicU64::new(0)).collect(),
             truncated: (0..streams).map(|_| AtomicU64::new(0)).collect(),
+            overflowed: (0..streams).map(|_| AtomicU64::new(0)).collect(),
             disconnects: (0..streams).map(|_| AtomicU64::new(0)).collect(),
+            publishers_replaced: (0..streams).map(|_| AtomicU64::new(0)).collect(),
         }
     }
 
@@ -92,12 +96,29 @@ impl TransportStats {
         load(&self.truncated, stream)
     }
 
+    /// Messages for `stream` the operating system dropped before Kapto read
+    /// them, its receive buffer full: Kapto's loss, as a message cut to fit
+    /// is. Counted for UDP on Linux, which says how many it dropped.
+    #[must_use]
+    pub fn overflowed(&self, stream: StreamIndex) -> u64 {
+        load(&self.overflowed, stream)
+    }
+
     /// Times `stream`'s connection was lost after it had been established.
     /// Messages the robot sent while it was down never arrived: a gap in the
     /// stream that sequence numbers, if the stream has them, also show.
     #[must_use]
     pub fn disconnects(&self, stream: StreamIndex) -> u64 {
         load(&self.disconnects, stream)
+    }
+
+    /// Times a new publisher of `stream` took the place of another, every
+    /// place to tell publishers apart by their counts being taken (ROS 2):
+    /// the one heard from least recently gives it up, most likely gone
+    /// after a restart. Its count is then followed for the new one.
+    #[must_use]
+    pub fn publishers_replaced(&self, stream: StreamIndex) -> u64 {
+        load(&self.publishers_replaced, stream)
     }
 
     /// Sets every count back to zero, so they describe the next episode
@@ -107,7 +128,9 @@ impl TransportStats {
             .rejected
             .iter()
             .chain(&self.truncated)
+            .chain(&self.overflowed)
             .chain(&self.disconnects)
+            .chain(&self.publishers_replaced)
         {
             counter.store(0, Ordering::Relaxed);
         }
@@ -117,12 +140,26 @@ impl TransportStats {
         add(&self.disconnects, stream);
     }
 
+    #[cfg_attr(
+        not(feature = "ros2"),
+        allow(dead_code, reason = "only ROS 2 tells publishers apart")
+    )]
+    fn count_publisher_replaced(&self, stream: StreamIndex) {
+        add(&self.publishers_replaced, stream);
+    }
+
     fn count_rejected(&self, stream: StreamIndex) {
         add(&self.rejected, stream);
     }
 
     fn count_truncated(&self, stream: StreamIndex) {
         add(&self.truncated, stream);
+    }
+
+    fn count_overflowed_by(&self, stream: StreamIndex, count: u64) {
+        if let Some(counter) = self.overflowed.get(usize::from(stream)) {
+            counter.fetch_add(count, Ordering::Relaxed);
+        }
     }
 
     fn count_truncated_by(&self, stream: StreamIndex, count: u64) {
@@ -141,5 +178,26 @@ fn load(counters: &[AtomicU64], stream: StreamIndex) -> u64 {
 fn add(counters: &[AtomicU64], stream: StreamIndex) {
     if let Some(count) = counters.get(usize::from(stream)) {
         count.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// The places of `count` sources in the order to serve them, starting at
+/// `first` and going round: a transport starting one further along each
+/// read gives each source its turn to be served first, so under load the
+/// same ones aren't always left until the batch is full.
+pub(crate) fn in_turn(count: usize, first: usize) -> impl Iterator<Item = usize> {
+    (0..count).map(move |offset| (first + offset) % count.max(1))
+}
+
+#[cfg(test)]
+mod in_turn_tests {
+    use super::in_turn;
+
+    #[test]
+    fn each_source_is_served_first_in_turn_and_every_one_once() {
+        assert_eq!(in_turn(3, 0).collect::<Vec<_>>(), [0, 1, 2]);
+        assert_eq!(in_turn(3, 1).collect::<Vec<_>>(), [1, 2, 0]);
+        assert_eq!(in_turn(3, 2).collect::<Vec<_>>(), [2, 0, 1]);
+        assert_eq!(in_turn(0, 0).count(), 0);
     }
 }

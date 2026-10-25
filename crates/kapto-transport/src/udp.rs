@@ -11,6 +11,7 @@ mod sys;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use kapto_capture::{Batch, StreamIndex};
@@ -75,6 +76,8 @@ pub struct UdpTransport {
     readiness: sys::Readiness,
     stats: Arc<TransportStats>,
     warnings: Vec<KaptoError>,
+    /// The socket served first on the next read, one further along each time.
+    first: usize,
 }
 
 #[derive(Debug)]
@@ -83,6 +86,9 @@ struct StreamSocket {
     local: SocketAddr,
     stream: StreamIndex,
     allowed: Vec<IpAddr>,
+    /// The kernel's count of datagrams it dropped on the socket, as last
+    /// read: what it says next, less this, is the loss since.
+    dropped: AtomicU32,
 }
 
 impl StreamSocket {
@@ -147,6 +153,7 @@ impl UdpTransport {
                     .iter()
                     .map(IpAddr::to_canonical)
                     .collect(),
+                dropped: AtomicU32::new(0),
             });
         }
         warnings.extend(small_buffers(options.receive_buffer_bytes, &small));
@@ -158,6 +165,7 @@ impl UdpTransport {
             stats: Arc::new(TransportStats::new(streams.max().unwrap_or(0))),
             sockets: opened,
             warnings,
+            first: 0,
         })
     }
 
@@ -179,18 +187,24 @@ impl Transport for UdpTransport {
         if batch.is_full() || self.readiness.wait(timeout).map_err(receive_error)? == 0 {
             return Ok(0);
         }
-        let now = monotonic_now();
-        let was_empty = batch.is_empty();
+        // Stamped before reading, not after: a socket failing after another
+        // delivered still leaves those messages with this read's time, as
+        // the receiver sends them on whatever went wrong.
+        if batch.is_empty() {
+            batch.set_recv_time(monotonic_now());
+        }
         let mut added = 0;
-        for (socket, readable) in self.sockets.iter().zip(self.readiness.readable()) {
-            if readable && !batch.is_full() {
+        let first = self.first;
+        self.first = (first + 1) % self.sockets.len().max(1);
+        for index in crate::in_turn(self.sockets.len(), first) {
+            let Some(socket) = self.sockets.get(index) else {
+                continue;
+            };
+            if self.readiness.is_readable(index) && !batch.is_full() {
                 added += receive_from(socket, batch, &self.stats).map_err(|error| {
                     receive_error(error).context("address", socket.local.to_string())
                 })?;
             }
-        }
-        if was_empty && added > 0 {
-            batch.set_recv_time(now);
         }
         Ok(added)
     }
@@ -210,7 +224,15 @@ fn receive_from(
     let mut added = 0;
     loop {
         let slot_len = batch.max_message_len();
-        let received = sys::receive(&socket.socket, batch.free_slots(), slot_len, &mut datagrams)?;
+        let (received, dropped) =
+            sys::receive(&socket.socket, batch.free_slots(), slot_len, &mut datagrams)?;
+        if let Some(dropped) = dropped {
+            // Counted by the kernel since the socket opened, wrapping.
+            let since = dropped.wrapping_sub(socket.dropped.swap(dropped, Ordering::Relaxed));
+            if since > 0 {
+                stats.count_overflowed_by(socket.stream, u64::from(since));
+            }
+        }
         let mut kept = 0;
         for (index, datagram) in datagrams[..received].iter().enumerate() {
             if datagram.truncated {
@@ -258,6 +280,9 @@ fn open_socket(config: &UdpSocketConfig, options: UdpOptions) -> Result<Opened, 
         })?;
     }
     socket.set_nonblocking(true).map_err(bind_failed)?;
+    // Every Linux since 2.6.33 says how many it dropped; one that can't
+    // leaves those drops uncounted, as on other systems.
+    let _ = sys::report_overflow(&socket);
     Ok((socket.into(), buffer))
 }
 
@@ -433,6 +458,7 @@ mod tests {
             local: "127.0.0.1:0".parse().unwrap(),
             stream: 0,
             allowed: vec!["10.0.0.7".parse().unwrap()],
+            dropped: AtomicU32::new(0),
         };
         assert!(socket.allows(Some("::ffff:10.0.0.7".parse().unwrap())));
         assert!(!socket.allows(Some("10.0.0.8".parse().unwrap())));

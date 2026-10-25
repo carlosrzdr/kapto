@@ -47,6 +47,8 @@ pub struct Ros2Transport {
     node: rcl::Node,
     streams: Vec<StreamIndex>,
     stats: Arc<TransportStats>,
+    /// The subscription served first on the next read, one further along each time.
+    first: usize,
 }
 
 // The node is rcl's handles, which can't be printed.
@@ -84,6 +86,7 @@ impl Ros2Transport {
             node,
             stats: Arc::new(TransportStats::new(count.unwrap_or(0))),
             streams,
+            first: 0,
         })
     }
 }
@@ -93,10 +96,19 @@ impl Transport for Ros2Transport {
         if batch.is_full() || !self.node.wait(timeout)? {
             return Ok(0);
         }
-        let now = monotonic_now();
-        let was_empty = batch.is_empty();
+        // Stamped before taking, not after: a subscription failing after
+        // another delivered still leaves those messages with this read's
+        // time, as the receiver sends them on whatever went wrong.
+        if batch.is_empty() {
+            batch.set_recv_time(monotonic_now());
+        }
         let mut added = 0;
-        for (index, &stream) in self.streams.iter().enumerate() {
+        let first = self.first;
+        self.first = (first + 1) % self.streams.len().max(1);
+        for index in crate::in_turn(self.streams.len(), first) {
+            let Some(&stream) = self.streams.get(index) else {
+                continue;
+            };
             if !self.node.is_ready(index) {
                 continue;
             }
@@ -121,9 +133,6 @@ impl Transport for Ros2Transport {
                     self.stats.count_truncated(stream);
                 }
             }
-        }
-        if was_empty && added > 0 {
-            batch.set_recv_time(now);
         }
         Ok(added)
     }
