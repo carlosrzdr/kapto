@@ -67,6 +67,18 @@ How many frames a second, at most, of each camera the recording hands to the liv
 | Environment variable | `KAPTO_VIEWER_CAMERA_MAX_FPS` |
 | Flag | `--viewer-camera-max-fps` |
 
+## `viewer.page_pictures`
+
+How many cameras' pictures a second, at most, the viewer bridge sends each page, shared evenly among its cameras and never more of one than `viewer.camera_max_fps`: with more cameras each is shown less often, so their pictures don't hold up the robot on the page's connection.
+
+| | |
+|---|---|
+| Section and name | `[viewer]` `page_pictures` |
+| Accepts | a whole number of times per second from 1 to 1000 |
+| Default | `60` |
+| Environment variable | `KAPTO_VIEWER_PAGE_PICTURES` |
+| Flag | `--viewer-page-pictures` |
+
 ## `viewer.history`
 
 How much recent live data, in MiB, the viewer bridge keeps for the live view to look back over; the oldest goes first.

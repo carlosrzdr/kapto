@@ -56,6 +56,7 @@
 | `--upload-timeout-connect <SECONDS>` | How long connecting may take (`upload.timeout_connect`) |
 | `--upload-timeout-request <SECONDS>` | How long one request may take (`upload.timeout_request`) |
 | `--viewer-camera-max-fps <HZ>` | Frames a second, at most, of each camera sent to the live view (`viewer.camera_max_fps`) |
+| `--viewer-page-pictures <HZ>` | Cameras' pictures a second, at most, sent each page, shared among its cameras (`viewer.page_pictures`) |
 | `--viewer-camera-history <MIB>` | MiB of every camera's pictures the viewer bridge keeps to look back over (`viewer.camera_history`) |
 | `--viewer-camera-history-fps <HZ>` | Pictures a second of each camera the viewer bridge keeps to look back over (`viewer.camera_history_fps`) |
 | `--viewer-camera-history-width <PIXELS>` | Pixels wide, at most, the pictures the viewer bridge keeps to look back over are (`viewer.camera_history_width`) |

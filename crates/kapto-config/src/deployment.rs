@@ -57,6 +57,9 @@ pub struct DeploymentConfig {
     /// How many frames a second, at most, of each camera reach the live
     /// view.
     pub viewer_camera_max_fps: Effective<u32>,
+    /// Cameras' pictures a second, at most, the viewer bridge sends each
+    /// page, shared evenly among its cameras (`viewer.page_pictures`).
+    pub viewer_page_pictures: Effective<u32>,
     /// How much recent live data the viewer bridge keeps, in MiB.
     pub viewer_history_mib: Effective<u64>,
     /// How much of cameras' pictures the viewer bridge keeps, in MiB.
@@ -182,6 +185,7 @@ impl DeploymentConfig {
             }),
             viewer_display_rate: take(&mut values, "viewer.display_rate", hertz),
             viewer_camera_max_fps: take(&mut values, "viewer.camera_max_fps", hertz),
+            viewer_page_pictures: take(&mut values, "viewer.page_pictures", hertz),
             viewer_history_mib: take(&mut values, "viewer.history", mebibytes),
             viewer_history_age: take(&mut values, "viewer.history_age", seconds),
             viewer_camera_history_mib: take(&mut values, "viewer.camera_history", mebibytes),
@@ -245,6 +249,7 @@ impl DeploymentConfig {
                     "viewer.stream_port" => text(&self.viewer_stream_port),
                     "viewer.display_rate" => text(&self.viewer_display_rate),
                     "viewer.camera_max_fps" => text(&self.viewer_camera_max_fps),
+                    "viewer.page_pictures" => text(&self.viewer_page_pictures),
                     "viewer.history" => text(&self.viewer_history_mib),
                     "viewer.history_age" => seconds_text(&self.viewer_history_age),
                     "viewer.camera_history" => text(&self.viewer_camera_history_mib),
@@ -1446,6 +1451,7 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.control_timeout.value, Duration::from_secs(60));
         assert_eq!(config.viewer_display_rate.value, 60);
         assert_eq!(config.viewer_camera_max_fps.value, 30);
+        assert_eq!(config.viewer_page_pictures.value, 60);
         assert_eq!(config.viewer_history_mib.value, 64);
         assert_eq!(config.viewer_camera_history_mib.value, 128);
         assert_eq!(config.viewer_camera_history_fps.value, 5);
@@ -1459,7 +1465,7 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
 
         let file = file(
             "[supervisor]\nrestart_delay = 0.5\nstable_after = 10\n\
-             [viewer]\ndisplay_rate = 30\ncamera_max_fps = 15\nhistory = 256\nreplay_cache_age = 30\n\
+             [viewer]\ndisplay_rate = 30\ncamera_max_fps = 15\npage_pictures = 40\nhistory = 256\nreplay_cache_age = 30\n\
              camera_history = 64\ncamera_history_fps = 2\ncamera_history_width = 320\n\
              [capture]\ncontrol_timeout = 20\nattach_meshes = true\n[worker]\nmax_attempts = 5\npause_while_recording = false\n\
              [bin]\nkeep_days = 30\n",
@@ -1469,6 +1475,7 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
             ("KAPTO_VIEWER_REPLAY_CACHE_AGE", "14"),
             ("KAPTO_VIEWER_CAMERA_MAX_FPS", "10"),
             ("KAPTO_VIEWER_CAMERA_HISTORY_FPS", "3"),
+            ("KAPTO_VIEWER_PAGE_PICTURES", "24"),
         ]);
         let flags = [
             cli("supervisor.stable_after", "15", "--supervisor-stable-after"),
@@ -1482,6 +1489,7 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
                 "480",
                 "--viewer-camera-history-width",
             ),
+            cli("viewer.page_pictures", "12", "--viewer-page-pictures"),
         ];
         let config = resolve(Some(&file), &vars, &flags).unwrap();
         assert_eq!(config.restart_delay.value, Duration::from_millis(500));
@@ -1489,6 +1497,8 @@ frame_socket = \"/run/kapto/frames.sock\"\n",
         assert_eq!(config.viewer_display_rate.value, 30);
         // The environment over the file.
         assert_eq!(config.viewer_camera_max_fps.value, 10);
+        // A page's pictures: a flag over the environment over the file.
+        assert_eq!(config.viewer_page_pictures.value, 12);
         assert_eq!(config.viewer_history_mib.value, 256);
         assert_eq!(config.replay_cache_age_days.value, 14);
         assert_eq!(config.replay_cache_size_mib.value, 512);

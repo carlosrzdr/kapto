@@ -21,6 +21,7 @@ use crate::camera_history::CameraHistorySettings;
 use crate::history::History;
 use crate::live::LiveRobot;
 use crate::marks::{Marks, watch_capture};
+use crate::page_pictures::PageShare;
 use crate::picture::CameraKind;
 use crate::plots::Plots;
 use crate::stream::{Frame, FrameStream, Opening, OpeningStream, STREAM_VERSION, StreamStats};
@@ -61,6 +62,9 @@ pub struct BridgeSettings {
     /// What it keeps of cameras' pictures for pages looking back; kept as
     /// long as `history_age`.
     pub camera_history: CameraHistorySettings,
+    /// How many cameras' pictures a second each page is sent, shared among
+    /// its cameras.
+    pub page_share: PageShare,
 }
 
 impl BridgeSettings {
@@ -79,6 +83,7 @@ impl BridgeSettings {
             history_bytes: 64 * 1024 * 1024,
             history_age: Duration::from_secs(600),
             camera_history: CameraHistorySettings::default(),
+            page_share: PageShare::default(),
         }
     }
 }
@@ -148,6 +153,7 @@ impl Bridge {
             age_ns,
             ..settings.camera_history
         });
+        stream.share_pictures_by(settings.page_share);
         let stop_watching = watch_marks(settings.control_socket.as_ref(), &stream)?;
         let reader = TapReader::bind(&settings.tap_socket).map_err(|error| {
             KaptoError::new(ErrorCode::ViewerTapSocketFailed)

@@ -250,6 +250,9 @@ struct SettingFlags {
     /// Frames a second, at most, of each camera sent to the live view (`viewer.camera_max_fps`).
     #[arg(long = "viewer-camera-max-fps", global = true, value_name = "HZ")]
     camera_max_fps: Option<String>,
+    /// Cameras' pictures a second, at most, sent each page, shared among its cameras (`viewer.page_pictures`).
+    #[arg(long = "viewer-page-pictures", global = true, value_name = "HZ")]
+    page_pictures: Option<String>,
     /// MiB of every camera's pictures the viewer bridge keeps to look back over (`viewer.camera_history`).
     #[arg(long = "viewer-camera-history", global = true, value_name = "MIB")]
     camera_history: Option<String>,
@@ -332,6 +335,7 @@ pub const SETTING_FLAGS: &[(&str, &str)] = &[
     ("upload.timeout_connect", "--upload-timeout-connect"),
     ("upload.timeout_request", "--upload-timeout-request"),
     ("viewer.camera_max_fps", "--viewer-camera-max-fps"),
+    ("viewer.page_pictures", "--viewer-page-pictures"),
     ("viewer.camera_history", "--viewer-camera-history"),
     ("viewer.camera_history_fps", "--viewer-camera-history-fps"),
     (
@@ -408,6 +412,7 @@ impl SettingFlags {
             &self.upload_timeout_connect,
             &self.upload_timeout_request,
             &self.camera_max_fps,
+            &self.page_pictures,
             &self.camera_history,
             &self.camera_history_fps,
             &self.camera_history_width,
@@ -650,6 +655,7 @@ mod tests {
             upload_timeout_connect: Some("upload-timeout-connect".into()),
             upload_timeout_request: Some("upload-timeout-request".into()),
             camera_max_fps: Some("viewer-camera-max-fps".into()),
+            page_pictures: Some("viewer-page-pictures".into()),
             camera_history: Some("viewer-camera-history".into()),
             camera_history_fps: Some("viewer-camera-history-fps".into()),
             camera_history_width: Some("viewer-camera-history-width".into()),
@@ -739,6 +745,7 @@ mod tests {
             upload_timeout_connect: Some(String::new()),
             upload_timeout_request: Some(String::new()),
             camera_max_fps: Some(String::new()),
+            page_pictures: Some(String::new()),
             camera_history: Some(String::new()),
             camera_history_fps: Some(String::new()),
             camera_history_width: Some(String::new()),

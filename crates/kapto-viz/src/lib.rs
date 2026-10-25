@@ -18,6 +18,7 @@ pub mod live;
 #[cfg(unix)]
 pub mod marks;
 pub mod page_layout;
+pub mod page_pictures;
 pub mod page_scene;
 pub mod picture;
 #[cfg(unix)]

@@ -22,6 +22,7 @@ use kapto_config::{ConfigFile, parse_mapping, parse_streams};
 use kapto_core::{ClockSample, ErrorCode, RecvTime};
 use kapto_robot::{JointMap, Kinematics, RobotModel, load_urdf};
 use kapto_testkit::scratch;
+use kapto_viz::page_pictures::PageShare;
 use kapto_viz::picture::CameraKind;
 use kapto_viz::stream::{PICTURE_HEADER, PICTURE_MAGIC, STREAM_VERSION};
 use kapto_viz::{Bridge, BridgeSettings, LiveRobot, Plots};
@@ -51,6 +52,11 @@ fn arm7() -> (RobotModel, LiveRobot) {
 /// A bridge whose streams 1 and 2 are a ROS 2 compressed camera and a raw
 /// one, and capture's end of the frame socket.
 fn bridge(folder: &Path) -> (Bridge, BridgeSettings, Capture) {
+    bridge_sharing(folder, PageShare::default())
+}
+
+/// A bridge sending each page its cameras' pictures by `share`.
+fn bridge_sharing(folder: &Path, share: PageShare) -> (Bridge, BridgeSettings, Capture) {
     let port = TcpListener::bind((LOCALHOST, 0))
         .unwrap()
         .local_addr()
@@ -59,6 +65,7 @@ fn bridge(folder: &Path) -> (Bridge, BridgeSettings, Capture) {
     let mut settings = BridgeSettings::new(LOCALHOST, (port, 7700), folder.join("tap.sock"));
     settings.frame_socket = Some(folder.join("frames.sock"));
     settings.cameras = vec![(1, CameraKind::CompressedImage), (2, CameraKind::Image)];
+    settings.page_share = share;
     let (robot, live) = arm7();
     let bridge = Bridge::start(&settings, &robot, live, &Plots::new(&[])).unwrap();
     let capture = Capture::new(&folder.join("frames.sock"));
@@ -312,6 +319,36 @@ fn a_page_that_stops_reading_misses_pictures_and_never_holds_up_the_bridge() {
     assert!(started.elapsed() < Duration::from_secs(10));
     let stream = bridge.stream_stats();
     assert!(stream.pictures_dropped > 0, "{stream:?}");
+    drop(bridge);
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[test]
+fn a_pages_cameras_share_its_pictures_and_it_still_gets_each_ones_newest() {
+    let folder = scratch("bridge-pictures-shared");
+    // Four a second for the page's two cameras: one every half second each.
+    let share = PageShare {
+        pictures_per_second: 4,
+        camera_max_fps: 30,
+    };
+    let (bridge, settings, mut capture) = bridge_sharing(&folder, share);
+    let (mut page, _) = watch(settings.stream_port);
+    for shade in 1..=30 {
+        capture.send(1, &compressed_image(&a_jpeg(shade)));
+    }
+    // The newest arrives once its camera's share allows, with fewer before.
+    let newest = a_jpeg(30);
+    let mut received = 0;
+    loop {
+        let picture = next_picture(&mut page);
+        received += 1;
+        if picture.picture == newest {
+            break;
+        }
+    }
+    assert!(received < 30, "{received} of 30 pictures reached the page");
+    let stream = bridge.stream_stats();
+    assert!(stream.pictures_thinned > 0, "{stream:?}");
     drop(bridge);
     std::fs::remove_dir_all(folder).unwrap();
 }

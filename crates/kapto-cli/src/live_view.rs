@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use kapto_core::{ClockSample, ErrorCode, KaptoError};
 use kapto_viz::camera_history::CameraHistorySettings;
+use kapto_viz::page_pictures::PageShare;
 use kapto_viz::picture::CameraKind;
 use kapto_viz::{Bridge, BridgeSettings, LiveRobot, Plots, StreamFields};
 
@@ -62,29 +63,7 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
     let live = LiveRobot::new(&robot, kinematics, &map, streams.len(), clock);
     let plots = Plots::new(&StreamFields::of(&streams));
 
-    let mut settings = BridgeSettings::new(
-        deployment.server_bind.value,
-        (
-            deployment.viewer_stream_port.value,
-            deployment.server_port.value,
-        ),
-        deployment.tap_socket.value.clone(),
-    );
-    settings.control_socket = Some(deployment.control_socket.value.clone());
-    settings.frame_socket = Some(deployment.frame_socket.value.clone());
-    settings.cameras = cameras;
-    settings.display_interval =
-        Duration::from_secs(1) / deployment.viewer_display_rate.value.max(1);
-    settings.history_bytes = deployment.viewer_history_mib.value * 1024 * 1024;
-    settings.history_age = deployment.viewer_history_age.value;
-    settings.camera_history = CameraHistorySettings {
-        every: Duration::from_secs(1) / deployment.viewer_camera_history_fps.value.max(1),
-        width: deployment.viewer_camera_history_width.value,
-        bytes: usize::try_from(deployment.viewer_camera_history_mib.value * 1024 * 1024)
-            .unwrap_or(usize::MAX),
-        // The bridge keeps them as long as the rest of its history.
-        age_ns: i64::MAX,
-    };
+    let settings = bridge_settings(&deployment, cameras);
     let mut bridge = Bridge::start(&settings, &robot, live, &plots).map_err(|error| vec![error])?;
     println!(
         "Streaming {} to the live view on port {}",
@@ -124,14 +103,50 @@ fn run(flags: &SettingFlags, args: &VizBridgeArgs) -> Result<(), Vec<KaptoError>
     if let Some(cameras) = bridge.camera_totals() {
         let stream = bridge.stream_stats();
         println!(
-            "Read {} cameras' frames: {} shown, {} that can't be shown, {} connections that sent something else; pictures sent to pages {}, missed by slow pages {}",
+            "Read {} cameras' frames: {} shown, {} that can't be shown, {} connections that sent something else; pictures sent to pages {}, held back for a page's share {}, missed by slow pages {}",
             cameras.frames,
             cameras.shown,
             cameras.unshown,
             cameras.unreadable,
             stream.pictures_sent,
+            stream.pictures_thinned,
             stream.pictures_dropped
         );
     }
     Ok(())
+}
+
+/// The bridge's settings from `deployment`'s, showing `cameras`.
+fn bridge_settings(
+    deployment: &kapto_config::DeploymentConfig,
+    cameras: Vec<(u16, CameraKind)>,
+) -> BridgeSettings {
+    let mut settings = BridgeSettings::new(
+        deployment.server_bind.value,
+        (
+            deployment.viewer_stream_port.value,
+            deployment.server_port.value,
+        ),
+        deployment.tap_socket.value.clone(),
+    );
+    settings.control_socket = Some(deployment.control_socket.value.clone());
+    settings.frame_socket = Some(deployment.frame_socket.value.clone());
+    settings.cameras = cameras;
+    settings.display_interval =
+        Duration::from_secs(1) / deployment.viewer_display_rate.value.max(1);
+    settings.history_bytes = deployment.viewer_history_mib.value * 1024 * 1024;
+    settings.history_age = deployment.viewer_history_age.value;
+    settings.page_share = PageShare {
+        pictures_per_second: deployment.viewer_page_pictures.value,
+        camera_max_fps: deployment.viewer_camera_max_fps.value,
+    };
+    settings.camera_history = CameraHistorySettings {
+        every: Duration::from_secs(1) / deployment.viewer_camera_history_fps.value.max(1),
+        width: deployment.viewer_camera_history_width.value,
+        bytes: usize::try_from(deployment.viewer_camera_history_mib.value * 1024 * 1024)
+            .unwrap_or(usize::MAX),
+        // The bridge keeps them as long as the rest of its history.
+        age_ns: i64::MAX,
+    };
+    settings
 }

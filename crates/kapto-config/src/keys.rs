@@ -89,6 +89,12 @@ pub const DEPLOYMENT_KEYS: &[Key] = &[
         default: DefaultValue::Fixed("30"),
     },
     Key {
+        path: "viewer.page_pictures",
+        value_type: ValueType::Hertz,
+        help: "How many cameras' pictures a second, at most, the viewer bridge sends each page, shared evenly among its cameras and never more of one than `viewer.camera_max_fps`: with more cameras each is shown less often, so their pictures don't hold up the robot on the page's connection.",
+        default: DefaultValue::Fixed("60"),
+    },
+    Key {
         path: "viewer.history",
         value_type: ValueType::Mebibytes,
         help: "How much recent live data, in MiB, the viewer bridge keeps for the live view to look back over; the oldest goes first.",

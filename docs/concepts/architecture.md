@@ -376,12 +376,19 @@ end. The bridge's `viz-cameras` thread reads them: it takes each picture
 out (a `CompressedImage`'s, an `Image`'s, a TCP camera's as declared),
 encodes a raw one as JPEG there, never in capture, and sends it to each
 page as a message of its own beside the frames, with each camera's newest
-kept for a page that connects. A frame that can't be shown, such as an
+kept for a page that connects. Each page gets at most
+`viewer.page_pictures` pictures a second (60 by default) across its
+cameras, each an even share no more than `viewer.camera_max_fps`: until a
+camera's share allows its next, only its newest waits, so with more
+cameras each is shown less often while the robot's frames, on the same
+connection, aren't held up; pictures held back are counted apart from
+those a slow page missed. A frame that can't be shown, such as an
 encoding the bridge doesn't encode, is counted and named to the page. The
 live view shows each camera's newest picture above the plots, with how long
-it took to reach the page: decoded by the browser, one at a time per
-camera, so a slow browser shows fewer pictures, never older ones; a camera
-that can't be shown says why instead.
+it took to reach the page: decoded by the browser in a worker off the
+page's main thread, one at a time per camera, so a slow browser shows
+fewer pictures, never older ones; a camera that can't be shown says why
+instead.
 
 In replay, a camera's frames are read from the recording itself, not from
 the replay view ([cameras in replay](../design/cameras-in-replay.md)): the

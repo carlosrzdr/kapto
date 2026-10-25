@@ -266,6 +266,7 @@ server.port                       7701                                     /conf
 viewer.stream_port                9877                                     default
 viewer.display_rate               60                                       default
 viewer.camera_max_fps             30                                       default
+viewer.page_pictures              60                                       default
 viewer.history                    64                                       default
 viewer.history_age                600                                      default
 viewer.camera_history             128                                      default

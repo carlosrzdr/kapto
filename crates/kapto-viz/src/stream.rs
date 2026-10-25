@@ -16,8 +16,9 @@
 //! page is told as they come.
 //!
 //! Cameras' pictures go to each page as messages of their own
-//! ([`picture_message`]), with room for a few per page like frames, and
-//! each camera's newest kept for a page that connects.
+//! ([`picture_message`]), each camera's an even share of the page's
+//! pictures a second ([`PageShare`]), only its newest waiting meanwhile,
+//! and each camera's newest kept for a page that connects.
 
 use std::io::{self, ErrorKind};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
@@ -25,7 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use kapto_capture::tap::wire::TapSample;
 use kapto_robot::Transform;
@@ -37,6 +38,7 @@ use tungstenite::{Bytes, Message, WebSocket};
 use crate::camera_history::{CameraHistory, CameraHistorySettings, Kept, smaller};
 use crate::history::{History, MAX_POINTS, Record, SampleRecord, pose};
 use crate::marks::{Mark, Marks, message};
+use crate::page_pictures::{Offered, PageShare, Waiting};
 use crate::picture::{Picture, PictureFormat};
 use crate::plots::Plots;
 
@@ -54,9 +56,6 @@ pub const LOOKED_BACK_HEADER: usize = 32;
 pub const STREAM_VERSION: u16 = 1;
 /// Frames a page may have waiting before the next is dropped.
 const PAGE_QUEUE: usize = 4;
-/// Pictures a page may have waiting before the next is dropped: one or two
-/// per camera, so a page on a slow link misses pictures, not the robot.
-const PICTURE_QUEUE: usize = 4;
 /// Marks a page may have waiting before the next is dropped: they come a
 /// few a second at most, so only a page that stopped reading fills it.
 const MARKS_QUEUE: usize = 256;
@@ -227,6 +226,9 @@ pub struct StreamStats {
     pub pictures_sent: u64,
     /// Pictures a page had no room for, and missed.
     pub pictures_dropped: u64,
+    /// Pictures held back for a page's share of pictures a second, a newer
+    /// one of the same camera sent in their place.
+    pub pictures_thinned: u64,
     /// What the history holds, roughly, in bytes.
     pub history_bytes: usize,
 }
@@ -237,7 +239,7 @@ pub struct StreamStats {
 struct Page {
     frames: SyncSender<Bytes>,
     marks: SyncSender<String>,
-    pictures: SyncSender<Bytes>,
+    pictures: Arc<Mutex<Waiting>>,
 }
 
 /// What the listener's threads share with the stream.
@@ -259,6 +261,11 @@ struct Shared {
     cameras: Arc<Mutex<Cameras>>,
     pictures_sent: Arc<AtomicU64>,
     pictures_dropped: Arc<AtomicU64>,
+    pictures_thinned: Arc<AtomicU64>,
+    /// How many pictures a second each page is sent, shared among the
+    /// cameras the opening names.
+    share: Arc<Mutex<PageShare>>,
+    cameras_named: usize,
     /// The pictures kept of each camera, for pages looking back.
     camera_history: Arc<Mutex<CameraHistory>>,
 }
@@ -299,6 +306,7 @@ impl FrameStream {
         let listener = TcpListener::bind(SocketAddr::new(bind, port))?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
+        let cameras_named = opening.cameras.len();
         let opening = serde_json::to_string(opening).map_err(io::Error::other)?;
         let shared = Shared {
             pages: Arc::default(),
@@ -310,6 +318,9 @@ impl FrameStream {
             cameras: Arc::default(),
             pictures_sent: Arc::default(),
             pictures_dropped: Arc::default(),
+            pictures_thinned: Arc::default(),
+            share: Arc::default(),
+            cameras_named,
             camera_history: Arc::new(Mutex::new(CameraHistory::new(
                 CameraHistorySettings::default(),
             ))),
@@ -332,6 +343,11 @@ impl FrameStream {
     #[must_use]
     pub fn address(&self) -> SocketAddr {
         self.address
+    }
+
+    /// Sends each page connecting from now on its pictures by `share`.
+    pub fn share_pictures_by(&self, share: PageShare) {
+        *lock(&self.shared.share) = share;
     }
 
     /// Keeps cameras' pictures for pages looking back by `settings`,
@@ -372,6 +388,7 @@ impl FrameStream {
             marks_dropped: self.shared.marks_dropped.load(Ordering::Relaxed),
             pictures_sent: self.shared.pictures_sent.load(Ordering::Relaxed),
             pictures_dropped: self.shared.pictures_dropped.load(Ordering::Relaxed),
+            pictures_thinned: self.shared.pictures_thinned.load(Ordering::Relaxed),
             history_bytes: lock(&self.shared.history).bytes(),
         }
     }
@@ -427,23 +444,23 @@ pub struct Photographer {
 
 impl Photographer {
     /// Keeps `message`, a [`picture_message`] of camera `stream`, as its
-    /// newest and hands it to every page with room for it. Never waits on
-    /// a page.
+    /// newest, and as the one waiting for each page's share of that camera.
+    /// Never waits on a page.
     pub fn picture(&self, stream: u16, message: &Bytes) {
         let mut cameras = lock(&self.shared.cameras);
         cameras.newest.insert(stream, message.clone());
-        let (sent, dropped) = (&self.shared.pictures_sent, &self.shared.pictures_dropped);
-        lock(&self.shared.pages).retain(|page| match page.pictures.try_send(message.clone()) {
-            Ok(()) => {
-                sent.fetch_add(1, Ordering::Relaxed);
-                true
+        let now = Instant::now();
+        for page in lock(&self.shared.pages).iter() {
+            match lock(&page.pictures).offer(stream, message.clone(), now) {
+                Offered::Waits => {}
+                Offered::Thinned => {
+                    self.shared.pictures_thinned.fetch_add(1, Ordering::Relaxed);
+                }
+                Offered::Dropped => {
+                    self.shared.pictures_dropped.fetch_add(1, Ordering::Relaxed);
+                }
             }
-            Err(TrySendError::Full(_)) => {
-                dropped.fetch_add(1, Ordering::Relaxed);
-                true
-            }
-            Err(TrySendError::Disconnected(_)) => false,
-        });
+        }
     }
 
     /// Keeps camera `stream`'s picture `jpeg`, whose frame Kapto received
@@ -633,19 +650,21 @@ fn serve_page(
         let _ = queue.try_send(latest);
     }
     let (marks_queue, marks) = mpsc::sync_channel(MARKS_QUEUE);
-    let (pictures_queue, pictures) = mpsc::sync_channel(PICTURE_QUEUE);
+    let interval = lock(&shared.share).interval(shared.cameras_named);
+    let pictures = Arc::new(Mutex::new(Waiting::new(interval)));
     let (kept, said) = {
         let kept = lock(&shared.marks);
         let cameras = lock(&shared.cameras);
         // Each camera's newest picture first, so the page shows it before
         // the next arrives.
-        for picture in cameras.newest.values() {
-            let _ = pictures_queue.try_send(picture.clone());
+        let now = Instant::now();
+        for (stream, picture) in &cameras.newest {
+            lock(&pictures).offer(*stream, picture.clone(), now);
         }
         lock(&shared.pages).push(Page {
             frames: queue,
             marks: marks_queue,
-            pictures: pictures_queue,
+            pictures: Arc::clone(&pictures),
         });
         let said: Vec<String> = cameras
             .unshown
@@ -664,7 +683,7 @@ fn serve_page(
     }
     converse(
         &mut socket,
-        (&frames, &marks, &pictures),
+        (&frames, &marks, (&pictures, &shared.pictures_sent)),
         (&shared.history, &shared.camera_history),
     );
     let _ = socket.close(None);
@@ -688,14 +707,19 @@ enum Question {
     Picture { id: u32, stream: u16, at: i64 },
 }
 
-/// Writes the page every frame and mark it is handed and answers what it
-/// asks, until it goes away. After each frame, or a moment without one, the
+/// Writes the page every frame and mark it is handed, and each camera's
+/// picture as its share allows, and answers what it asks, until it goes
+/// away. After each frame, or a moment without one, the
 /// page is looked at, without waiting, for a question: a page streamed to
 /// without pause still has its questions answered, and a frame never waits
 /// for one.
 fn converse(
     socket: &mut WebSocket<TcpStream>,
-    (frames, marks, pictures): (&Receiver<Bytes>, &Receiver<String>, &Receiver<Bytes>),
+    (frames, marks, (pictures, sent)): (
+        &Receiver<Bytes>,
+        &Receiver<String>,
+        (&Mutex<Waiting>, &AtomicU64),
+    ),
     histories: (&Mutex<History>, &Mutex<CameraHistory>),
 ) {
     loop {
@@ -713,10 +737,12 @@ fn converse(
                 return;
             }
         }
-        while let Ok(picture) = pictures.try_recv() {
+        let due = lock(pictures).take_due(Instant::now());
+        for picture in due {
             if socket.send(Message::Binary(picture)).is_err() {
                 return;
             }
+            sent.fetch_add(1, Ordering::Relaxed);
         }
         match asked(socket.get_ref()) {
             Some(false) => continue,
