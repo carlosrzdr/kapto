@@ -7,13 +7,16 @@ import {
   browserLayouts,
   editable,
   laidOut,
+  MAX_PANEL_TITLE,
   MAX_PANELS,
   moved,
   nudged,
   panelCount,
   placed,
+  panelTitle,
   removed,
   reshared,
+  retitled,
   withHeights,
   withWidths,
 } from "./layouts";
@@ -106,6 +109,19 @@ describe("editing a layout", () => {
     expect(nudged([1, 1], 1, 1)).toBeNull();
   });
 
+  it("gives a panel a title of its own, on one line and at most as long as layout.toml allows, and takes it away when blank", () => {
+    const titled = retitled(layout, 1, 1, "  Gripper  ");
+    expect(titled.columns[1]!.panels[1]!.title).toBe("Gripper");
+    expect(titled.columns[1]!.panels[0]!.title).toBeUndefined();
+    expect("title" in retitled(titled, 1, 1, "   ").columns[1]!.panels[1]!).toBe(false);
+    expect(retitled(layout, 4, 0, "Nowhere")).toBe(layout);
+    expect(panelTitle("Wrist\nforce")).toBe("Wrist force");
+    // Counted in characters, as the server counts them.
+    expect(panelTitle("é".repeat(MAX_PANEL_TITLE + 5))).toBe("é".repeat(MAX_PANEL_TITLE));
+    expect(panelTitle("🦾".repeat(MAX_PANEL_TITLE + 1))).toHaveLength(2 * MAX_PANEL_TITLE);
+    expect(panelTitle("")).toBeNull();
+  });
+
   it("never changes the layout it is given", () => {
     const before = structuredClone(layout);
     placed(layout, 1, 0, { between: 0 });
@@ -113,6 +129,7 @@ describe("editing a layout", () => {
     moved(layout, 1, 0, "left");
     removed(layout, 0, 0);
     withHeights(layout, 0, [4]);
+    retitled(layout, 0, 0, "Arm");
     expect(layout).toEqual(before);
   });
 });
@@ -130,6 +147,10 @@ describe("the operator's own layout", () => {
       })),
     };
     expect(editable(checked)).toEqual(layout);
+    // A panel's own title kept both ways, the server's `null` for none left out.
+    const titled = retitled(layout, 0, 0, "Arm");
+    expect(laidOut(titled).columns.map((column) => column.panels.map((panel) => panel.title))).toEqual([["Arm"], [null, null]]);
+    expect(editable(laidOut(titled))).toEqual(titled);
   });
 });
 

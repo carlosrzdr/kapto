@@ -3624,6 +3624,13 @@
               "null"
             ],
             "description": "A camera panel's stream."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its own title, at most 64 characters on one line; none shows the one\nmade from what it shows."
           }
         }
       },
@@ -5483,6 +5490,13 @@
               "null"
             ],
             "description": "A camera panel's stream."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its own title, shown in place of the one made from what it shows."
           }
         }
       },

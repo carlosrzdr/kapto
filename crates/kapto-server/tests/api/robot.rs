@@ -377,6 +377,55 @@ async fn a_layout_breaking_a_rule_of_layout_toml_is_refused_and_nothing_is_writt
 }
 
 #[tokio::test]
+async fn a_panels_own_title_is_saved_given_back_and_refused_when_too_long() {
+    let folder = scratch("layout-titled");
+    let api = arranged(&folder, Some("arm7"));
+    let titled = r#"{"columns": [{"width": 1, "panels": [
+        {"kind": "robot", "height": 1, "title": "The \"arm\""},
+        {"kind": "health", "height": 1}
+    ]}]}"#;
+    let (status, body) = call(
+        api.clone(),
+        "PUT",
+        "/api/layouts/default",
+        Some(("application/json", titled)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let panels = &body["layout"]["columns"][0]["panels"];
+    assert_eq!(
+        (&panels[0]["title"], &panels[1]["title"]),
+        (&json!("The \"arm\""), &Value::Null)
+    );
+    let written = std::fs::read_to_string(folder.join("config/layouts/arm7/default.toml")).unwrap();
+    assert!(
+        written.contains("{ kind = \"robot\", height = 1, title = \"The \\\"arm\\\"\" }"),
+        "{written}"
+    );
+
+    let long = format!(
+        r#"{{"columns": [{{"width": 1, "panels": [{{"kind": "robot", "height": 1, "title": "{}"}}]}}]}}"#,
+        "x".repeat(65)
+    );
+    for (method, uri) in [
+        ("POST", "/api/layout/check"),
+        ("PUT", "/api/layouts/default"),
+    ] {
+        let (status, error) =
+            call(api.clone(), method, uri, Some(("application/json", &long))).await;
+        assert_eq!(
+            (status, &error["code"]),
+            (StatusCode::CONFLICT, &json!("layout.title_too_long")),
+            "{method} {uri}"
+        );
+    }
+    // Refused, the one saved before stays.
+    let written_after =
+        std::fs::read_to_string(folder.join("config/layouts/arm7/default.toml")).unwrap();
+    assert_eq!(written_after, written);
+}
+
+#[tokio::test]
 async fn a_layout_cant_be_saved_without_a_package_or_a_folder_to_write_it_in() {
     let folder = scratch("layout-nowhere");
     let (status, error) = call(

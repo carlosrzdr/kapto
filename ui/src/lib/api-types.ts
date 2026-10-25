@@ -650,6 +650,11 @@ export interface PanelInput {
   kind: string;
   /** A camera panel's stream. */
   stream?: string | null;
+  /**
+   * Its own title, at most 64 characters on one line; none shows the one
+   * made from what it shows.
+   */
+  title?: string | null;
 }
 
 /** A position and an orientation. */
@@ -1403,6 +1408,8 @@ export interface ViewPanel {
   missing: string[];
   /** A camera panel's stream. */
   stream?: string | null;
+  /** Its own title, shown in place of the one made from what it shows. */
+  title?: string | null;
 }
 
 /** Where the live view's stream is, on the host the API was reached on. */

@@ -115,7 +115,11 @@ pub fn made_layout(declared: &Declared) -> Layout {
 }
 
 fn panel(kind: PanelKind) -> Panel {
-    Panel { kind, height: 1 }
+    Panel {
+        kind,
+        height: 1,
+        title: None,
+    }
 }
 
 /// A plot per group of roles and stream: the joints' positions, velocities

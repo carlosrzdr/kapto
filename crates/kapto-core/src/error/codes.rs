@@ -261,7 +261,7 @@ error_codes! {
     /// panel's.
     LayoutUnknownKey = "layout.unknown_key" {
         summary: "Unknown key in a layout",
-        remedy: "Remove the key or correct its spelling. A layout holds its `name` and `[[columns]]` tables, each with `width` and `panels`; a panel has `kind`, `height`, and `stream` for a camera or `fields` for a plot. The robot package format reference (docs/reference/package.md) describes them.",
+        remedy: "Remove the key or correct its spelling. A layout holds its `name` and `[[columns]]` tables, each with `width` and `panels`; a panel has `kind`, `height`, an optional `title`, and `stream` for a camera or `fields` for a plot. The robot package format reference (docs/reference/package.md) describes them.",
     }
 
     /// A named layout was to be listed or saved, but Kapto runs no robot
@@ -288,6 +288,12 @@ error_codes! {
     LayoutNameTooLong = "layout.name_too_long" {
         summary: "The layout's name is too long",
         remedy: "Shorten the name to 64 characters or fewer.",
+    }
+
+    /// A panel's title is longer than its header can show.
+    LayoutTitleTooLong = "layout.title_too_long" {
+        summary: "The panel's title is too long",
+        remedy: "Shorten the panel's `title` to 64 characters or fewer, or remove it to show the one made from what the panel shows.",
     }
 
     /// Another of the package's named layouts has the name, or one its

@@ -57,6 +57,9 @@ pub struct ViewPanel {
     /// What it names that the package doesn't have, each a phrase; shown in
     /// its place when not empty.
     pub missing: Vec<String>,
+    /// Its own title, shown in place of the one made from what it shows.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 /// A layout as the page sends it to be saved: what [`ViewLayout`] gives,
@@ -90,6 +93,10 @@ pub struct PanelInput {
     /// `role:gripper.opening`.
     #[serde(default)]
     pub fields: Vec<String>,
+    /// Its own title, at most 64 characters on one line; none shows the one
+    /// made from what it shows.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 impl LayoutInput {
@@ -142,6 +149,7 @@ impl LayoutInput {
                         Some(kapto_config::Panel {
                             kind,
                             height: panel.height,
+                            title: panel.title.clone(),
                         })
                     })
                     .collect(),
@@ -234,6 +242,7 @@ pub fn view_of(layout: &Layout, declared: &Declared, source: &str) -> ViewLayout
                             .iter()
                             .find(|found| found.column == column && found.panel == place)
                             .map_or_else(Vec::new, |found| found.what.clone()),
+                        title: panel.title.clone(),
                     }
                 })
                 .collect(),

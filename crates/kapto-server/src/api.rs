@@ -470,6 +470,7 @@ impl From<KaptoError> for Failure {
             | ErrorCode::LayoutNameEmpty
             | ErrorCode::LayoutNameTooLong
             | ErrorCode::LayoutNameTaken
+            | ErrorCode::LayoutTitleTooLong
             | ErrorCode::EventsUnknownKind
             | ErrorCode::ConfigInvalidValue
             | ErrorCode::ConfigInvalidSyntax

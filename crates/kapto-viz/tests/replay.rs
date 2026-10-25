@@ -518,7 +518,7 @@ fn a_replay_is_arranged_by_the_layout_its_recording_carries() {
     let package = package(&folder, false);
     folder.write(
         "arm7/layout.toml",
-        b"[[columns]]\npanels = [\n  { kind = \"plot\", fields = [\"role:gripper.opening\"] },\n  \
+        b"[[columns]]\npanels = [\n  { kind = \"plot\", fields = [\"role:gripper.opening\"], title = \"Gripper\" },\n  \
           { kind = \"camera\", stream = \"wrist_camera\" },\n  { kind = \"robot\" },\n]\n",
     );
     let recording = record(&folder, Some(&package), 10);
@@ -540,6 +540,13 @@ fn a_replay_is_arranged_by_the_layout_its_recording_carries() {
             ]
         )
     );
+    // A panel's own title is carried with the rest.
+    let titles: Vec<_> = view.about().layout.clone().unwrap().columns[0]
+        .panels
+        .iter()
+        .map(|panel| panel.title.clone())
+        .collect();
+    assert_eq!(titles, [Some("Gripper".to_owned()), None, None]);
     let roles = &view.about().roles;
     assert!(
         roles

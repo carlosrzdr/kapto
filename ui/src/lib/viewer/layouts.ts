@@ -10,6 +10,8 @@ export const MAX_PANELS = 24;
 export const MAX_PLOT_FIELDS = 16;
 /** The largest relative width or height. */
 export const MAX_SHARE = 12;
+/** The longest title a panel may have, in characters, as `layout.toml` allows. */
+export const MAX_PANEL_TITLE = 64;
 
 /** What the package has that a layout may show. */
 export interface Offered {
@@ -26,11 +28,12 @@ export function editable(view: ViewLayout): LayoutInput {
   return {
     columns: view.columns.map((column) => ({
       width: column.width,
-      panels: column.panels.map(({ kind, height, stream, fields }) => ({
+      panels: column.panels.map(({ kind, height, stream, fields, title }) => ({
         kind,
         height,
         stream: stream ?? undefined,
         fields: [...fields],
+        ...(title ? { title } : {}),
       })),
     })),
   };
@@ -51,6 +54,7 @@ export function laidOut(layout: LayoutInput): ViewLayout {
         stream: panel.stream ?? null,
         fields: panel.fields ?? [],
         missing: [],
+        title: panel.title ?? null,
       })),
     })),
   };
@@ -77,6 +81,34 @@ export function added(layout: LayoutInput, column: number, panel: PanelInput): L
   }
   const into = next.columns[Math.min(column, next.columns.length - 1)]!;
   into.panels.push({ ...panel, fields: (panel.fields ?? []).slice(0, MAX_PLOT_FIELDS) });
+  return next;
+}
+
+/**
+ * `title` as a panel's, by the rules `layout.toml` holds it to: on one
+ * line, without the spaces around it, at most `MAX_PANEL_TITLE`
+ * characters; `null` when nothing is left, which shows the title made from
+ * what the panel shows.
+ */
+export function panelTitle(title: string): string | null {
+  // Characters, not UTF-16 units, as the server counts them.
+  const kept = [...title.replace(/\p{Cc}+/gu, " ").trim()].slice(0, MAX_PANEL_TITLE).join("").trim();
+  return kept === "" ? null : kept;
+}
+
+/** `layout` with the panel at `place` of `column` titled `title`, or without a title of its own when it is blank. */
+export function retitled(layout: LayoutInput, column: number, place: number, title: string): LayoutInput {
+  const next = copy(layout);
+  const panel = next.columns[column]?.panels[place];
+  if (!panel) {
+    return layout;
+  }
+  const kept = panelTitle(title);
+  if (kept === null) {
+    delete panel.title;
+  } else {
+    panel.title = kept;
+  }
   return next;
 }
 

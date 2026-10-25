@@ -154,7 +154,7 @@ panels = [
 width = 2
 panels = [
   { kind = "plot", fields = ["arm_joints.joint_positions"], height = 2 },
-  { kind = "plot", fields = ["role:gripper.opening"] },
+  { kind = "plot", fields = ["role:gripper.opening"], title = "Gripper" },
   { kind = "health" },
 ]
 ```
@@ -181,6 +181,7 @@ Each panel:
 | `height` | no | Its height relative to the other panels' in its column, a whole number from 1 to 12. 1 if not given. |
 | `stream` | no | A `camera` panel's stream, by its ID. Only for `camera`, which needs it. |
 | `fields` | no | A `plot` panel's fields, 1 to 16: each a stream's field, `stream.field` or `stream.field[3]`, or a role, `role:gripper.opening`. Only for `plot`, which needs them. |
+| `title` | no | Its title, shown in place of the one made from what it shows: one line, not blank, at most 64 characters. Any panel may have one. |
 
 ## Identity
 

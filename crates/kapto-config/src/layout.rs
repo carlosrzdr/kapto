@@ -43,6 +43,11 @@ pub const DEFAULT_NAMED_LAYOUT: &str = "default";
 /// a list and its file is named from it.
 pub const MAX_LAYOUT_NAME: usize = 64;
 
+/// The longest title a panel may have, in characters: the same as a
+/// layout's name, as both are a line in a header or a list, and a panel as
+/// narrow as a twelfth of the page still shows the start of it.
+pub const MAX_PANEL_TITLE: usize = 64;
+
 /// The folder of `config_folder` holding package `id`'s named layouts.
 #[must_use]
 pub fn package_layouts_folder(config_folder: &std::path::Path, id: &str) -> std::path::PathBuf {
@@ -82,6 +87,24 @@ pub fn check_layout_name(name: &str) -> Result<(), KaptoError> {
         Err(
             KaptoError::new(ErrorCode::LayoutNameTooLong).detail(format!(
                 "the name has {length} characters, more than {MAX_LAYOUT_NAME}"
+            )),
+        )
+    } else {
+        Ok(())
+    }
+}
+
+/// `title` checked as a panel's.
+///
+/// # Errors
+///
+/// `layout.title_too_long` past [`MAX_PANEL_TITLE`] characters.
+pub fn check_panel_title(title: &str) -> Result<(), KaptoError> {
+    let length = title.chars().count();
+    if length > MAX_PANEL_TITLE {
+        Err(
+            KaptoError::new(ErrorCode::LayoutTitleTooLong).detail(format!(
+                "the title has {length} characters, more than {MAX_PANEL_TITLE}"
             )),
         )
     } else {
@@ -140,7 +163,7 @@ panels = [
 width = 2
 panels = [
   { kind = \"plot\", fields = [\"arm_joints.joint_positions\"], height = 2 },
-  { kind = \"plot\", fields = [\"role:gripper.opening\"] },
+  { kind = \"plot\", fields = [\"role:gripper.opening\"], title = \"Gripper\" },
   { kind = \"health\" },
 ]
 ";
@@ -175,7 +198,7 @@ pub const LAYOUT_COLUMN_KEYS: [FileKey; 2] = [
 ];
 
 /// Every key of a panel, in the order they are documented.
-pub const LAYOUT_PANEL_KEYS: [FileKey; 4] = [
+pub const LAYOUT_PANEL_KEYS: [FileKey; 5] = [
     FileKey {
         name: "kind",
         required: true,
@@ -195,6 +218,11 @@ pub const LAYOUT_PANEL_KEYS: [FileKey; 4] = [
         name: "fields",
         required: false,
         help: "A `plot` panel's fields, 1 to 16: each a stream's field, `stream.field` or `stream.field[3]`, or a role, `role:gripper.opening`. Only for `plot`, which needs them.",
+    },
+    FileKey {
+        name: "title",
+        required: false,
+        help: "Its title, shown in place of the one made from what it shows: one line, not blank, at most 64 characters. Any panel may have one.",
     },
 ];
 
@@ -224,6 +252,8 @@ pub struct Panel {
     pub kind: PanelKind,
     /// Its height relative to the other panels' in its column.
     pub height: u8,
+    /// Its own title, shown in place of the one made from what it shows.
+    pub title: Option<String>,
 }
 
 /// What a panel shows.
@@ -292,7 +322,11 @@ impl Layout {
                     PanelKind::Health => "kind = \"health\"".to_owned(),
                     PanelKind::Events => "kind = \"events\"".to_owned(),
                 };
-                let _ = writeln!(text, "  {{ {what}, height = {} }},", panel.height);
+                let title = panel
+                    .title
+                    .as_deref()
+                    .map_or_else(String::new, |title| format!(", title = {}", quoted(title)));
+                let _ = writeln!(text, "  {{ {what}, height = {}{title} }},", panel.height);
             }
             text.push_str("]\n");
         }
@@ -320,7 +354,8 @@ impl FromStr for PlotField {
 /// (`config.invalid_syntax`), unknown keys (`layout.unknown_key`), and
 /// missing, invalid or too many values (`config.invalid_value`), a name
 /// without a letter or digit (`layout.name_empty`) or too long
-/// (`layout.name_too_long`).
+/// (`layout.name_too_long`), a panel's title too long
+/// (`layout.title_too_long`).
 pub fn parse_layout(file: &ConfigFile) -> Result<Layout, Vec<KaptoError>> {
     read_layout(file, &LAYOUT_KEYS, &format!("`{LAYOUT_FILE}`"))
 }
@@ -427,6 +462,13 @@ fn panel(file: &ConfigFile, table: &InlineTable, errors: &mut Vec<KaptoError>) -
         |kind| ["robot", "camera", "plot", "health", "events"].contains(&kind),
     );
     let stream = reader.text("stream", "a stream's ID", kapto_core::name::is_name);
+    // One line and not blank: it is shown as a header, in place of a name.
+    let title = reader.text("title", "one line of text, not blank", |title| {
+        !title.trim().is_empty() && !title.chars().any(char::is_control)
+    });
+    if let Some(Err(error)) = title.as_deref().map(check_panel_title) {
+        reader.located(error, "title");
+    }
     let fields = reader.texts(
         "fields",
         "fields, `stream.field` or `role:name.of.role`",
@@ -482,6 +524,7 @@ fn panel(file: &ConfigFile, table: &InlineTable, errors: &mut Vec<KaptoError>) -
     kind.filter(|_| clean).map(|kind| Panel {
         kind,
         height: share(height),
+        title,
     })
 }
 
@@ -534,13 +577,15 @@ mod tests {
             [
                 Panel {
                     kind: PanelKind::Robot,
-                    height: 3
+                    height: 3,
+                    title: None,
                 },
                 Panel {
                     kind: PanelKind::Camera {
                         stream: "wrist_camera".to_owned()
                     },
-                    height: 1
+                    height: 1,
+                    title: None,
                 },
             ]
         );
@@ -559,6 +604,7 @@ mod tests {
                 fields: vec![PlotField::Role("gripper.opening".parse().unwrap())]
             }
         );
+        assert_eq!(plots[1].title.as_deref(), Some("Gripper"));
         assert_eq!(plots[2].kind, PanelKind::Health);
     }
 
@@ -663,6 +709,29 @@ panels = [
             ["layout.name_empty 1: ` -- ` has no letter or digit to name its file from"]
         );
         assert!(check_layout_name(&"é".repeat(MAX_LAYOUT_NAME)).is_ok());
+    }
+
+    #[test]
+    fn a_panels_title_reads_back_the_same_and_a_wrong_one_is_refused_at_its_line() {
+        let mut layout = parse_layout(&file(LAYOUT_EXAMPLE)).unwrap();
+        layout.columns[0].panels[0].title = Some("The \"arm\" \\ und".to_owned());
+        assert_eq!(parse_layout(&file(&layout.to_toml())).unwrap(), layout);
+        let long = "x".repeat(MAX_PANEL_TITLE + 1);
+        let text = format!(
+            "[[columns]]\npanels = [\n  {{ kind = \"robot\", title = \"{long}\" }},\n  \
+             {{ kind = \"health\", title = \"  \" }},\n  {{ kind = \"events\", title = \"a\\nb\" }},\n  \
+             {{ kind = \"events\", title = 3 }},\n]\n"
+        );
+        assert_eq!(
+            problems(&text),
+            [
+                "layout.title_too_long 3: the title has 65 characters, more than 64",
+                "config.invalid_value 4: `title` must be one line of text, not blank",
+                "config.invalid_value 5: `title` must be one line of text, not blank",
+                "config.invalid_value 6: `title` must be one line of text, not blank",
+            ]
+        );
+        assert!(check_panel_title(&"é".repeat(MAX_PANEL_TITLE)).is_ok());
     }
 
     #[test]
