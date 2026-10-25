@@ -1,0 +1,82 @@
+# What the simulation (sim/arm7_sim.py) publishes over Isaac Sim's ROS 2
+# bridge, once a simulated frame, 60 a second: the arm's joint states, the
+# simulation's clock, and two cameras' pictures. The message types are
+# ROS 2's standard ones, installed in the kapto-ros2 image.
+[streams.arm_joints]
+rate_hz = 60
+ros2 = { topic = "/joint_states", type = "sensor_msgs/msg/JointState" }
+
+[streams.arm_joints.decoder]
+kind = "cdr"
+
+# Isaac Sim names the joints in its articulation's order, not the URDF's,
+# so each is found by its name.
+[[streams.arm_joints.decoder.fields]]
+name = "joint_1"
+type = "f64"
+path = "position[name=joint_1]"
+unit = "rad"
+
+[[streams.arm_joints.decoder.fields]]
+name = "joint_2"
+type = "f64"
+path = "position[name=joint_2]"
+unit = "rad"
+
+[[streams.arm_joints.decoder.fields]]
+name = "joint_3"
+type = "f64"
+path = "position[name=joint_3]"
+unit = "rad"
+
+[[streams.arm_joints.decoder.fields]]
+name = "joint_4"
+type = "f64"
+path = "position[name=joint_4]"
+unit = "rad"
+
+[[streams.arm_joints.decoder.fields]]
+name = "joint_5"
+type = "f64"
+path = "position[name=joint_5]"
+unit = "rad"
+
+[[streams.arm_joints.decoder.fields]]
+name = "joint_6"
+type = "f64"
+path = "position[name=joint_6]"
+unit = "rad"
+
+[[streams.arm_joints.decoder.fields]]
+name = "joint_7"
+type = "f64"
+path = "position[name=joint_7]"
+unit = "rad"
+
+[[streams.arm_joints.decoder.fields]]
+name = "gripper"
+type = "f64"
+path = "position[name=gripper]"
+unit = "m"
+
+[streams.clock]
+rate_hz = 60
+ros2 = { topic = "/clock", type = "rosgraph_msgs/msg/Clock" }
+
+# The cameras' pictures are raw rgb8, as Isaac Sim renders them: 1.5 MiB
+# for the 960 x 540 one beside the arm, 0.9 MiB for the 640 x 480 one on
+# the wrist. The simulation asks for 30 a second of each; fewer arrive, how
+# many depending on the machine. On a laptop the two together came to about
+# 40 a second whatever their sizes, shared unevenly: 13 to 22 for the one
+# beside the arm, 15 to 25 for the wrist's. rate_hz is under the least of
+# each, so that pre-flight doesn't fail on how that varies; the rest are
+# counted as lost before Kapto.
+[streams.camera]
+rate_hz = 12
+max_message_bytes = 2097152
+ros2 = { topic = "/camera/image_raw", type = "sensor_msgs/msg/Image" }
+
+[streams.wrist_camera]
+rate_hz = 14
+max_message_bytes = 2097152
+ros2 = { topic = "/wrist_camera/image_raw", type = "sensor_msgs/msg/Image" }

@@ -384,7 +384,9 @@ robot those joint positions belong to: a seven-joint arm described in URDF,
 with a `streams.toml` that declares the synthetic robot's stream and its
 message layout. `packages/arm7_ros2` is the same arm as a ROS 2 robot: its
 joint states on `/joint_states`, as the synthetic robot publishes them
-with `--transport ros2`.
+with `--transport ros2`. `packages/arm7_isaac` is the same arm simulated
+in Isaac Sim, with a camera beside it and one on its wrist, and the script
+that runs the scene without Isaac Sim's window.
 
 ## See it working
 

@@ -9,3 +9,4 @@ setting up uploads. Guides are added as the features they describe are built.
 | [Check a robot package against your robot](check-a-package.md) | Making a package from a robot's own URDF, linting it, and decoding a capture of the robot's traffic with it before recording |
 | [Try uploads on this machine](try-uploads.md) | Starting S3-compatible storage with Docker, pointing the demo at it, and watching episodes go up, without a cloud account |
 | [Record a ROS 2 robot](record-a-ros2-robot.md) | Declaring a robot's ROS 2 topics in a package, running Kapto on the robot's ROS 2 network, and reading the recordings back with ROS 2's tools |
+| [Record a robot in Isaac Sim](record-a-robot-in-isaac-sim.md) | Setting a robot up in Isaac Sim to publish over its ROS 2 bridge, or running the sample arm's scene without its window, and recording it with its cameras |

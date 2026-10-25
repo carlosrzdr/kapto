@@ -82,7 +82,7 @@ command (benchmarks, golden files, the demo, serve, the load generator).
 | `tools/kapto-loadgen` | Synthetic robot: UDP, TCP or ROS 2 streams at a fixed rate |
 | `tools/xtask` | Developer automation |
 | `ui/` | Svelte + TypeScript web UI |
-| `packages/` | Sample robot packages (`arm7`, `arm7_ros2`) |
+| `packages/` | Sample robot packages (`arm7`, `arm7_ros2`, `arm7_isaac`) |
 | `testdata/` | Fixtures; third-party ones with a `PROVENANCE.md` |
 | `docs/project/` | Planning documents; nothing else refers to them |
 | `docker/` | The Dockerfile for both images, built by `compose.yaml` |

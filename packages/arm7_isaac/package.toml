@@ -1,0 +1,11 @@
+# What this package is. Kapto identifies a version of it by its ID and
+# version, and by a hash of all its files (`kapto package show`).
+id = "arm7_isaac"
+version = "0.1.0"
+name = "Sample seven-joint arm in Isaac Sim"
+vendor = "Kapto"
+description = "The sample seven-joint arm of packages/arm7, simulated in Isaac Sim by sim/arm7_sim.py and published over its ROS 2 bridge, with a camera beside it and one on its wrist."
+
+# The robot description. What the simulation publishes and how it drives
+# the joints are in streams.toml and mapping.toml, the default names.
+urdf = "urdf/arm7.urdf"
