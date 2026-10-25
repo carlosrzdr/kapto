@@ -221,6 +221,48 @@ fn loss_detection_handed_over_goes_on_in_the_next_receiver_and_finds_a_gap_acros
 }
 
 #[test]
+fn a_ring_kept_for_the_next_phase_counts_none_of_the_last_phases_drops() {
+    let (filler, mut drainer, stats) = ring(&ring_config(2, 4));
+    let phase = |transport, filler, counters: &Arc<LossCounters>| {
+        let accounting = Accounting::new(Arc::clone(counters), &[(0, SEQUENCE)]);
+        Receiver::new(
+            transport,
+            (filler, Arc::clone(&stats)),
+            accounting,
+            Arc::clone(counters),
+            ReceiverConfig::default(),
+        )
+    };
+    // The first phase: the writer takes nothing, so only the first of the
+    // three batches finds room.
+    let before = Arc::new(LossCounters::new(1));
+    let mut first = phase(Scripted::new(12, 4), filler, &before);
+    while before.totals(0).received < 12 {
+        first.run(&AtomicBool::new(true)).unwrap();
+    }
+    let (mut transport, mut filler) = first.finish_keeping_ring();
+    assert_eq!(before.totals(0).dropped_by_us, 8);
+    assert_eq!(
+        drain(&mut drainer),
+        [4],
+        "a closed ring finishes once drained"
+    );
+
+    // The next phase, on the same ring: nothing more is dropped.
+    assert!(drainer.reopen(&mut filler));
+    transport.queue = (12..16).collect();
+    let after = Arc::new(LossCounters::new(1));
+    let mut next = phase(transport, filler, &after);
+    while after.totals(0).received < 4 {
+        next.run(&AtomicBool::new(true)).unwrap();
+    }
+    let (_transport, _accounting, _filler) = next.hand_over_keeping_ring();
+    assert_eq!(drain(&mut drainer), [4]);
+    let totals = after.totals(0);
+    assert_eq!((totals.received, totals.dropped_by_us), (4, 0));
+}
+
+#[test]
 fn udp_datagrams_flow_through_the_receiver_in_order_with_nothing_lost() {
     let mut config = UdpSocketConfig::new(0, "127.0.0.1:0".parse().unwrap());
     config.allowed_sources = Vec::new();

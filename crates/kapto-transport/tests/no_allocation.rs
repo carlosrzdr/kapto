@@ -127,6 +127,82 @@ fn receiving_counting_and_sending_udp_datagrams_never_allocates() {
 }
 
 #[test]
+fn a_new_phase_on_the_ring_kept_from_the_last_never_allocates() {
+    use std::net::UdpSocket;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    use kapto_capture::{Accounting, LossCounters, RingConfig, ring};
+    use kapto_transport::{Receiver, ReceiverConfig, UdpOptions, UdpSocketConfig, UdpTransport};
+
+    let config = UdpSocketConfig::new(0, "127.0.0.1:0".parse().unwrap());
+    let transport = UdpTransport::open(&[config], UdpOptions::default()).unwrap();
+    let to = transport.local_addrs().next().unwrap();
+    let (filler, mut drainer, stats) = ring(&RingConfig {
+        batches: 8,
+        batch_capacity: 64,
+        max_message_len: 68,
+        streams: 1,
+    });
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let stop = AtomicBool::new(true);
+    let payload = [0_u8; 68];
+    // Each phase's counters and loss detection are made before it, as
+    // capture makes them; what is measured is the ring changing phase and
+    // the phase receiving.
+    let phases: Vec<_> = (0..101)
+        .map(|_| {
+            let counters = Arc::new(LossCounters::new(1));
+            let accounting = Accounting::new(Arc::clone(&counters), &[]);
+            (counters, accounting)
+        })
+        .collect();
+    let mut phases = phases.into_iter();
+    let (counters, accounting) = phases.next().unwrap();
+    let mut receiver = Receiver::new(
+        transport,
+        (filler, Arc::clone(&stats)),
+        accounting,
+        Arc::clone(&counters),
+        ReceiverConfig::default(),
+    );
+    let mut counters = counters;
+    let mut allocated = 0;
+    for (round, (next_counters, next_accounting)) in phases.enumerate() {
+        for _ in 0..32 {
+            sender.send_to(&payload, to).unwrap();
+        }
+        let before = allocations();
+        while counters.totals(0).received < 32 {
+            receiver.run(&stop).unwrap();
+            while let Some(batch) = drainer.take() {
+                drop(batch);
+            }
+        }
+        let (transport, mut filler) = receiver.finish_keeping_ring();
+        assert!(drainer.is_finished());
+        assert!(drainer.reopen(&mut filler));
+        receiver = Receiver::new(
+            transport,
+            (filler, Arc::clone(&stats)),
+            next_accounting,
+            Arc::clone(&next_counters),
+            ReceiverConfig::default(),
+        );
+        let used = allocations() - before;
+        // The first phase warms the socket up.
+        if round > 0 {
+            allocated += used;
+        }
+        drop(std::mem::replace(&mut counters, next_counters));
+    }
+    assert_eq!(
+        allocated, 0,
+        "changing phase on a kept ring allocated {allocated} times"
+    );
+}
+
+#[test]
 fn cutting_frames_out_of_a_tcp_byte_stream_never_allocates() {
     use kapto_transport::tcp::{Deframer, Framing, LengthOrder};
 

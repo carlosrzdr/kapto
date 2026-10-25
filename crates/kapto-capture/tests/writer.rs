@@ -23,7 +23,7 @@ use kapto_capture::writer::{CARRIED_RECORD, CLOCK_MAP_RECORD, capture_record, ca
 use kapto_capture::{
     Accounting, Batch, ChannelSchema, ChannelSpec, Compression, Kept, KeptStream, LossCounters,
     LossDetection, PostRoll, PreRoll, PreRollStream, Recording, RingConfig, StreamIndex,
-    WriterConfig, discard, ring,
+    WriterConfig, discard, discard_keeping_rings, ring,
 };
 use kapto_core::{ClockMap, ClockSample, ErrorCode, RecvTime};
 
@@ -879,4 +879,82 @@ fn finishing_reports_how_long_messages_waited_to_be_on_disk() {
         stats.p99_unsynced >= Duration::from_millis(200),
         "{stats:?}"
     );
+}
+
+#[test]
+fn an_idle_phase_keeping_its_rings_hands_each_back_to_be_written_then_reopened_with_clean_counts() {
+    let file = TempFile::new("kept-rings");
+    let config = RingConfig {
+        batches: 2,
+        batch_capacity: 1,
+        max_message_len: 8,
+        streams: 1,
+    };
+    let (mut filler, drainer, stats) = ring(&config);
+    let (gone, other, _) = ring(&config);
+    let mut kept = Kept::default();
+    let mut pre_roll = PreRoll::default();
+    // Every receiver gone before Start: plain discard would give nothing back.
+    gone.close();
+    filler.close();
+    let mut handed = discard_keeping_rings(
+        vec![drainer, other],
+        None,
+        (&mut kept, &mut pre_roll),
+        &AtomicBool::new(false),
+        Duration::from_millis(1),
+    );
+    assert_eq!(handed.len(), 2);
+
+    // Started again, the first ring's receiver sends one batch and drops one
+    // after the hand-over; the episode writes it, the rings borrowed.
+    let mut drainers: Vec<_> = handed
+        .drain(..)
+        .map(kapto_capture::HandedOver::into_drainer)
+        .collect();
+    assert!(drainers[0].reopen(&mut filler));
+    let mut handed = discard_keeping_rings(
+        drainers,
+        None,
+        (&mut kept, &mut pre_roll),
+        &AtomicBool::new(true),
+        Duration::from_millis(1),
+    );
+    filler
+        .batch()
+        .set_recv_time(RecvTime::from_nanos(7 * SECOND));
+    filler.batch().push(0, b"first");
+    assert_eq!(filler.send(), kapto_capture::Sent::Handed);
+    filler.batch().push(0, b"second");
+    assert_eq!(filler.send(), kapto_capture::Sent::Dropped { messages: 1 });
+    filler.close();
+    let counters = LossCounters::new(1);
+    let mut recording = Recording::create(
+        &file.0,
+        &streams(&["joints"]),
+        &clock(),
+        &WriterConfig::default(),
+    )
+    .unwrap();
+    recording
+        .write_handed_over(
+            (&mut handed, RecvTime::from_nanos(0)),
+            &counters,
+            (&mut kept, &mut pre_roll),
+        )
+        .unwrap();
+    recording.finish(&clock()).unwrap();
+    let totals = counters.totals(0);
+    assert_eq!(
+        (totals.received, totals.written, totals.dropped_by_us),
+        (2, 1, 1)
+    );
+
+    // The same ring goes on into the next phase, counting from zero.
+    let mut drainer = handed.remove(0).into_drainer();
+    assert!(drainer.is_finished());
+    assert!(drainer.reopen(&mut filler));
+    assert_eq!(stats.dropped_messages(0), 0);
+    assert_eq!(stats.max_queued(), 0);
+    assert!(!drainer.is_finished());
 }

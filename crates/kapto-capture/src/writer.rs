@@ -15,6 +15,7 @@
 //! the current chunk and asks the operating system to put the file on disk,
 //! which bounds how much a power cut can lose.
 
+use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
@@ -568,19 +569,24 @@ impl Recording {
     /// `from`, the episode's start, on, and the messages each ring dropped
     /// after it was handed over as received and dropped. Each
     /// batch is also offered to `kept` and held in `pre_roll`, as the writer
-    /// thread does.
+    /// thread does. The rings can be given by value or borrowed, to be
+    /// kept for the next phase.
     ///
     /// # Errors
     ///
     /// `capture.disk_full` or `capture.write_failed`; the recording can't be
     /// written to afterwards.
-    pub fn write_handed_over(
+    pub fn write_handed_over<H>(
         &mut self,
-        (handed, from): (Vec<HandedOver>, RecvTime),
+        (handed, from): (H, RecvTime),
         counters: &LossCounters,
         (kept, pre_roll): (&mut Kept, &mut PreRoll),
-    ) -> Result<(), KaptoError> {
+    ) -> Result<(), KaptoError>
+    where
+        H: IntoIterator<Item: BorrowMut<HandedOver>>,
+    {
         for mut handed in handed {
+            let handed = handed.borrow_mut();
             while let Some(batch) = handed.drainer.take() {
                 for (stream, _) in batch.messages() {
                     counters.add_received_decoded(stream, 1);
@@ -873,15 +879,73 @@ impl Recording {
 /// what arrived since belongs to it. It also returns, with nothing to hand
 /// over, once every receiver is gone and every batch is taken.
 pub fn discard(
-    mut drainers: Vec<Drainer>,
-    #[cfg(unix)] mut tap: Option<&mut crate::tap::TapFeed>,
-    (kept, pre_roll): (&mut Kept, &mut PreRoll),
+    drainers: Vec<Drainer>,
+    #[cfg(unix)] tap: Option<&mut crate::tap::TapFeed>,
+    held: (&mut Kept, &mut PreRoll),
     stop: &AtomicBool,
     idle_wait: Duration,
 ) -> Vec<HandedOver> {
+    let (drainers, stopped) = discard_until(
+        drainers,
+        &mut offering(
+            #[cfg(unix)]
+            tap,
+        ),
+        held,
+        (stop, idle_wait),
+    );
+    if stopped {
+        drainers.into_iter().map(HandedOver::new).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// [`discard`], but every ring is handed over, also once every receiver
+/// is gone, so a capture keeping its rings for every phase gets each back,
+/// in the order given.
+pub fn discard_keeping_rings(
+    drainers: Vec<Drainer>,
+    #[cfg(unix)] tap: Option<&mut crate::tap::TapFeed>,
+    held: (&mut Kept, &mut PreRoll),
+    stop: &AtomicBool,
+    idle_wait: Duration,
+) -> Vec<HandedOver> {
+    let (drainers, _) = discard_until(
+        drainers,
+        &mut offering(
+            #[cfg(unix)]
+            tap,
+        ),
+        held,
+        (stop, idle_wait),
+    );
+    drainers.into_iter().map(HandedOver::new).collect()
+}
+
+/// Offers each batch to the viewer's `tap`, if there is one.
+fn offering(#[cfg(unix)] mut tap: Option<&mut crate::tap::TapFeed>) -> impl FnMut(&Batch) {
+    move |batch: &Batch| {
+        #[cfg(unix)]
+        if let Some(tap) = tap.as_deref_mut() {
+            tap.offer(batch);
+        }
+        #[cfg(not(unix))]
+        let _ = batch;
+    }
+}
+
+/// [`discard`]'s loop: returns the rings, and whether it ended because
+/// `stop` was set rather than because every receiver was gone.
+fn discard_until(
+    mut drainers: Vec<Drainer>,
+    offer: &mut dyn FnMut(&Batch),
+    (kept, pre_roll): (&mut Kept, &mut PreRoll),
+    (stop, idle_wait): (&AtomicBool, Duration),
+) -> (Vec<Drainer>, bool) {
     loop {
         if stop.load(Ordering::Relaxed) {
-            return drainers.into_iter().map(HandedOver::new).collect();
+            return (drainers, true);
         }
         let mut idle = true;
         for drainer in &mut drainers {
@@ -889,14 +953,11 @@ pub fn discard(
                 idle = false;
                 kept.keep(&batch);
                 pre_roll.hold(&batch);
-                #[cfg(unix)]
-                if let Some(tap) = tap.as_deref_mut() {
-                    tap.offer(&batch);
-                }
+                offer(&batch);
             }
         }
         if drainers.iter().all(Drainer::is_finished) {
-            return Vec::new();
+            return (drainers, false);
         }
         if idle {
             thread::park_timeout(idle_wait);
@@ -923,6 +984,12 @@ impl HandedOver {
             .map(|stream| stats.dropped_messages(stream))
             .collect();
         Self { drainer, dropped }
+    }
+
+    /// The ring, to be reopened for the next phase.
+    #[must_use]
+    pub fn into_drainer(self) -> Drainer {
+        self.drainer
     }
 
     /// When the oldest batch left was received, if one is.

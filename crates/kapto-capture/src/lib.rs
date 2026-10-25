@@ -34,4 +34,5 @@ pub use ring::{Drainer, Filler, Received, RingConfig, RingStats, Sent, ring};
 pub use salvage::{Salvaged, salvage};
 pub use writer::{
     ChannelSchema, ChannelSpec, Compression, HandedOver, Recording, WriterConfig, discard,
+    discard_keeping_rings,
 };

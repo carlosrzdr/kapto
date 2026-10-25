@@ -8,6 +8,10 @@
 //! and the batch goes back automatically when the writer is done with it. No
 //! step allocates once the ring exists.
 //!
+//! A ring is made once, when capture starts, and kept for every phase: when
+//! a phase ends the receiver closes its end ([`Filler::close`]), and the
+//! next phase [reopens](Drainer::reopen) the ring with its counts cleared.
+//!
 //! If the writer falls so far behind that every batch is waiting for it, the
 //! receiver keeps reading but discards the batch it was filling, and counts
 //! each discarded message against its stream. Capture never waits for the
@@ -15,7 +19,7 @@
 
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use kapto_core::RecvTime;
@@ -87,6 +91,8 @@ pub struct RingStats {
     dropped_batches: AtomicU64,
     dropped_messages: Box<[AtomicU64]>,
     max_queued: AtomicUsize,
+    /// Whether the receiver closed its end for this phase.
+    closed: AtomicBool,
 }
 
 impl RingStats {
@@ -152,6 +158,7 @@ pub fn ring(config: &RingConfig) -> (Filler, Drainer, Arc<RingStats>) {
         dropped_batches: AtomicU64::new(0),
         dropped_messages: (0..config.streams).map(|_| AtomicU64::new(0)).collect(),
         max_queued: AtomicUsize::new(0),
+        closed: AtomicBool::new(false),
     });
     let filler = Filler {
         current: Batch::new(config.batch_capacity, config.max_message_len),
@@ -225,6 +232,15 @@ impl Filler {
         }
     }
 
+    /// Says the receiver sends nothing more this phase: once the writer has
+    /// taken every batch, [`Drainer::is_finished`] says so, as it does when
+    /// the filler is dropped, but the ring can be [reopened](Drainer::reopen)
+    /// for the next phase. Send the batch being filled first.
+    pub fn close(&self) {
+        // Release: every batch sent before is seen by a writer that sees this.
+        self.stats.closed.store(true, Ordering::Release);
+    }
+
     fn discard_current(&mut self) -> usize {
         count_dropped(&self.stats, &mut self.current)
     }
@@ -278,7 +294,32 @@ impl Drainer {
     /// taken: nothing more will arrive.
     #[must_use]
     pub fn is_finished(&self) -> bool {
-        self.full.is_abandoned() && self.full.is_empty()
+        (self.full.is_abandoned() || self.stats.closed.load(Ordering::Acquire))
+            && self.full.is_empty()
+    }
+
+    /// Makes the ring ready for another phase, with `filler`, its receiver's
+    /// end: discards what is left in it, which belongs to no episode, and
+    /// clears its counts and its closing, so the phase counts from zero.
+    /// Nothing is allocated. Returns `false`, changing nothing, if `filler`
+    /// is another ring's.
+    ///
+    /// Both ends are borrowed mutably, so neither a receiver nor the writer
+    /// can be using the ring meanwhile.
+    pub fn reopen(&mut self, filler: &mut Filler) -> bool {
+        if !Arc::ptr_eq(&self.stats, &filler.stats) {
+            return false;
+        }
+        while self.take().is_some() {}
+        filler.current.clear();
+        let stats = &self.stats;
+        stats.dropped_batches.store(0, Ordering::Relaxed);
+        for count in &stats.dropped_messages {
+            count.store(0, Ordering::Relaxed);
+        }
+        stats.max_queued.store(0, Ordering::Relaxed);
+        stats.closed.store(false, Ordering::Relaxed);
+        true
     }
 }
 
@@ -450,6 +491,56 @@ mod tests {
         assert!(!drainer.is_finished());
         drop(drainer.take());
         assert!(drainer.is_finished());
+    }
+
+    #[test]
+    fn a_closed_ring_finishes_once_drained_and_reopens_with_the_same_batches_and_clean_counts() {
+        let (mut filler, mut drainer, stats) = small_ring(2, 1);
+        let address = |filler: &mut Filler| filler.batch().free_slots().as_ptr().addr();
+        let first = address(&mut filler);
+        // The writer falls behind: one batch waits, the next is dropped.
+        filler.batch().push(1, b"x");
+        assert_eq!(filler.send(), Sent::Handed);
+        filler.batch().push(2, b"y");
+        assert_eq!(filler.send(), Sent::Dropped { messages: 1 });
+        filler.close();
+        assert!(!drainer.is_finished());
+        drop(drainer.take());
+        assert!(drainer.is_finished());
+        assert_eq!((stats.dropped_messages(2), stats.dropped_batches()), (1, 1));
+        assert_eq!(stats.max_queued(), 2);
+
+        assert!(drainer.reopen(&mut filler));
+        assert!(!drainer.is_finished());
+        assert_eq!(stats.dropped_messages(2), 0);
+        assert_eq!(stats.dropped_batches(), 0);
+        assert_eq!(stats.max_queued(), 0);
+        // The same two batches, filled and taken again.
+        let mut seen = vec![first];
+        for round in 0_u8..2 {
+            seen.push(address(&mut filler));
+            filler.batch().push(0, &[round]);
+            assert_eq!(filler.send(), Sent::Handed);
+            assert_eq!(
+                drainer.take().unwrap().messages().next(),
+                Some((0, &[round][..]))
+            );
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), 2, "a reopened ring keeps its own batches");
+    }
+
+    #[test]
+    fn reopening_discards_what_was_left_and_refuses_another_rings_filler() {
+        let (mut filler, mut drainer, _) = small_ring(3, 1);
+        let (mut other, _, _) = small_ring(3, 1);
+        filler.batch().push(0, b"left");
+        filler.send();
+        assert!(!drainer.reopen(&mut other));
+        assert!(drainer.next_recv_time().is_some());
+        assert!(drainer.reopen(&mut filler));
+        assert!(drainer.take().is_none());
     }
 
     /// One step of a single-threaded run.

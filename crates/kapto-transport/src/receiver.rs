@@ -113,9 +113,16 @@ impl<T: Transport> Receiver<T> {
     /// or by the transport (too long for a slot) are added to the counters,
     /// and so is the loss of any silence still settling.
     /// Returns the transport, still open, for the next receiver.
-    pub fn finish(mut self) -> T {
+    pub fn finish(self) -> T {
+        self.finish_keeping_ring().0
+    }
+
+    /// Ends the receiver as [`Receiver::finish`] does, and gives back the
+    /// ring's end, closed, to be reopened for the next phase.
+    pub fn finish_keeping_ring(mut self) -> (T, Filler) {
         self.accounting.settle();
-        self.hand_over().0
+        let (transport, _, filler) = self.hand_over_keeping_ring();
+        (transport, filler)
     }
 
     /// Ends the receiver as [`Receiver::finish`] does, but without settling
@@ -123,6 +130,13 @@ impl<T: Transport> Receiver<T> {
     /// in the next receiver, for when the episode starting holds what
     /// follows.
     pub fn hand_over(self) -> (T, Accounting) {
+        let (transport, accounting, _) = self.hand_over_keeping_ring();
+        (transport, accounting)
+    }
+
+    /// [`Receiver::hand_over`], also giving back the ring's end, closed, to
+    /// be reopened for the next phase.
+    pub fn hand_over_keeping_ring(self) -> (T, Accounting, Filler) {
         for index in 0..self.counters.streams() {
             let Ok(stream) = StreamIndex::try_from(index) else {
                 break;
@@ -132,7 +146,9 @@ impl<T: Transport> Receiver<T> {
             self.counters
                 .add_discarded_on_arrival(stream, self.transport.stats().truncated(stream));
         }
-        (self.transport, self.accounting)
+        // Last: the writer may end the phase once it sees this.
+        self.filler.close();
+        (self.transport, self.accounting, self.filler)
     }
 
     fn send(&mut self) {
