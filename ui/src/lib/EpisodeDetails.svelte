@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ApiFailure } from "./api";
+  import Breakable from "./Breakable.svelte";
   import EpisodeUploadsList from "./EpisodeUploads.svelte";
   import Icon from "./Icon.svelte";
   import type {
@@ -12,7 +13,7 @@
     ReplayState,
     UploadDestination,
   } from "./api-types";
-  import { breakable, bytes, count, duration, figure, lasting, milliseconds, offset, plain, time } from "./format";
+  import { bytes, count, duration, figure, lasting, milliseconds, offset, plain, time } from "./format";
   import { eventRows } from "./viewer/episode-events";
 
   interface Props {
@@ -322,7 +323,8 @@
         <tr>
           <th scope="col">At</th>
           <th scope="col">What happened</th>
-          <th scope="col">From</th>
+          <th scope="col" class="source">From</th>
+          <th scope="col"><span class="visually-hidden">Replay</span></th>
         </tr>
       </thead>
       <tbody>
@@ -338,8 +340,8 @@
                   >{` · ${lasting((row.untilNs - row.fromNs) / 1e9)}`}</span
                 >{/if}{#if row.text}<span class="text">{` · ${row.text}`}</span>{/if}
             </th>
-            <td class="source">
-              {row.source}
+            <td class="source">{row.source}</td>
+            <td class="replay-cell">
               <button
                 type="button"
                 class="watch"
@@ -369,7 +371,7 @@
         {#each quality.checks as check (check.check)}
           <tr>
             <th scope="row" title="Version {check.version}">
-              {#each breakable(check.check) as piece, index (index)}{piece}<wbr />{/each}
+              <Breakable text={check.check} />
               <span class="kind">{check.kind}</span>
             </th>
             <!-- A failed gate rejects the episode; a failed advisory only says so. -->
@@ -379,7 +381,7 @@
               >{verdicts[check.verdict] ?? check.verdict}</td
             >
             <td class="found">
-              {check.message}
+              <Breakable text={check.message} />
               {#if check.ranges.length > 0}
                 <ul class="moments" aria-label="Moments {check.check} found">
                   {#each check.ranges.slice(0, MOMENTS_SHOWN) as range (range.start_utc_ns)}
@@ -432,7 +434,7 @@
       <tbody>
         {#each episode.streams as stream (stream.stream)}
           <tr>
-            <th scope="row">{#each breakable(stream.stream) as piece, index (index)}{piece}<wbr />{/each}</th>
+            <th scope="row"><Breakable text={stream.stream} /></th>
             <td title={stream.carried ? "kept from before the episode, written at its start" : undefined}>
               {count(stream.written)}{stream.carried ? ` + ${count(stream.carried)} kept` : ""}
             </td>
@@ -471,7 +473,7 @@
           {#each statistics.statistics as statistic (statistic.name)}
             <tr>
               <th scope="row">
-                {#each breakable(statistic.name) as piece, index (index)}{piece}<wbr />{/each}
+                <Breakable text={statistic.name} />
               </th>
               {#if statistic.value != null}
                 <td colspan="4">{figure(statistic.value)}</td>
@@ -532,7 +534,7 @@
       {/if}
       <dt>Folder</dt>
       {#if episode.stored_here}
-        <dd class="folder">{episode.folder}</dd>
+        <dd class="folder"><Breakable text={episode.folder} /></dd>
       {:else}
         <dd class="pending" title="Was {episode.folder}">deleted here, stored only remotely</dd>
       {/if}
@@ -543,7 +545,7 @@
 <style>
   /* In line with its row's text above. */
   section {
-    padding: 0.5rem var(--space-2) 0.75rem;
+    padding: 0.5rem var(--inset) 0.75rem;
   }
   dl {
     display: grid;
@@ -665,8 +667,18 @@
     margin: 0.2rem 0 0;
     padding: 0;
   }
+  /* What happened takes the room; where from and Watch each keep a column
+     of their own, on one line, so every row's lines up. */
+  .events th[scope="row"] {
+    width: 100%;
+  }
   .events .source {
+    text-align: left;
     color: var(--muted);
+  }
+  .events .source,
+  .events .replay-cell {
+    white-space: nowrap;
   }
   .events .text,
   .events .stream,
@@ -689,7 +701,7 @@
   .folder {
     font-family: var(--font-data);
     font-size: var(--text-xs);
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     color: var(--muted);
   }
   table {
@@ -752,9 +764,10 @@
     color: var(--muted);
     font-size: var(--text-sm);
   }
-  /* Prose wraps between words; a word too long for a narrow panel breaks
-     rather than pushing the table past it. */
+  /* Prose wraps between words, and a name in it (`streams.complete`) at
+     its dots and underscores. Not `anywhere`: that lets the table squeeze
+     the column mid-word. */
   .found {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 </style>

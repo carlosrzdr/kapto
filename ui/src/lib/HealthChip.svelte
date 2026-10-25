@@ -39,13 +39,15 @@
 <span id="health-detail" class="visually-hidden">{described}</span>
 
 <style>
-  /* One width whatever it says, so the header never moves as health
-     changes: a long problem is cut short, said whole on hover. */
+  /* As wide as what it says, so "All well" isn't a long empty box; a long
+     problem is cut short at a limit, said whole on hover. */
   .chip {
     display: inline-flex;
+    flex: none;
     align-items: center;
     gap: var(--space-2);
-    width: 15rem;
+    width: max-content;
+    max-width: 18rem;
     padding: var(--space-1) var(--space-3);
     border: 1px solid var(--line);
     border-radius: var(--radius);

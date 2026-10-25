@@ -251,9 +251,11 @@
 </ul>
 
 <style>
+  /* Out to the panel's edges, so a row's line and highlight reach them;
+     its text keeps the panel's inset. */
   ul {
     list-style: none;
-    margin: 0;
+    margin: 0 calc(-1 * var(--inset));
     padding: 0;
   }
   li {
@@ -266,7 +268,7 @@
     gap: 0.75rem;
     width: 100%;
     /* Its highlight reaches the panel's edges; its text stays off them. */
-    padding: 0.35rem var(--space-2);
+    padding: 0.35rem var(--inset);
     border: none;
     background: none;
     color: inherit;
@@ -460,7 +462,7 @@
     font-size: var(--text-xs);
   }
   .empty {
-    padding: 0.35rem 0;
+    padding: 0.35rem var(--inset);
     color: var(--muted);
   }
 </style>

@@ -130,6 +130,9 @@ test("the page shows the robot's stream, records an episode and lists it", async
   await expect(chip).toHaveAccessibleDescription(/nothing needs attention/);
   await chip.click();
   await expect(page.getByRole("tab", { name: /^Live/ })).toHaveAttribute("aria-selected", "true");
+  // Nothing wrong, so nothing on the tab is focused and ringed as if it were.
+  await expect(chip).toBeFocused();
+  await expect(page.getByRole("heading", { name: "Pre-flight" })).not.toBeFocused();
   // The live tab: streams and storage.
   const stream = page.locator("aside").getByRole("row", { name: /arm_joints/ });
   const received = stream.getByRole("cell").nth(1);

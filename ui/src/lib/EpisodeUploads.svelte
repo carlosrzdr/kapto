@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { EpisodeUploads, UploadDestination } from "./api-types";
-  import { breakable, bytes, plain, time } from "./format";
+  import Breakable from "./Breakable.svelte";
+  import { bytes, plain, time } from "./format";
   import Icon from "./Icon.svelte";
 
   interface Props {
@@ -64,12 +65,12 @@
       {:else}
         · <span class="danger" title={upload.failure_message}
           ><Icon name="attention" />{`failed: ${plain(upload.failure_message ?? "")}`}</span
-        >{#if upload.failure_code}<span class="code">{` ${upload.failure_code}`}</span>{/if}
+        >{#if upload.failure_code}<span class="code">{" "}<Breakable text={upload.failure_code} /></span>{/if}
       {/if}
     </p>
     <div class="folder">
       <p class="key data">
-        {#each breakable(folder) as piece, index (index)}{piece}<wbr />{/each}
+        <Breakable text={folder} />
       </p>
       {#if canCopy}
         <button type="button" title="Copy {folder}" onclick={() => void copy(folder)}>

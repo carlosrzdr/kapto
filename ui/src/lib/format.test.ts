@@ -43,6 +43,11 @@ describe("format", () => {
     expect(breakable("arm_joints.joint_positions[0]")).toEqual(["arm_", "joints.", "joint_", "positions[0]"]);
     expect(breakable("/tmp/kapto")).toEqual(["/", "tmp/", "kapto"]);
     expect(breakable("info")).toEqual(["info"]);
+    expect(breakable("capture.control_max_connections")).toEqual(["capture.", "control_", "max_", "connections"]);
+  });
+
+  it("splits a message only after its names' dots, never inside a figure", () => {
+    expect(breakable("streams.complete: 0 messages in 5.0 s.")).toEqual(["streams.", "complete: 0 messages in 5.0 s."]);
   });
 
   it("shows a measured value to three significant figures, and large ones as counts", () => {

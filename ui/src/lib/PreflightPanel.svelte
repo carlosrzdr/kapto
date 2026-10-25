@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PreflightRun } from "./api-types";
+  import Breakable from "./Breakable.svelte";
   import { time } from "./format";
 
   interface Props {
@@ -54,7 +55,7 @@
         {#if check.waived}<span class="waived">waived</span>{/if}
         <p>Measured {check.measured}; needs {check.needed}.</p>
         {#if !recording && check.remedy}<p class="remedy">{check.remedy}</p>{/if}
-        <p class="code">{check.code}</p>
+        <p class="code"><Breakable text={check.code} /></p>
       </li>
     {/each}
   </ul>

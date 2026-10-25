@@ -75,6 +75,10 @@
     text-align: left;
     font-weight: 500;
   }
+  /* A process's name is one word (`viz-bridge`), never split at its hyphen. */
+  th[scope="row"] {
+    white-space: nowrap;
+  }
   thead th {
     color: var(--muted);
     font-weight: 500;

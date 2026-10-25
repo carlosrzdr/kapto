@@ -333,11 +333,19 @@
     }),
   );
 
-  /** Opens the tab where `target` is shown in full, and brings it into view. */
+  /**
+   * Opens the tab where `target` is shown in full, brings it into view and
+   * focuses it, ringed. With nothing wrong it only opens the Live tab: a
+   * ring there would point at a problem there isn't.
+   */
   async function showProblem(target: Target | null) {
     select(target?.tab ?? "live");
     await tick();
-    const shown = document.getElementById(target?.anchor ?? LIVE.preflight);
+    if (target === null) {
+      document.querySelector("aside")?.scrollTo({ top: 0 });
+      return;
+    }
+    const shown = document.getElementById(target.anchor);
     shown?.scrollIntoView({ block: "center" });
     shown?.focus({ preventScroll: true });
   }
@@ -940,10 +948,19 @@
   aside {
     overflow-y: auto;
   }
-  /* Room on its right, so nothing ends against the panel's edge or under
-     its scrollbar. */
+  /* One inset on both sides, so headings, text, tables and cards start on
+     one line, in line with the tabs, and nothing ends against the panel's
+     edge or under its scrollbar. */
   [role="tabpanel"] {
-    padding-right: var(--space-2);
+    padding-inline: var(--inset);
+  }
+  /* A table's outer cells give up their own padding to the panel's, so
+     their text lines up with the headings above them. */
+  [role="tabpanel"] :global(:is(th, td):first-child) {
+    padding-left: 0;
+  }
+  [role="tabpanel"] :global(:is(th, td):last-child) {
+    padding-right: 0;
   }
   .unknown {
     color: var(--muted);

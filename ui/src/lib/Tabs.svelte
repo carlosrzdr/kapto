@@ -62,7 +62,7 @@
     margin-bottom: 0.75rem;
   }
   button {
-    padding: 0.4rem 0.6rem;
+    padding: 0.4rem var(--inset);
     border: none;
     border-bottom: 2px solid transparent;
     background: none;

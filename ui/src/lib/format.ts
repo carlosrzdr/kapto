@@ -191,8 +191,9 @@ export function milliseconds(ns: number): string {
 /**
  * A name or path in pieces a line may end after: each `.`, `_` or `/`, so
  * `arm_joints.joint_positions[0]` or a file's path wraps between its parts,
- * never mid-word. Shown with a `<wbr>` after each piece.
+ * never mid-word. Shown with a `<wbr>` after each piece. A dot before a digit
+ * stays put, so a figure in a message (`5.0 s`) is never split.
  */
 export function breakable(text: string): string[] {
-  return text.split(/(?<=[._/])/);
+  return text.split(/(?<=[_/])|(?<=\.)(?!\d)/);
 }

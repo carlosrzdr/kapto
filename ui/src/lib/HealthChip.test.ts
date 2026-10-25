@@ -36,7 +36,7 @@ describe("HealthChip", () => {
     expect(chip.textContent).toContain("+2");
     const every = "arm_joints 12 lost; gripper silent; Disk 4 % free. Opens where it is shown in full.";
     expect(screen.getByRole("button", { description: every })).toBe(chip);
-    // Cut short by its fixed width, it is shown whole on hover and focus.
+    // Cut short at its widest, it is shown whole on hover and focus.
     await fireEvent.focus(chip);
     expect((await screen.findByRole("tooltip")).textContent).toBe(every);
   });

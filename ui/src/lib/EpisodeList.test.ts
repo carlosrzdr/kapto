@@ -495,7 +495,7 @@ describe("EpisodeList's events", () => {
     expect(screen.getByText("No episodes with Intervention.")).toBeTruthy();
   });
 
-  it("lists the open episode's events in order, a stretch as one row to the millisecond, marks one never ended, and opens its replay at one", async () => {
+  it("lists the open episode's events in order, a stretch as one row to the millisecond, its source and Watch in columns of their own, marks one never ended, and opens its replay at one", async () => {
     const onreplay = vi.fn();
     const events: EpisodeEvents = {
       read: true,
@@ -515,9 +515,9 @@ describe("EpisodeList's events", () => {
       [...row.children].map((cell) => cell.textContent?.replace(/\s+/g, " ").trim()).join(" | "),
     );
     expect(rows).toEqual([
-      "0:05.000–0:12.000 | Intervention · 7.0 s | page Watch",
-      "0:08.000 | note · slipped | api Watch",
-      `0:40.000–${offset((summary.ended_utc_ns - summary.started_utc_ns) / 1e9)} | Intervention · never ended | page Watch`,
+      "0:05.000–0:12.000 | Intervention · 7.0 s | page | Watch",
+      "0:08.000 | note · slipped | api | Watch",
+      `0:40.000–${offset((summary.ended_utc_ns - summary.started_utc_ns) / 1e9)} | Intervention · never ended | page | Watch`,
     ]);
     await fireEvent.click(screen.getAllByRole("button", { name: "Watch" })[1]!);
     expect(onreplay).toHaveBeenCalledWith(summary.id, { start_utc_ns: at(8), end_utc_ns: at(8) });

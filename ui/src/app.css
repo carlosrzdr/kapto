@@ -58,6 +58,10 @@
   --space-3: 0.75rem;
   --space-4: 1rem;
   --space-6: 1.5rem;
+  /* How far a panel's headings, rows' text, tables and cards sit from its
+     edges: one line they all start on. A row's highlight still reaches the
+     edges. */
+  --inset: var(--space-2);
   --radius: 0.25rem;
   --control-height: 1.75rem;
   color-scheme: dark;

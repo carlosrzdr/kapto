@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ApiFailure } from "./api";
   import type { DestinationTested, UploadsOverview, UploadStatus } from "./api-types";
+  import Breakable from "./Breakable.svelte";
   import { bytes, count, duration, plain, sentence, time } from "./format";
   import { destinationAnchor } from "./health";
   import { type Measured, timeLeft, uploadKey } from "./uploads";
@@ -103,7 +104,7 @@
           </p>
         {:else}
           <p class="problem" role="alert" title={tested.message}>{sentence(plain(tested.message))} <span class="remedy">{tested.remedy}</span></p>
-          <p class="code">{tested.code}</p>
+          <p class="code"><Breakable text={tested.code} /></p>
         {/if}
       </li>
     {/each}
@@ -134,7 +135,7 @@
                 >{` · ${time(upload.failed_utc_ns)}`}</span
               >{/if}
           </p>
-          {#if upload.failure_code}<p class="code">{upload.failure_code}</p>{/if}
+          {#if upload.failure_code}<p class="code"><Breakable text={upload.failure_code} /></p>{/if}
           <!-- Retried by hand, it is made due at once: its time of failure zero. -->
           {#if upload.failed_utc_ns === 0}
             <p class="remedy">Queued to be tried again.</p>
@@ -198,8 +199,8 @@
   .code {
     color: var(--muted);
     font-size: var(--text-xs);
-    overflow-wrap: anywhere;
   }
+  /* A URL may break anywhere (`.data`); a code only between its parts. */
   .code {
     font-family: var(--font-data);
   }
