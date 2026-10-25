@@ -156,17 +156,25 @@ impl KaptoError {
     /// ```
     #[must_use]
     pub fn report(&self) -> String {
-        Report(self).to_string()
+        Report(self, "error").to_string()
+    }
+
+    /// The same report for a problem that doesn't stop what was asked, such
+    /// as a smaller receive buffer than asked for: `warning[...]` instead of
+    /// `error[...]`.
+    #[must_use]
+    pub fn warning_report(&self) -> String {
+        Report(self, "warning").to_string()
     }
 }
 
-/// Formats [`KaptoError::report`].
-struct Report<'a>(&'a KaptoError);
+/// Formats [`KaptoError::report`] under its label: an error or a warning.
+struct Report<'a>(&'a KaptoError, &'static str);
 
 impl fmt::Display for Report<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let error = self.0;
-        write!(f, "error[{}]: {}", error.code.id(), error.message())?;
+        let Self(error, label) = *self;
+        write!(f, "{label}[{}]: {}", error.code.id(), error.message())?;
         for (key, value) in &error.context {
             write!(f, "\n  {key}: {value}")?;
         }
@@ -321,6 +329,20 @@ mod tests {
              caused by: expected `=`\n  \
              remedy: Fix the syntax at the reported line. \
              Strings need quotes, and each key is written `key = value`."
+        );
+    }
+
+    #[test]
+    fn a_warning_is_reported_like_an_error_under_its_own_label() {
+        let problem = KaptoError::new(ErrorCode::ConfigInvalidSyntax).context("line", "3");
+        assert_eq!(
+            problem.warning_report(),
+            problem.report().replacen("error[", "warning[", 1)
+        );
+        assert!(
+            problem
+                .warning_report()
+                .starts_with("warning[config.invalid_syntax]: ")
         );
     }
 

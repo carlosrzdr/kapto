@@ -146,17 +146,19 @@ fn joining_an_address_that_is_not_a_multicast_group_fails_with_its_code() {
 }
 
 #[test]
-fn a_receive_buffer_larger_than_the_host_allows_is_reported_as_a_warning() {
+fn a_receive_buffer_larger_than_the_host_allows_is_reported_once_as_a_warning() {
     let options = UdpOptions {
         receive_buffer_bytes: 1 << 30,
     };
-    let transport = UdpTransport::open(
-        &[UdpSocketConfig::new(0, "127.0.0.1:0".parse().unwrap())],
-        options,
-    )
-    .unwrap();
+    let sockets: Vec<_> = (0..3)
+        .map(|stream| UdpSocketConfig::new(stream, "127.0.0.1:0".parse().unwrap()))
+        .collect();
+    let transport = UdpTransport::open(&sockets, options).unwrap();
     let codes: Vec<_> = transport.warnings().iter().map(KaptoError::code).collect();
     assert_eq!(codes, [ErrorCode::TransportUdpReceiveBufferSmall]);
+    let message = transport.warnings()[0].message();
+    assert!(message.contains("asked for 1024 MiB"), "{message}");
+    assert!(message.contains("on 3 sockets"), "{message}");
 }
 
 #[test]

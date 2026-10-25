@@ -119,13 +119,24 @@ impl UdpTransport {
     /// `transport.udp.receive_failed` if the sockets can't be waited on.
     pub fn open(sockets: &[UdpSocketConfig], options: UdpOptions) -> Result<Self, KaptoError> {
         let mut warnings = Vec::new();
+        // Every socket usually gets the same smaller buffer: one warning
+        // for all of them says it once.
+        let mut small = Vec::new();
         let mut opened = Vec::with_capacity(sockets.len());
         for config in sockets {
-            let (socket, warning) = open_socket(config, options)?;
-            warnings.extend(warning);
+            let (socket, buffer) = open_socket(config, options)?;
             let local = socket
                 .local_addr()
                 .map_err(|error| bind_error(config, error))?;
+            match buffer {
+                Ok(None) => {}
+                Ok(Some(got)) => small.push((local, got)),
+                Err(error) => warnings.push(
+                    KaptoError::new(ErrorCode::TransportUdpReceiveBufferSmall)
+                        .context("address", local.to_string())
+                        .source(error),
+                ),
+            }
             opened.push(StreamSocket {
                 socket,
                 local,
@@ -137,6 +148,7 @@ impl UdpTransport {
                     .collect(),
             });
         }
+        warnings.extend(small_buffers(options.receive_buffer_bytes, &small));
         let streams = sockets.iter().map(|config| usize::from(config.stream) + 1);
         let readiness = sys::Readiness::new(opened.iter().map(|socket| &socket.socket))
             .map_err(|error| receive_error(error).detail("can't wait on the sockets"))?;
@@ -216,10 +228,10 @@ fn receive_from(
     }
 }
 
-fn open_socket(
-    config: &UdpSocketConfig,
-    options: UdpOptions,
-) -> Result<(UdpSocket, Option<KaptoError>), KaptoError> {
+/// The socket, and the smaller receive buffer it got, if it did.
+type Opened = (UdpSocket, io::Result<Option<usize>>);
+
+fn open_socket(config: &UdpSocketConfig, options: UdpOptions) -> Result<Opened, KaptoError> {
     let bind_failed = |error| bind_error(config, error);
     let socket = Socket::new(
         Domain::for_address(config.bind),
@@ -231,7 +243,7 @@ fn open_socket(
         // Lets other programs on this machine listen to the same group.
         socket.set_reuse_address(true).map_err(bind_failed)?;
     }
-    let warning = set_receive_buffer(&socket, options.receive_buffer_bytes, config.bind);
+    let buffer = set_receive_buffer(&socket, options.receive_buffer_bytes);
     socket.bind(&config.bind.into()).map_err(bind_failed)?;
     if let Some(group) = config.multicast_group {
         let joined = match group {
@@ -245,24 +257,73 @@ fn open_socket(
         })?;
     }
     socket.set_nonblocking(true).map_err(bind_failed)?;
-    Ok((socket.into(), warning))
+    Ok((socket.into(), buffer))
 }
 
-/// Asks for a receive buffer of `requested` bytes and returns a warning if
-/// the operating system gave less, which it does silently.
-fn set_receive_buffer(socket: &Socket, requested: usize, bind: SocketAddr) -> Option<KaptoError> {
-    let warning = KaptoError::new(ErrorCode::TransportUdpReceiveBufferSmall)
-        .context("address", bind.to_string());
-    match socket
-        .set_recv_buffer_size(requested)
-        .and_then(|()| socket.recv_buffer_size())
-    {
-        Ok(reported) if usable_buffer(reported) >= requested => None,
-        Ok(reported) => Some(warning.detail(format!(
-            "asked for {requested} bytes, got {}",
-            usable_buffer(reported)
-        ))),
-        Err(error) => Some(warning.source(error)),
+/// Asks for a receive buffer of `requested` bytes and returns the size the
+/// operating system gave if it gave less, which it does silently.
+fn set_receive_buffer(socket: &Socket, requested: usize) -> io::Result<Option<usize>> {
+    socket.set_recv_buffer_size(requested)?;
+    let usable = usable_buffer(socket.recv_buffer_size()?);
+    Ok((usable < requested).then_some(usable))
+}
+
+/// One warning for every socket in `small` given less than `requested`
+/// bytes, as `(address, bytes given)`; none if there are none.
+fn small_buffers(requested: usize, small: &[(SocketAddr, usize)]) -> Option<KaptoError> {
+    let least = small.iter().map(|&(_, got)| got).min()?;
+    let most = small.iter().map(|&(_, got)| got).max().unwrap_or(least);
+    let got = if least == most {
+        bytes(least)
+    } else {
+        format!("{} to {}", bytes(least), bytes(most))
+    };
+    let count = small.len();
+    let sockets = if count == 1 { "socket" } else { "sockets" };
+    let addresses: Vec<SocketAddr> = small.iter().map(|&(address, _)| address).collect();
+    Some(
+        KaptoError::new(ErrorCode::TransportUdpReceiveBufferSmall).detail(format!(
+            "asked for {}, got {got} on {count} {sockets} ({})",
+            bytes(requested),
+            addresses_in_short(&addresses)
+        )),
+    )
+}
+
+/// `addresses` in a few words: a range of ports when they follow each other
+/// on one IP address, otherwise the first few and how many more.
+fn addresses_in_short(addresses: &[SocketAddr]) -> String {
+    const LISTED: usize = 3;
+    let (Some(first), Some(last)) = (addresses.first(), addresses.last()) else {
+        return String::new();
+    };
+    let consecutive = addresses.windows(2).all(|pair| {
+        pair[0].ip() == pair[1].ip() && pair[0].port().checked_add(1) == Some(pair[1].port())
+    });
+    if addresses.len() > 1 && consecutive {
+        return format!("{first}\u{2013}{}", last.port());
+    }
+    let listed: Vec<String> = addresses
+        .iter()
+        .take(LISTED)
+        .map(ToString::to_string)
+        .collect();
+    match addresses.len().saturating_sub(LISTED) {
+        0 => listed.join(", "),
+        more => format!("{} and {more} more", listed.join(", ")),
+    }
+}
+
+/// `bytes` in MiB or KiB when it is a whole number of them.
+fn bytes(bytes: usize) -> String {
+    const KIB: usize = 1024;
+    const MIB: usize = 1024 * KIB;
+    if bytes >= MIB && bytes.is_multiple_of(MIB) {
+        format!("{} MiB", bytes / MIB)
+    } else if bytes >= KIB && bytes.is_multiple_of(KIB) {
+        format!("{} KiB", bytes / KIB)
+    } else {
+        format!("{bytes} bytes")
     }
 }
 
@@ -297,6 +358,52 @@ mod tests {
         let error = receive_error(io::Error::from_raw_os_error(libc::ENETDOWN));
         assert_eq!(error.code(), ErrorCode::TransportUdpReceiveFailed);
         assert!(error.message().contains("down"), "{}", error.message());
+    }
+
+    fn ports(first: u16, count: u16) -> Vec<(SocketAddr, usize)> {
+        (first..first + count)
+            .map(|port| (SocketAddr::from(([127, 0, 0, 1], port)), 4 << 20))
+            .collect()
+    }
+
+    #[test]
+    fn sockets_given_a_smaller_buffer_are_reported_in_one_warning() {
+        let warning = small_buffers(8 << 20, &ports(9300, 16)).unwrap();
+        assert_eq!(warning.code(), ErrorCode::TransportUdpReceiveBufferSmall);
+        assert_eq!(
+            warning.message(),
+            "UDP receive buffer is smaller than Kapto asks for: \
+             asked for 8 MiB, got 4 MiB on 16 sockets (127.0.0.1:9300\u{2013}9315)"
+        );
+    }
+
+    #[test]
+    fn no_socket_given_a_smaller_buffer_is_no_warning() {
+        assert!(small_buffers(8 << 20, &[]).is_none());
+    }
+
+    #[test]
+    fn scattered_sockets_are_named_by_the_first_few_and_the_sizes_they_got() {
+        let mut small = ports(9000, 1);
+        small.extend(ports(9010, 1));
+        small.extend([(SocketAddr::from(([10, 0, 0, 2], 9000)), 208 << 10)]);
+        small.extend(ports(9020, 2));
+        let warning = small_buffers(8 << 20, &small).unwrap();
+        assert!(
+            warning.message().ends_with(
+                "asked for 8 MiB, got 208 KiB to 4 MiB on 5 sockets \
+                 (127.0.0.1:9000, 127.0.0.1:9010, 10.0.0.2:9000 and 2 more)"
+            ),
+            "{}",
+            warning.message()
+        );
+        let one = [(SocketAddr::from(([127, 0, 0, 1], 9000)), 1000)];
+        assert!(
+            small_buffers(8 << 20, &one)
+                .unwrap()
+                .message()
+                .ends_with("asked for 8 MiB, got 1000 bytes on 1 socket (127.0.0.1:9000)")
+        );
     }
 
     #[test]

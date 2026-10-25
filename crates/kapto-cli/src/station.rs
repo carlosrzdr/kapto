@@ -1090,8 +1090,8 @@ fn open_transport(source: &Source) -> Result<Box<dyn Transport>, KaptoError> {
         Source::Udp(sockets) => {
             let transport = UdpTransport::open(sockets, UdpOptions::default())?;
             for warning in transport.warnings() {
-                // A warning is reported like an error, but recording goes ahead.
-                eprintln!("{}\n", warning.report().replacen("error[", "warning[", 1));
+                // Recording goes ahead.
+                eprintln!("{}\n", warning.warning_report());
             }
             Ok(Box::new(transport))
         }

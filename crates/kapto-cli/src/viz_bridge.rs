@@ -110,5 +110,5 @@ fn read_mapping(path: &Path) -> Result<MappingDeclaration, Vec<KaptoError>> {
 
 /// A problem's report, as a warning.
 pub(crate) fn warning(problem: &KaptoError) -> String {
-    problem.report().replacen("error[", "warning[", 1)
+    problem.warning_report()
 }

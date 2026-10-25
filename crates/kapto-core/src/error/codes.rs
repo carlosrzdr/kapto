@@ -499,12 +499,13 @@ error_codes! {
         remedy: "Check that the group is a multicast address (224.0.0.0/4 or ff00::/8) and that a network interface with multicast enabled is up. In a container, use host networking.",
     }
 
-    /// The operating system gave a UDP socket a smaller receive buffer than
-    /// configured. Reported as a warning: receiving works, but a burst or a
-    /// short stall can overflow the buffer and lose messages.
+    /// The operating system gave UDP sockets a smaller receive buffer than
+    /// Kapto asks for. Reported as a warning, once for every socket it
+    /// concerns: receiving works, but a burst or a short stall can overflow
+    /// the buffer and lose messages.
     TransportUdpReceiveBufferSmall = "transport.udp.receive_buffer_small" {
-        summary: "UDP receive buffer is smaller than configured",
-        remedy: "Raise the host's limit to at least the configured size, e.g. `sysctl -w net.core.rmem_max=8388608`, and add it to /etc/sysctl.d so it survives a reboot. A container uses the host's limit.",
+        summary: "UDP receive buffer is smaller than Kapto asks for",
+        remedy: "Raise the host's limit to at least the size Kapto asks for, e.g. `sysctl -w net.core.rmem_max=8388608` for 8 MiB, and add it to /etc/sysctl.d so it survives a reboot. A container uses the host's limit.",
     }
 
     /// Reading from a UDP socket failed for a reason other than having
