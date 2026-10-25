@@ -405,6 +405,14 @@ impl Accounting {
         self.from = from;
     }
 
+    /// Whether a message of `stream` received `at`, in a batch counted
+    /// after a stop at `stopped` (its [`Batch::stopped`]), was left out of
+    /// the counts as past its stream's post-roll.
+    #[must_use]
+    pub fn past_post_roll(&self, stopped: u64, stream: StreamIndex, at: RecvTime) -> bool {
+        self.post_roll.ended(stopped, stream, at)
+    }
+
     /// Counts every message of a batch just received, and records in it
     /// the gap loss detection found before each stream's messages in it,
     /// and when the episode was stopped, if it was: a stream's messages

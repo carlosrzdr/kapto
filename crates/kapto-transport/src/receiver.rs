@@ -158,7 +158,10 @@ impl<T: Transport> Receiver<T> {
         if !self.filler.batch().is_empty() {
             let _span = kapto_core::span!("hand-off", messages = self.filler.batch().len());
             self.accounting.count(self.filler.batch());
-            self.filler.send();
+            // A batch dropped leaves out what the accounting left out.
+            let (accounting, filler) = (&self.accounting, &mut self.filler);
+            let (stopped, at) = (filler.batch().stopped(), filler.batch().recv_time());
+            filler.send_leaving_out(|stream| accounting.past_post_roll(stopped, stream, at));
         }
     }
 }

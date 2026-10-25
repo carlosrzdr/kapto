@@ -210,6 +210,15 @@ impl Filler {
     /// If the writer holds every other batch, the messages are discarded and
     /// counted instead, and the batch is reused. Never blocks.
     pub fn send(&mut self) -> Sent {
+        self.send_leaving_out(|_| false)
+    }
+
+    /// Sends the batch being filled as [`Filler::send`] does, but if its
+    /// messages are discarded, those `left_out` says aren't counted: they
+    /// were never counted as received either (past a stream's post-roll,
+    /// as its receiver judged them), and counting them dropped would make
+    /// the counts not add up. Only asked when the batch is discarded.
+    pub fn send_leaving_out(&mut self, left_out: impl Fn(StreamIndex) -> bool) -> Sent {
         if self.current.is_empty() {
             return Sent::Empty;
         }
@@ -218,7 +227,7 @@ impl Filler {
 
         let Ok(empty) = self.free.pop() else {
             return Sent::Dropped {
-                messages: self.discard_current(),
+                messages: count_dropped(&self.stats, &mut self.current, &left_out),
             };
         };
         let filled = std::mem::replace(&mut self.current, empty);
@@ -227,7 +236,7 @@ impl Filler {
             // Can't happen: the queue holds every batch there is. If it did,
             // the batch's messages are counted as lost and the batch freed.
             Err(rtrb::PushError::Full(mut lost)) => Sent::Dropped {
-                messages: count_dropped(&self.stats, &mut lost),
+                messages: count_dropped(&self.stats, &mut lost, &left_out),
             },
         }
     }
@@ -240,21 +249,26 @@ impl Filler {
         // Release: every batch sent before is seen by a writer that sees this.
         self.stats.closed.store(true, Ordering::Release);
     }
-
-    fn discard_current(&mut self) -> usize {
-        count_dropped(&self.stats, &mut self.current)
-    }
 }
 
-/// Counts a batch's messages as dropped, per stream, and clears it.
-fn count_dropped(stats: &RingStats, batch: &mut Batch) -> usize {
+/// Counts a batch's messages as dropped, per stream, but those `left_out`
+/// says aren't counted, and clears it. Returns how many were counted.
+fn count_dropped(
+    stats: &RingStats,
+    batch: &mut Batch,
+    left_out: impl Fn(StreamIndex) -> bool,
+) -> usize {
+    let mut dropped = 0;
     for (stream, _) in batch.messages() {
+        if left_out(stream) {
+            continue;
+        }
         if let Some(count) = stats.dropped_messages.get(usize::from(stream)) {
             count.fetch_add(1, Ordering::Relaxed);
         }
+        dropped += 1;
     }
     stats.dropped_batches.fetch_add(1, Ordering::Relaxed);
-    let dropped = batch.len();
     batch.clear();
     dropped
 }
@@ -362,6 +376,22 @@ mod tests {
             max_message_len: 16,
             streams: 3,
         })
+    }
+
+    #[test]
+    fn a_batch_dropped_leaves_out_of_the_counts_what_its_receiver_left_out() {
+        // Two batches: one being filled, one the writer holds; no free one.
+        let (mut filler, _drainer, stats) = small_ring(2, 4);
+        assert!(filler.batch().push(0, b"a"));
+        assert!(matches!(filler.send(), Sent::Handed));
+        for stream in [0, 1, 1] {
+            assert!(filler.batch().push(stream, b"b"));
+        }
+        // Stream 1's messages are past its post-roll: never counted received.
+        let sent = filler.send_leaving_out(|stream| stream == 1);
+        assert!(matches!(sent, Sent::Dropped { messages: 1 }), "{sent:?}");
+        assert_eq!(stats.dropped_messages(0), 1);
+        assert_eq!(stats.dropped_messages(1), 0);
     }
 
     #[test]

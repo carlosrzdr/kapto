@@ -659,8 +659,14 @@ impl Recording {
                 None => Err(None),
             };
             if let Err(error) = written {
+                // Those past their post-roll were never counted received.
                 for (stream, _) in batch.messages().skip(index) {
-                    counters.add_dropped_by_us(stream, 1);
+                    if !self
+                        .post_roll
+                        .ended(batch.stopped(), stream, batch.recv_time())
+                    {
+                        counters.add_dropped_by_us(stream, 1);
+                    }
                 }
                 return Err(match error {
                     Some(error) => self.fail(error),
@@ -788,8 +794,14 @@ impl Recording {
                 while let Some(batch) = drainer.take() {
                     idle = false;
                     if failure.is_some() {
+                        // Those past their post-roll were never counted received.
                         for (stream, _) in batch.messages() {
-                            counters.add_dropped_by_us(stream, 1);
+                            if !self
+                                .post_roll
+                                .ended(batch.stopped(), stream, batch.recv_time())
+                            {
+                                counters.add_dropped_by_us(stream, 1);
+                            }
                         }
                     } else if let Err(error) = {
                         // How long the batch waited for the writer since its
