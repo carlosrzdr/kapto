@@ -1,7 +1,7 @@
 # Configuration
 
 Kapto's deployment settings say how it runs on this machine: where it
-listens, where it stores data and how much it logs.
+listens, where it stores data, and how it records and uploads.
 
 ## Where settings come from
 
@@ -33,7 +33,7 @@ paths.packages      /srv/packages                         flag --paths-packages
 They are grouped in sections: where Kapto listens (`[server]`), the live
 view (`[viewer]`), recording (`[capture]`), restarting processes
 (`[supervisor]`), the worker (`[worker]`), uploads (`[upload]`), where
-things are stored (`[paths]`) and logging (`[log]`). The
+things are stored (`[paths]`) and the bin of deleted episodes (`[bin]`). The
 [configuration reference](../reference/configuration.md) lists each one with
 its accepted values, default, environment variable and flag.
 
@@ -56,8 +56,8 @@ file named with `--config` must exist.
 [server]
 port = 7701
 
-[log]
-level = "debug"
+[capture]
+compression = "zstd"
 ```
 
 ## Checking a configuration
