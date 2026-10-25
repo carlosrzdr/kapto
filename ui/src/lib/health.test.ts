@@ -117,10 +117,11 @@ describe("health", () => {
     input.rates.arm_joints = 1500;
     input.processes = [{ name: "worker", state: "stopped", restarts: 0 }];
     input.destinations = [{ ...input.destinations[0]!, name: "nas", failed: 2 }];
+    // A failed upload is red, as everywhere else it is shown; the rest amber.
     expect(problems(input)).toEqual([
+      { level: "danger", text: "Uploads to nas failing", target: { tab: "uploads", anchor: "destination-nas" } },
       { level: "warning", text: "arm_joints slow", target: { tab: "live", anchor: "stream-arm_joints" } },
       { level: "warning", text: "worker stopped", target: { tab: "system", anchor: "process-worker" } },
-      { level: "warning", text: "Uploads to nas failing", target: { tab: "uploads", anchor: "destination-nas" } },
     ]);
   });
 

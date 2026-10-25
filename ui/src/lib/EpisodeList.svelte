@@ -200,7 +200,8 @@
         {#if episode.recovered}
           <span class="warning" title="Only finishing a recording counts what it lost">loss unknown</span>
         {:else if lost > 0}
-          <span class="warning">{count(lost)} missing</span>
+          <!-- Messages lost are red, as in its details and the live stream table. -->
+          <span class="danger">{count(lost)} missing</span>
         {:else}
           <!-- Its place kept, so the verdicts line up. -->
           <span></span>
@@ -291,6 +292,9 @@
      usable; each said in a word, never by colour alone. */
   .warning {
     color: var(--warning);
+  }
+  .danger {
+    color: var(--danger);
   }
   .filters {
     display: flex;

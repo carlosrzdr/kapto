@@ -580,8 +580,9 @@ the replay's opening, then asks for the stretch it shows as it plays, at
 the points its plots have, with play, pause, speed and scrubbing on its
 timeline, which draws the episode's events and every moment a check found.
 Meanwhile the episode's button reads "Preparing…", then "Replaying", and
-can't be pressed; the page's header and the timeline offer **Back to live**
-(Esc), and marking events isn't offered, since marks go to what is recorded
+can't be pressed; the page's header says "Replaying" and when the episode
+was recorded, in the info colour, in place of "Live, not recording", and
+offers **Back to live** (Esc), and marking events isn't offered, since marks go to what is recorded
 now. A replay plays from its start and stops on its last moment; the bar
 above it shows "Playing 0:04 of 0:09", "Paused at", or "Episode over" with
 **Play again**. Every time range a check found is listed under its result
@@ -927,6 +928,9 @@ rate with nothing lost or dropped, pre-flight passed, the disk has room and
 every process and destination answers; otherwise the problem most in need of
 attention, with how many more there are, in the colour of the worst, which
 opens the tab holding it at its row ([layouts](../design/layouts.md)). The
+bar over the header, the notice under it and the marks on the tabs take
+that colour too: red for what loses data, stops recording or leaves an
+upload failed, amber for what is degraded or being retried. The
 side panel opens on Episodes, or on the tab last chosen. **Live** has
 pre-flight's latest run, each failed check with what to do about it, a
 *Run again* button and *Record anyway*, which starts an episode waiving

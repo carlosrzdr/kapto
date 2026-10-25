@@ -102,7 +102,8 @@ describe("EpisodeList", () => {
     const base = screen.getByRole("row", { name: /^base/ });
     expect(base.textContent).toContain("12 · 2 disconnects");
     expect(base.textContent).toContain("silences (estimate)");
-    expect(base.querySelectorAll("td")[3]?.classList.contains("warning")).toBe(true);
+    // Lost is red, as in the live stream table and the header.
+    expect(base.querySelectorAll("td")[3]?.classList.contains("danger")).toBe(true);
     const kept = screen.getByRole("row", { name: /^tf_static/ });
     expect(kept.querySelectorAll("td")[0]?.textContent?.trim()).toBe("0 + 2 kept");
   });

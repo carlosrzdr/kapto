@@ -46,12 +46,19 @@ describe("Timeline", () => {
     expect(shown.onspan).toHaveBeenCalledWith(120_000);
   });
 
-  it("replaying, says where in the episode it is, of how long, and goes back to live", async () => {
+  it("replaying, says where in the episode it is, of how long, leaving the way back to the header", () => {
     const shown = props({ paused: true, cursorMs: 1_180_000, replaying: true });
     render(Timeline, shown);
     expect(screen.getByText("3:00")).toBeTruthy();
     expect(screen.getByText("of 10:00")).toBeTruthy();
-    await fireEvent.click(screen.getByRole("button", { name: "Back to live" }));
+    // One Back to live on the page, the header's.
+    expect(screen.queryByRole("button", { name: /^Back to (live|now)$/ })).toBeNull();
+  });
+
+  it("paused live, goes back to now", async () => {
+    const shown = props({ paused: true, cursorMs: 1_180_000 });
+    render(Timeline, shown);
+    await fireEvent.click(screen.getByRole("button", { name: "Back to now" }));
     expect(shown.onlive).toHaveBeenCalledOnce();
   });
 

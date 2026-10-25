@@ -6,7 +6,8 @@ import Tabs from "./Tabs.svelte";
 const tabs = [
   { id: "live", label: "Live" },
   { id: "episodes", label: "Episodes" },
-  { id: "system", label: "System", alert: true },
+  { id: "uploads", label: "Uploads", alert: "danger" as const },
+  { id: "system", label: "System", alert: "warning" as const },
 ];
 
 describe("Tabs", () => {
@@ -30,5 +31,12 @@ describe("Tabs", () => {
     render(Tabs, { tabs, selected: "live", onselect: vi.fn() });
     expect(screen.getByRole("tab", { name: "System needs attention" }).classList.contains("alert")).toBe(true);
     expect(screen.getByRole("tab", { name: "Live" }).classList.contains("alert")).toBe(false);
+  });
+
+  it("marks it in the colour of how badly it needs attention", () => {
+    render(Tabs, { tabs, selected: "live", onselect: vi.fn() });
+    const mark = (name: string) => screen.getByRole("tab", { name }).querySelector(".attention");
+    expect(mark("Uploads needs attention")?.classList.contains("danger")).toBe(true);
+    expect(mark("System needs attention")?.classList.contains("warning")).toBe(true);
   });
 });

@@ -46,4 +46,10 @@ describe("ProcessTable", () => {
     expect(cells[4]?.classList.contains("problem")).toBe(true);
     expect(screen.getByText("capture ended: signal: 9 (SIGKILL)")).toBeTruthy();
   });
+
+  it("marks a stopped process as the health chip counts it", () => {
+    render(ProcessTable, { processes: [{ name: "worker", state: "stopped", restarts: 0 }] });
+    const cells = screen.getByRole("row", { name: /^worker/ }).querySelectorAll("td");
+    expect(cells[0]?.classList.contains("problem")).toBe(true);
+  });
 });

@@ -439,8 +439,9 @@
               {count(stream.written)}{stream.carried ? ` + ${count(stream.carried)} kept` : ""}
             </td>
             <td class:warning={stream.decoded < stream.received}>{count(stream.decoded)}</td>
-            <td class:warning={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
-            <td class:warning={stream.lost_upstream > 0}>
+            <!-- Messages lost or dropped are red, as in the live stream table and the header. -->
+            <td class:danger={stream.dropped_by_us > 0}>{count(stream.dropped_by_us)}</td>
+            <td class:danger={stream.lost_upstream > 0}>
               {count(stream.lost_upstream)}{stream.disconnects ? ` · ${stream.disconnects} disconnects` : ""}{stream.rejected
                 ? ` · ${count(stream.rejected)} from sources not allowed`
                 : ""}

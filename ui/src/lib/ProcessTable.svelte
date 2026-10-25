@@ -41,7 +41,8 @@
       <!-- Opened by the header's health chip when it is what needs attention. -->
       <tr id={processAnchor(process.name)} class="anchor" tabindex="-1">
         <th scope="row">{process.name}</th>
-        <td class:problem={process.state === "restarting"} title={process.last_exit ? `Last ended: ${process.last_exit}` : undefined}>
+        <!-- Restarting or stopped, amber, as the health chip says it. -->
+        <td class:problem={process.state === "restarting" || process.state === "stopped"} title={process.last_exit ? `Last ended: ${process.last_exit}` : undefined}>
           {state(process)}
         </td>
         <td>{process.cpu_cores != null ? cores(process.cpu_cores) : unknown}</td>

@@ -79,12 +79,14 @@ export const RANK = {
   disk_full: { rank: 1, level: "danger" },
   lost: { rank: 2, level: "danger" },
   dropped: { rank: 3, level: "danger" },
-  preflight: { rank: 4, level: "warning" },
-  silent: { rank: 5, level: "warning" },
-  slow: { rank: 6, level: "warning" },
-  disk_low: { rank: 7, level: "warning" },
-  process: { rank: 8, level: "warning" },
-  destination: { rank: 9, level: "warning" },
+  // A failed upload leaves an episode short of where it should be: red, as
+  // in the Uploads tab and the episode's details.
+  destination: { rank: 4, level: "danger" },
+  preflight: { rank: 5, level: "warning" },
+  silent: { rank: 6, level: "warning" },
+  slow: { rank: 7, level: "warning" },
+  disk_low: { rank: 8, level: "warning" },
+  process: { rank: 9, level: "warning" },
 } as const satisfies Record<string, { rank: number; level: Level }>;
 
 export type Kind = keyof typeof RANK;

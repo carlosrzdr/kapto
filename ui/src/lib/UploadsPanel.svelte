@@ -220,8 +220,10 @@
     color: var(--ok);
     font-size: var(--text-sm);
   }
+  /* A failed upload, test or retry is red, as in the header and the
+     episode's details; amber is for what is only degraded. */
   .problem {
-    color: var(--warning);
+    color: var(--danger);
   }
   .warning {
     margin-bottom: var(--space-3);

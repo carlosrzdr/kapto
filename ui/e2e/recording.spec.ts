@@ -261,7 +261,10 @@ test("an episode is replayed in the live view, saying why one can't be, and the 
   await expect(view).toHaveAttribute("data-robot", id ?? "");
   await expect(view).toHaveAttribute("data-framings", framings ?? "");
   await expect(view).toHaveAttribute("data-looked-back", "yes");
-  await expect(page.getByRole("button", { name: "Back to live" })).toHaveCount(2);
+  // The header says a replay is shown, and when it was recorded, with the one way back.
+  await expect(page.getByRole("button", { name: "Back to live" })).toHaveCount(1);
+  await expect(page.getByRole("banner")).toContainText(/Replaying · \S/);
+  await expect(page.getByRole("banner")).not.toContainText("Live, not recording");
 
   // It plays from the start and stops on its last moment, which the bar
   // says, offering to play it again.
@@ -528,12 +531,12 @@ test("pre-flight runs again from the page, and an episode it refuses is recorded
 
   await expect(page.getByText("1 of 1 checks failed")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Live" })).toHaveClass(/alert/);
-  // The header says it too, in the warning colour: first, before the
-  // uploads to the destination xtask makes fail for the episodes recorded
-  // by the tests before.
+  // The header says it too. Which problem it leads with depends on whether
+  // the uploads xtask makes fail have failed yet for the episodes the tests
+  // before recorded, so only that it names this one is checked here; the
+  // order of problems is the health ranking's own tests'.
   const chip = page.getByRole("banner").getByRole("button", { name: /^Health: / });
-  await expect(chip).toHaveAccessibleName(/^Health: Pre-flight: arm_joints silent( \+1)?$/);
-  await expect(chip).toHaveClass(/warning/);
+  await expect(chip).toHaveAccessibleDescription(/Pre-flight: arm_joints silent/);
   await open(page, /^System/);
   await page.getByRole("button", { name: "Record", exact: true }).click();
   // Refused: the live tab shows what failed and what to do.

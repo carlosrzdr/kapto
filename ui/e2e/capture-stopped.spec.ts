@@ -30,6 +30,9 @@ test("with the capture process stopped, the page says why and can't record", asy
   await expect(chip).toHaveAccessibleName(/^Health: Capture not reachable( \+\d+)?$/);
   await expect(chip).toHaveClass(/danger/);
   await expect(chip).toHaveAccessibleDescription(/capture restarting/);
+  // The bar over the header and the notice under it in the same colour.
+  await expect(page.getByRole("banner")).toHaveAttribute("data-level", "danger");
+  await expect(alert).toHaveClass(/danger/);
   await expect(page.getByRole("tab", { name: /^Episodes/ })).toHaveAttribute("aria-selected", "true");
   await chip.click();
   await expect(page.getByRole("tab", { name: /^Live/ })).toHaveAttribute("aria-selected", "true");

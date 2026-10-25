@@ -292,27 +292,25 @@
 
   const recording = $derived(status?.capture.episode != null);
 
-  /** What the page's top bar says by its colour: recording, something wrong, or live. */
-  const shellState = $derived(recording ? "recording" : status === null || problem !== null ? "degraded" : "live");
+  /** Whether capture records, which the header says by its background. */
+  const shellState = $derived(recording ? "recording" : "live");
+
+  /**
+   * The worst problem a tab holds, from the same list the health chip says
+   * the worst of, so a problem is one colour wherever it is marked.
+   */
+  function worstOn(tab: Target["tab"]): "warning" | "danger" | null {
+    const level = healthNow.problems.find((each) => each.target.tab === tab)?.level;
+    return level === "warning" || level === "danger" ? level : null;
+  }
 
   const tabs = $derived([
-    {
-      id: "live",
-      label: "Live",
-      alert:
-        status?.capture.preflight?.passed === false ||
-        (status?.capture.streams ?? []).some(
-          (s) => s.dropped_by_us > 0 || s.lost_upstream > 0 || (s.received > 0 && rates[s.stream] === 0),
-        ),
-    },
+    { id: "live", label: "Live", alert: worstOn("live") },
     { id: "episodes", label: episodes.length > 0 ? `Episodes (${episodes.length})` : "Episodes" },
-    {
-      id: "uploads",
-      label: "Uploads",
-      alert: (uploads?.destinations ?? []).some((destination) => destination.failed > 0),
-    },
-    { id: "robot", label: "Robot", alert: (robot?.warnings.length ?? 0) > 0 },
-    { id: "system", label: "System", alert: processes.some((p) => p.state === "restarting") },
+    { id: "uploads", label: "Uploads", alert: worstOn("uploads") },
+    // A package's warnings leave it usable: degraded, amber.
+    { id: "robot", label: "Robot", alert: (robot?.warnings.length ?? 0) > 0 ? ("warning" as const) : null },
+    { id: "system", label: "System", alert: worstOn("system") },
   ]);
 
   /** What each stream is declared to send and whether it is kept, by stream. */
@@ -691,13 +689,14 @@
     <p class="code">{fatal.code}</p>
   </main>
 {:else}
-  <header data-state={shellState}>
+  <header data-state={shellState} data-level={healthNow.level}>
     <h1><Logo />Kapto</h1>
-    {#if replay}
-      <!-- Always here while the viewer isn't live, whatever the page shows. -->
-      <button type="button" class="back" onclick={backToLive}>Back to live</button>
-    {/if}
-    <CaptureState {status} unreachable={problem !== null} />
+    <CaptureState
+      {status}
+      unreachable={problem !== null}
+      replay={replay ? { label: replayLabel, shown: replaying !== null } : null}
+      onlive={backToLive}
+    />
     <SessionPicker
       {profiles}
       {tasks}
@@ -751,13 +750,13 @@
   </header>
 
   {#if refused}
-    <p class="problem" role="alert">
+    <p class="problem {healthNow.level}" role="alert">
       {sentence(refused.message)} <span class="remedy">{refused.remedy}</span>
       <button type="button" class="dismiss" onclick={() => (refused = null)}>Dismiss</button>
     </p>
   {/if}
   {#if problem}
-    <p class="problem" role="alert" title={problem.message}>
+    <p class="problem {healthNow.level}" role="alert" title={problem.message}>
       {plain(problem.message)} <span class="remedy">{problem.remedy}</span>
     </p>
   {/if}
@@ -888,8 +887,13 @@
     border-top-color: var(--danger-fill);
     background: var(--danger-background);
   }
-  header[data-state="degraded"] {
+  /* Something wrong: the bar in the colour of the worst, as the health
+     chip says it, over recording's own red. */
+  header[data-level="warning"] {
     border-top-color: var(--warning);
+  }
+  header[data-level="danger"] {
+    border-top-color: var(--danger);
   }
   h1 {
     display: flex;
@@ -897,15 +901,6 @@
     gap: 0.4em;
     margin: 0;
     font-size: var(--text-xl);
-  }
-  .back {
-    padding: 0.35rem 0.9rem;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    background: transparent;
-    color: var(--text);
-    font: inherit;
-    cursor: pointer;
   }
   main {
     display: grid;
@@ -1040,11 +1035,17 @@
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
+  /* In the colour of the worst health item, as the bar above and the chip. */
   .problem {
     margin: 0;
     padding: 0.5rem 1rem;
+    border-left: 3px solid var(--warning);
     background: var(--warning-background);
     color: var(--text);
+  }
+  .problem.danger {
+    border-left-color: var(--danger);
+    background: var(--danger-background);
   }
   .remedy {
     color: var(--muted);

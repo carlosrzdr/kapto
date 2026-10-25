@@ -101,9 +101,10 @@
       options={SPEEDS.map((each) => ({ value: String(each), label: `${each}×` }))}
       onchange={(value) => onspeed(Number(value))}
     />
-    <button type="button" title={replaying ? "Back to the live robot (Esc)" : "Back to now (Esc)"} onclick={onlive}
-      >{replaying ? "Back to live" : "Back to now"}</button
-    >
+    <!-- Replaying, the header's Back to live is the one way back: said once. -->
+    {#if !replaying}
+      <button type="button" title="Back to now (Esc)" onclick={onlive}>Back to now</button>
+    {/if}
   {:else}
     <button type="button" title="Pause and look back (Space)" onclick={onpause} disabled={keptMs === null}
       ><Icon name="pause" /> Pause</button

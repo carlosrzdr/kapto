@@ -1,10 +1,11 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
-  /** One tab: its name, and whether it holds something that needs attention. */
+  /** One tab: its name, and how badly what it holds needs attention, if it does. */
   export interface Tab {
     id: string;
     label: string;
-    alert?: boolean;
+    /** In the colour the same problem has everywhere else: the health chip's. */
+    alert?: "warning" | "danger" | null;
   }
 
   interface Props {
@@ -44,12 +45,12 @@
       aria-selected={tab.id === selected}
       aria-controls="panel-{tab.id}"
       tabindex={tab.id === selected ? 0 : -1}
-      class:alert={tab.alert}
+      class:alert={!!tab.alert}
       aria-label={tab.alert ? `${tab.label} needs attention` : undefined}
       onclick={() => onselect(tab.id)}
       onkeydown={(event) => keydown(event, index)}
     >
-      {tab.label}{#if tab.alert}<span class="attention"><Icon name="attention" /></span>{/if}
+      {tab.label}{#if tab.alert}<span class="attention {tab.alert}"><Icon name="attention" /></span>{/if}
     </button>
   {/each}
 </div>
@@ -76,7 +77,12 @@
   }
   .attention {
     margin-left: var(--space-1);
-    color: var(--warning);
     font-size: 0.7em;
+  }
+  .attention.warning {
+    color: var(--warning);
+  }
+  .attention.danger {
+    color: var(--danger);
   }
 </style>
