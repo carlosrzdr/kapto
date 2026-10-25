@@ -123,14 +123,16 @@ count = 7
 unit = "rad"
 ```
 
-The type's definition is put together from `.msg` files in the `msg/`
-folder beside `streams.toml`, laid out as ROS 2 installs them: the
-type's own, `msg/sensor_msgs/msg/JointState.msg`, and that of every
-type it uses (`msg/std_msgs/msg/Header.msg`,
-`msg/builtin_interfaces/msg/Time.msg`), copied from a ROS 2
-installation's `share` folder. A file not in the package is looked
-for in the ROS 2 installation Kapto runs in, in each `share` folder of
-`AMENT_PREFIX_PATH` in turn. A missing file is
+The type's definition is put together from `.msg` files laid out as
+ROS 2 installs them: the type's own, `sensor_msgs/msg/JointState.msg`,
+and that of every type it uses (`std_msgs/msg/Header.msg`,
+`builtin_interfaces/msg/Time.msg`). Where Kapto runs with a ROS 2
+installation, they come from it alone, from each `share` folder of
+`AMENT_PREFIX_PATH` in turn. Where there is none, they come from the
+`msg/` folder beside `streams.toml` (`msg/sensor_msgs/msg/JointState.msg`),
+copied from an installation's `share` folder. A file in the `msg/`
+folder that the installation also has, with other text, is
+`config.ros2_msg_differs`, naming both. A missing file is
 `decoder.msg_not_found`, naming it and the type that uses it. A
 recording carries every `.msg` file its streams use, at the same place
 beside `streams.toml`: the package's among its files, and those read

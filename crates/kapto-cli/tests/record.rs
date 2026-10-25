@@ -598,11 +598,16 @@ fn a_recording_carries_the_msg_files_it_needs_beyond_the_package_and_all_of_them
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
     };
-    // Header is the package's own; Time only the ROS 2 installation has.
+    // The ROS 2 installation has both; the package keeps a copy of Header,
+    // the same text.
     let installation = dir.0.join("ros");
     write(
         &installation.join("share/builtin_interfaces/msg/Time.msg"),
         "int32 sec\nuint32 nanosec\n",
+    );
+    write(
+        &installation.join("share/std_msgs/msg/Header.msg"),
+        "builtin_interfaces/Time stamp\nstring frame_id\n",
     );
     let package = dir.0.join("arm7");
     let arm7 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/arm7");
@@ -628,7 +633,8 @@ fn a_recording_carries_the_msg_files_it_needs_beyond_the_package_and_all_of_them
     write(&package.join("streams.toml"), &streams);
     let env = [("AMENT_PREFIX_PATH", installation.as_path())];
 
-    // With the package: its files, and the one the installation gave.
+    // With the package: its files, its copy of Header among them once, and
+    // the one only the installation has.
     let (_, carried, _) = record_a_second_in(
         &package.join("streams.toml"),
         &dir.0.join("data"),

@@ -14,37 +14,31 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 /// A folder of its own for `test`, with a `streams.toml` declaring one
-/// `sensor_msgs/msg/JointState` topic and the `.msg` files it uses.
+/// `sensor_msgs/msg/JointState` topic and the `.msg` files it uses: the
+/// sample arm's, copies of the installed ones, as a copy unlike the
+/// installation's is refused where ROS 2 is installed.
 fn package(test: &str, topic: &str) -> PathBuf {
     let folder =
         std::env::temp_dir().join(format!("kapto-ros2-record-{}-{test}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
-    let files = [
-        (
-            "msg/sensor_msgs/msg/JointState.msg",
-            "std_msgs/Header header\nstring[] name\nfloat64[] position\nfloat64[] velocity\nfloat64[] effort\n",
-        ),
-        (
-            "msg/std_msgs/msg/Header.msg",
-            "builtin_interfaces/Time stamp\nstring frame_id\n",
-        ),
-        (
-            "msg/builtin_interfaces/msg/Time.msg",
-            "int32 sec\nuint32 nanosec\n",
-        ),
-        (
-            "streams.toml",
-            &format!(
-                "[streams.joints]\nrate_hz = 50\n\
-                 ros2 = {{ topic = \"{topic}\", type = \"sensor_msgs/msg/JointState\", qos = {{ reliability = \"reliable\", depth = 100 }} }}\n"
-            ),
-        ),
-    ];
-    for (path, contents) in files {
-        let path = folder.join(path);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, contents).unwrap();
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/arm7_ros2/msg");
+    for path in [
+        "sensor_msgs/msg/JointState.msg",
+        "std_msgs/msg/Header.msg",
+        "builtin_interfaces/msg/Time.msg",
+    ] {
+        let copy = folder.join("msg").join(path);
+        std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+        std::fs::copy(sample.join(path), copy).unwrap();
     }
+    std::fs::write(
+        folder.join("streams.toml"),
+        format!(
+            "[streams.joints]\nrate_hz = 50\n\
+             ros2 = {{ topic = \"{topic}\", type = \"sensor_msgs/msg/JointState\", qos = {{ reliability = \"reliable\", depth = 100 }} }}\n"
+        ),
+    )
+    .unwrap();
     folder
 }
 

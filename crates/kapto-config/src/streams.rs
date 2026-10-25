@@ -47,14 +47,12 @@ mod msg_files;
 mod ros2;
 mod tcp;
 
-use std::ffi::OsStr;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::RangeInclusive;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use kapto_core::{ErrorCode, KaptoError, StreamId};
-use kapto_decode::cdr::{assemble, msg_files_in};
+use kapto_decode::cdr::assemble;
 use kapto_decode::{
     CdrLayout, Endianness, FieldSpec, PathField, PathFormat, PathLayout, ScalarType, StructLayout,
 };
@@ -66,6 +64,7 @@ use crate::suggest::closest;
 
 pub use camera::{CAMERA_MESSAGE_TYPES, CameraDeclaration, PixelEncoding};
 pub use kapto_decode::DecoderDeclaration;
+use msg_files::MsgSources;
 pub use msg_files::{MsgFile, msg_files};
 pub use ros2::{Durability, QosDeclaration, Reliability, Ros2Declaration};
 pub use tcp::{FramingDeclaration, TcpDeclaration, TcpEndpointDeclaration};
@@ -311,34 +310,36 @@ pub const DEFAULT_MAX_MESSAGE_BYTES: u32 = 1472;
 const MAX_LOSS_SETTLE_MS: i64 = 60_000;
 
 /// Reads the stream declarations in `file`, in file order, with the `.msg`
-/// files of its ROS 2 messages from the `msg/` folder beside it, then from
-/// the ROS 2 installation Kapto runs in, if any.
+/// files of its ROS 2 messages from the ROS 2 installation Kapto runs in,
+/// or, where there is none, from the `msg/` folder beside it.
 ///
 /// # Errors
 ///
 /// Every problem found, each with the file and line, so they can all be
 /// fixed at once: invalid TOML (`config.invalid_syntax`), unknown keys
 /// (`stream.unknown_key`), invalid stream names (`stream.invalid_id`),
-/// missing or invalid values (`config.invalid_value`), and a missing `.msg`
-/// file (`decoder.msg_not_found`).
+/// missing or invalid values (`config.invalid_value`), a missing `.msg`
+/// file (`decoder.msg_not_found`), and a `.msg` file in the `msg/` folder
+/// that differs from the installed one (`config.ros2_msg_differs`).
 pub fn parse_streams(file: &ConfigFile) -> Result<Vec<StreamDeclaration>, Vec<KaptoError>> {
-    let mut folders = vec![file.path.with_file_name("msg")];
-    folders.extend(installed_msg_folders(
-        std::env::var_os("AMENT_PREFIX_PATH").as_deref(),
-    ));
-    parse_streams_with(file, &mut msg_files_in(&folders))
+    parse_streams_from(file, &MsgSources::of(file))
 }
 
-/// The `share` folder of each ROS 2 installation in `ament_prefix_path`,
-/// which ROS 2's setup scripts set, in its order: where every package
-/// installs its `.msg` files.
-fn installed_msg_folders(ament_prefix_path: Option<&OsStr>) -> Vec<PathBuf> {
-    ament_prefix_path.map_or_else(Vec::new, |paths| {
-        std::env::split_paths(paths)
-            .filter(|path| !path.as_os_str().is_empty())
-            .map(|path| path.join("share"))
-            .collect()
-    })
+/// [`parse_streams`], with the `.msg` files from `sources`.
+fn parse_streams_from(
+    file: &ConfigFile,
+    sources: &MsgSources,
+) -> Result<Vec<StreamDeclaration>, Vec<KaptoError>> {
+    let differences = sources.differences(file);
+    match parse_streams_with(file, &mut sources.lookup()) {
+        Ok(streams) if differences.is_empty() => Ok(streams),
+        Ok(_) => Err(differences),
+        Err(errors) => {
+            let mut errors = sources.explained(errors);
+            errors.extend(differences);
+            Err(errors)
+        }
+    }
 }
 
 /// Reads the stream declarations in `file` as [`parse_streams`] does, with
@@ -1907,19 +1908,6 @@ ros2 = { topic = "robot/status", type = "std_msgs/msg/Header", qos = { reliabili
                 "config.invalid_value 6: Invalid configuration value: `streams.b.decoder.type` is \"std_msgs/msg/Header\", but the topic's messages are \"sensor_msgs/msg/JointState\"; a ROS 2 topic's decoder needs no `type`",
             ]
         );
-    }
-
-    #[test]
-    fn msg_files_not_in_the_package_are_looked_for_in_each_ros_2_installation_in_order() {
-        let paths = std::env::join_paths(["/opt/ros/jazzy", "", "/home/me/ws/install"]).unwrap();
-        assert_eq!(
-            installed_msg_folders(Some(&paths)),
-            [
-                PathBuf::from("/opt/ros/jazzy/share"),
-                PathBuf::from("/home/me/ws/install/share")
-            ]
-        );
-        assert_eq!(installed_msg_folders(None), Vec::<PathBuf>::new());
     }
 
     #[test]

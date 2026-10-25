@@ -42,7 +42,7 @@ const TESTS: &str = "cargo test --locked -p kapto-transport --features ros2 --te
     --test ros2_cameras --test ros2_overlay \
     --test ros2_serve \
     && cargo test --locked -p kapto-loadgen --features ros2 --lib --test ros2 \
-    && cargo test --locked -p kapto-config --test ros2_installation -- --ignored";
+    && cargo test --locked -p kapto-config --test ros2_installation -- --include-ignored";
 
 /// A middleware the image has.
 #[derive(Clone, Copy, ValueEnum)]

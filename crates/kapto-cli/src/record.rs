@@ -657,9 +657,13 @@ pub(crate) fn package_of(
     attach_meshes: bool,
 ) -> (Option<PackageIdentity>, Carried) {
     let (identity, mut carried) = package_and_files(streams, mapping, attach_meshes);
-    carried
-        .files
-        .extend(msg_files_not_carried(streams, identity.is_some()));
+    // An installed file the package keeps a copy of is carried once, as
+    // the package's: the copy is the same text, or loading it was refused.
+    let more: Vec<CarriedFile> = msg_files_not_carried(streams, identity.is_some())
+        .into_iter()
+        .filter(|file| !carried.files.iter().any(|kept| kept.name == file.name))
+        .collect();
+    carried.files.extend(more);
     (identity, carried)
 }
 

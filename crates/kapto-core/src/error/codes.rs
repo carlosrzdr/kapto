@@ -161,6 +161,13 @@ error_codes! {
         remedy: "Give each listener its own port. Kapto never picks a different port on its own.",
     }
 
+    /// A robot package's `msg/` folder has a ROS 2 message type's `.msg`
+    /// file whose text isn't that of the ROS 2 installation Kapto runs in.
+    ConfigRos2MsgDiffers = "config.ros2_msg_differs" {
+        summary: "A package's copy of a ROS 2 message type differs from the installed one",
+        remedy: "Where ROS 2 is installed, a type's definition comes from the installation alone, the build the robot's nodes use. If the installed one is right, delete the package's copy, or copy the installed file over it so the package still works where ROS 2 isn't installed. If the package's is right, rebuild the robot's message package for the image's ROS 2 and mount its install folder at /overlays/<name>.",
+    }
+
     /// Text that should be an episode ID isn't one.
     EpisodeInvalidId = "episode.invalid_id" {
         summary: "Invalid episode ID",
@@ -557,7 +564,7 @@ error_codes! {
     /// A ROS 2 topic's message type isn't installed where Kapto runs.
     TransportRos2TypeUnavailable = "transport.ros2.type_unavailable" {
         summary: "A ROS 2 message type isn't installed where Kapto runs",
-        remedy: "Kapto subscribes to a topic with its type's support library from the ROS 2 installation, as the robot's nodes do. Install the package that defines it where Kapto runs (`ros-<distro>-<package>`, or the robot's own message package, built and sourced), or check the stream's `type` against `kapto topics`.",
+        remedy: "Kapto subscribes to a topic with its type's support library from the ROS 2 installation, as the robot's nodes do. Install the package that defines it where Kapto runs (`ros-<distro>-<package>`), or mount the robot's own message package, built with colcon for the image's ROS 2 distribution and architecture, at `/overlays/<name>` (`-v <workspace>/install:/overlays/<name>:ro`). Check the stream's `type` against `kapto topics`, which says which types load.",
     }
 
     /// Kapto's node can't subscribe to a ROS 2 topic.
@@ -678,7 +685,7 @@ error_codes! {
     /// wasn't found.
     DecoderMsgNotFound = "decoder.msg_not_found" {
         summary: "A ROS 2 message type's definition wasn't found",
-        remedy: "The message names the missing `.msg` file and the type that uses it. For a ROS 2 topic, install the ROS 2 package that defines it where Kapto runs (`ros-<distro>-<package>`); for messages sent over UDP or TCP, put the `.msg` file in the robot package, as `msg/<package>/msg/<Type>.msg`.",
+        remedy: "The message names the missing `.msg` file and the type that uses it. Where ROS 2 is installed, a type's `.msg` files come from the installation alone: install the package that defines it (`ros-<distro>-<package>`), or, in the `kapto-ros2` image, mount the robot's own message package, built for the image's ROS 2, at `/overlays/<name>`. Where ROS 2 isn't installed, put the `.msg` file in the robot package, as `msg/<package>/msg/<Type>.msg`.",
     }
 
     /// A struct layout can't be decoded as declared.
