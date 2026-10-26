@@ -534,8 +534,8 @@ robot is one three.js scene, posed once a frame, under one canvas laid
 beneath the whole view: each `robot` panel, at most four, is a camera onto
 it from the panel's `view` (`front`, `side`, `top`, by default the front
 right framing the robot, or a place `{ from, at }`), turned within the
-panel. Framed, the box around the robot as it stands (its shapes but any
-as flat as a floor, such as a plate it stands on) fills four fifths of
+panel. Framed, the box around the robot as it stands (all its shapes,
+each where its link is posed) fills four fifths of
 the panel by its width or its height, whichever binds, whatever the
 panel's shape; as the robot moves out of that, the camera eases back
 along the way it looks, over a few hundred milliseconds, just far enough

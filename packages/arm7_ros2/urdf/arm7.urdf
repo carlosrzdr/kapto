@@ -10,16 +10,8 @@
   <material name="graphite"><color rgba="0.22 0.24 0.27 1"/></material>
   <material name="accent"><color rgba="0.16 0.55 0.86 1"/></material>
   <material name="steel"><color rgba="0.72 0.75 0.79 1"/></material>
-  <material name="floor"><color rgba="0.17 0.19 0.21 1"/></material>
 
   <link name="base_link">
-    <!-- A floor plate around the arm: it grounds the arm visually, and a
-         viewer framing the whole scene then shows all of it. -->
-    <visual>
-      <origin xyz="0 0 -0.005"/>
-      <geometry><box size="1.6 1.6 0.01"/></geometry>
-      <material name="floor"/>
-    </visual>
     <visual>
       <origin xyz="0 0 0.01"/>
       <geometry><cylinder radius="0.13" length="0.02"/></geometry>

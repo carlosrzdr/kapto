@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RobotScene } from "../api-types";
-import { applyPoses, buildRobot, drawsNow, framedShapes, standingBox } from "./robot";
+import { applyPoses, buildRobot, drawsNow, standingBox } from "./robot";
 
 const still = { translation: [0, 0, 0], rotation: [0, 0, 0, 1] };
 
@@ -116,9 +116,8 @@ describe("drawsNow", () => {
 });
 
 describe("the robot as a view frames it", () => {
-  // An arm on a floor plate far wider than it.
-  const plate = { origin: still, color: [0.2, 0.2, 0.2, 1], shape: { kind: "box" as const, size: [1.6, 1.6, 0.01] } };
-  const onPlate: RobotScene = {
+  // An arm on a base with a flat foot wider than the base itself.
+  const arm: RobotScene = {
     name: "arm",
     root: "base",
     meshes: 0,
@@ -126,7 +125,7 @@ describe("the robot as a view frames it", () => {
       {
         name: "base",
         visuals: [
-          plate,
+          { origin: { translation: [0, 0, 0.005], rotation: [0, 0, 0, 1] }, color: [0.2, 0.2, 0.2, 1], shape: { kind: "box", size: [0.3, 0.3, 0.01] } },
           { origin: { translation: [0, 0, 0.1], rotation: [0, 0, 0, 1] }, color: [1, 1, 1, 1], shape: { kind: "cylinder", radius: 0.1, length: 0.2 } },
         ],
       },
@@ -137,25 +136,18 @@ describe("the robot as a view frames it", () => {
   const box = new THREE.Box3();
   const rounded = (vector: THREE.Vector3) => vector.toArray().map((value) => Number(value.toFixed(3)) + 0);
 
-  it("is the box around its shapes as it stands, without the floor it stands on", async () => {
-    const robot = await buildRobot(onPlate, nothing);
-    const shapes = framedShapes(robot);
-    expect(shapes).toHaveLength(2);
+  it("is the box around every one of its shapes, flat ones alike, as it stands", async () => {
+    const robot = await buildRobot(arm, nothing);
+    expect(robot.shapes).toHaveLength(3);
     applyPoses(robot.links, new Float32Array([0, 0, 0, 0, 0, 0, 1, 0, 0, 0.2, 0, 0, 0, 1]));
-    standingBox(robot, shapes, box);
-    expect(rounded(box.min)).toEqual([-0.1, -0.1, 0]);
-    expect(rounded(box.max)).toEqual([0.1, 0.1, 0.7]);
+    standingBox(robot, box);
+    // The foot sets its width, the arm on top its height.
+    expect(rounded(box.min)).toEqual([-0.15, -0.15, 0]);
+    expect(rounded(box.max)).toEqual([0.15, 0.15, 0.7]);
     // Moved, measured again into the same box: the arm a metre out along x.
     applyPoses(robot.links, new Float32Array([0, 0, 0, 0, 0, 0, 1, 1, 0, 0.2, 0, 0, 0, 1]));
-    expect(standingBox(robot, shapes, box)).toBe(box);
-    expect(rounded(box.min)).toEqual([-0.1, -0.1, 0]);
-    expect(rounded(box.max)).toEqual([1.05, 0.1, 0.7]);
-  });
-
-  it("is every shape when all of them are as flat as a floor, rather than none", async () => {
-    const flat = await buildRobot({ ...onPlate, links: [{ name: "base", visuals: [plate] }] }, nothing);
-    expect(framedShapes(flat)).toHaveLength(1);
-    standingBox(flat, framedShapes(flat), box);
-    expect(rounded(box.max)).toEqual([0.8, 0.8, 0.005]);
+    expect(standingBox(robot, box)).toBe(box);
+    expect(rounded(box.min)).toEqual([-0.15, -0.15, 0]);
+    expect(rounded(box.max)).toEqual([1.05, 0.15, 0.7]);
   });
 });

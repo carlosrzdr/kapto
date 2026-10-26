@@ -8,10 +8,15 @@ import * as THREE from "three";
 import type { Placement, RobotScene, SceneShape } from "../api-types";
 import type { MeshPart } from "./mesh";
 
-/** The robot: its root object, and each link's group in the scene's link order. */
+/**
+ * The robot: its root object, each link's group in the scene's link order,
+ * and every shape drawn, gathered once so that measuring the robot each
+ * frame walks no tree.
+ */
 export interface Robot {
   root: THREE.Group;
   links: THREE.Group[];
+  shapes: THREE.Mesh[];
 }
 
 /** Turns three.js's Y-along shapes onto Z, as the scene's are. */
@@ -124,7 +129,15 @@ export async function buildRobot(
       link.add(new THREE.Mesh(dot, look));
     }
   }
-  return { root, links };
+  const shapes: THREE.Mesh[] = [];
+  root.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      // Measured once here, as a shape's own size never changes.
+      object.geometry.computeBoundingBox();
+      shapes.push(object);
+    }
+  });
+  return { root, links, shapes };
 }
 
 /**
@@ -142,48 +155,17 @@ export function applyPoses(links: THREE.Object3D[], poses: Float32Array): boolea
   return true;
 }
 
-/**
- * A shape this flat, its thinnest side against its widest, is something
- * the robot stands on, such as a floor plate or a table top, rather than
- * the robot.
- */
-export const FLAT = 1 / 20;
-
-/**
- * The shapes a view frames the robot by: every one but those as flat as a
- * floor, which would set the framing however small the arm is on them;
- * every one if that leaves none.
- */
-export function framedShapes(robot: Robot): THREE.Mesh[] {
-  const all: THREE.Mesh[] = [];
-  const size = new THREE.Vector3();
-  const kept = (shape: THREE.Mesh) => {
-    shape.geometry.computeBoundingBox();
-    // The size it is drawn at, its holder scaling a mesh file's.
-    shape.geometry.boundingBox!.getSize(size).multiply(shape.parent?.scale ?? new THREE.Vector3(1, 1, 1));
-    const sides = [size.x, size.y, size.z].map(Math.abs);
-    return Math.min(...sides) >= Math.max(...sides) * FLAT;
-  };
-  robot.root.traverse((object) => {
-    if (object instanceof THREE.Mesh) {
-      all.push(object);
-    }
-  });
-  const shapes = all.filter(kept);
-  return shapes.length > 0 ? shapes : all;
-}
-
 /** A box reused to measure each shape, so measuring the robot each frame makes nothing new. */
 const measured = new THREE.Box3();
 
 /**
- * Sets `box` to the box along the robot's axes around `shapes` (from
- * `framedShapes`) as the robot stands now, and returns it.
+ * Sets `box` to the box along the robot's axes around all its shapes as it
+ * stands now, and returns it.
  */
-export function standingBox(robot: Robot, shapes: THREE.Mesh[], box: THREE.Box3): THREE.Box3 {
+export function standingBox(robot: Robot, box: THREE.Box3): THREE.Box3 {
   robot.root.updateMatrixWorld();
   box.makeEmpty();
-  for (const shape of shapes) {
+  for (const shape of robot.shapes) {
     if (shape.geometry.boundingBox) {
       box.union(measured.copy(shape.geometry.boundingBox).applyMatrix4(shape.matrixWorld));
     }

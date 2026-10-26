@@ -60,7 +60,7 @@
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
-  import { applyPoses, buildRobot, drawsNow, framedShapes, type Robot, standingBox } from "./viewer/robot";
+  import { applyPoses, buildRobot, drawsNow, type Robot, standingBox } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { Questions } from "./viewer/questions";
@@ -1230,8 +1230,7 @@
     const delays: number[] = [];
     let closed = false;
 
-    /** The shapes the robot is framed by, and whether it has been posed since it was drawn. */
-    let shapes: THREE.Mesh[] = [];
+    /** Whether the robot has been posed since it was drawn. */
     let posed = false;
     /** The box around the robot as it stands, measured again each frame it moves, into the same objects. */
     const standingNow = new THREE.Box3();
@@ -1244,7 +1243,7 @@
         stands = false;
         return;
       }
-      standingBox(robot, shapes, standingNow);
+      standingBox(robot, standingNow);
       standingNow.min.toArray(standing.low);
       standingNow.max.toArray(standing.high);
       stands = !standingNow.isEmpty() && standing.low.every(Number.isFinite) && standing.high.every(Number.isFinite);
@@ -1457,10 +1456,9 @@
 
     // The live robot's links, to tell when the robot Kapto runs changes.
     let links: string[] = [];
-    /** A robot built, with the shapes it is framed by and where it can reach. */
+    /** A robot built, with where it can reach. */
     interface Loaded {
       built: Robot;
-      shapes: THREE.Mesh[];
       reach: Bounds | null;
     }
     const robots = new Robots<Loaded>(async (id) => {
@@ -1478,7 +1476,7 @@
       // The box around everywhere it reaches, beyond which no view widens by itself.
       const corner = (values: number[]): Point => [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0];
       const reach = loaded.reach ? { low: corner(loaded.reach.low), high: corner(loaded.reach.high) } : null;
-      return { built, shapes: framedShapes(built), reach };
+      return { built, reach };
     });
     /** Where the robot framed last can reach: framed again only for one that reaches elsewhere. */
     let framedFor: string | null = null;
@@ -1507,7 +1505,6 @@
             return;
           }
           robot = loaded.built;
-          shapes = loaded.shapes;
           limit = loaded.reach;
           scene.add(robot.root);
           if (id === null) {

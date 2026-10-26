@@ -1780,13 +1780,11 @@ test("where an operator leaves a view of the robot while arranging is kept with 
   const panels = page.getByRole("group", { name: "The view's panels" });
   const other = panels.getByTitle("Another view of the robot");
   await expect(panels.getByTitle("Live view of the robot").getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
-  // Turned round it and down onto it: dragged up, twice, a view framed close
-  // to the arm would end below its floor plate and see only that.
   const turn = async () => {
     const box = (await other.locator(".orbit").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.7);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height * 0.7, { steps: 8 });
+    await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height * 0.6, { steps: 8 });
     await page.mouse.up();
   };
   // Turned while only looking: the layout stays as it was.
