@@ -124,6 +124,20 @@ pub struct Simulated {
     pub pauses: Vec<SimulatedPause>,
     /// Each time simulated time went back, in order.
     pub resets: Vec<SimulatedReset>,
+    /// Each segment between resets as a few points of receive time and
+    /// simulated time, simulated time moving straight from one to the
+    /// next; empty for a run kept before they were.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub segments: Vec<Vec<SimulatedKnot>>,
+}
+
+/// A point of a simulation's mapping from receive time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SimulatedKnot {
+    /// When, in UTC nanoseconds.
+    pub receive_utc_ns: i64,
+    /// The simulated time then.
+    pub simulated_ns: i64,
 }
 
 /// A span in which the simulation was paused.
@@ -174,6 +188,19 @@ impl From<SimulatedSummary> for Simulated {
                     at_utc_ns: reset.at_utc_ns,
                     from_ns: reset.from_ns,
                     to_ns: reset.to_ns,
+                })
+                .collect(),
+            segments: summary
+                .knots
+                .into_iter()
+                .map(|knots| {
+                    knots
+                        .into_iter()
+                        .map(|knot| SimulatedKnot {
+                            receive_utc_ns: knot.receive_utc_ns,
+                            simulated_ns: knot.simulated_ns,
+                        })
+                        .collect()
                 })
                 .collect(),
         }
@@ -442,6 +469,22 @@ mod tests {
                 from_ns: 1_000_000_000,
                 to_ns: 0,
             }],
+            segments: vec![
+                vec![
+                    SimulatedKnot {
+                        receive_utc_ns: 1_772_700_400_000_000_000,
+                        simulated_ns: 0,
+                    },
+                    SimulatedKnot {
+                        receive_utc_ns: 1_772_700_402_990_000_000,
+                        simulated_ns: 1_000_000_000,
+                    },
+                ],
+                vec![SimulatedKnot {
+                    receive_utc_ns: 1_772_700_403_000_000_000,
+                    simulated_ns: 0,
+                }],
+            ],
         }));
         writer.record_qa(simulated.clone()).unwrap();
         assert_eq!(
@@ -452,6 +495,14 @@ mod tests {
         let again = writer.reader().unwrap().qa(EPISODE).unwrap().unwrap();
         assert_eq!(again.simulated, None);
         std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_simulation_kept_before_its_segments_were_reads_with_none() {
+        let kept = r#"{"start_ns":0,"end_ns":1,"simulated_ns":1,"real_ns":2,"paused_ns":0,
+            "ratio":0.5,"pauses":[],"resets":[]}"#;
+        let read: Simulated = serde_json::from_str(kept).unwrap();
+        assert_eq!(read.segments, Vec::<Vec<SimulatedKnot>>::new());
     }
 
     #[test]

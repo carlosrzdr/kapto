@@ -702,6 +702,24 @@ fn the_worker_works_out_how_a_recorded_simulation_ran_with_the_pause_silence_it_
     assert_eq!(ran_by_default.paused_ns, 1_990_000_000);
     let ratio = ran_by_default.ratio.unwrap();
     assert!((ratio - 0.4975).abs() < 1e-3, "{ratio}");
+    // Its mapping, a few points per segment: the pause's two ends among
+    // the first segment's.
+    assert_eq!(ran_by_default.segments.len(), 2);
+    let pause = ran_by_default.pauses[0];
+    for at in [pause.start_utc_ns, pause.end_utc_ns] {
+        assert!(
+            ran_by_default.segments[0]
+                .iter()
+                .any(|point| point.receive_utc_ns == at && point.simulated_ns == pause.simulated_ns),
+            "{:?}",
+            ran_by_default.segments[0]
+        );
+    }
+    assert!(
+        ran_by_default.segments[0].len() < 10,
+        "{:?}",
+        ran_by_default.segments[0]
+    );
     // Silent 200 times its usual wait: no pause for 1000.
     assert_eq!(ran(patient).unwrap().pauses, []);
     // A recording without the role ran no simulation.

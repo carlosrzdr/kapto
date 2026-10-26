@@ -33,6 +33,7 @@ pub use jobs::{Job, JobFailure, JobId, JobState, Kinds, Requeued};
 pub use manifest::{Discrepancy, FileEntry, Manifest, verify_episode, verify_episode_with};
 pub use models::AnomalyModel;
 pub use qa::{
-    CheckKind, QaResult, QaRun, Simulated, SimulatedPause, SimulatedReset, TimeRange, Verdict,
+    CheckKind, QaResult, QaRun, Simulated, SimulatedKnot, SimulatedPause, SimulatedReset,
+    TimeRange, Verdict,
 };
 pub use uploads::{Upload, UploadCounts, UploadState, UploadedObject};

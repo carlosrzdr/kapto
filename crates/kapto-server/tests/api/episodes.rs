@@ -630,7 +630,7 @@ async fn an_episodes_statistics_are_summarised_and_none_until_it_is_checked() {
 
 #[tokio::test]
 async fn how_a_simulation_ran_is_served_once_checked_and_null_without_a_clock() {
-    use kapto_store::{Simulated, SimulatedPause, SimulatedReset};
+    use kapto_store::{Simulated, SimulatedKnot, SimulatedPause, SimulatedReset};
 
     let folder = scratch("simulated");
     let data = folder.join("data");
@@ -661,6 +661,16 @@ async fn how_a_simulation_ran_is_served_once_checked_and_null_without_a_clock() 
             from_ns: 1_000_000_000,
             to_ns: 0,
         }],
+        segments: vec![vec![
+            SimulatedKnot {
+                receive_utc_ns: 1_772_700_400_000_000_000,
+                simulated_ns: 0,
+            },
+            SimulatedKnot {
+                receive_utc_ns: 1_772_700_401_000_000_000,
+                simulated_ns: 500_000_000,
+            },
+        ]],
     }));
     serving.store.record_qa(run).unwrap();
     serving
@@ -695,6 +705,10 @@ async fn how_a_simulation_ran_is_served_once_checked_and_null_without_a_clock() 
                     "from_ns": 1_000_000_000,
                     "to_ns": 0,
                 }],
+                "segments": [[
+                    {"receive_utc_ns": 1_772_700_400_000_000_000_i64, "simulated_ns": 0},
+                    {"receive_utc_ns": 1_772_700_401_000_000_000_i64, "simulated_ns": 500_000_000},
+                ]],
             },
         })
     );

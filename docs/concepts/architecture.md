@@ -808,7 +808,8 @@ the results: distributions that pool, so a session's come from its
 episodes'. For a package whose mapping gives a simulation's clock the role
 `time.simulated`, it also works out how the simulation ran, from that
 role's values (`kapto_core::simulated`: segments between resets, pauses
-where the clock held still or fell silent), kept in `kapto.db` with the
+where the clock held still or fell silent, and each segment's mapping as
+the few points that keep it within 10 ms), kept in `kapto.db` with the
 results and given by `/api/episodes/{id}/simulated`; `episode.json` is
 never changed for it. With that clock, `streams.rate`, `streams.gap` and
 each stream's `rate_hz` statistic count simulated seconds, a pause none. Then the **anomaly detectors** the `qa.toml` turns on compare

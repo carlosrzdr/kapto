@@ -20,6 +20,10 @@
 /// package's mapping.
 pub const ROLE: &str = "time.simulated";
 
+/// How far from the mapping the points [`Segment::knots`] keeps may take
+/// simulated time: well under a frame of a replay played in it.
+pub const KNOT_TOLERANCE_NS: i64 = 10_000_000;
+
 /// One message of the clock stream: when Kapto received it and the
 /// simulated time it carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +93,37 @@ impl Segment {
         }
     }
 
+    /// The mapping as few points as keep simulated time within
+    /// `tolerance_ns` of it, moving straight from one to the next: its first
+    /// and last readings, and those where its pace changes, a pause's start
+    /// and end among them. A page maps time with these, rather than with
+    /// every reading.
+    #[must_use]
+    pub fn knots(&self, tolerance_ns: i64) -> Vec<ClockReading> {
+        let mut times: Vec<i64> = self
+            .readings
+            .iter()
+            .map(|reading| reading.receive_utc_ns)
+            .chain(
+                self.pauses
+                    .iter()
+                    .flat_map(|pause| [pause.start_utc_ns, pause.end_utc_ns]),
+            )
+            .collect();
+        times.sort_unstable();
+        times.dedup();
+        let exact: Vec<ClockReading> = times
+            .into_iter()
+            .filter_map(|receive_utc_ns| {
+                self.at(receive_utc_ns).map(|simulated_ns| ClockReading {
+                    receive_utc_ns,
+                    simulated_ns,
+                })
+            })
+            .collect();
+        simplified(&exact, tolerance_ns)
+    }
+
     fn at(&self, receive_utc_ns: i64) -> Option<i64> {
         let (first, last) = (self.readings.first()?, self.readings.last()?);
         if receive_utc_ns < first.receive_utc_ns || receive_utc_ns > last.receive_utc_ns {
@@ -135,6 +170,38 @@ fn between(from: ClockReading, to: ClockReading, receive_utc_ns: i64) -> i64 {
     let gone = i128::from(receive_utc_ns - from.receive_utc_ns);
     let moved = i128::from(to.simulated_ns - from.simulated_ns) * gone / real;
     from.simulated_ns + i64::try_from(moved).unwrap_or(0)
+}
+
+/// The points of `exact`, a mapping moving straight between them, that keep
+/// it within `tolerance_ns`: each stretch kept whole while every point in it
+/// is that close to the line across it, else split at the farthest.
+fn simplified(exact: &[ClockReading], tolerance_ns: i64) -> Vec<ClockReading> {
+    let Some(last) = exact.len().checked_sub(1) else {
+        return Vec::new();
+    };
+    let mut kept = vec![false; exact.len()];
+    kept[0] = true;
+    kept[last] = true;
+    let mut stretches = vec![(0, last)];
+    while let Some((from, to)) = stretches.pop() {
+        let farthest = (from + 1..to)
+            .map(|n| {
+                let line = between(exact[from], exact[to], exact[n].receive_utc_ns);
+                (n, (exact[n].simulated_ns - line).abs())
+            })
+            .max_by_key(|&(_, off)| off);
+        if let Some((n, off)) = farthest
+            && off > tolerance_ns
+        {
+            kept[n] = true;
+            stretches.extend([(from, n), (n, to)]);
+        }
+    }
+    exact
+        .iter()
+        .zip(kept)
+        .filter_map(|(&reading, kept)| kept.then_some(reading))
+        .collect()
 }
 
 /// Where in the simulation a receive time falls.
@@ -288,6 +355,11 @@ impl SimulatedClock {
             ratio,
             pauses: self.pauses().copied().collect(),
             resets: self.resets.clone(),
+            knots: self
+                .segments
+                .iter()
+                .map(|segment| segment.knots(KNOT_TOLERANCE_NS))
+                .collect(),
         })
     }
 }
@@ -314,6 +386,9 @@ pub struct SimulatedSummary {
     pub pauses: Vec<Pause>,
     /// Each reset, in order.
     pub resets: Vec<Reset>,
+    /// Each segment's mapping as [`Segment::knots`] keeps it, within
+    /// [`KNOT_TOLERANCE_NS`].
+    pub knots: Vec<Vec<ClockReading>>,
 }
 
 /// A segment of `readings`, never going back, with its pauses found.
@@ -600,7 +675,80 @@ mod tests {
         assert_eq!(one.ratio, None);
     }
 
+    /// Simulated time at `receive_utc_ns` moving straight between `knots`.
+    fn on_knots(knots: &[ClockReading], receive_utc_ns: i64) -> i64 {
+        let after = knots.partition_point(|knot| knot.receive_utc_ns <= receive_utc_ns);
+        match (after.checked_sub(1).map(|n| knots[n]), knots.get(after)) {
+            (Some(before), Some(&next)) => between(before, next, receive_utc_ns),
+            (Some(before), None) => before.simulated_ns,
+            (None, _) => knots[0].simulated_ns,
+        }
+    }
+
+    #[test]
+    fn a_steady_simulation_maps_with_its_first_and_last_reading_alone() {
+        let clock =
+            SimulatedClock::from_readings(steady(0, 0, 10 * MS, 5 * MS, 101), PAUSE_SILENCE);
+        let knots = clock.summary().unwrap().knots;
+        assert_eq!(
+            knots,
+            [vec![
+                ClockReading {
+                    receive_utc_ns: T0,
+                    simulated_ns: 0
+                },
+                ClockReading {
+                    receive_utc_ns: T0 + S,
+                    simulated_ns: 500 * MS
+                },
+            ]]
+        );
+    }
+
+    #[test]
+    fn a_pause_and_a_reset_keep_their_ends_among_the_points() {
+        // Half real time, silent 2 s (a pause), on, then reset to zero.
+        let mut readings = steady(0, 0, 10 * MS, 5 * MS, 100);
+        readings.extend(steady(2 * S + 990 * MS, 500 * MS, 10 * MS, 5 * MS, 100));
+        readings.extend(steady(5 * S, 0, 10 * MS, 10 * MS, 100));
+        let clock = SimulatedClock::from_readings(readings, PAUSE_SILENCE);
+        let knots = clock.summary().unwrap().knots;
+        assert_eq!(knots.len(), 2, "one list per segment");
+        let pause = *clock.pauses().next().unwrap();
+        for at in [pause.start_utc_ns, pause.end_utc_ns] {
+            assert!(
+                knots[0].iter().any(|knot| knot.receive_utc_ns == at),
+                "{at} not kept: {knots:?}"
+            );
+        }
+        assert_eq!(knots[1].len(), 2);
+    }
+
     proptest::proptest! {
+        #[test]
+        fn the_points_kept_map_within_the_tolerance_of_every_moment(
+            steps in proptest::collection::vec((1..50 * MS, 0..20 * MS), 1..200),
+        ) {
+            let mut readings = vec![ClockReading { receive_utc_ns: T0, simulated_ns: 0 }];
+            for (wait, tick) in steps {
+                let last = readings[readings.len() - 1];
+                readings.push(ClockReading {
+                    receive_utc_ns: last.receive_utc_ns + wait,
+                    simulated_ns: last.simulated_ns + tick,
+                });
+            }
+            let clock = SimulatedClock::from_readings(readings.clone(), PAUSE_SILENCE);
+            let segment = &clock.segments()[0];
+            let knots = segment.knots(KNOT_TOLERANCE_NS);
+            proptest::prop_assert!(knots.len() <= readings.len() + 2 * segment.pauses().len());
+            let end = readings[readings.len() - 1].receive_utc_ns;
+            for receive in (T0..=end).step_by(usize::try_from(MS).unwrap()) {
+                let exact = clock.at(receive).unwrap().simulated_ns;
+                let off = (on_knots(&knots, receive) - exact).abs();
+                proptest::prop_assert!(off <= KNOT_TOLERANCE_NS, "{off} ns off at {receive}");
+            }
+        }
+
         #[test]
         fn simulated_time_never_goes_back_in_a_segment_and_meets_every_reading(
             steps in proptest::collection::vec((1..50 * MS, 0..20 * MS), 1..60),

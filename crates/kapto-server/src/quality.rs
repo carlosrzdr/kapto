@@ -109,6 +109,21 @@ pub struct SimulatedRun {
     pub pauses: Vec<SimulatedPauseSpan>,
     /// Each reset, simulated time going back, in order.
     pub resets: Vec<SimulatedResetAt>,
+    /// How simulated time moved: each segment between resets as a few
+    /// points of receive time and simulated time, within 10 ms of the
+    /// clock's own, simulated time moving straight from one to the next.
+    /// A replay plays in simulated time by these. Empty for a run worked
+    /// out before they were kept; checking the episode again fills it.
+    pub segments: Vec<Vec<SimulatedPoint>>,
+}
+
+/// A point of a simulation's time against receive time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SimulatedPoint {
+    /// When, in UTC nanoseconds.
+    pub receive_utc_ns: i64,
+    /// The simulated time then, in nanoseconds.
+    pub simulated_ns: i64,
 }
 
 /// A span in which a simulation was paused.
@@ -159,6 +174,19 @@ impl From<Simulated> for SimulatedRun {
                     at_utc_ns: reset.at_utc_ns,
                     from_ns: reset.from_ns,
                     to_ns: reset.to_ns,
+                })
+                .collect(),
+            segments: ran
+                .segments
+                .into_iter()
+                .map(|knots| {
+                    knots
+                        .into_iter()
+                        .map(|knot| SimulatedPoint {
+                            receive_utc_ns: knot.receive_utc_ns,
+                            simulated_ns: knot.simulated_ns,
+                        })
+                        .collect()
                 })
                 .collect(),
         }

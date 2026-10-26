@@ -1182,6 +1182,14 @@ export interface SimulatedPauseSpan {
   start_utc_ns: number;
 }
 
+/** A point of a simulation's time against receive time. */
+export interface SimulatedPoint {
+  /** When, in UTC nanoseconds. */
+  receive_utc_ns: number;
+  /** The simulated time then, in nanoseconds. */
+  simulated_ns: number;
+}
+
 /** A simulation reset: its time going back. */
 export interface SimulatedResetAt {
   /**
@@ -1219,6 +1227,14 @@ export interface SimulatedRun {
   real_ns: number;
   /** Each reset, simulated time going back, in order. */
   resets: SimulatedResetAt[];
+  /**
+   * How simulated time moved: each segment between resets as a few
+   * points of receive time and simulated time, within 10 ms of the
+   * clock's own, simulated time moving straight from one to the next.
+   * A replay plays in simulated time by these. Empty for a run worked
+   * out before they were kept; checking the episode again fills it.
+   */
+  segments: SimulatedPoint[][];
   /** How much simulated time passed, each segment between resets added up. */
   simulated_ns: number;
   /** The simulated time of the clock's first message. */

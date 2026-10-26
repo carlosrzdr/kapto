@@ -5110,6 +5110,26 @@
           }
         }
       },
+      "SimulatedPoint": {
+        "type": "object",
+        "description": "A point of a simulation's time against receive time.",
+        "required": [
+          "receive_utc_ns",
+          "simulated_ns"
+        ],
+        "properties": {
+          "receive_utc_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When, in UTC nanoseconds."
+          },
+          "simulated_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The simulated time then, in nanoseconds."
+          }
+        }
+      },
       "SimulatedResetAt": {
         "type": "object",
         "description": "A simulation reset: its time going back.",
@@ -5146,7 +5166,8 @@
           "real_ns",
           "paused_ns",
           "pauses",
-          "resets"
+          "resets",
+          "segments"
         ],
         "properties": {
           "end_ns": {
@@ -5185,6 +5206,16 @@
               "$ref": "#/components/schemas/SimulatedResetAt"
             },
             "description": "Each reset, simulated time going back, in order."
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/SimulatedPoint"
+              }
+            },
+            "description": "How simulated time moved: each segment between resets as a few\npoints of receive time and simulated time, within 10 ms of the\nclock's own, simulated time moving straight from one to the next.\nA replay plays in simulated time by these. Empty for a run worked\nout before they were kept; checking the episode again fills it."
           },
           "simulated_ns": {
             "type": "integer",

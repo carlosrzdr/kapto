@@ -69,7 +69,7 @@ use crate::preflight::{PreflightCheck, PreflightRequest, PreflightRun};
 use crate::processes::{ProcessState, ProcessStatus, Processes};
 use crate::quality::{
     CheckRange, CheckResult, EpisodeQuality, EpisodeSimulated, EpisodeStatistics,
-    SimulatedPauseSpan, SimulatedResetAt, SimulatedRun, StatisticSummary,
+    SimulatedPauseSpan, SimulatedPoint, SimulatedResetAt, SimulatedRun, StatisticSummary,
 };
 use crate::replays::{self, ReplayOpening, ReplayState, ReplayStatus};
 use crate::robot::{
@@ -388,6 +388,7 @@ async fn stopped(stop: Arc<AtomicBool>) {
         SimulatedRun,
         SimulatedPauseSpan,
         SimulatedResetAt,
+        SimulatedPoint,
         ReplayStatus,
         ReplayOpening,
         crate::cameras::CameraFrames,
