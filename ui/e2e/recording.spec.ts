@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { expect, type Locator, test, type Page, type Route } from "@playwright/test";
 
-import { changedShare, drawnShare, pictureOf } from "./drawn";
+import { changedShare, drawnShare, pictureOf, robotSpan } from "./drawn";
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
 import { choose } from "./controls";
@@ -242,6 +242,8 @@ test("an episode is replayed in the live view, saying why one can't be, and the 
   await expect(page.getByText("Live, not recording")).toBeVisible();
   const view = page.getByTitle("Live view of the robot");
   await expect(view).toHaveAttribute("data-robot", "live");
+  // Framed as the live robot first stands.
+  await expect(view).toHaveAttribute("data-framings", "1");
   const framings = await view.getAttribute("data-framings");
   // Recorded by a program, three seconds long.
   const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
@@ -761,31 +763,72 @@ test("an environment is placed around the robot, kept in the browser after a rel
   expect(elsewhere).toEqual([]);
 });
 
-test("the robot is framed by its whole reach, and framed again as it stands from the button or F", async ({ page }) => {
+test("the robot is framed as it stands, kept in view as it moves, and framed again from the button or F", async ({ page }) => {
+  test.setTimeout(90_000);
   const elsewhere = requestsLeavingTheMachine(page);
   await page.goto("/");
-  const live = page.getByTitle("Live view of the robot");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  // Two narrow views beside a column of plots.
+  await showLayout(page, "Two narrow views", [
+    { width: 2, panels: [panel("robot", { view: "front" })] },
+    { width: 2, panels: [panel("robot", { view: "side" })] },
+    { width: 2, panels: [panel("plot", { fields: ["role:gripper.opening"] })] },
+  ]);
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const live = panels.getByTitle("Live view of the robot");
+  const other = panels.getByTitle("Another view of the robot");
   await expect(live.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
-  // Framed once, from the reach the scene gives, before any pose.
+  // Framed once, as it first stands.
   await expect(live).toHaveAttribute("data-framings", "1");
   const scene = await (await page.request.get("/api/robot/scene")).json();
   expect(scene.reach.radius).toBeGreaterThan(0);
-  // Moving doesn't frame it again: the camera stays where it was put.
-  await page.waitForTimeout(2_000);
-  await expect(live).toHaveAttribute("data-framings", "1");
 
-  // Zoomed in, then framed again from the button, then from the keyboard.
-  await live.locator(".orbit").hover();
-  await page.mouse.wheel(0, -600);
-  await live.getByRole("button", { name: "Frame robot" }).click();
-  await expect(live).toHaveAttribute("data-framings", "2");
+  // Framed as it stands now, the arm fills most of each narrow panel's
+  // width, or its height while the arm points along the view and is narrow
+  // in it: its white and steel shapes alone, its dark drums aside, take over
+  // a third of it, where framed by its whole reach they took a fifth.
   await page.keyboard.press("f");
+  await expect(live).toHaveAttribute("data-framings", "2");
+  for (const view of [live, other]) {
+    expect((await view.boundingBox())!.width).toBeLessThan((await view.boundingBox())!.height);
+    const span = (await robotSpan(view))!;
+    expect(Math.max(span.right - span.left, span.bottom - span.top), "the arm filling a narrow panel").toBeGreaterThan(0.35);
+  }
+
+  // As it sweeps across, each view widens to keep all of it in, without framing it again.
+  const widenings = async (view: Locator) => Number((await view.getAttribute("data-widenings")) ?? 0);
+  // How far the arm is from the panel's nearest edge, as a share of it: none when it touches one.
+  const room = async (view: Locator) => {
+    const span = await robotSpan(view);
+    return span ? Math.min(span.left, span.top, 1 - span.right, 1 - span.bottom) : -1;
+  };
+  for (const until = Date.now() + 8_000; Date.now() < until; ) {
+    for (const view of [live, other]) {
+      expect(await room(view), "the arm wholly within the panel").toBeGreaterThan(0.005);
+    }
+  }
+  expect((await widenings(live)) + (await widenings(other))).toBeGreaterThan(0);
+  await expect(live).toHaveAttribute("data-framings", "2");
+
+  // Zoomed in by hand, a view is the operator's: it isn't widened again, until framed again from its button.
+  await other.locator(".orbit").hover();
+  await page.mouse.wheel(0, -2_000);
+  const zoomed = await widenings(other);
+  await page.waitForTimeout(3_000);
+  expect(await widenings(other)).toBe(zoomed);
+  expect(await room(other), "the arm past the zoomed panel's edge").toBe(0);
+  await other.getByRole("button", { name: "Frame robot" }).click();
   await expect(live).toHaveAttribute("data-framings", "3");
+  await expect.poll(() => room(other), { message: "the arm in view again" }).toBeGreaterThan(0.005);
+  await page.keyboard.press("f");
+  await expect(live).toHaveAttribute("data-framings", "4");
   // Not while typing.
   await page.getByRole("button", { name: "Environment" }).click();
   await page.getByRole("button", { name: "Add box" }).click();
   await page.getByRole("textbox", { name: "Name" }).press("f");
-  await expect(live).toHaveAttribute("data-framings", "3");
+  await expect(live).toHaveAttribute("data-framings", "4");
+  await forgetLayouts(page);
   expect(elsewhere).toEqual([]);
 });
 
@@ -1645,11 +1688,13 @@ test("where an operator leaves a view of the robot while arranging is kept with 
   const panels = page.getByRole("group", { name: "The view's panels" });
   const other = panels.getByTitle("Another view of the robot");
   await expect(panels.getByTitle("Live view of the robot").getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
+  // Turned round it and down onto it: dragged up, twice, a view framed close
+  // to the arm would end below its floor plate and see only that.
   const turn = async () => {
     const box = (await other.locator(".orbit").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.7);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height * 0.6, { steps: 8 });
+    await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height * 0.7, { steps: 8 });
     await page.mouse.up();
   };
   // Turned while only looking: the layout stays as it was.

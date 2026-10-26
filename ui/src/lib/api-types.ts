@@ -991,8 +991,8 @@ export interface RobotScene {
   name: string;
   /**
    * A sphere around everywhere the robot's shapes can be with its joints
-   * moved within their limits, to frame the robot once and keep it in
-   * view as it moves; absent for a robot with no shapes.
+   * moved within their limits: the furthest a viewer widens to keep the
+   * robot in view as it moves; absent for a robot with no shapes.
    */
   reach?: SceneReach | null;
   /** The link every other link hangs from, by its name. */

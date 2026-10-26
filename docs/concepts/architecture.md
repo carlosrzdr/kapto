@@ -521,8 +521,8 @@ kept in that browser's IndexedDB and never sent to Kapto. The robot's links
 and shapes for it come from `/api/robot/scene`
 ([viewer scene](../reference/viewer-scene.md)), with how far the robot
 reaches, which serve works out once at start, sampling joint values within
-their limits through the same forward kinematics, so the page frames the
-robot once and it stays in view as it moves. The view is arranged by the
+their limits through the same forward kinematics: the furthest out a view
+widens to keep the robot in. The view is arranged by the
 layout picked from the list beside *Arrange*: the package's named layouts
 in the configuration folder (*Default* first), *Package's* (its own
 `layout.toml`, if it has one) and *Made from roles*. The browser
@@ -534,12 +534,18 @@ robot is one three.js scene, posed once a frame, under one canvas laid
 beneath the whole view: each `robot` panel, at most four, is a camera onto
 it from the panel's `view` (`front`, `side`, `top`, by default the front
 right framing the robot, or a place `{ from, at }`), turned within the
-panel; framed, the box around where the robot reaches fills the panel by
-its width or its height, whichever binds, whatever the panel's shape; and
-one renderer draws each into the panel's place on the canvas (its
-viewport and scissor), so the meshes reach the graphics card once;
-while no panel shows the robot nothing is drawn. *Frame robot* frames its
-panel's view, `F` every view. While arranging, where an operator leaves a
+panel. Framed, the box around the robot as it stands (its shapes but any
+as flat as a floor, such as a plate it stands on) fills four fifths of
+the panel by its width or its height, whichever binds, whatever the
+panel's shape; as the robot moves out of that, the camera eases back
+along the way it looks, over a few hundred milliseconds, just far enough
+to keep it in, never nearer by itself and never beyond where the robot
+reaches. A view the operator turns or zooms, or one at a place, isn't
+moved by itself. One renderer draws each view into the panel's place on
+the canvas (its viewport and scissor), so the meshes reach the graphics
+card once; while no panel shows the robot nothing is drawn. *Frame
+robot* frames its panel's view on the robot as it stands, `F` every view,
+and hands a view turned by hand back to widening. While arranging, where an operator leaves a
 panel's camera is saved with the layout as that panel's `{ from, at }`, to
 the millimetre; turned while only looking, the layout stays as it was. An
 operator arranges their own view with *Arrange*, on the view itself: a

@@ -143,6 +143,55 @@ export function applyPoses(links: THREE.Object3D[], poses: Float32Array): boolea
 }
 
 /**
+ * A shape this flat, its thinnest side against its widest, is something
+ * the robot stands on, such as a floor plate or a table top, rather than
+ * the robot.
+ */
+export const FLAT = 1 / 20;
+
+/**
+ * The shapes a view frames the robot by: every one but those as flat as a
+ * floor, which would set the framing however small the arm is on them;
+ * every one if that leaves none.
+ */
+export function framedShapes(robot: Robot): THREE.Mesh[] {
+  const all: THREE.Mesh[] = [];
+  const size = new THREE.Vector3();
+  const kept = (shape: THREE.Mesh) => {
+    shape.geometry.computeBoundingBox();
+    // The size it is drawn at, its holder scaling a mesh file's.
+    shape.geometry.boundingBox!.getSize(size).multiply(shape.parent?.scale ?? new THREE.Vector3(1, 1, 1));
+    const sides = [size.x, size.y, size.z].map(Math.abs);
+    return Math.min(...sides) >= Math.max(...sides) * FLAT;
+  };
+  robot.root.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      all.push(object);
+    }
+  });
+  const shapes = all.filter(kept);
+  return shapes.length > 0 ? shapes : all;
+}
+
+/** A box reused to measure each shape, so measuring the robot each frame makes nothing new. */
+const measured = new THREE.Box3();
+
+/**
+ * Sets `box` to the box along the robot's axes around `shapes` (from
+ * `framedShapes`) as the robot stands now, and returns it.
+ */
+export function standingBox(robot: Robot, shapes: THREE.Mesh[], box: THREE.Box3): THREE.Box3 {
+  robot.root.updateMatrixWorld();
+  box.makeEmpty();
+  for (const shape of shapes) {
+    if (shape.geometry.boundingBox) {
+      box.union(measured.copy(shape.geometry.boundingBox).applyMatrix4(shape.matrixWorld));
+    }
+  }
+  return box;
+}
+
+/**
  * Whether the robot's view draws this frame: only when something in it
  * changed and a panel shows it. While none does, what changes is kept, still
  * to draw, so it is drawn the first frame a panel shows it again.

@@ -71,14 +71,10 @@ export function framed(view: PanelView | null | undefined, center: Point, distan
   };
 }
 
-/**
- * A box along the robot's axes, by its lowest and highest corner, and, if
- * known, the radius of a sphere around its middle the robot is within too.
- */
+/** A box along the robot's axes, by its lowest and highest corner. */
 export interface Bounds {
   low: Point;
   high: Point;
-  radius?: number;
 }
 
 /** The middle of `bounds`, where a camera framing it looks. */
@@ -88,54 +84,96 @@ export function middleOf(bounds: Bounds): Point {
 
 /**
  * How much of a panel's width or height, whichever binds, a framed box
- * takes: a little short of the edge, so the robot never touches it.
+ * takes: most of it, with room for the robot to move a little before its
+ * view has to widen.
  */
-export const FILLED = 0.95;
+export const FILLED = 0.8;
 
 /**
- * How far from the middle of `bounds` a camera looking at it from
- * `direction` (from the point looked at to the camera) must be for the box
- * to fit a panel of `aspect` (width over height) with a vertical field of
- * view of `fovDegrees`: each corner within both fields of view, the side
- * that binds filled to `FILLED`. So a tall panel shows a tall robot by its
- * height, and a wide one a wide robot by its width. With a sphere around
- * it too, whichever of the two lets the camera come closer: the robot is
- * within both, and a box's far-out corners, near the camera, can need more
- * room than the sphere does.
+ * How far from `at` (by default the middle of `bounds`) a camera looking at
+ * it from `direction` (a unit vector from the point looked at to the
+ * camera) must be for the box to fit a panel of `aspect` (width over
+ * height) with a vertical field of view of `fovDegrees`: each corner within
+ * both fields of view, the side that binds filled to `FILLED`. So a tall
+ * panel shows a tall robot by its height, and a wide one a wide robot by
+ * its width. In numbers alone, as it runs each frame the robot moves.
  */
-export function fittingDistance(direction: Point, bounds: Bounds, fovDegrees: number, aspect: number): number {
+export function fittingDistance(direction: Point, bounds: Bounds, fovDegrees: number, aspect: number, at?: Point): number {
   const vertical = Math.tan(((fovDegrees * Math.PI) / 180) / 2) * FILLED;
   const horizontal = vertical * aspect;
-  // The camera's own axes, Z up as the scene's: right across the panel and up it.
-  const forward = direction.map((value) => -value) as Point;
-  let right = cross(forward, [0, 0, 1]);
-  if (Math.hypot(...right) < 1e-9) {
-    right = [0, -1, 0];
+  const [dx, dy, dz] = direction;
+  // The camera's own axes, Z up as the scene's: right across the panel
+  // (forward, the direction reversed, across Z) and up it (right across forward).
+  let rx = -dy;
+  let ry = dx;
+  const across = Math.hypot(rx, ry);
+  if (across < 1e-9) {
+    rx = 0;
+    ry = -1;
+  } else {
+    rx /= across;
+    ry /= across;
   }
-  right = unit(right);
-  const up = cross(right, forward);
-  const middle = middleOf(bounds);
+  const ux = -ry * dz;
+  const uy = rx * dz;
+  const uz = ry * dx - rx * dy;
+  const { low, high } = bounds;
+  const [mx, my, mz] = at ?? [(low[0] + high[0]) / 2, (low[1] + high[1]) / 2, (low[2] + high[2]) / 2];
   let distance = 0;
   for (let corner = 0; corner < 8; corner += 1) {
-    const offset = [0, 1, 2].map((axis) => ((corner >> axis) & 1 ? bounds.high[axis]! : bounds.low[axis]!) - middle[axis]!) as Point;
+    const ox = (corner & 1 ? high[0] : low[0]) - mx;
+    const oy = (corner & 2 ? high[1] : low[1]) - my;
+    const oz = (corner & 4 ? high[2] : low[2]) - mz;
     // How far towards the camera the corner is: nearer, it looks bigger.
-    const toward = dot(offset, direction);
-    distance = Math.max(distance, toward + Math.abs(dot(offset, right)) / horizontal, toward + Math.abs(dot(offset, up)) / vertical);
-  }
-  if (bounds.radius !== undefined && bounds.radius > 0) {
-    // The sphere just inside the narrower field of view, as filled.
-    distance = Math.min(distance, bounds.radius / Math.sin(Math.atan(Math.min(vertical, horizontal))));
+    const toward = ox * dx + oy * dy + oz * dz;
+    distance = Math.max(distance, toward + Math.abs(ox * rx + oy * ry) / horizontal, toward + Math.abs(ox * ux + oy * uy + oz * uz) / vertical);
   }
   // A box with no size: as close as a box a centimetre across.
   return Math.max(distance, 0.01 / vertical);
 }
 
-const dot = (a: Point, b: Point) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Point, b: Point): Point => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const unit = (a: Point): Point => {
-  const length = Math.hypot(...a) || 1;
-  return [a[0] / length, a[1] / length, a[2] / length];
-};
+/**
+ * Whether `bounds` is within the view of a camera `distance` from `at`
+ * along `direction`, with the room `FILLED` leaves around it.
+ */
+export function fitsView(direction: Point, at: Point, distance: number, bounds: Bounds, fovDegrees: number, aspect: number): boolean {
+  return fittingDistance(direction, bounds, fovDegrees, aspect, at) <= distance * (1 + 1e-9);
+}
+
+/**
+ * How far from `at` along `direction` a camera now `distance` away goes to
+ * keep `bounds`, the robot as it stands, in view: just far enough to fit it
+ * again with room around it, never beyond fitting all of `limit`, where
+ * the robot can reach, and never nearer than it is.
+ */
+export function widenedTo(
+  direction: Point,
+  at: Point,
+  distance: number,
+  bounds: Bounds,
+  fovDegrees: number,
+  aspect: number,
+  limit: Bounds | null,
+): number {
+  if (fitsView(direction, at, distance, bounds, fovDegrees, aspect)) {
+    return distance;
+  }
+  const needed = fittingDistance(direction, bounds, fovDegrees, aspect, at);
+  const outermost = limit ? fittingDistance(direction, limit, fovDegrees, aspect, at) : Infinity;
+  return Math.max(distance, Math.min(needed, outermost));
+}
+
+/** How quickly a view widens: most of the way in three of these, a few hundred milliseconds. */
+export const EASING_MS = 100;
+
+/**
+ * Where a camera `distance` away is `ms` later on its way out to `goal`:
+ * quickly at first, slowing as it comes, and there once within a millimetre.
+ */
+export function eased(distance: number, goal: number, ms: number): number {
+  const next = goal - (goal - distance) * Math.exp(-Math.max(0, ms) / EASING_MS);
+  return goal - next < 0.001 ? goal : next;
+}
 
 /**
  * Where a panel's camera goes to fill its panel with `bounds`, seen from

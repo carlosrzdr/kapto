@@ -35,8 +35,8 @@ pub struct RobotScene {
     /// `/api/robot/meshes/{n}`, numbered from 0.
     pub meshes: usize,
     /// A sphere around everywhere the robot's shapes can be with its joints
-    /// moved within their limits, to frame the robot once and keep it in
-    /// view as it moves; absent for a robot with no shapes.
+    /// moved within their limits: the furthest a viewer widens to keep the
+    /// robot in view as it moves; absent for a robot with no shapes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reach: Option<SceneReach>,
 }

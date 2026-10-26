@@ -67,3 +67,50 @@ export async function drawnShare(live: Locator): Promise<number> {
 export async function changedShare(live: Locator, before: string): Promise<number> {
   return compared(live, await pictureOf(live), before);
 }
+
+/** Where a robot panel shows the robot, as shares of its picture from its left and its top. */
+export interface Span {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Where in a robot panel the robot is drawn: the box around the pixels as
+ * bright as its white and steel shapes, which the floor, its grid and the
+ * page's background never are, with the panel's own buttons and words
+ * covered. `null` if there are none.
+ */
+export async function robotSpan(live: Locator): Promise<Span | null> {
+  const picture = await live.screenshot({
+    animations: "disabled",
+    mask: [live.locator(".tools, .said, .environment, .panel-title")],
+    maskColor: "#000000",
+  });
+  return live.evaluate(async (_, data) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${data}`;
+    await image.decode();
+    const scratch = new OffscreenCanvas(image.width, image.height);
+    const context = scratch.getContext("2d");
+    if (!context) {
+      return null;
+    }
+    context.drawImage(image, 0, 0);
+    const { data: pixels, width, height } = context.getImageData(0, 0, image.width, image.height);
+    let [left, right, top, bottom] = [width, -1, height, -1];
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const at = (y * width + x) * 4;
+        if (0.299 * pixels[at]! + 0.587 * pixels[at + 1]! + 0.114 * pixels[at + 2]! > 150) {
+          left = Math.min(left, x);
+          right = Math.max(right, x);
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+      }
+    }
+    return right < 0 ? null : { left: left / width, right: (right + 1) / width, top: top / height, bottom: (bottom + 1) / height };
+  }, picture.toString("base64"));
+}

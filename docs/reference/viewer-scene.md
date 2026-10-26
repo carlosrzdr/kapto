@@ -72,8 +72,8 @@ the robot reaches. The
   robot's shapes can be: each
   shape as the box around it, over 512 joint configurations sampled within
   the joints' limits (a continuous joint a full turn) and every joint at
-  zero, with floating, planar and spherical joints at rest. A viewer frames
-  the box once so the robot stays in view however it moves. It is absent for a
+  zero, with floating, planar and spherical joints at rest. A viewer widens
+  to keep the robot in view as it moves, never beyond the box. It is absent for a
   robot without shapes. Meshes are read once for their bounds when
   `kapto serve` starts.
 

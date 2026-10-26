@@ -4519,7 +4519,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/SceneReach",
-                "description": "A sphere around everywhere the robot's shapes can be with its joints\nmoved within their limits, to frame the robot once and keep it in\nview as it moves; absent for a robot with no shapes."
+                "description": "A sphere around everywhere the robot's shapes can be with its joints\nmoved within their limits: the furthest a viewer widens to keep the\nrobot in view as it moves; absent for a robot with no shapes."
               },
               {
                 "type": "null"

@@ -1,7 +1,23 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { type Bounds, boxesOf, directionOf, FILLED, fitted, framed, leftAt, placedOf, type Point, sameBoxes } from "./views";
+import {
+  type Bounds,
+  boxesOf,
+  directionOf,
+  eased,
+  EASING_MS,
+  FILLED,
+  fitsView,
+  fitted,
+  fittingDistance,
+  framed,
+  leftAt,
+  placedOf,
+  type Point,
+  sameBoxes,
+  widenedTo,
+} from "./views";
 
 const close = (actual: number[], expected: number[]) => actual.forEach((value, axis) => expect(value).toBeCloseTo(expected[axis]!, 6));
 
@@ -73,7 +89,7 @@ describe("a robot framed to fill its panel", () => {
     for (const aspect of [2.5, 1, 0.4]) {
       for (const view of views) {
         const { width, height } = shown(view, arm, aspect);
-        expect(Math.max(width, height), `${view} at ${aspect}`).toBeGreaterThan(0.8);
+        expect(Math.max(width, height), `${view} at ${aspect}`).toBeGreaterThan(FILLED - 0.15);
         expect(Math.max(width, height), `${view} at ${aspect}`).toBeLessThanOrEqual(FILLED + 1e-9);
       }
     }
@@ -81,13 +97,13 @@ describe("a robot framed to fill its panel", () => {
 
   it("fills a tall panel by its height and a wide one by its width when the robot is that shape", () => {
     const standing: Bounds = { low: [-0.2, -0.2, 0], high: [0.2, 0.2, 1.4] };
-    expect(shown("front", standing, 0.4).height).toBeGreaterThan(0.8);
-    expect(shown("side", standing, 0.4).height).toBeGreaterThan(0.8);
+    expect(shown("front", standing, 0.4).height).toBeGreaterThan(FILLED - 0.15);
+    expect(shown("side", standing, 0.4).height).toBeGreaterThan(FILLED - 0.15);
     const lying: Bounds = { low: [-0.3, -1.2, 0], high: [0.3, 1.2, 0.5] };
-    expect(shown("front", lying, 2.5).width).toBeGreaterThan(0.8);
+    expect(shown("front", lying, 2.5).width).toBeGreaterThan(FILLED - 0.15);
     // Seen from above, a tall robot is no taller than it is wide: one side fills.
     const { width, height } = shown("top", arm, 0.4);
-    expect(Math.max(width, height)).toBeGreaterThan(0.8);
+    expect(Math.max(width, height)).toBeGreaterThan(FILLED - 0.15);
   });
 
   it("is nearer than the sphere around the box would put it, so the robot looks bigger", () => {
@@ -100,24 +116,6 @@ describe("a robot framed to fill its panel", () => {
     }
   });
 
-  it("comes as close as the sphere around the robot allows when its box's corners need more room", () => {
-    const distance = (bounds: Bounds, aspect: number) => {
-      const { from, at } = fitted("front", bounds, 45, aspect);
-      return new THREE.Vector3(...from).distanceTo(new THREE.Vector3(...at));
-    };
-    // An arm turning all the way round: its reach a sphere, the box's corners out of it.
-    const round: Bounds = { low: [-1, -1, -0.4], high: [1, 1, 1.4], radius: 1.1 };
-    const boxOnly: Bounds = { low: round.low, high: round.high };
-    for (const aspect of [2.5, 1, 0.4]) {
-      expect(distance(round, aspect)).toBeLessThan(distance(boxOnly, aspect));
-      // The sphere still inside the panel, its binding side filled.
-      const half = Math.atan(Math.tan(THREE.MathUtils.degToRad(22.5)) * Math.min(1, aspect) * FILLED);
-      expect(Math.asin(1.1 / distance(round, aspect))).toBeCloseTo(half, 9);
-    }
-    // A sphere looser than the box changes nothing.
-    expect(distance({ ...arm, radius: 5 }, 0.4)).toBeCloseTo(distance(arm, 0.4), 9);
-  });
-
   it("looks at the middle of the box, along a place's own direction", () => {
     const place = { from: [0, 3, 1], at: [0, 1, 1] };
     const { from, at } = fitted(place, arm, 45, 1);
@@ -125,7 +123,7 @@ describe("a robot framed to fill its panel", () => {
     expect(from[0]).toBeCloseTo(0, 9);
     expect(from[2]).toBeCloseTo(0.7, 9);
     expect(from[1]).toBeGreaterThan(0.6);
-    expect(Math.max(...Object.values(shown(place, arm, 1)))).toBeGreaterThan(0.8);
+    expect(Math.max(...Object.values(shown(place, arm, 1)))).toBeGreaterThan(FILLED - 0.15);
   });
 
   it("keeps a box with no size in view, close by", () => {
@@ -133,6 +131,84 @@ describe("a robot framed to fill its panel", () => {
     const { from, at } = fitted("side", { low: point, high: point }, 45, 1);
     close(at, point);
     expect(Number.isFinite(from[1]) && from[1] < point[1]).toBe(true);
+  });
+});
+
+describe("a robot kept in view as it moves", () => {
+  // An arm at rest, standing narrow; then reaching out to its right.
+  const resting: Bounds = { low: [-0.1, -0.15, 0], high: [0.45, 0.15, 0.9] };
+  const reaching: Bounds = { low: [-0.1, -0.7, 0], high: [0.45, 0.15, 0.9] };
+  const reach: Bounds = { low: [-1, -1, -0.2], high: [1, 1, 1.4] };
+  const aspect = 0.5;
+  /** A view framed on the arm at rest, from in front: where it looks from and at, and how far. */
+  const start = () => {
+    const { from, at } = fitted("front", resting, 45, aspect);
+    const distance = Math.hypot(...from.map((value, axis) => value - at[axis]!));
+    return { direction: directionOf("front"), at, distance };
+  };
+  /** The furthest any corner of `bounds` is from the middle of a view `distance` from `at`, as three.js draws it: 1 is its edge. */
+  const furthest = (at: Point, distance: number, bounds: Bounds) => {
+    const camera = new THREE.PerspectiveCamera(45, aspect, 0.01, 100);
+    camera.up.set(0, 0, 1);
+    camera.position.set(at[0] + distance, at[1], at[2]);
+    camera.lookAt(...at);
+    camera.updateMatrixWorld();
+    const corners = [...Array(8).keys()].map((corner) =>
+      new THREE.Vector3(...[0, 1, 2].map((axis) => ((corner >> axis) & 1 ? bounds.high[axis]! : bounds.low[axis]!))).project(camera),
+    );
+    return Math.max(...corners.map((corner) => Math.max(Math.abs(corner.x), Math.abs(corner.y))));
+  };
+
+  it("fits the view it was framed in, and doesn't once it reaches past its margin", () => {
+    const { direction, at, distance } = start();
+    expect(fitsView(direction, at, distance, resting, 45, aspect)).toBe(true);
+    expect(furthest(at, distance, resting)).toBeCloseTo(FILLED, 6);
+    expect(fitsView(direction, at, distance, reaching, 45, aspect)).toBe(false);
+    expect(furthest(at, distance, reaching)).toBeGreaterThan(FILLED);
+  });
+
+  it("widens about the same point just far enough to fit it again with its margin", () => {
+    const { direction, at, distance } = start();
+    const widened = widenedTo(direction, at, distance, reaching, 45, aspect, reach);
+    expect(widened).toBeGreaterThan(distance);
+    expect(widened).toBeCloseTo(fittingDistance(direction, reaching, 45, aspect, at), 9);
+    expect(fitsView(direction, at, widened, reaching, 45, aspect)).toBe(true);
+    expect(fitsView(direction, at, widened * 0.99, reaching, 45, aspect)).toBe(false);
+    // Each corner within the panel, the furthest at the margin.
+    expect(furthest(at, widened, reaching)).toBeCloseTo(FILLED, 6);
+  });
+
+  it("never comes nearer by itself, however small the robot stands", () => {
+    const { direction, at, distance } = start();
+    const far = widenedTo(direction, at, distance, reaching, 45, aspect, reach);
+    expect(widenedTo(direction, at, far, resting, 45, aspect, reach)).toBe(far);
+    expect(widenedTo(direction, at, distance, resting, 45, aspect, reach)).toBe(distance);
+  });
+
+  it("never widens beyond fitting everywhere the robot reaches, and without a reach as far as it takes", () => {
+    const { direction, at, distance } = start();
+    // A pose far out of reach, as a stream gone wrong could send.
+    const astray: Bounds = { low: [0, 40, 0], high: [0.2, 41, 0.2] };
+    const outermost = fittingDistance(direction, reach, 45, aspect, at);
+    expect(widenedTo(direction, at, distance, astray, 45, aspect, reach)).toBeCloseTo(outermost, 9);
+    expect(widenedTo(direction, at, distance, astray, 45, aspect, null)).toBeGreaterThan(outermost * 10);
+  });
+
+  it("eases out over a few hundred milliseconds, never past where it goes", () => {
+    let distance = 1;
+    const goal = 2;
+    const path: number[] = [];
+    for (let ms = 0; ms < 3 * EASING_MS; ms += 16) {
+      distance = eased(distance, goal, 16);
+      path.push(distance);
+    }
+    // Moving out each frame, most of the way there in three time constants.
+    expect(path.every((each, at) => each > (path[at - 1] ?? 1) && each <= goal)).toBe(true);
+    expect(distance).toBeGreaterThan(1.9);
+    expect(eased(1, goal, 0)).toBe(1);
+    // Within a millimetre, there.
+    expect(eased(1.9995, goal, 16)).toBe(goal);
+    expect(eased(1, goal, 10 * EASING_MS)).toBe(goal);
   });
 });
 

@@ -59,11 +59,11 @@
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
-  import { applyPoses, buildRobot, drawsNow, type Robot } from "./viewer/robot";
+  import { applyPoses, buildRobot, drawsNow, framedShapes, type Robot, standingBox } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { Questions } from "./viewer/questions";
-  import { boxesOf, fitted, framed as framedFrom, leftAt, placedOf, type Point, sameBoxes } from "./viewer/views";
+  import { type Bounds, boxesOf, eased, fitted, framed as framedFrom, leftAt, placedOf, type Point, sameBoxes, widenedTo } from "./viewer/views";
   import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
   import { sentence, time } from "./format";
   import { shortcut } from "./keys";
@@ -1111,23 +1111,42 @@
       /** The layout's view it was last placed from, to tell when the layout changes it. */
       from: string;
       boxes: ReturnType<typeof boxesOf>;
+      /** Whether it stands where a place in the layout puts it, which nothing moves by itself. */
+      placed: boolean;
+      /** Whether the operator turned or zoomed it, which only framing it again hands back. */
+      byHand: boolean;
+      /** Whether the pointer is on it: what moves it then is the operator. */
+      held: boolean;
+      /** How far from what it looks at it is widening to, if it is. */
+      goal: number | null;
+      /** How many times it widened, for the page's tests. */
+      widenings: number;
     }
     const views = new Map<HTMLElement, View>();
     const viewOf = (slot: RobotSlot): View => {
       const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
       camera.up.set(0, 0, 1);
       const controls = new OrbitControls(camera, slot.element.querySelector<HTMLElement>(".orbit") ?? slot.element);
-      const view: View = { slot, camera, controls, framed: false, from: "", boxes: null };
+      const view: View = { slot, camera, controls, framed: false, from: "", boxes: null, placed: false, byHand: false, held: false, goal: null, widenings: 0 };
       place(view);
-      controls.addEventListener("change", () => (dirty = true));
+      controls.addEventListener("start", () => (view.held = true));
+      controls.addEventListener("change", () => {
+        dirty = true;
+        if (view.held) {
+          view.byHand = true;
+          view.goal = null;
+        }
+      });
       // Where it was left while arranging is kept with the layout; only looking leaves the layout as it was.
       controls.addEventListener("end", () => {
+        view.held = false;
         if (!onView) {
           return;
         }
         const left = leftAt(camera.position.toArray(), controls.target.toArray());
         // Its own change: the camera stays where it is rather than being placed again.
         view.from = JSON.stringify(left);
+        view.placed = true;
         arrange(withView(editing(), slot.column, slot.at, left));
       });
       return view;
@@ -1137,6 +1156,9 @@
       const given = view.slot.view() ?? null;
       view.from = JSON.stringify(given);
       const placed = placedOf(given);
+      view.placed = placed !== null;
+      view.byHand = false;
+      view.goal = null;
       if (placed) {
         view.camera.position.fromArray(placed.from);
         view.controls.target.fromArray(placed.at);
@@ -1207,51 +1229,102 @@
     const delays: number[] = [];
     let closed = false;
 
+    /** The shapes the robot is framed by, and whether it has been posed since it was drawn. */
+    let shapes: THREE.Mesh[] = [];
+    let posed = false;
+    /** The box around the robot as it stands, measured again each frame it moves, into the same objects. */
+    const standingNow = new THREE.Box3();
+    const standing: Bounds = { low: [0, 0, 0], high: [0, 0, 0] };
+    let stands = false;
+    /** Where the robot can reach, if the scene says: the furthest any view widens to. */
+    let limit: Bounds | null = null;
+    const measure = () => {
+      if (!robot || !posed) {
+        stands = false;
+        return;
+      }
+      standingBox(robot, shapes, standingNow);
+      standingNow.min.toArray(standing.low);
+      standingNow.max.toArray(standing.high);
+      stands = !standingNow.isEmpty() && standing.low.every(Number.isFinite) && standing.high.every(Number.isFinite);
+    };
+
     /**
-     * Fills each of `which` with `box` (within a sphere of `radius` around
-     * its middle, if known), each from its own side, by the panel's width
-     * and height alike; counted as one framing for the page's tests.
-     * Hidden, a view keeps the aspect it had, so one framed then isn't left
-     * out of sight once shown.
+     * Fills each of `which` with the robot as it stands, each from its own
+     * side, by the panel's width and height alike, and lets it widen by
+     * itself again; counted as one framing for the page's tests. Hidden, a
+     * view keeps the aspect it had, so one framed then isn't left out of
+     * sight once shown.
      */
-    const frameBox = ({ box, radius }: Reach, which: View[], counted = true) => {
-      const bounds = { low: box.min.toArray(), high: box.max.toArray(), radius };
-      if (box.isEmpty() || ![...bounds.low, ...bounds.high].every(Number.isFinite) || which.length === 0) {
+    const frameBox = (which: View[], counted = true) => {
+      if (!stands || which.length === 0) {
         return;
       }
       for (const view of which) {
         const { camera, controls } = view;
         // A place left while arranging keeps its direction, framed along it.
-        const given = view.slot.view() ?? null;
-        const side = placedOf(given) ? { from: camera.position.toArray(), at: controls.target.toArray() } : given;
-        const { from, at } = fitted(side, bounds, camera.fov, camera.aspect);
+        const side = view.placed ? { from: camera.position.toArray(), at: controls.target.toArray() } : (view.slot.view() ?? null);
+        const { from, at } = fitted(side, standing, camera.fov, camera.aspect);
         camera.position.fromArray(from);
         controls.target.fromArray(at);
         controls.update();
         view.framed = true;
+        view.byHand = false;
+        view.goal = null;
       }
       if (counted) {
         framings += 1;
       }
       dirty = true;
     };
-    /** The box and the sphere around where the robot can be. */
-    interface Reach {
-      box: THREE.Box3;
-      radius?: number;
-    }
-    /** The whole robot as it stands now. */
-    const bounds = (root: THREE.Object3D): Reach => ({ box: new THREE.Box3().setFromObject(root) });
-    frameNow = () => {
-      if (robot) {
-        frameBox(bounds(robot.root), [...views.values()]);
-      }
-    };
+    frameNow = () => frameBox([...views.values()]);
     frameSlot = (column, at) => {
       const view = [...views.values()].find(({ slot }) => slot.column === column && slot.at === at);
-      if (robot && view) {
-        frameBox(bounds(robot.root), [view]);
+      if (view) {
+        frameBox([view]);
       }
+    };
+
+    // Reused each frame, so keeping the robot in view makes nothing new.
+    const toCamera = new THREE.Vector3();
+    const along: Point = [0, 0, 0];
+    const lookedAt: Point = [0, 0, 0];
+    /**
+     * Eases `view` out along the way it looks, about what it looks at, as
+     * far as keeps the robot as it stands in it: worked out again when it or
+     * the panel changed, and never nearer by itself. Not a view the operator
+     * turned, nor one standing where its layout places it.
+     */
+    const keepInView = (view: View, changed: boolean, ms: number) => {
+      const { camera, controls } = view;
+      if (view.placed || view.byHand || !stands) {
+        return;
+      }
+      const distance = toCamera.subVectors(camera.position, controls.target).length();
+      if (distance === 0) {
+        return;
+      }
+      toCamera.divideScalar(distance).toArray(along);
+      if (changed) {
+        const goal = widenedTo(along, controls.target.toArray(lookedAt), distance, standing, camera.fov, camera.aspect, limit);
+        if (goal > (view.goal ?? distance)) {
+          if (view.goal === null) {
+            view.widenings += 1;
+            view.slot.element.dataset.widenings = String(view.widenings);
+          }
+          view.goal = goal;
+        }
+      }
+      if (view.goal === null) {
+        return;
+      }
+      const next = eased(distance, view.goal, ms);
+      camera.position.copy(controls.target).addScaledVector(toCamera, next);
+      controls.update();
+      if (next >= view.goal) {
+        view.goal = null;
+      }
+      dirty = true;
     };
 
     const resize = () => {
@@ -1269,8 +1342,15 @@
     let frame = 0;
     // The frame whose poses the robot stands in.
     let posedFrame = 0;
+    /** Whether a view was framed since the robot was drawn: the first framing of each robot is counted. */
+    let framedOnce = false;
+    let lastDrawMs = performance.now();
     const draw = () => {
       frame = requestAnimationFrame(draw);
+      const nowMs = performance.now();
+      const sinceMs = nowMs - lastDrawMs;
+      lastDrawMs = nowMs;
+      let robotMoved = false;
       if (playing && started) {
         const to = playedTo(started, performance.now(), speed);
         const newest = keptMs?.[1];
@@ -1290,18 +1370,19 @@
       if (robot && paused && held) {
         applyPoses(robot.links, held);
         held = null;
+        robotMoved = true;
         dirty = true;
       }
       if (robot && pending && !paused) {
         applyPoses(robot.links, pending);
         pending = null;
         posedFrame = frames;
-        // A robot whose reach the scene doesn't give: framed as it first stands.
-        const unframed = [...views.values()].filter((view) => !view.framed);
-        if (unframed.length > 0 && !framedReach) {
-          frameBox(bounds(robot.root), unframed);
-        }
+        robotMoved = true;
         dirty = true;
+      }
+      if (robotMoved) {
+        posed = true;
+        measure();
       }
       // Each panel's camera, made as the panel comes and let go as it goes.
       let moved = false;
@@ -1328,7 +1409,8 @@
           area && area.width > 0 && area.height > 0
             ? boxesOf(slot.element.getBoundingClientRect(), column ? [column.getBoundingClientRect()] : [], area)
             : null;
-        if (!sameBoxes(boxes, view.boxes)) {
+        const reshaped = !sameBoxes(boxes, view.boxes);
+        if (reshaped) {
           moved = true;
           // Hidden, a view has no size: its camera keeps the aspect it had.
           if (boxes) {
@@ -1338,9 +1420,13 @@
         }
         view.boxes = boxes;
         shown ||= boxes !== null;
-        // A view new since the robot was framed: framed once it has a size, as it stands or by its reach.
-        if (boxes && !view.framed && robot) {
-          frameBox(framedReach ?? bounds(robot.root), [view], false);
+        if (boxes && !view.framed && stands) {
+          // Framed as the robot first stands once it has a size; one framed then, kept in view as it moves.
+          frameBox([view], !framedOnce);
+          framedOnce = true;
+        } else if (boxes) {
+          // Narrowed or shown again, a view may need widening as much as when the robot moves.
+          keepInView(view, robotMoved || reshaped, sinceMs);
         }
       }
       if (moved) {
@@ -1370,10 +1456,11 @@
 
     // The live robot's links, to tell when the robot Kapto runs changes.
     let links: string[] = [];
-    /** A robot built, with where it can reach. */
+    /** A robot built, with the shapes it is framed by and where it can reach. */
     interface Loaded {
       built: Robot;
-      reach: Reach | null;
+      shapes: THREE.Mesh[];
+      reach: Bounds | null;
     }
     const robots = new Robots<Loaded>(async (id) => {
       const loaded = await (id === null ? getRobotScene() : getReplayScene(id)).catch((error: unknown) => {
@@ -1387,15 +1474,13 @@
       }
       const mesh = (n: number) => (id === null ? getMesh(n) : getReplayMesh(id, n)).then(decodeMesh);
       const built = await buildRobot(loaded, mesh, (n) => (said = `Mesh ${n} couldn't be read`));
-      // The box around everywhere it reaches, which can fill a panel more closely than the sphere around it.
-      const corner = (values: number[]) => new THREE.Vector3(...([0, 1, 2].map((axis) => values[axis] ?? 0) as Point));
-      const reach = loaded.reach
-        ? { box: new THREE.Box3(corner(loaded.reach.low), corner(loaded.reach.high)), radius: loaded.reach.radius }
-        : null;
-      return { built, reach };
+      // The box around everywhere it reaches, beyond which no view widens by itself.
+      const corner = (values: number[]): Point => [values[0] ?? 0, values[1] ?? 0, values[2] ?? 0];
+      const reach = loaded.reach ? { low: corner(loaded.reach.low), high: corner(loaded.reach.high) } : null;
+      return { built, shapes: framedShapes(built), reach };
     });
     /** Where the robot framed last can reach: framed again only for one that reaches elsewhere. */
-    let framedReach: Reach | null = null;
+    let framedFor: string | null = null;
     drawRobotOf = (id) => {
       // Gone at once: poses of one robot never move another.
       if (robot) {
@@ -1403,6 +1488,8 @@
         robot = null;
         dirty = true;
       }
+      posed = false;
+      stands = false;
       held = null;
       robotOf = "";
       withoutRobot = false;
@@ -1419,19 +1506,22 @@
             return;
           }
           robot = loaded.built;
+          shapes = loaded.shapes;
+          limit = loaded.reach;
           scene.add(robot.root);
           if (id === null) {
             links = robot.links.map((link) => link.name);
           }
-          // Everywhere it can reach, framed once: it stays in view as it moves.
+          // A robot that reaches elsewhere is framed again as it first stands; the
+          // same one, as live and its replays are, is left as the operator has it.
           // A place left while arranging stays where it was left.
-          const same = (one: Reach, other: Reach) => one.box.equals(other.box) && one.radius === other.radius;
-          if (loaded.reach && !(framedReach && same(framedReach, loaded.reach))) {
-            framedReach = loaded.reach;
-            frameBox(
-              loaded.reach,
-              [...views.values()].filter((view) => !placedOf(view.slot.view())),
-            );
+          const reaching = JSON.stringify(loaded.reach);
+          if (reaching !== framedFor) {
+            framedFor = reaching;
+            framedOnce = false;
+            for (const view of views.values()) {
+              view.framed = view.placed;
+            }
           }
           dirty = true;
           if (paused && cursorMs !== null) {
