@@ -31,7 +31,8 @@ kapto-config ─── kapto.toml, environment variables and flags, each
  ▼
 kapto-core ───── shared types: error codes and reports, episode and
                   stream IDs, roles, receive and source timestamps,
-                  reading the host's clocks and mapping them to UTC
+                  reading the host's clocks and mapping them to UTC,
+                  a simulation's time mapped from receive time
 ```
 
 The recording path starts with a **transport** that receives messages, and

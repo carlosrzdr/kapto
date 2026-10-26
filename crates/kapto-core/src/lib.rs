@@ -11,6 +11,7 @@ pub mod name;
 pub mod output;
 pub mod profiling;
 pub mod role;
+pub mod simulated;
 pub mod stream;
 pub mod time;
 
