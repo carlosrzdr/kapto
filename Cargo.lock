@@ -1754,6 +1754,7 @@ dependencies = [
  "jpeg-encoder",
  "proptest",
  "r2r",
+ "socket2",
 ]
 
 [[package]]

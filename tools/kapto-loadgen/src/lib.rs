@@ -312,7 +312,7 @@ impl Prepared<'_> {
             for stream in 0..config.streams {
                 if let Some(frames) = &frames {
                     let frame = frames.frame(stream, tick);
-                    if !output.send_frame(usize::from(stream), frame, source_time_ns) {
+                    if !output.send_frame(usize::from(stream), frame, source_time_ns, stop) {
                         errors += 1;
                     }
                     continue;
@@ -327,7 +327,7 @@ impl Prepared<'_> {
                     joints,
                     gripper: payload::gripper_at(stream, seconds),
                 };
-                if !output.send(usize::from(stream), &sample) {
+                if !output.send(usize::from(stream), &sample, stop) {
                     errors += 1;
                 }
             }

@@ -17,10 +17,12 @@
 //! connection at each message; connecting, it tries again at the next
 //! message when it was refused (at once: nothing listens there yet), and at
 //! most once a second when it timed out, so a missing receiver doesn't hold
-//! up the other streams.
+//! up the other streams. A receiver that takes its frames slowly holds the
+//! stream up, as TCP holds up a robot, but never past a stop.
 
 use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::Config;
@@ -64,6 +66,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(50);
 /// How long a stream whose connection attempt timed out, or whose
 /// receiver went away, waits before trying again.
 const RETRY_EVERY: Duration = Duration::from_secs(1);
+
+/// How long one write may wait on a receiver that isn't reading before
+/// the stop is looked at again: a write waiting with no limit would keep
+/// a stopped run from ever ending.
+const WRITE_WAIT: Duration = Duration::from_millis(100);
 
 /// The open sockets of every stream.
 pub(crate) enum Output {
@@ -159,8 +166,9 @@ impl Output {
         }
     }
 
-    /// Sends `sample` on stream `stream`; whether it went.
-    pub(crate) fn send(&mut self, stream: usize, sample: &Sample) -> bool {
+    /// Sends `sample` on stream `stream`, unless `stop` is set while it
+    /// waits on its receiver; whether it went.
+    pub(crate) fn send(&mut self, stream: usize, sample: &Sample, stop: &AtomicBool) -> bool {
         match self {
             Self::Udp {
                 socket,
@@ -182,7 +190,7 @@ impl Output {
                 let length = u32::try_from(message.len()).unwrap_or(u32::MAX);
                 frame.extend_from_slice(&length.to_le_bytes());
                 frame.extend_from_slice(&message);
-                link.send(frame)
+                link.send(frame, stop)
             }
             #[cfg(feature = "ros2")]
             Self::Ros2(publishers) => publishers.send(stream, sample),
@@ -192,13 +200,19 @@ impl Output {
 
 impl Output {
     /// Sends a camera's `frame` on stream `stream`, stamped `source_time_ns`
-    /// over ROS 2; whether it went. Never over UDP, which a frame doesn't
-    /// fit.
+    /// over ROS 2, unless `stop` is set while it waits on its receiver;
+    /// whether it went. Never over UDP, which a frame doesn't fit.
     #[cfg_attr(
         not(feature = "ros2"),
         allow(unused_variables, reason = "only ROS 2 stamps a frame")
     )]
-    pub(crate) fn send_frame(&mut self, stream: usize, frame: &[u8], source_time_ns: u64) -> bool {
+    pub(crate) fn send_frame(
+        &mut self,
+        stream: usize,
+        frame: &[u8],
+        source_time_ns: u64,
+        stop: &AtomicBool,
+    ) -> bool {
         match self {
             Self::Udp { .. } => false,
             Self::Tcp {
@@ -212,7 +226,7 @@ impl Output {
                 let length = u32::try_from(frame.len()).unwrap_or(u32::MAX);
                 framed.extend_from_slice(&length.to_le_bytes());
                 framed.extend_from_slice(frame);
-                link.send(framed)
+                link.send(framed, stop)
             }
             #[cfg(feature = "ros2")]
             Self::Ros2(publishers) => publishers.send_frame(stream, frame, source_time_ns),
@@ -221,7 +235,7 @@ impl Output {
 }
 
 impl Link {
-    fn send(&mut self, frame: &[u8]) -> bool {
+    fn send(&mut self, frame: &[u8], stop: &AtomicBool) -> bool {
         let due = self.listener.is_some() || Instant::now() >= self.next_attempt;
         if self.stream.is_none() && due {
             match self.establish() {
@@ -235,10 +249,11 @@ impl Link {
         let Some(stream) = &mut self.stream else {
             return false;
         };
-        if stream.write_all(frame).is_ok() {
+        if write_unless_stopped(stream, frame, stop) {
             return true;
         }
-        // The receiver went away; try again in a while.
+        // The receiver went away, or the run stopped with the frame half
+        // sent; try again in a while.
         self.stream = None;
         self.next_attempt = Instant::now() + RETRY_EVERY;
         false
@@ -252,9 +267,114 @@ impl Link {
             // a failed accept: there is no connection yet.
             Some(listener) => listener.accept()?.0,
         };
+        refuse_itself(&stream)?;
         stream.set_nonblocking(false)?;
+        stream.set_write_timeout(Some(WRITE_WAIT))?;
         // Each message as it is sent, as a robot's control loop would.
         stream.set_nodelay(true)?;
         Ok(stream)
+    }
+}
+
+/// Refuses a connection the generator made to itself. Connecting again and
+/// again to a port in the ephemeral range where nothing listens (Kapto's
+/// capture stopped), the system can pick that very port as the
+/// connection's own, and TCP then connects it to itself: nothing would ever
+/// read what it sends, and Kapto couldn't listen there again. Refused, it
+/// is tried again from another port, as when nothing listens.
+fn refuse_itself(stream: &TcpStream) -> io::Result<()> {
+    if stream.local_addr()? == stream.peer_addr()? {
+        return Err(io::Error::new(
+            io::ErrorKind::ConnectionRefused,
+            "connected to itself, with nothing listening",
+        ));
+    }
+    Ok(())
+}
+
+/// Writes all of `frame` to `stream`, waiting on a receiver slow to read
+/// for as long as it takes, unless `stop` is set meanwhile; whether all of
+/// it went.
+fn write_unless_stopped(stream: &mut TcpStream, mut frame: &[u8], stop: &AtomicBool) -> bool {
+    while !frame.is_empty() {
+        match stream.write(frame) {
+            Ok(0) => return false,
+            Ok(written) => frame = frame.get(written..).unwrap_or_default(),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                if stop.load(Ordering::Relaxed) {
+                    return false;
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_write_to_a_receiver_that_doesnt_read_gives_up_once_stopped() {
+        let receiver = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut sender = TcpStream::connect(receiver.local_addr().unwrap()).unwrap();
+        let _never_read = receiver.accept().unwrap();
+        sender.set_write_timeout(Some(WRITE_WAIT)).unwrap();
+        // More than both sides' buffers hold.
+        let frame = vec![0; 64 << 20];
+        let stop = AtomicBool::new(false);
+        let (went, waited) = std::thread::scope(|scope| {
+            let writing = scope.spawn(|| write_unless_stopped(&mut sender, &frame, &stop));
+            std::thread::sleep(Duration::from_millis(500));
+            let stopped = Instant::now();
+            stop.store(true, Ordering::Relaxed);
+            (writing.join().unwrap(), stopped.elapsed())
+        });
+        assert!(!went);
+        assert!(waited < Duration::from_secs(2), "{waited:?}");
+    }
+
+    #[test]
+    fn a_write_to_a_receiver_that_reads_goes_whole() {
+        let receiver = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut sender = TcpStream::connect(receiver.local_addr().unwrap()).unwrap();
+        let (mut reading, _) = receiver.accept().unwrap();
+        sender.set_write_timeout(Some(WRITE_WAIT)).unwrap();
+        let frame = vec![7; 8 << 20];
+        let read = std::thread::spawn(move || {
+            let mut all = Vec::new();
+            io::Read::read_to_end(&mut reading, &mut all).map(|_| all)
+        });
+        assert!(write_unless_stopped(
+            &mut sender,
+            &frame,
+            &AtomicBool::new(false)
+        ));
+        drop(sender);
+        assert_eq!(read.join().unwrap().unwrap(), frame);
+    }
+
+    #[test]
+    fn a_connection_to_itself_is_refused_and_one_to_a_receiver_is_not() {
+        use socket2::{Domain, Socket, Type};
+        let socket = Socket::new(Domain::IPV4, Type::STREAM, None).unwrap();
+        let any: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        socket.bind(&any.into()).unwrap();
+        let own = socket.local_addr().unwrap();
+        socket.connect(&own).unwrap();
+        let itself: TcpStream = socket.into();
+        let error = refuse_itself(&itself).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::ConnectionRefused);
+
+        let receiver = TcpListener::bind("127.0.0.1:0").unwrap();
+        let other = TcpStream::connect(receiver.local_addr().unwrap()).unwrap();
+        assert!(refuse_itself(&other).is_ok());
     }
 }

@@ -22,6 +22,8 @@ futures.workspace = true
 # Each frame read back by a decoder of its own.
 jpeg-decoder.workspace = true
 proptest.workspace = true
+# A connection made to itself, as the system can make one by chance.
+socket2.workspace = true
 
 [features]
 # The ros2 transport (`--transport ros2`).

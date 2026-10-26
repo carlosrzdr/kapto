@@ -16,7 +16,7 @@ use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::user;
 
@@ -26,6 +26,10 @@ pub(crate) const PLAYWRIGHT_IMAGE: &str = "mcr.microsoft.com/playwright:v1.63.0-
 
 /// How long Kapto may take to start.
 const START_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// How long Kapto may take to stop: capture's grace to finish an episode
+/// and the API's to drain, with room to spare.
+const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// What to run against the demo.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -255,9 +259,24 @@ impl Kapto {
 
     /// Stops it as Ctrl-C would, so it stops its children too, unless it
     /// has ended already.
+    /// Killed if it hasn't ended within `STOP_TIMEOUT`, so a demo that
+    /// doesn't stop fails the run instead of holding it forever; its
+    /// children end with it all the same.
     fn stop(&mut self) {
         if matches!(self.child.try_wait(), Ok(None)) {
             let _ = kill("-INT", self.child.id());
+        }
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while matches!(self.child.try_wait(), Ok(None)) {
+            if Instant::now() > deadline {
+                eprintln!(
+                    "kapto (pid {}) didn't stop within {STOP_TIMEOUT:?}; killing it",
+                    self.child.id()
+                );
+                let _ = self.child.kill();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
         }
         let _ = self.child.wait();
     }
