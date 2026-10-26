@@ -812,12 +812,27 @@ test("the robot is framed as it stands, kept in view as it moves, and framed aga
   await expect(live).toHaveAttribute("data-framings", "2");
 
   // Zoomed in by hand, a view is the operator's: it isn't widened again, until framed again from its button.
+  // How far in one turn of the wheel takes it doesn't say where the arm is
+  // in its sweep, drawn small or large: turned on until the arm reaches an
+  // edge, whenever in its sweep this runs. Reaching one is coming within a
+  // pixel of it, the room the views kept in view leave beyond: past the
+  // left edge the arm is drawn from the panel's second column of pixels.
+  const reached = 0.005;
   await other.locator(".orbit").hover();
   await page.mouse.wheel(0, -2_000);
+  for (let turns = 0; (await room(other)) >= reached && turns < 8; turns += 1) {
+    await page.mouse.wheel(0, -300);
+  }
+  expect(await room(other), "the arm past the zoomed panel's edge").toBeLessThan(reached);
   const zoomed = await widenings(other);
   await page.waitForTimeout(3_000);
   expect(await widenings(other)).toBe(zoomed);
-  expect(await room(other), "the arm past the zoomed panel's edge").toBe(0);
+  // Moving on, the arm is drawn smaller and back away from the edge at
+  // times, but within one sweep (12 s) it is back where it reached it;
+  // a view widened to keep it in would leave room around it all along.
+  await expect
+    .poll(() => room(other), { message: "the arm past the zoomed panel's edge as it sweeps", timeout: 13_000 })
+    .toBeLessThan(reached);
   await other.getByRole("button", { name: "Frame robot" }).click();
   await expect(live).toHaveAttribute("data-framings", "3");
   await expect.poll(() => room(other), { message: "the arm in view again" }).toBeGreaterThan(0.005);
