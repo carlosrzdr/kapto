@@ -96,7 +96,7 @@ tungstenite = "0.29"
 tokio = { version = "1.53", features = ["rt-multi-thread", "net", "time"] }
 toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 tower = { version = "0.5", features = ["util"] }
-utoipa = "5.5"
+utoipa = "6.0"
 
 # Kapto crates, so dependents write `kapto-core.workspace = true`.
 kapto-core = { path = "crates/kapto-core", version = "0.0.0" }
