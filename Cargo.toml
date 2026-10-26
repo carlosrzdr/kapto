@@ -43,7 +43,7 @@ futures = "0.3"
 gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
 # The synthetic camera's frames, encoded once when it starts; a baseline
 # JPEG encoder in Rust with no dependencies.
-jpeg-encoder = { version = "0.6", default-features = false, features = ["std"] }
+jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
 # Checking those frames in the tests with a decoder that isn't the encoder.
 jpeg-decoder = { version = "0.3", default-features = false }
 libc = "0.2"
