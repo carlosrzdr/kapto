@@ -5,7 +5,8 @@
 //!
 //! - `episode.duration_s`: how long it was recorded.
 //! - `streams.<stream>.rate_hz`, `.lost_upstream_ratio` and
-//!   `.dropped_ratio`: how each stream arrived.
+//!   `.dropped_ratio`: how each stream arrived, its rate per simulated
+//!   second in an episode that recorded a simulation's clock.
 //! - `joints.<joint>.position`: the distribution of each joint's position:
 //!   where it went, its range of motion.
 //! - `joints.<joint>.speed`, `.acceleration` and `.jerk`: the distributions
@@ -78,6 +79,13 @@ pub fn of_episode(episode: &EpisodeView) -> Statistics {
             .saturating_sub(summary.started_utc_ns)
             .max(0),
     );
+    // A stream's rate in messages per simulated second, where the episode
+    // recorded a simulation: a pause sends nothing and counts no time.
+    let elapsed_s = if duration_s > 0.0 {
+        episode.elapsed_s(summary.started_utc_ns, summary.ended_utc_ns)
+    } else {
+        0.0
+    };
     statistics.insert(
         "episode.duration_s".to_owned(),
         Statistic::Value(duration_s),
@@ -96,7 +104,7 @@ pub fn of_episode(episode: &EpisodeView) -> Statistics {
                 Statistic::Value(value),
             );
         };
-        add("rate_hz", ratio(received, duration_s));
+        add("rate_hz", ratio(received, elapsed_s));
         add("lost_upstream_ratio", ratio(lost, received + lost));
         add("dropped_ratio", ratio(dropped, received));
     }

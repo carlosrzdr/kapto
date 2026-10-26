@@ -23,8 +23,8 @@ API (`/api/episodes/{id}/qa`, `/api/episodes/{id}/statistics`).
 | `episode.short` | gate | The episode was recorded for at least `min_seconds` (2 s), from Start to Stop: the seconds a pre-roll or post-roll add aren't counted. Shorter, it can hardly hold a task. |
 | `episode.long` | advisory | It was recorded for no longer than `max_seconds` (600 s), from Start to Stop: one far longer was likely left recording. |
 | `streams.timing` | advisory | Each stream sent its first message within `max_start_delay_s` (2 s) of Start being asked, and its last within `max_end_gap_s` (5 s) of Stop (the episode's own start and end for one recorded without them): a stream late to start or stopping early, from a node slow to come up or a driver that crashed, leaves part of the episode without it. Streams kept for late subscribers, and those that sent nothing (`streams.present`'s), are left out. |
-| `streams.rate` | advisory | Each stream with a declared `rate_hz` kept to it: measured from its first message to its last, no more than `max_error` (15 %) off, and in the last fifth of the episode at least `min_end_ratio` (half) as fast as in the first, once it sent 10 or more there. |
-| `streams.gap` | advisory | No stream was silent longer than `max_seconds` (2 s), or three of its periods if that is longer; each silence is named with where it is. The longest 20 of each stream are looked at. |
+| `streams.rate` | advisory | Each stream with a declared `rate_hz` kept to it: measured from its first message to its last, no more than `max_error` (15 %) off, and in the last fifth of the episode at least `min_end_ratio` (half) as fast as in the first, once it sent 10 or more there. In an episode that recorded a simulation's clock (the role `time.simulated`), in simulated seconds, so a simulation slower than real time keeps its rate and a pause is no slowing down. |
+| `streams.gap` | advisory | No stream was silent longer than `max_seconds` (2 s), or three of its periods if that is longer; each silence is named with where it is. The longest 20 of each stream are looked at. With a simulation's clock, a silence lasts the simulated time that passed in it: none while the simulation was paused, and as received after the clock's last message. |
 | `segments.present` | gate, off by default | An episode of a task that declares subtasks marks at least one of them, as `subtask.<name>` events: such an episode is to be cut into them, and one without any can't be. Turn it on (`enabled = true`) where every episode's subtasks are marked. |
 | `segments.layout` | advisory | The subtasks marked cover the episode closely: no more than `max_gap_s` (5 s) between two, at least `min_coverage` (half) of the time from Start to Stop, none shorter than `min_seconds` (1 s); a subtask begun and never ended lasts to Stop. Each gap and short subtask is named with where it is. |
 | `camera.format` | gate | Each camera's first frame holds a picture of the kind its stream declares: a JPEG or PNG for a compressed camera (by its first bytes), enough pixels for its size for a raw one. One that doesn't was declared wrongly, and its pictures can't be used. |
@@ -57,7 +57,7 @@ receive times, when Kapto got each message.
 | Statistic | Kind | Unit | How it is worked out |
 |---|---|---|---|
 | `episode.duration_s` | value | s | End time minus start time. |
-| `streams.<stream>.rate_hz` | value | Hz | Messages received ÷ duration. |
+| `streams.<stream>.rate_hz` | value | Hz | Messages received ÷ duration; the duration in simulated seconds for an episode that recorded a simulation's clock. |
 | `streams.<stream>.lost_upstream_ratio` | value | 0–1 | Messages lost before reaching Kapto ÷ (received + lost): the robot's or the network's loss. |
 | `streams.<stream>.dropped_ratio` | value | 0–1 | Messages Kapto received but couldn't write ÷ received. |
 | `joints.<joint>.position` | distribution | rad or m | Every position the joint was at: its range of motion. |

@@ -134,7 +134,7 @@ impl Check for StreamsRate {
     }
 
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     fn kind(&self) -> CheckKind {
@@ -157,8 +157,18 @@ impl Check for StreamsRate {
         let mut problems = Vec::new();
         let mut finding_values = Vec::new();
         let mut ranges = Vec::new();
+        // A fifth of the episode, as the simulation counts it where it
+        // recorded one: a pause in it sends nothing and is no slowing down.
+        let fifth = |from: usize| {
+            let fifths = i64::try_from(from / FIFTH).unwrap_or(0);
+            let start = summary.started_utc_ns + span / 5 * fifths;
+            episode.elapsed_s(start, start + span / 5).max(f64::EPSILON)
+        };
+        let (first_fifth, last_fifth) = (fifth(0), fifth(BINS - FIFTH));
         for (name, timing, declared) in streams {
-            let lasted = seconds(timing.last_utc_ns - timing.first_utc_ns).max(f64::EPSILON);
+            let lasted = episode
+                .elapsed_s(timing.first_utc_ns, timing.last_utc_ns)
+                .max(f64::EPSILON);
             #[allow(clippy::cast_precision_loss, reason = "a count of messages")]
             let measured = (timing.messages - 1) as f64 / lasted;
             let error = (measured / f64::from(declared) - 1.0).abs();
@@ -169,7 +179,7 @@ impl Check for StreamsRate {
             let (start, end) = (timing.sent_in(0, FIFTH), timing.sent_in(BINS - FIFTH, BINS));
             if start >= MIN_TO_JUDGE {
                 #[allow(clippy::cast_precision_loss, reason = "counts of messages")]
-                let kept = end as f64 / start as f64;
+                let kept = (end as f64 / last_fifth) / (start as f64 / first_fifth);
                 if kept < self.min_end_ratio {
                     problems.push(format!(
                         "{name} sent {:.0} % as fast in the last fifth as in the first",
@@ -203,7 +213,7 @@ impl Check for StreamsGap {
     }
 
     fn version(&self) -> u32 {
-        1
+        2
     }
 
     fn kind(&self) -> CheckKind {
@@ -223,15 +233,16 @@ impl Check for StreamsGap {
                 .rate_hz
                 .map_or(0.0, |rate| 3.0 / f64::from(rate.max(1)));
             let longest_allowed = self.max_seconds.max(periods);
+            // How long each silence lasted as the simulation counts it,
+            // where it recorded one: a paused simulation is never silent.
+            let lasted =
+                |range: &TimeRange| episode.elapsed_s(range.start_utc_ns, range.end_utc_ns);
             let silent: Vec<&TimeRange> = timing
                 .silences
                 .iter()
-                .filter(|range| seconds(range.end_utc_ns - range.start_utc_ns) > longest_allowed)
+                .filter(|range| lasted(range) > longest_allowed)
                 .collect();
-            let longest = timing
-                .silences
-                .first()
-                .map_or(0.0, |range| seconds(range.end_utc_ns - range.start_utc_ns));
+            let longest = timing.silences.iter().map(lasted).fold(0.0, f64::max);
             finding_values.push((format!("{name}.longest_silence_s"), longest));
             if silent.is_empty() {
                 continue;
@@ -265,6 +276,8 @@ impl Check for StreamsGap {
 #[cfg(test)]
 mod tests {
     use kapto_store::{StreamSummary, Verdict};
+
+    use kapto_core::simulated::{ClockReading, SimulatedClock};
 
     use super::*;
     use crate::timing::TimingReader;
@@ -391,5 +404,67 @@ mod tests {
         );
         // The kept stream, silent the whole episode, isn't flagged.
         assert!(!finding.message.contains("tf_static"));
+    }
+
+    /// `episode` with a simulation's clock read every 10 ms from `from` to
+    /// `to` seconds, `simulated(at)` the simulated seconds it says at each.
+    fn clocked(
+        episode: EpisodeView,
+        (from, to): (f64, f64),
+        simulated: impl Fn(f64) -> f64,
+    ) -> EpisodeView {
+        #[allow(clippy::cast_possible_truncation, reason = "a test's times")]
+        let readings = steady(from, to + 0.01).map(|at| ClockReading {
+            receive_utc_ns: START + (at * 1e9).round() as i64,
+            simulated_ns: (simulated(at) * 1e9).round() as i64,
+        });
+        episode.with_simulated(Some(SimulatedClock::from_readings(readings, 10)))
+    }
+
+    #[test]
+    fn a_simulation_at_half_real_time_keeps_its_streams_rate_in_simulated_seconds() {
+        // 100 messages a simulated second: 50 a real one, at half speed.
+        let times = || (0..500).map(|n| f64::from(n) * 0.02);
+        let slowed = clocked(episode(times()), (0.0, 10.0), |at| at / 2.0);
+        let finding = RATE.run(&slowed).unwrap();
+        assert_eq!(finding.verdict, Verdict::Passed, "{}", finding.message);
+        assert!((finding.values["arm.rate_hz"] - 100.0).abs() < 0.5);
+        // Judged as received, it is half its rate.
+        assert_eq!(verdict(&RATE, &episode(times())).0, Verdict::Failed);
+    }
+
+    #[test]
+    fn a_paused_simulations_silence_is_no_gap_and_no_slowing_down() {
+        // Paused from 3 s to 6 s, its clock holding at 3 s, the arm silent.
+        let times = || steady(0.0, 3.0).chain(steady(6.0, 10.0));
+        let paused = clocked(episode(times()), (0.0, 10.0), |at| {
+            if at < 3.0 {
+                at
+            } else if at < 6.0 {
+                3.0
+            } else {
+                at - 3.0
+            }
+        });
+        for check in [&RATE as &dyn Check, &GAP] {
+            let finding = check.run(&paused).unwrap();
+            assert_eq!(
+                finding.verdict,
+                Verdict::Passed,
+                "{}: {}",
+                check.id(),
+                finding.message
+            );
+        }
+        assert!(GAP.run(&paused).unwrap().values["arm.longest_silence_s"] < 0.1);
+    }
+
+    #[test]
+    fn a_silence_after_the_simulations_clock_stopped_is_judged_as_received() {
+        // The clock's last reading at 3 s: nothing says it was paused.
+        let times = || steady(0.0, 3.0).chain(steady(6.0, 10.0));
+        let stopped = clocked(episode(times()), (0.0, 3.0), |at| at);
+        let finding = GAP.run(&stopped).unwrap();
+        assert_eq!(finding.message, "arm silent once, for up to 3.0 s");
     }
 }

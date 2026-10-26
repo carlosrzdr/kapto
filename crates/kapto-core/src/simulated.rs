@@ -233,6 +233,41 @@ impl SimulatedClock {
             })
     }
 
+    /// How much time passed from `from_utc_ns` to `to_utc_ns` as the
+    /// simulation counts it, in nanoseconds: simulated time where its
+    /// readings cover the span, a pause counting none, and receive time
+    /// where they don't (before its first reading, after its last, between
+    /// a reset's two), as nothing says how the simulation ran there. Zero
+    /// if `to_utc_ns` isn't after `from_utc_ns`.
+    #[must_use]
+    pub fn elapsed_ns(&self, from_utc_ns: i64, to_utc_ns: i64) -> i64 {
+        let mut total = 0;
+        let mut at = from_utc_ns;
+        for segment in &self.segments {
+            let (Some(first), Some(last)) = (segment.readings.first(), segment.readings.last())
+            else {
+                continue;
+            };
+            if last.receive_utc_ns <= at {
+                continue;
+            }
+            if first.receive_utc_ns >= to_utc_ns {
+                break;
+            }
+            if first.receive_utc_ns > at {
+                total += first.receive_utc_ns - at;
+                at = first.receive_utc_ns;
+            }
+            let end = last.receive_utc_ns.min(to_utc_ns);
+            total += segment.at(end).unwrap_or(0) - segment.at(at).unwrap_or(0);
+            at = end;
+        }
+        if to_utc_ns > at {
+            total += to_utc_ns - at;
+        }
+        total
+    }
+
     /// How the simulation ran, in sum; `None` without readings.
     #[must_use]
     pub fn summary(&self) -> Option<SimulatedSummary> {
@@ -523,6 +558,25 @@ mod tests {
         assert_eq!(clock.at(T0 + 20 * MS).unwrap().simulated_ns, 10 * MS);
         assert_eq!(clock.at(T0 - 1), None);
         assert_eq!(clock.at(T0 + 20 * MS + 1), None);
+    }
+
+    #[test]
+    fn time_elapsed_is_simulated_where_the_clock_says_and_real_where_it_doesnt() {
+        // Half real time for 1 s, paused (holding) for 1 s, half again for
+        // 1 s; nothing for 1 s before its first reading or after its last.
+        let mut readings = steady(0, 0, 10 * MS, 5 * MS, 101);
+        readings.extend(steady(S + 10 * MS, 500 * MS, 10 * MS, 0, 100));
+        readings.extend(steady(2 * S + 10 * MS, 505 * MS, 10 * MS, 5 * MS, 100));
+        let clock = SimulatedClock::from_readings(readings, PAUSE_SILENCE);
+        assert_eq!(clock.elapsed_ns(T0, T0 + S), 500 * MS);
+        assert_eq!(clock.elapsed_ns(T0 + S, T0 + 2 * S), 0);
+        assert_eq!(clock.elapsed_ns(T0, T0 + 3 * S), S);
+        assert_eq!(clock.elapsed_ns(T0 - S, T0), S);
+        assert_eq!(clock.elapsed_ns(T0 + 3 * S, T0 + 4 * S), S);
+        assert_eq!(clock.elapsed_ns(T0 + S, T0), 0);
+        // Without readings, all of it is real time.
+        let none = SimulatedClock::from_readings([], PAUSE_SILENCE);
+        assert_eq!(none.elapsed_ns(T0, T0 + S), S);
     }
 
     #[test]

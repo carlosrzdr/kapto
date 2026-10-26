@@ -488,4 +488,6 @@ against real time, and each pause and reset, which
 `GET /api/episodes/{id}/simulated` gives. A clock that holds still is
 paused; so is one that falls silent for `pause_silence` times its usual
 wait (`[simulated]` in `qa.toml`, 10 by default) and comes back a tick on.
-Checks and replays timed by it are *(planned)*.
+The checks `streams.rate` and `streams.gap`, and each stream's `rate_hz`
+statistic, are judged in simulated time by it; pre-flight, the loss
+estimated from silences, and replays timed by it are *(planned)*.

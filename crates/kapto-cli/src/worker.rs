@@ -38,7 +38,7 @@ use kapto_qa::autoencoder::AutoencoderAnomalies;
 use kapto_qa::carried::carried;
 use kapto_qa::episode_statistics::Statistics;
 use kapto_qa::roles::read_episode;
-use kapto_qa::simulated::how_it_ran;
+use kapto_qa::simulated::{self, how_it_ran};
 use kapto_qa::{
     Check, CheckKind, EpisodeView, Finding, QaResult, QaRun, checks, episode_statistics, run_checks,
 };
@@ -181,6 +181,9 @@ impl Job for Quality {
             .with_cameras(recorded.cameras)
             .with_timing(recorded.timing)
             .with_events(recorded.events);
+        // Rates and silences are judged in simulated time where it ran one.
+        let clock = simulated::clock(&episode, &settings.simulated);
+        let episode = episode.with_simulated(clock);
         between()?;
         let made = checks::from_settings(&settings);
         let checks: Vec<&dyn Check> = made.iter().map(AsRef::as_ref).collect();
@@ -207,7 +210,7 @@ impl Job for Quality {
         run.results
             .extend(detect(&detectors, &episode, &statistics, folder));
         run.statistics = episode_statistics::to_stored(statistics);
-        run.simulated = how_it_ran(&episode, &settings.simulated);
+        run.simulated = how_it_ran(&episode);
         Ok(Done {
             qa: Some(run),
             ..Done::default()

@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use kapto_core::clock::utc_now_ns;
+use kapto_core::simulated::SimulatedClock;
 use kapto_core::{KaptoError, Role};
 use kapto_store::Episode;
 pub use kapto_store::{CheckKind, QaResult, QaRun, TimeRange, Verdict};
@@ -55,6 +56,7 @@ pub struct EpisodeView {
     cameras: BTreeMap<String, cameras::CameraTimeline>,
     timing: BTreeMap<String, timing::StreamTiming>,
     events: Vec<kapto_store::Event>,
+    simulated: Option<SimulatedClock>,
 }
 
 impl EpisodeView {
@@ -77,6 +79,33 @@ impl EpisodeView {
             cameras: BTreeMap::new(),
             timing: BTreeMap::new(),
             events: Vec::new(),
+            simulated: None,
+        }
+    }
+
+    /// The same, with the clock of the simulation it recorded, if it did
+    /// ([`simulated::clock`]).
+    #[must_use]
+    pub fn with_simulated(mut self, clock: Option<SimulatedClock>) -> Self {
+        self.simulated = clock;
+        self
+    }
+
+    /// The clock of the simulation it recorded, if it did.
+    #[must_use]
+    pub fn simulated(&self) -> Option<&SimulatedClock> {
+        self.simulated.as_ref()
+    }
+
+    /// How many seconds passed from `from_utc_ns` to `to_utc_ns`: in
+    /// simulated time where the episode recorded a simulation's clock
+    /// ([`SimulatedClock::elapsed_ns`]), so rates and silences are judged
+    /// as the simulation ran, a pause no silence; otherwise as received.
+    #[must_use]
+    pub fn elapsed_s(&self, from_utc_ns: i64, to_utc_ns: i64) -> f64 {
+        match &self.simulated {
+            Some(clock) => seconds(clock.elapsed_ns(from_utc_ns, to_utc_ns)),
+            None => seconds(to_utc_ns - from_utc_ns),
         }
     }
 

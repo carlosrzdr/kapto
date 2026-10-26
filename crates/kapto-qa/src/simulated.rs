@@ -10,10 +10,11 @@ use kapto_store::Simulated;
 
 use crate::EpisodeView;
 
-/// How the simulation ran over `episode`, read as `settings` say; `None`
-/// if its package gives no clock the role, or the clock has no messages.
+/// The clock of the simulation `episode` recorded, read from its values of
+/// the role as `settings` say; `None` if its package gives no clock the
+/// role, or the clock has no messages.
 #[must_use]
-pub fn how_it_ran(episode: &EpisodeView, settings: &SimulatedSettings) -> Option<Box<Simulated>> {
+pub fn clock(episode: &EpisodeView, settings: &SimulatedSettings) -> Option<SimulatedClock> {
     let role: Role = ROLE.parse().ok()?;
     let column = episode.role(&role)?;
     let readings = column
@@ -25,7 +26,16 @@ pub fn how_it_ran(episode: &EpisodeView, settings: &SimulatedSettings) -> Option
             receive_utc_ns,
             simulated_ns: nanoseconds(seconds),
         });
-    SimulatedClock::from_readings(readings, settings.pause_silence)
+    let clock = SimulatedClock::from_readings(readings, settings.pause_silence);
+    (!clock.segments().is_empty()).then_some(clock)
+}
+
+/// How the simulation `episode` recorded ran, from its clock
+/// ([`EpisodeView::with_simulated`]); `None` if it recorded none.
+#[must_use]
+pub fn how_it_ran(episode: &EpisodeView) -> Option<Box<Simulated>> {
+    episode
+        .simulated()?
         .summary()
         .map(|summary| Box::new(Simulated::from(summary)))
 }
@@ -52,6 +62,11 @@ mod tests {
         EpisodeView::new(std::path::Path::new("."), summary).with_roles(roles)
     }
 
+    fn with_clock(episode: EpisodeView) -> EpisodeView {
+        let clock = clock(&episode, &SimulatedSettings::default());
+        episode.with_simulated(clock)
+    }
+
     #[test]
     fn a_clock_at_half_real_time_and_reset_is_summed_from_its_role() {
         // Ten readings a second for 2 s at half speed, then reset to zero.
@@ -73,7 +88,7 @@ mod tests {
                 values,
             },
         )]);
-        let ran = how_it_ran(&episode(roles), &SimulatedSettings::default()).unwrap();
+        let ran = how_it_ran(&with_clock(episode(roles))).unwrap();
         assert_eq!(ran.simulated_ns, 1_500_000_000);
         assert_eq!(ran.resets.len(), 1);
         assert_eq!(ran.pauses, []);
@@ -82,8 +97,7 @@ mod tests {
 
     #[test]
     fn an_episode_without_the_role_or_without_its_messages_ran_no_simulation() {
-        let settings = SimulatedSettings::default();
-        assert_eq!(how_it_ran(&episode(BTreeMap::new()), &settings), None);
+        assert_eq!(how_it_ran(&with_clock(episode(BTreeMap::new()))), None);
         let empty = BTreeMap::from([(
             ROLE.parse().unwrap(),
             RoleColumn {
@@ -92,6 +106,7 @@ mod tests {
                 values: Vec::new(),
             },
         )]);
-        assert_eq!(how_it_ran(&episode(empty), &settings), None);
+        let empty = with_clock(episode(empty));
+        assert_eq!((empty.simulated(), how_it_ran(&empty)), (None, None));
     }
 }
