@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! `cargo xtask profile page`: what the live view costs the page under a
-//! scenario's load. `kapto serve` runs with the sample arm and the load;
+//! scenario's load. `kapto serve` runs with the sample arm and the load,
+//! the arm a package of its own with the scenario's layout if it has one;
 //! Chromium draws the page with the graphics card in the Playwright image,
 //! and `ui/e2e/page-profile.spec.ts` counts the pictures drawn, each frame's
 //! delay to the screen, the page's memory and its main thread's busy time,
@@ -13,6 +14,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, ValueEnum};
+use kapto_config::{Column, FieldReference, Layout, Panel, PanelKind, PlotField, RobotView};
 use serde::{Deserialize, Serialize};
 
 use super::super::browser::watch;
@@ -41,6 +43,10 @@ pub(crate) struct PageArgs {
     /// viewer bridge encodes them before the page gets them.
     #[arg(long)]
     raw_cameras: bool,
+    /// How many views of the robot `--scenario robot-views` shows, so one
+    /// and four can be compared under the same load; four if not given.
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=4))]
+    robot_views: Option<u8>,
 }
 
 impl PageArgs {
@@ -52,14 +58,85 @@ impl PageArgs {
         spec
     }
 
-    /// The load's name, raw cameras' apart from JPEG ones'.
+    /// The load's name, raw cameras' apart from JPEG ones', and each count
+    /// of views of the robot apart.
     fn name(&self) -> String {
-        let name = self.scenario.name();
-        if self.raw_cameras {
-            format!("raw-{name}")
-        } else {
-            name.to_owned()
+        let mut name = self.scenario.name().to_owned();
+        if let Some(views) = self.views() {
+            name = format!("{name}-{views}");
         }
+        if self.raw_cameras {
+            name = format!("raw-{name}");
+        }
+        name
+    }
+
+    /// How many views of the robot the scenario arranges the page with, if
+    /// it arranges it.
+    fn views(&self) -> Option<usize> {
+        (self.scenario == PageScenario::RobotViews)
+            .then(|| self.robot_views.map_or(ROBOT_VIEWS.len(), usize::from))
+    }
+
+    /// The layout the page is arranged by, if the scenario has its own.
+    fn layout(&self) -> Result<Option<Layout>, String> {
+        match (self.views(), self.robot_views) {
+            (None, Some(_)) => Err("--robot-views goes with --scenario robot-views".to_owned()),
+            (views, _) => Ok(views.map(|views| robot_views_layout(views, &self.spec(0)))),
+        }
+    }
+}
+
+/// The views of the robot the `robot-views` scenario's panels take: the
+/// one a single panel shows first, each further one from another side.
+const ROBOT_VIEWS: [RobotView; 4] = [
+    RobotView::Framed,
+    RobotView::Front,
+    RobotView::Side,
+    RobotView::Top,
+];
+
+/// The first `views` of the robot stacked on the left, as wide as the
+/// layout made for the load has its one, and beside them a plot of each
+/// stream's fields, as that layout has: only the views differ from one
+/// count to another.
+fn robot_views_layout(views: usize, spec: &Spec) -> Layout {
+    let panel = |kind| Panel {
+        kind,
+        height: 1,
+        title: None,
+    };
+    let field = |stream: u16, field: &str| {
+        PlotField::Field(FieldReference {
+            stream: format!("joints_{stream}"),
+            field: field.to_owned(),
+            index: None,
+        })
+    };
+    let robots = ROBOT_VIEWS
+        .iter()
+        .take(views)
+        .map(|&view| panel(PanelKind::Robot { view }))
+        .collect();
+    let plots = (0..spec.streams)
+        .map(|stream| {
+            panel(PanelKind::Plot {
+                fields: vec![field(stream, "joint_positions"), field(stream, "gripper")],
+            })
+        })
+        .collect();
+    Layout {
+        name: None,
+        columns: vec![
+            Column {
+                width: 3,
+                panels: robots,
+            },
+            Column {
+                width: 2,
+                panels: plots,
+            },
+        ],
     }
 }
 
@@ -75,12 +152,16 @@ pub(crate) enum PageScenario {
     /// The reference load with five 1080p cameras at 60 fps beside it: the
     /// cameras' path under stress.
     FiveCameras,
+    /// The reference load, the page arranged with views of the robot from
+    /// different sides, four unless `--robot-views` says otherwise: what
+    /// each further view costs.
+    RobotViews,
 }
 
 impl PageScenario {
     fn spec(self, seconds: u32) -> Spec {
         let cameras = match self {
-            Self::Reference => 0,
+            Self::Reference | Self::RobotViews => 0,
             Self::Cameras | Self::Large => 2,
             Self::FiveCameras => 5,
         };
@@ -109,6 +190,7 @@ impl PageScenario {
             Self::Cameras => "cameras",
             Self::Large => "large",
             Self::FiveCameras => "five-cameras",
+            Self::RobotViews => "robot-views",
         }
     }
 }
@@ -273,6 +355,7 @@ pub(super) fn profiled_page(
     let budget = std::fs::read_to_string(root.join("perf-budget.toml"))
         .map_err(|error| format!("can't read perf-budget.toml: {error}"))
         .and_then(|text| read_budget(&text))?;
+    let layout = args.layout()?.map(|layout| layout.to_toml());
     let work = work_dir(root, &format!("page-{}", args.name()));
     let spec = args.spec(args.minutes * 60 + 180);
     let environment = [
@@ -286,6 +369,7 @@ pub(super) fn profiled_page(
         &work,
         &environment,
         true,
+        layout.as_deref(),
     )?;
     let read = |name: &str| {
         std::fs::read_to_string(work.join(name))
@@ -513,6 +597,7 @@ mod tests {
             minutes: 3,
             profile_seconds: 10,
             raw_cameras: false,
+            robot_views: None,
         };
         let (report, checks) = markdown(args, &watched, &profile, &budget);
         assert!(checks.iter().all(|check| check.within), "{report}");
@@ -533,6 +618,76 @@ mod tests {
             .map(|check| check.measure.as_str())
             .collect();
         assert_eq!(over, ["Pictures drawn a second, the fewest in 10 s"]);
+    }
+
+    fn robot_views(scenario: PageScenario, robot_views: Option<u8>) -> PageArgs {
+        PageArgs {
+            scenario,
+            minutes: 3,
+            profile_seconds: 10,
+            raw_cameras: false,
+            robot_views,
+        }
+    }
+
+    #[test]
+    fn the_robot_views_scenario_shows_as_many_views_as_asked_each_from_another_side() {
+        let robots = |args: PageArgs| -> Vec<RobotView> {
+            let layout = args.layout().unwrap().unwrap();
+            let panels = layout.columns.iter().flat_map(|column| &column.panels);
+            panels
+                .filter_map(|panel| match panel.kind {
+                    PanelKind::Robot { view } => Some(view),
+                    _ => None,
+                })
+                .collect()
+        };
+        let four = robot_views(PageScenario::RobotViews, None);
+        assert_eq!(robots(four), ROBOT_VIEWS);
+        assert_eq!(four.name(), "robot-views-4");
+        let one = robot_views(PageScenario::RobotViews, Some(1));
+        assert_eq!(robots(one), [RobotView::Framed]);
+        assert_eq!(one.name(), "robot-views-1");
+        // Only the views differ between counts, so the load is the same.
+        let others = |args: PageArgs| args.layout().unwrap().unwrap().columns[1].clone();
+        assert_eq!(others(one), others(four));
+        assert_eq!(others(one).panels.len(), 16);
+        assert_eq!(ROBOT_VIEWS.len(), kapto_config::MAX_ROBOT_VIEWS);
+        let reference = robot_views(PageScenario::Reference, None);
+        assert_eq!(reference.layout(), Ok(None));
+        assert_eq!(reference.name(), "reference");
+        assert!(
+            robot_views(PageScenario::Reference, Some(2))
+                .layout()
+                .unwrap_err()
+                .contains("--scenario robot-views")
+        );
+    }
+
+    #[test]
+    fn serve_finds_the_package_written_around_the_load_and_its_layout() {
+        let folder =
+            std::env::temp_dir().join(format!("kapto-page-profile-package-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let args = robot_views(PageScenario::RobotViews, None);
+        let streams = super::super::super::write_streams(&folder, 9000, &args.spec(60)).unwrap();
+        std::fs::write(
+            folder.join("mapping.toml"),
+            super::super::super::viewer::mapping_of_first_stream(),
+        )
+        .unwrap();
+        let layout = args.layout().unwrap().unwrap();
+        super::super::super::browser::write_package(
+            &crate::repo_root(),
+            &folder,
+            &layout.to_toml(),
+        )
+        .unwrap();
+        let package = kapto_robot::load_package(&folder).unwrap();
+        assert_eq!(package.streams(), streams);
+        assert_eq!(package.own_layout().unwrap(), Some(layout));
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

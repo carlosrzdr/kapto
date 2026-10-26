@@ -208,7 +208,15 @@ fn measure(root: &Path, args: &BrowserArgs) -> Result<BrowserReport, String> {
         decoded: true,
     };
     let environment = [("KAPTO_WATCH_SECONDS", (args.minutes * 60).to_string())];
-    watch(root, &spec, "live-load.spec.ts", &work, &environment, false)?;
+    watch(
+        root,
+        &spec,
+        "live-load.spec.ts",
+        &work,
+        &environment,
+        false,
+        None,
+    )?;
 
     let path = work.join("live-load.json");
     let watched: Watched = std::fs::read_to_string(&path)
@@ -229,7 +237,7 @@ fn measure(root: &Path, args: &BrowserArgs) -> Result<BrowserReport, String> {
 /// the graphics card, `environment` set for it and `work` its results
 /// folder, `/results`. The UI and the release build are made first, the UI
 /// unminified if `readable_names`, so a profile of the page names its
-/// functions.
+/// functions. With a `layout`, the page is arranged by it.
 pub(super) fn watch(
     root: &Path,
     spec: &Spec,
@@ -237,6 +245,7 @@ pub(super) fn watch(
     work: &Path,
     environment: &[(&str, String)],
     readable_names: bool,
+    layout: Option<&str>,
 ) -> Result<(), String> {
     let render_node = Path::new("/dev/dri/renderD128");
     let render_group = std::fs::metadata(render_node)
@@ -259,18 +268,24 @@ pub(super) fn watch(
     build(root, Place::Native)?;
     // Kapto's sockets are in its data folder, which must be short.
     let data = std::env::temp_dir().join(format!("kapto-bench-browser-{}", std::process::id()));
-    for folder in [work, &data.join("config")] {
+    // A package of its own for a layout, apart from what the spec writes
+    // into `work`, which its files would otherwise take in.
+    let files = layout.map_or_else(|| work.to_path_buf(), |_| work.join("package"));
+    for folder in [work, &files, &data.join("config")] {
         std::fs::create_dir_all(folder)
             .map_err(|error| format!("can't create {}: {error}", folder.display()))?;
     }
     let cameras = spec.cameras.map_or(0, |cameras| cameras.count);
     let port = free_ports(spec.streams + cameras)?;
-    let streams = write_streams(work, port, spec)?;
-    let mapping = work.join("mapping.toml");
+    let streams = write_streams(&files, port, spec)?;
+    let mapping = files.join("mapping.toml");
     let config = data.join("config/kapto.toml");
     std::fs::write(&mapping, super::viewer::mapping_of_first_stream())
         .and_then(|()| std::fs::write(&config, ""))
         .map_err(|error| error.to_string())?;
+    if let Some(layout) = layout {
+        write_package(root, &files, layout)?;
+    }
     let binaries = root.join("target/release");
 
     let (mut kapto, url) = start_serve(&binaries, root, &streams, &mapping, &data, &config)?;
@@ -326,6 +341,30 @@ pub(super) fn watch(
     let _ = kapto.wait();
     let _ = std::fs::remove_dir_all(&data);
     watched
+}
+
+/// Makes `folder`, which holds the load's `streams.toml` and
+/// `mapping.toml`, a package of the sample arm whose own layout is
+/// `layout`, as a package author arranges the live view: serve arranges it
+/// by a layout only for a package, which it finds by the `package.toml`
+/// beside the streams it is given.
+pub(super) fn write_package(root: &Path, folder: &Path, layout: &str) -> Result<(), String> {
+    let urdf = folder.join("urdf");
+    std::fs::create_dir_all(&urdf)
+        .and_then(|()| {
+            std::fs::copy(
+                root.join("packages/arm7/urdf/arm7.urdf"),
+                urdf.join("arm7.urdf"),
+            )
+        })
+        .and_then(|_| {
+            std::fs::write(
+                folder.join("package.toml"),
+                "id = \"arm7\"\nversion = \"0.1.0\"\nurdf = \"urdf/arm7.urdf\"\n",
+            )
+        })
+        .and_then(|()| std::fs::write(folder.join("layout.toml"), layout))
+        .map_err(|error| format!("can't write the package in {}: {error}", folder.display()))
 }
 
 /// Starts `kapto serve` with the sample arm and the load's streams, and
