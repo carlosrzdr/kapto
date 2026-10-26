@@ -64,6 +64,7 @@
   import Logo from "./lib/Logo.svelte";
   import PreflightPanel from "./lib/PreflightPanel.svelte";
   import { plain, rate, sentence, time } from "./lib/format";
+  import { ratesOver, type Reading, withReading } from "./lib/stream-rates";
   import ProcessTable from "./lib/ProcessTable.svelte";
   import RecordButton from "./lib/RecordButton.svelte";
   import ReplayBar from "./lib/ReplayBar.svelte";
@@ -336,13 +337,8 @@
     }
   }
 
-  /**
-   * How many status readings each stream's rate is measured over. One
-   * reply arriving late would otherwise make a healthy stream look slow.
-   */
-  const RATE_READINGS = 5;
   /** The latest readings, oldest first. */
-  let readings: { at: number; received: Map<string, number> }[] = [];
+  let readings: Reading[] = [];
 
   const recording = $derived(status?.capture.episode != null);
 
@@ -423,20 +419,8 @@
         at: asked,
         received: new Map(next.capture.streams.map((s) => [s.stream, s.received])),
       };
-      const last = readings.at(-1);
-      // Counts start again from zero when an episode starts or stops, here
-      // or elsewhere: the readings before that measure nothing now.
-      const restarted =
-        last !== undefined &&
-        [...reading.received].some(([stream, count]) => count < (last.received.get(stream) ?? 0));
-      readings = [...(restarted ? [] : readings), reading].slice(-RATE_READINGS);
-      const oldest = readings[0];
-      if (oldest && oldest !== reading) {
-        const seconds = (reading.at - oldest.at) / 1000;
-        rates = Object.fromEntries(
-          next.capture.streams.map((s) => [s.stream, rate(oldest.received.get(s.stream) ?? 0, s.received, seconds)]),
-        );
-      }
+      readings = withReading(readings, reading);
+      rates = ratesOver(readings, next.capture.streams.map((s) => s.stream)) ?? rates;
       // An episode that ended is listed even if its announcement was missed,
       // the event stream reconnecting meanwhile: the status says it ended.
       const ended = status?.capture.episode;
@@ -663,8 +647,9 @@
     refused = null;
     try {
       await order();
-      // A new phase starts counting from zero.
-      readings = [];
+      // A new phase counts from zero, which the next reading shows: the
+      // readings are started again there, not here, where one asked for
+      // before the order may still be on its way.
       await refresh();
       await refreshEpisodes();
     } catch (error) {
