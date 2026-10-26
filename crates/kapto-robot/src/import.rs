@@ -19,7 +19,8 @@ use std::path::{Component, Path, PathBuf};
 
 use kapto_config::PACKAGE_FILE;
 use kapto_core::name::is_name;
-use kapto_core::{ErrorCode, KaptoError};
+use kapto_core::{ErrorCode, KaptoError, hex};
+use sha2::{Digest, Sha256};
 
 use crate::model::{JointKind, RobotModel};
 
@@ -162,6 +163,156 @@ pub fn import_package(
         copied,
         left_out,
     })
+}
+
+/// The stream a package made to receive joint states declares.
+const JOINT_STATES: &str = "joint_states";
+
+/// The ROS 2 message types a joint state is made of, as the sample ROS 2
+/// package carries them (from ROS 2 Jazzy, Apache-2.0): carried in a
+/// package made to receive joint states too, so it loads where ROS 2
+/// isn't installed. Where it is, the installation's are used.
+const JOINT_STATE_TYPES: [(&str, &str); 3] = [
+    (
+        "msg/sensor_msgs/msg/JointState.msg",
+        include_str!("../../../packages/arm7_ros2/msg/sensor_msgs/msg/JointState.msg"),
+    ),
+    (
+        "msg/std_msgs/msg/Header.msg",
+        include_str!("../../../packages/arm7_ros2/msg/std_msgs/msg/Header.msg"),
+    ),
+    (
+        "msg/builtin_interfaces/msg/Time.msg",
+        include_str!("../../../packages/arm7_ros2/msg/builtin_interfaces/msg/Time.msg"),
+    ),
+];
+
+/// Makes the package [`import_package`] made receive the robot's ROS 2
+/// joint states, as ROS 2 robots publish them: one stream on
+/// `/joint_states`, each moving joint driven by the position of the same
+/// name, declared at `rate_hz`. Its `streams.toml` and `mapping.toml` are
+/// written again, and the
+/// message types a joint state is made of put in its `msg/`.
+///
+/// # Errors
+///
+/// The URDF's own errors if it can't be read again, and
+/// `package.unreadable` if a file can't be written.
+pub fn receive_joint_states(imported: &Imported, rate_hz: u32) -> Result<(), Vec<KaptoError>> {
+    let model = load_urdf(&imported.folder.join(&imported.urdf), &[])?;
+    let mut streams = format!(
+        "# What the robot sends: its joint states, as ROS 2 robots publish\n\
+         # them, each moving joint of {} found by its name.\n\
+         [streams.{JOINT_STATES}]\n\
+         rate_hz = {rate_hz}\n\
+         ros2 = {{ topic = \"/joint_states\", type = \"sensor_msgs/msg/JointState\" }}\n\n\
+         [streams.{JOINT_STATES}.decoder]\nkind = \"cdr\"\n",
+        slashed(&imported.urdf)
+    );
+    let mut mapping = String::from("[joints]\n");
+    let mut taken: Vec<String> = Vec::new();
+    for joint in &imported.joints {
+        let unit = match model
+            .joints
+            .iter()
+            .find(|each| &each.name == joint)
+            .map(|each| each.kind)
+        {
+            Some(JointKind::Prismatic) => "m",
+            _ => "rad",
+        };
+        let field = field_name(joint, &taken);
+        let _ = write!(
+            streams,
+            "\n[[streams.{JOINT_STATES}.decoder.fields]]\nname = \"{field}\"\ntype = \"f64\"\npath = {}\nunit = \"{unit}\"\n",
+            quoted(&format!("position[name={joint}]"))
+        );
+        let _ = writeln!(mapping, "{} = \"{JOINT_STATES}.{field}\"", quoted(joint));
+        taken.push(field);
+    }
+    let written = [
+        ("streams.toml", streams.as_str()),
+        ("mapping.toml", mapping.as_str()),
+    ];
+    for (file, text) in written.into_iter().chain(JOINT_STATE_TYPES) {
+        let path = imported.folder.join(file);
+        let write = path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&path, text));
+        write.map_err(|error| {
+            vec![
+                KaptoError::new(ErrorCode::PackageUnreadable)
+                    .detail(format!("can't write {}: {error}", path.display())),
+            ]
+        })?;
+    }
+    Ok(())
+}
+
+/// `text` as a name: lowercase, anything but letters, digits and `_` as
+/// `_`, starting with a letter; `fallback` if nothing is left.
+fn as_name(text: &str, fallback: &str) -> String {
+    let lowered: String = text
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    match lowered.trim_matches('_') {
+        "" => fallback.to_owned(),
+        name if name.starts_with(|c: char| c.is_ascii_lowercase()) => name.to_owned(),
+        name => format!("{fallback}_{name}"),
+    }
+}
+
+/// A field name for `joint`, none of `taken`.
+fn field_name(joint: &str, taken: &[String]) -> String {
+    let base = as_name(joint, "joint");
+    let mut name = base.clone();
+    let mut number = 2;
+    while taken.contains(&name) {
+        name = format!("{base}_{number}");
+        number += 1;
+    }
+    name
+}
+
+/// A package ID for the robot named `name` in its URDF, e.g. `my_arm` for
+/// `My-Arm`.
+#[must_use]
+pub fn package_id(name: &str) -> String {
+    as_name(name, "robot")
+}
+
+/// What a package made from the URDF at `urdf` is made from, as one hash:
+/// SHA-256 over the URDF and every file it names that is found through
+/// `search_paths`, each with what names it, so a changed mesh or a mesh
+/// found elsewhere changes it.
+///
+/// # Errors
+///
+/// The URDF's own errors if it can't be read.
+pub fn source_hash(urdf: &Path, search_paths: &[PathBuf]) -> Result<String, Vec<KaptoError>> {
+    let model = load_urdf(urdf, search_paths)?;
+    let mut hasher = Sha256::new();
+    let read = |path: &Path| std::fs::read(path).unwrap_or_default();
+    hasher.update(read(urdf));
+    let mut files: Vec<(&str, Option<&PathBuf>)> = model
+        .files()
+        .map(|(_, resource)| (resource.uri.as_str(), resource.path.as_ref()))
+        .collect();
+    files.sort_unstable();
+    files.dedup();
+    for (uri, found) in files {
+        hasher.update(uri.as_bytes());
+        hasher.update(found.map(|path| read(path)).unwrap_or_default());
+    }
+    Ok(hex(&hasher.finalize()))
 }
 
 /// Where the URDF and each file it names go in the package, read from

@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use kapto_core::ErrorCode;
-use kapto_robot::{import_package, load_package, load_urdf};
+use kapto_robot::{
+    import_package, load_package, load_urdf, package_id, receive_joint_states, source_hash,
+};
 use kapto_testkit::TempDir;
 
 /// A vendor's repository: a URDF in `urdf/` naming a mesh of its own
@@ -163,4 +165,87 @@ fn an_import_never_writes_over_a_folder_and_needs_an_id_kapto_accepts() {
     .unwrap_err();
     assert_eq!(error[0].code(), ErrorCode::ConfigInvalidValue);
     assert!(!packages.join("Arm 2").exists());
+}
+
+/// A robot of every kind of joint, named as URDFs name them.
+const JOINTS: &str = r#"<robot name="Test-Arm">
+  <link name="base"/><link name="upper"/><link name="slider"/><link name="tip"/><link name="twin"/>
+  <joint name="Shoulder-Pan" type="revolute"><parent link="base"/><child link="upper"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/></joint>
+  <joint name="slide" type="prismatic"><parent link="upper"/><child link="slider"/>
+    <limit lower="0" upper="0.2" effort="1" velocity="1"/></joint>
+  <joint name="tool" type="fixed"><parent link="slider"/><child link="tip"/></joint>
+  <joint name="slide_twin" type="prismatic"><parent link="slider"/><child link="twin"/>
+    <mimic joint="slide"/><limit lower="0" upper="0.2" effort="1" velocity="1"/></joint>
+</robot>"#;
+
+#[test]
+fn a_package_made_to_receive_joint_states_finds_each_moving_joint_by_its_name() {
+    let dir = TempDir::new("joint-states");
+    let urdf = dir.write("robot/robot.urdf", JOINTS.as_bytes());
+    let imported = import_package(
+        &urdf,
+        &BTreeMap::new(),
+        &[],
+        &dir.0.join("test_arm"),
+        "test_arm",
+        None,
+    )
+    .unwrap();
+    receive_joint_states(&imported, 250).unwrap();
+
+    let package = load_package(&imported.folder).unwrap();
+    let streams = kapto_config::parse_streams(&kapto_config::ConfigFile {
+        path: package.streams(),
+        contents: std::fs::read_to_string(package.streams()).unwrap(),
+    })
+    .unwrap();
+    assert_eq!(streams.len(), 1);
+    assert_eq!(streams[0].rate_hz, Some(250));
+    let ros2 = streams[0].ros2.as_ref().unwrap();
+    assert_eq!(
+        (ros2.topic.as_str(), ros2.message_type.as_str()),
+        ("/joint_states", "sensor_msgs/msg/JointState")
+    );
+    // Each moving joint by its own name; the fixed one and the one that
+    // follows another have nothing to read.
+    let text = std::fs::read_to_string(package.streams()).unwrap();
+    assert!(text.contains("name = \"shoulder_pan\"\ntype = \"f64\"\npath = \"position[name=Shoulder-Pan]\"\nunit = \"rad\""), "{text}");
+    assert!(
+        text.contains(
+            "name = \"slide\"\ntype = \"f64\"\npath = \"position[name=slide]\"\nunit = \"m\""
+        ),
+        "{text}"
+    );
+    assert!(
+        !text.contains("tool") && !text.contains("slide_twin"),
+        "{text}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(package.mapping()).unwrap(),
+        "[joints]\n\"Shoulder-Pan\" = \"joint_states.shoulder_pan\"\n\"slide\" = \"joint_states.slide\"\n"
+    );
+}
+
+#[test]
+fn a_robots_name_becomes_a_package_id() {
+    assert_eq!(package_id("Test-Arm"), "test_arm");
+    assert_eq!(package_id("ur_arm"), "ur_arm");
+    assert_eq!(package_id("7dof"), "robot_7dof");
+    assert_eq!(package_id("--"), "robot");
+}
+
+#[test]
+fn what_a_package_is_made_from_changes_its_hash_when_the_urdf_or_a_file_it_names_does() {
+    let dir = TempDir::new("source-hash");
+    let urdf = repository(&dir);
+    let search = [dir.0.join("repo")];
+    let first = source_hash(&urdf, &search).unwrap();
+    assert_eq!(source_hash(&urdf, &search).unwrap(), first);
+    dir.write("repo/arm_description/meshes/base.stl", b"base, remodelled");
+    let mesh_changed = source_hash(&urdf, &search).unwrap();
+    assert_ne!(mesh_changed, first);
+    let text = std::fs::read_to_string(&urdf).unwrap();
+    std::fs::write(&urdf, text.replace("sample_arm", "sample_arm_2")).unwrap();
+    assert_ne!(source_hash(&urdf, &search).unwrap(), mesh_changed);
 }

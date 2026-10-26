@@ -19,7 +19,7 @@ pub mod transform;
 pub mod urdf;
 pub mod xacro;
 
-pub use import::{Imported, import_package};
+pub use import::{Imported, import_package, package_id, receive_joint_states, source_hash};
 pub use kinematics::Kinematics;
 pub use layout::{Declared, DeclaredStream, Missing, made_layout, missing};
 pub use lint::{Finding, LintReport, RULES, Rule, Severity, lint};
