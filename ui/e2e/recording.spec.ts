@@ -1263,7 +1263,14 @@ test("the operator arranges the view by dragging its panels and the edges betwee
   // column wider than the plot's, the same whole shares kept.
   const edge = panels.getByRole("separator", { name: "Between columns 2 and 3" });
   const at = middle(await edge.boundingBox());
-  await drag(at, { x: at.x + 200, y: at.y });
+  // The shares it gives said by the pointer while it is held, gone once let go.
+  const said = page.getByText(/^\d+ : \d+$/);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 200, at.y, { steps: 8 });
+  await expect(said).toHaveText(/^12 : \d+$/);
+  await page.mouse.up();
+  await expect(said).toHaveCount(0);
   await expect.poll(async () => (await kept()).columns.map((column) => column.width)).toEqual([expect.any(Number), 12, expect.any(Number)]);
   const [, wide, narrow] = (await kept()).columns.map((column) => column.width);
   expect(narrow).toBeLessThan(wide!);
@@ -1272,6 +1279,9 @@ test("the operator arranges the view by dragging its panels and the edges betwee
   await page.keyboard.press("ArrowLeft");
   await expect.poll(async () => (await kept()).columns[1]!.width).toBe(11);
   await expect(edge).toHaveAttribute("aria-valuenow", "11");
+  // Said for a moment after the key, then gone.
+  await expect(said).toHaveText(/^11 : \d+$/);
+  await expect(said).toHaveCount(0, { timeout: 5_000 });
 
   // A grip moved by the arrow keys keeps the focus as its panel goes: the
   // plot to the robot's column, under it, then removed from the view.

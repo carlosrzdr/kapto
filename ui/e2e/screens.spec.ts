@@ -1,4 +1,4 @@
-import { expect, test, type Route } from "@playwright/test";
+import { expect, type Locator, test, type Route } from "@playwright/test";
 
 import { open, shot, shotWhole, tab, viewer, VIEWPORT } from "./screens";
 import { choose, pick } from "./controls";
@@ -586,6 +586,70 @@ test("a screenshot of a column of more plots than fit, two of them resized by th
   await page.mouse.up();
   await page.waitForTimeout(500);
   await shot(page, "live-arrange-scrolling-column-resized");
+  // Held while dragging in the column that scrolls: its shares along it.
+  const separator = column.getByRole("separator").nth(3);
+  await separator.scrollIntoViewIfNeeded();
+  const held = (await separator.boundingBox())!;
+  await page.mouse.move(held.x + held.width / 2, held.y + held.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(held.x + held.width / 2, held.y + held.height / 2 - 150, { steps: 8 });
+  await shot(page, "live-arrange-scrolling-edge-dragging");
+  await page.mouse.up();
+  await forgetLayouts(page);
+  nothingLeft();
+});
+
+test("a screenshot of the shares an edge gives while dragged, and of where a panel carried would land", async ({ page }) => {
+  test.setTimeout(180_000);
+  const nothingLeft = await open(page);
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  // Each from the same view: the robot's column, and the plot over the marks beside it.
+  const laidOut = async () => {
+    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+    const plot = panel("plot", { fields: ["role:gripper.opening"] });
+    // Afresh each time: a drag before saved its own shares over it.
+    await forgetLayouts(page);
+    await showLayout(page, "Two columns", [
+      { width: 1, panels: [panel("robot")] },
+      { width: 1, panels: [plot, panel("events")] },
+    ]);
+    await page.getByRole("button", { name: "Arrange" }).click();
+    await viewer(page, false);
+  };
+  const middle = (box: { x: number; y: number; width: number; height: number } | null) => ({
+    x: (box?.x ?? 0) + (box?.width ?? 0) / 2,
+    y: (box?.y ?? 0) + (box?.height ?? 0) / 2,
+  });
+  /** `from` held and moved to where `to` says, shown while it is still held. */
+  const holding = async (from: Locator, to: (at: { x: number; y: number }) => Promise<{ x: number; y: number }>, name: string) => {
+    await laidOut();
+    const at = middle(await from.boundingBox());
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    const there = await to(at);
+    await page.mouse.move(there.x, there.y, { steps: 8 });
+    await page.waitForTimeout(300);
+    await shot(page, name);
+    await page.mouse.up();
+  };
+  const robot = async () => (await panels.locator(".panel").first().boundingBox())!;
+
+  const columns = panels.getByRole("separator", { name: "Between columns 1 and 2" });
+  await holding(columns, async (at) => ({ x: at.x + 90, y: at.y + 60 }), "live-arrange-edge-dragging");
+  const rows = panels.getByRole("separator", { name: /^Between the plot/ });
+  await holding(rows, async (at) => ({ x: at.x - 40, y: at.y - 250 }), "live-arrange-panel-edge-dragging");
+  const grip = panels.getByRole("button", { name: "Drag the events panel to another place" });
+  const into = async (across: number, down: number) => {
+    const box = await robot();
+    return { x: box.x + box.width * across, y: box.y + box.height * down };
+  };
+  await holding(grip, () => into(0.5, 0.9), "live-arrange-carrying");
+  await holding(grip, () => into(0.02, 0.5), "live-arrange-carrying-new-column");
+
+  // At a tablet's width, the columns one under another: the same, turned.
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await holding(columns, async (at) => ({ x: at.x + 80, y: at.y - 90 }), "tablet-live-arrange-edge-dragging");
   await forgetLayouts(page);
   nothingLeft();
 });

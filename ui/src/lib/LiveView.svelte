@@ -36,7 +36,7 @@
     type Placed,
     recolor,
   } from "./viewer/environment";
-  import { type ColumnBoxes, dragged, dropPlace } from "./viewer/dragging";
+  import { type Box, type ColumnBoxes, dragged, dropPlace, landing, shareTicks, sharesSaid, type Span } from "./viewer/dragging";
   import {
     apportioned,
     editable,
@@ -568,6 +568,7 @@
       edge,
     };
     sharing = { column, shares: sharesOf(sharingFrom.sizes) };
+    tell({ column, edge, x: event.clientX, y: event.clientY });
   }
 
   /**
@@ -584,12 +585,21 @@
     const across = (sharing.column === null) !== stacked();
     const by = (across ? event.clientX : event.clientY) - sharingFrom.at;
     sharing = { ...sharing, shares: sharesOf(dragged(sharingFrom.sizes, sharingFrom.edge, by)) };
+    tell({ column: sharing.column, edge: sharingFrom.edge, x: event.clientX, y: event.clientY });
+  }
+
+  /** The edge let go of without setting what it gave. */
+  function cancelled() {
+    sharing = null;
+    sharingFrom = null;
+    tell(null);
   }
 
   function release() {
     const was = sharing;
     sharing = null;
     sharingFrom = null;
+    tell(null);
     if (was) {
       arrange(was.column === null ? withWidths(editing(), was.shares) : withHeights(editing(), was.column, was.shares));
     }
@@ -608,7 +618,82 @@
     if (next !== null) {
       arrange(column === null ? withWidths(layout, next) : withHeights(layout, column, next));
     }
+    // Said by the edge for a moment, as there is no pointer to say it by.
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    tell({ column, edge, x: box.left + box.width / 2, y: box.top + box.height / 2 }, NUDGE_TOLD_MS);
   }
+
+  /**
+   * The edge whose shares are shown, and the point they are said by: the
+   * pointer while it is dragged, the edge's middle after a key moved it.
+   */
+  let told = $state<{ column: number | null; edge: number; x: number; y: number } | null>(null);
+  let toldUntil: ReturnType<typeof setTimeout> | undefined;
+  /** How long the shares a key gave stay said. */
+  const NUDGE_TOLD_MS = 1500;
+  function tell(next: typeof told, forMs?: number) {
+    clearTimeout(toldUntil);
+    told = next;
+    if (forMs !== undefined) {
+      toldUntil = setTimeout(() => (told = null), forMs);
+    }
+  }
+  $effect(() => () => clearTimeout(toldUntil));
+
+  /**
+   * The ruler along the two either side of the edge told, across the
+   * pointer (`at`), a tick per share; measured once the page shows the
+   * shares it gives, so in a column that scrolls only its part shown.
+   */
+  let ruler = $state<{ across: boolean; span: Span; at: number; ticks: number[]; said: string } | null>(null);
+  $effect(() => {
+    const at = told;
+    const of = at?.column ?? null;
+    const shown =
+      of === null
+        ? columns.map((each, place) => widthOf(place, each.width))
+        : (columns[of]?.panels.map((each, place) => heightOf(of, place, each.height)) ?? []);
+    const column = of === null ? null : columnBoxes()[of];
+    const room = (column ?? grid)?.getBoundingClientRect();
+    const boxes = (at?.column === null ? columnBoxes() : column ? panelBoxes(column) : []).map((each) => each.getBoundingClientRect());
+    const before = at ? boxes[at.edge] : undefined;
+    const after = at ? boxes[at.edge + 1] : undefined;
+    if (!at || !room || !before || !after) {
+      ruler = null;
+      return;
+    }
+    // Columns run across the page, panels down a column; turned on a narrow page.
+    const across = (at.column === null) !== stacked();
+    const along = (box: DOMRect): Span => (across ? [box.left, box.right] : [box.top, box.bottom]);
+    const within = along(room);
+    const [low, high] = across ? [room.top, room.bottom] : [room.left, room.right];
+    ruler = {
+      across,
+      span: [Math.max(along(before)[0], within[0]), Math.min(along(after)[1], within[1])],
+      at: Math.min(Math.max(across ? at.y : at.x, low + 12), high - 12),
+      ticks: shareTicks(along(before), along(after), [shown[at.edge] ?? 1, shown[at.edge + 1] ?? 1], within),
+      said: sharesSaid(shown, at.edge),
+    };
+  });
+  /** The shares said, by the point told, kept on the page; placed from here, as the page allows no style written into it. */
+  let saidBox = $state<HTMLElement | null>(null);
+  $effect(() => {
+    if (!saidBox || !told || !ruler) {
+      return;
+    }
+    const x = Math.min(told.x + 14, innerWidth - saidBox.offsetWidth - 4);
+    const y = Math.max(told.y - saidBox.offsetHeight - 14, 4);
+    saidBox.style.translate = `${x}px ${y}px`;
+  });
+
+  /** Where the panel carried would land if dropped now, as large as it is. */
+  let landed = $state<Box | null>(null);
+  $effect(() => {
+    const was = carried;
+    const column = was?.to ? columnBoxes()[was.column] : undefined;
+    const own = column ? panelBoxes(column)[was!.at]?.getBoundingClientRect() : undefined;
+    landed = was?.to && own ? landing(measured(), was.to, own, stacked()) : null;
+  });
 
   /** A column's width share as shown: the one being dragged to, while it is. */
   const widthOf = (place: number, width: number) => (sharing?.column === null ? (sharing.shares[place] ?? width) : width);
@@ -1405,7 +1490,7 @@
         onpointerdown={(event) => grab(event, null, place - 1)}
         onpointermove={pull}
         onpointerup={release}
-        onpointercancel={() => (sharing = null)}
+        onpointercancel={cancelled}
         onkeydown={(event) => nudge(event, null, place - 1)}
       ></div>
     {/if}
@@ -1426,7 +1511,7 @@
             onpointerdown={(event) => grab(event, place, at - 1)}
             onpointermove={pull}
             onpointerup={release}
-            onpointercancel={() => (sharing = null)}
+            onpointercancel={cancelled}
             onkeydown={(event) => nudge(event, place, at - 1)}
           ></div>
         {/if}
@@ -1521,6 +1606,32 @@
     </div>
   {/each}
 </div>
+<!-- Over the view while arranging, in the page's own pixels: the steps an edge dragged moves in, and where a panel carried would land. -->
+{#if ruler || landed}
+  <svg class="guides" aria-hidden="true">
+    {#if landed}
+      <rect class="landing" x={landed.left} y={landed.top} width={landed.right - landed.left} height={landed.bottom - landed.top} />
+    {/if}
+    {#if ruler}
+      {@const [from, to] = ruler.span}
+      {#if ruler.across}
+        <line class="ruler" x1={from} x2={to} y1={ruler.at} y2={ruler.at} />
+        {#each ruler.ticks as tick, index (index)}
+          <line class="tick" x1={tick} x2={tick} y1={ruler.at - 6} y2={ruler.at + 6} />
+        {/each}
+      {:else}
+        <line class="ruler" x1={ruler.at} x2={ruler.at} y1={from} y2={to} />
+        {#each ruler.ticks as tick, index (index)}
+          <line class="tick" x1={ruler.at - 6} x2={ruler.at + 6} y1={tick} y2={tick} />
+        {/each}
+      {/if}
+    {/if}
+  </svg>
+{/if}
+{#if ruler}
+  <!-- The separator says the share before it as its value; this is the same, seen. -->
+  <p class="shares-said" aria-hidden="true" bind:this={saidBox}>{ruler.said}</p>
+{/if}
 <Timeline
   {paused}
   {keptMs}
@@ -1735,6 +1846,50 @@
   }
   .columns.drop-last > .column:last-of-type {
     box-shadow: 3px 0 0 var(--accent);
+  }
+  /* Drawn over the view while arranging, never in the pointer's way. */
+  .guides {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .guides .ruler,
+  .guides .tick {
+    stroke: var(--accent);
+    stroke-linecap: round;
+  }
+  .guides .ruler {
+    stroke-width: 1;
+  }
+  .guides .tick {
+    stroke-width: 2;
+  }
+  .guides .landing {
+    fill: color-mix(in srgb, var(--accent) 12%, transparent);
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+    rx: var(--radius);
+  }
+  .shares-said {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 31;
+    margin: 0;
+    padding: 0.1rem 0.45rem;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--text);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    pointer-events: none;
   }
   .arranging.faded {
     opacity: 0.25;
