@@ -9,6 +9,11 @@
 //! but sent on time leaves no silence, however long its delay, whereas by
 //! receive times a delay that grows across a silence reads as messages
 //! missing.
+//!
+//! A simulation's streams send per simulated tick, so with the simulation's
+//! time given for each batch a silence is measured in simulated time: its
+//! periods scaled by the simulated time that passed over the real time it
+//! lasted, none while paused, and in real time across a reset.
 
 use std::time::Duration;
 
@@ -81,6 +86,8 @@ pub struct RateGapDetector {
     open: Option<Settling>,
     /// When the batch before the silence counted last was received.
     counted_since: Option<RecvTime>,
+    /// How old the simulation's time given with a batch may be.
+    simulated_late_ns: u128,
 }
 
 /// A batch of the stream, on the clock it is judged by.
@@ -93,6 +100,8 @@ struct Mark {
     recv_ns: u128,
     /// Whether it is judged by sending times.
     by_sent: bool,
+    /// The simulation's time then, if given.
+    simulated_ns: Option<u64>,
 }
 
 /// A silence whose loss is not counted yet.
@@ -102,6 +111,8 @@ struct Settling {
     from_ns: u128,
     /// When the batch holding that message was received.
     from_recv: RecvTime,
+    /// The simulation's time then, if given.
+    from_simulated: Option<u64>,
     /// Messages received since.
     received: u64,
     /// When it is counted, by the receive clock.
@@ -122,7 +133,15 @@ impl RateGapDetector {
             last: None,
             open: None,
             counted_since: None,
+            simulated_late_ns: 0,
         }
+    }
+
+    /// Allows for the simulation's time given with each batch being up to
+    /// `lateness` old, as the live view reads it between sends: as much
+    /// simulated time as that covers is never counted.
+    pub fn allow_simulated_lateness(&mut self, lateness: Duration) {
+        self.simulated_late_ns = lateness.as_nanos();
     }
 
     /// When the batch before the silence counted last was received: the
@@ -153,6 +172,19 @@ impl RateGapDetector {
     /// time that jumps (the source's clock set) is never taken for loss:
     /// the stream is followed afresh from there.
     pub fn observe_sent(&mut self, time: RecvTime, count: u64, sent: Option<Sent>) -> u64 {
+        self.observe_simulated(time, count, sent, None)
+    }
+
+    /// As [`RateGapDetector::observe_sent`], with the simulation's time when
+    /// the batch was received, in nanoseconds, if known: a silence is then
+    /// measured by the simulated time that passed across it.
+    pub fn observe_simulated(
+        &mut self,
+        time: RecvTime,
+        count: u64,
+        sent: Option<Sent>,
+        simulated_ns: Option<u64>,
+    ) -> u64 {
         let recv = u128::from(time.as_nanos());
         let (first, last, by_sent) = match sent {
             Some(sent) => (u128::from(sent.first_ns), u128::from(sent.last_ns), true),
@@ -166,6 +198,7 @@ impl RateGapDetector {
             last_ns: last,
             recv_ns: recv,
             by_sent,
+            simulated_ns,
         };
         let Some(previous) = self.last.replace(mark) else {
             return 0;
@@ -193,14 +226,16 @@ impl RateGapDetector {
             } else {
                 last
             };
-            return self.settle_at(end);
+            return self.settle_at(end, mark);
         }
-        if gap >= self.min_gap_ns {
+        let pace = pace(previous.recv_ns, previous.simulated_ns, mark);
+        if scaled(gap, pace) >= self.min_gap_ns {
             self.open = Some(Settling {
                 from_ns: previous.last_ns,
                 from_recv: RecvTime::from_nanos(
                     u64::try_from(previous.recv_ns).unwrap_or(u64::MAX),
                 ),
+                from_simulated: previous.simulated_ns,
                 received: count,
                 until_ns: recv + self.settle_ns,
             });
@@ -221,29 +256,56 @@ impl RateGapDetector {
     /// when the episode ends.
     pub fn settle(&mut self) -> u64 {
         match self.last {
-            Some(last) if self.open.is_some() => self.settle_at(last.last_ns),
+            Some(last) if self.open.is_some() => self.settle_at(last.last_ns, last),
             _ => 0,
         }
     }
 
-    fn settle_at(&mut self, end_ns: u128) -> u64 {
+    /// Counts the silence being settled, as ending at `end_ns` on the clock
+    /// it is judged by, in the batch `end`.
+    fn settle_at(&mut self, end_ns: u128, end: Mark) -> u64 {
         let Some(open) = self.open.take() else {
             return 0;
         };
         self.counted_since = Some(open.from_recv);
-        let expected = (end_ns.saturating_sub(open.from_ns) + self.period_ns / 2) / self.period_ns;
+        let pace = pace(
+            u128::from(open.from_recv.as_nanos()),
+            open.from_simulated,
+            end,
+        );
+        let lasted = scaled(end_ns.saturating_sub(open.from_ns), pace);
+        let expected = (lasted + self.period_ns / 2) / self.period_ns;
+        // The simulation's time read late at the silence's start reads as
+        // that much more of it, at its pace, or real time's if slower.
+        let late = pace.map_or(0, |(simulated, real)| {
+            (self.simulated_late_ns * simulated.max(real) / real).div_ceil(self.period_ns)
+        });
         // By receive times, a message arriving later in its batch than the
         // batch's time reads as periods missing; by sending times, a source
         // waking late and catching up does the same: as much as jitter and
         // a batch's wait cover is never counted.
         let missing = expected.saturating_sub(u128::from(open.received));
-        let lost = if missing > self.unsure_periods {
+        let lost = if missing > self.unsure_periods + late {
             missing
         } else {
             0
         };
         u64::try_from(lost).unwrap_or(u64::MAX)
     }
+}
+
+/// The simulated time that passed between a batch received at `from_recv`
+/// with the simulation at `from_simulated` and the batch `to`, with the real
+/// time: `None` unless both say, or across a reset, where it went back.
+fn pace(from_recv: u128, from_simulated: Option<u64>, to: Mark) -> Option<(u128, u128)> {
+    let simulated = to.simulated_ns?.checked_sub(from_simulated?)?;
+    let real = to.recv_ns.checked_sub(from_recv).filter(|&real| real > 0)?;
+    Some((u128::from(simulated), real))
+}
+
+/// `ns` of real time in simulated time at `pace`, or as it is without one.
+fn scaled(ns: u128, pace: Option<(u128, u128)>) -> u128 {
+    pace.map_or(ns, |(simulated, real)| ns * simulated / real)
 }
 
 #[cfg(test)]
@@ -511,6 +573,102 @@ mod tests {
         assert_eq!(stamped_at_rate(&mut detector, 110..1_300, 0), 0);
         let lost = stamped_at_rate(&mut detector, 1_310..2_500, 0);
         assert_eq!(lost + detector.settle(), 10);
+    }
+
+    /// A 100 Hz stream of a simulation, one message every `every_ms` of
+    /// real time from `from_ms` to `to_ms`, each batch given the simulated
+    /// time `clock` says then: what it counts lost.
+    fn simulated_at(
+        detector: &mut RateGapDetector,
+        (from_ms, to_ms): (u64, u64),
+        every_ms: usize,
+        clock: impl Fn(u64) -> u64,
+    ) -> u64 {
+        (from_ms..=to_ms)
+            .step_by(every_ms)
+            .map(|ms| detector.observe_simulated(at(ms), 1, None, Some(clock(ms))))
+            .sum()
+    }
+
+    #[test]
+    fn a_simulation_at_a_quarter_of_real_time_sending_at_its_rate_loses_nothing() {
+        let mut detector = RateGapDetector::new(RateGap::for_rate(100));
+        let clock = |ms: u64| ms * MS / 4;
+        let lost = simulated_at(&mut detector, (0, 20_000), 40, clock);
+        assert_eq!(lost + detector.settle(), 0);
+        // In real time, its messages a quarter as often read as lost.
+        let mut by_real = RateGapDetector::new(RateGap::for_rate(100));
+        let lost: u64 = (0..=20_000)
+            .step_by(40)
+            .map(|ms| by_real.observe(at(ms), 1))
+            .sum();
+        assert!(lost + by_real.settle() > 1_000, "{lost}");
+    }
+
+    #[test]
+    fn a_paused_simulation_is_silent_without_losing_anything() {
+        // Running at real time, paused from 2 s to 7 s, then running again.
+        let clock = |ms: u64| match ms {
+            0..2_000 => ms * MS,
+            2_000..7_000 => 2_000 * MS,
+            _ => (ms - 5_000) * MS,
+        };
+        let mut detector = RateGapDetector::new(RateGap::for_rate(100));
+        let before = simulated_at(&mut detector, (0, 1_990), 10, clock);
+        let after = simulated_at(&mut detector, (7_000, 10_000), 10, clock);
+        assert_eq!(before + after + detector.settle(), 0);
+    }
+
+    #[test]
+    fn a_silence_while_the_simulation_runs_is_counted_in_simulated_time() {
+        // At half real time, ten simulated periods missing: 200 ms of real
+        // time with nothing, where 20 periods of real time would say 19.
+        let clock = |ms: u64| ms * MS / 2;
+        let mut detector = RateGapDetector::new(RateGap::for_rate(100));
+        let before = simulated_at(&mut detector, (0, 1_000), 20, clock);
+        let after = simulated_at(&mut detector, (1_200, 3_000), 20, clock);
+        assert_eq!(before + after + detector.settle(), 9);
+    }
+
+    #[test]
+    fn a_silence_across_a_reset_is_counted_in_real_time() {
+        let clock = |ms: u64| {
+            if ms < 1_000 {
+                (1_000 + ms) * MS
+            } else {
+                (ms - 1_000) * MS
+            }
+        };
+        let mut detector = RateGapDetector::new(RateGap::for_rate(100));
+        let before = simulated_at(&mut detector, (0, 900), 10, clock);
+        let after = simulated_at(&mut detector, (1_000, 3_000), 10, clock);
+        assert_eq!(before + after + detector.settle(), 9);
+    }
+
+    #[test]
+    fn the_simulations_time_read_late_is_allowed_for() {
+        // 1 kHz, paused for 5 s, the clock's value read only every 16 ms:
+        // up to 16 ms of running before the pause reads as part of it.
+        let truth = |ms: u64| match ms {
+            0..2_000 => ms,
+            2_000..7_000 => 2_000,
+            _ => ms - 5_000,
+        };
+        let clock = |ms: u64| truth(ms / 16 * 16) * MS;
+        let run = |lateness: Duration| {
+            let mut detector = RateGapDetector::new(RateGap::for_rate(1_000));
+            detector.allow_simulated_lateness(lateness);
+            let mut lost = 0;
+            for ms in (0..1_999).chain(7_000..9_000) {
+                lost += detector.observe_simulated(at(ms), 1, None, Some(clock(ms)));
+            }
+            lost + detector.settle()
+        };
+        assert_eq!(run(Duration::from_millis(16)), 0);
+        assert!(
+            run(Duration::ZERO) > 0,
+            "read late, the pause would look like loss"
+        );
     }
 
     proptest::proptest! {

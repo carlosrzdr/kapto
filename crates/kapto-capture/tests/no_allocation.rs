@@ -209,6 +209,45 @@ fn counting_received_and_lost_messages_never_allocates() {
 }
 
 #[test]
+fn judging_silences_in_a_simulations_time_never_allocates() {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use kapto_capture::loss::RateGap;
+    use kapto_capture::{Accounting, Batch, LossCounters, LossDetection, SimulatedNow};
+    use kapto_core::RecvTime;
+
+    let counters = Arc::new(LossCounters::new(1));
+    let rate = LossDetection::RateGap(RateGap::for_rate(1_000));
+    let mut accounting = Accounting::new(Arc::clone(&counters), &[(0, rate)]);
+    let now = Arc::new(SimulatedNow::new());
+    accounting.follow_simulated(Arc::clone(&now), Duration::from_millis(16));
+    let mut batch = Batch::new(16, 8);
+    // At half real time, 16 messages a batch every 32 ms, every hundredth
+    // batch and the two after it missing, so silences open and settle.
+    let fill = |batch: &mut Batch, round: u64| {
+        batch.clear();
+        for _ in 0..16 {
+            batch.push(0, &[0; 8]);
+        }
+        let ms = round * 32;
+        batch.set_recv_time(RecvTime::from_nanos(ms * 1_000_000));
+        now.set(i64::try_from(ms * 500_000).unwrap());
+    };
+
+    fill(&mut batch, 0);
+    accounting.count(&mut batch);
+
+    let before = allocations();
+    for round in (1..10_000).filter(|round| round % 100 >= 3) {
+        fill(&mut batch, round);
+        accounting.count(&mut batch);
+    }
+    assert_eq!(allocations() - before, 0);
+    assert!(counters.totals(0).lost_upstream > 0, "silences counted");
+}
+
+#[test]
 fn writing_messages_allocates_per_chunk_not_per_message() {
     use kapto_capture::{Batch, LossCounters, Recording, WriterConfig};
     use kapto_core::{ClockMap, ClockSample, RecvTime};

@@ -860,3 +860,81 @@ fn streams_that_received_nothing_are_named_and_none_receiving_anything_fails() {
         .unwrap();
     verify_episode(&episode).unwrap();
 }
+
+/// A simulation sending its clock and a 100 Hz sensor to two ports, running
+/// for 1 s, paused for 3 s (its clock still saying the same time, the
+/// sensor silent), then running for 1 s more.
+fn simulate_with_a_pause(clock_port: &str, sensor_port: &str) {
+    let robot = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let mut simulated = 0.0_f64;
+    for tick in 0..500_u32 {
+        let paused = (100..400).contains(&tick);
+        if !paused {
+            simulated += 0.01;
+            robot
+                .send_to(&[0; 8], format!("127.0.0.1:{sensor_port}"))
+                .unwrap();
+        }
+        robot
+            .send_to(&simulated.to_le_bytes(), format!("127.0.0.1:{clock_port}"))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The sensor's messages lost upstream, as recorded with or without the
+/// mapping that gives the clock `time.simulated`.
+fn sensor_lost_with_a_pause(dir: &Path, name: &str, mapped: bool) -> u64 {
+    let [clock_port, sensor_port] = [free_udp_port(), free_udp_port()];
+    let streams = dir.join(format!("{name}-streams.toml"));
+    std::fs::write(
+        &streams,
+        format!(
+            "[streams.clock]\nrate_hz = 100\nudp = {{ bind = \"127.0.0.1:{clock_port}\" }}\n\
+             decoder = {{ kind = \"struct\", fields = [\
+               {{ name = \"time\", type = \"time\", offset = 0 }} ] }}\n\
+             [streams.sensor]\nrate_hz = 100\nudp = {{ bind = \"127.0.0.1:{sensor_port}\" }}\n"
+        ),
+    )
+    .unwrap();
+    let mapping = dir.join(format!("{name}-mapping.toml"));
+    std::fs::write(&mapping, "[roles]\n\"time.simulated\" = \"clock.time\"\n").unwrap();
+    let data = dir.join(name).join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    let args = ["--mapping", mapping.to_str().unwrap()];
+    let args: &[&str] = if mapped { &args } else { &[] };
+    let (child, _) = start_recording_with(&streams, &data, 7, args, &[]);
+    simulate_with_a_pause(&clock_port, &sensor_port);
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let episode_dir = std::fs::read_dir(&data)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| !path.ends_with(".recording"))
+        .unwrap();
+    let episode = Episode::read(&episode_dir).unwrap();
+    let sensor = episode
+        .streams
+        .iter()
+        .find(|stream| stream.id.as_str() == "sensor")
+        .unwrap();
+    assert_eq!(sensor.loss_detection, LossDetectionKind::RateGap);
+    sensor.lost_upstream
+}
+
+#[test]
+fn a_paused_simulations_silent_sensor_loses_nothing_once_its_clock_is_mapped() {
+    let dir = TempDir::new("simulated-pause");
+    let (mapped, unmapped) = std::thread::scope(|scope| {
+        let mapped = scope.spawn(|| sensor_lost_with_a_pause(&dir.0, "mapped", true));
+        let unmapped = scope.spawn(|| sensor_lost_with_a_pause(&dir.0, "unmapped", false));
+        (mapped.join().unwrap(), unmapped.join().unwrap())
+    });
+    assert_eq!(mapped, 0);
+    // In real time, the 3 s pause reads as about 300 of its messages lost.
+    assert!(unmapped > 250, "{unmapped}");
+}

@@ -4,7 +4,8 @@
 //! decodes every message the writer offers and, about sixty times a second,
 //! sends each stream's newest values with their minimums and maximums since
 //! the last send to the viewer's socket, keeping the newest values for
-//! capture's status too. Between sends, it writes each camera's newest
+//! capture's status too, and a simulation's newest time for its loss
+//! accounting. Between sends, it writes each camera's newest
 //! frame to the viewer's frame socket. Lossy by design; see
 //! `kapto_capture::tap`.
 
@@ -13,17 +14,23 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use kapto_capture::StreamIndex;
 use kapto_capture::tap::frames::{FrameConfig, FrameSender, FrameStats, frames};
 use kapto_capture::tap::{
     Decimator, LatestValues, TapConfig, TapDrain, TapFeed, TapSocket, TapStats, tap,
 };
+use kapto_capture::{SimulatedNow, StreamIndex};
 use kapto_config::StreamDeclaration;
 use kapto_core::say;
 use kapto_decode::{Decoder, Value};
+use kapto_robot::ValueSource;
 
 /// How often samples are sent: a display's refresh rate.
 const SEND_INTERVAL: Duration = Duration::from_millis(16);
+
+/// How old the simulation's time the tap keeps may be when read: decoded
+/// once per send, from messages that waited up to one interval, with as
+/// much again for the thread running late.
+pub(crate) const SIMULATED_LATENESS: Duration = Duration::from_millis(3 * 16);
 
 /// The tap thread's work.
 pub(crate) struct ViewerTap {
@@ -37,6 +44,8 @@ pub(crate) struct ViewerTap {
     latest: Arc<LatestValues>,
     /// Where the cameras' frames go, if any stream is a camera.
     frames: Option<FrameSender>,
+    /// The value playing `time.simulated`, if one does, and its newest.
+    clock: Option<(ValueSource, Arc<SimulatedNow>)>,
 }
 
 /// What [`open`] prepares.
@@ -51,6 +60,8 @@ pub(crate) struct Opened {
     pub(crate) latest: Arc<LatestValues>,
     /// The cameras' counters, if any stream is a camera.
     pub(crate) frames: Option<Arc<FrameStats>>,
+    /// The simulation's newest time, if a value plays `time.simulated`.
+    pub(crate) simulated: Option<Arc<SimulatedNow>>,
 }
 
 /// Where and how often the cameras' frames are sent.
@@ -64,13 +75,15 @@ pub(crate) struct Cameras<'a> {
 }
 
 /// Prepares the tap: the writer's end, the thread's work, the counters and
-/// the newest values. Without a socket to send from, recording goes ahead
-/// without a tap.
+/// the newest values, with the simulation's time if `clock` is the value
+/// playing it. Without a socket to send from, recording goes ahead without
+/// a tap.
 pub(crate) fn open(
     socket: &Path,
     declarations: &[StreamDeclaration],
     max_message_len: usize,
     cameras: &Cameras<'_>,
+    clock: Option<ValueSource>,
 ) -> Option<Opened> {
     let config = TapConfig {
         // The writer offers a few messages per stream between two sends;
@@ -115,6 +128,8 @@ pub(crate) fn open(
         feed.set_frames(frame_feed);
         (Some(sender), Some(frame_stats))
     };
+    let clock = clock.map(|source| (source, Arc::new(SimulatedNow::new())));
+    let simulated = clock.as_ref().map(|(_, now)| Arc::clone(now));
     Some(Opened {
         feed,
         tap: ViewerTap {
@@ -124,10 +139,12 @@ pub(crate) fn open(
             decimator: Decimator::new(declarations.len()),
             latest: Arc::clone(&latest),
             frames: sender,
+            clock,
         },
         stats,
         latest,
         frames: frame_stats,
+        simulated,
     })
 }
 
@@ -142,7 +159,8 @@ impl ViewerTap {
             let finished = self.drain.is_finished();
             {
                 let _span = kapto_core::span!("decode for the live view");
-                let (decoders, decimator) = (&self.decoders, &mut self.decimator);
+                let (decoders, decimator, clock) =
+                    (&self.decoders, &mut self.decimator, &self.clock);
                 self.drain.each(|stream, recv_time, bytes| {
                     let Some(Some(decoder)) = decoders.get(usize::from(stream)) else {
                         return;
@@ -152,6 +170,12 @@ impl ViewerTap {
                     // is the writer's job and already done.
                     if decoder.decode(bytes, &mut values).is_err() {
                         return;
+                    }
+                    if let Some((source, now)) = clock
+                        && source.stream == usize::from(stream)
+                        && let Some(&Value::Time(simulated_ns)) = values.get(source.value)
+                    {
+                        now.set(simulated_ns);
                     }
                     numbers.clear();
                     // A value the message doesn't have is NaN: the decimator

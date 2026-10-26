@@ -226,6 +226,28 @@ fn find_field(
 /// The role a simulation's time plays, which only a single `time` field can.
 pub const SIMULATED_TIME: &str = kapto_core::simulated::ROLE;
 
+/// Where the value `mapping` gives `role` is found among its stream's
+/// decoded values, if it gives the role one that can play it, as
+/// [`JointMap::new`] checks; a role with a whole array gives its first.
+#[must_use]
+pub fn role_source(
+    streams: &[StreamDeclaration],
+    mapping: &MappingDeclaration,
+    role: &str,
+) -> Option<ValueSource> {
+    let entry = mapping
+        .roles
+        .iter()
+        .find(|entry| entry.role.as_str() == role)?;
+    role_field(streams, role, &entry.field).ok()?;
+    let (stream, fields, field) = find_field(streams, &entry.field).ok()?;
+    let before: usize = fields[..field].iter().map(|field| field.count).sum();
+    Some(ValueSource {
+        stream,
+        value: before + entry.field.index.unwrap_or(0),
+    })
+}
+
 /// Checks that the value `reference` names for `role` is decoded: a whole
 /// field, or an element of an array field. Any type plays a role, a
 /// true/false flag as much as a number, but for the simulation's time,

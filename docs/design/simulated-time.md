@@ -98,6 +98,19 @@ publishes per simulated tick, whatever the simulation's speed. Kapto
 keeping up with the real rate messages arrive at is still checked as
 for any robot.
 
+Capture reads simulated time without decoding anything more than it does:
+the live view already decodes the clock's field, and hands its newest
+value to capture through one atomic number. The loss accounting notes it
+with each batch of a stream it follows, one load of that number and never
+a lock, so a silence is measured by the simulated time that passed
+between the batches either side of it; pre-flight reads it at its
+window's start and end. A silence's missing messages are its periods
+scaled by the simulated time that passed over the real time it lasted, so
+a paused simulation's are none, and across a reset, where simulated time
+went back, they count in real time. Pre-flight counts each stream's
+messages per simulated second of its window. Without the live view
+nothing decodes the clock, and both count in real time as for any robot.
+
 **Replay can play at the simulation's pace.** A replay of an episode with
 a simulated clock has a *Simulated time* switch: the cursor moves through
 simulated time, a pause passes as a still moment rather than a wait, the

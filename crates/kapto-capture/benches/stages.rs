@@ -25,7 +25,8 @@ use kapto_capture::tap::frames::{FrameConfig, frames};
 use kapto_capture::tap::{TapConfig, tap};
 use kapto_capture::{
     Accounting, Batch, ChannelSpec, Compression, LossCounters, LossDetection, PreRoll,
-    PreRollStream, Publication, Recording, RingConfig, StreamIndex, WriterConfig, ring,
+    PreRollStream, Publication, Recording, RingConfig, SimulatedNow, StreamIndex, WriterConfig,
+    ring,
 };
 use kapto_core::clock::monotonic_now;
 use kapto_core::{ClockMap, ClockSample, StreamId};
@@ -39,7 +40,7 @@ const SIZES: [usize; 3] = [68, 256, 1024];
 const STREAMS: u16 = 16;
 
 /// What each message of a benchmark's batch says besides its bytes.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum With {
     Nothing,
     /// When it was sent, as ROS 2 messages do.
@@ -47,6 +48,8 @@ enum With {
     /// When it was sent and its publisher's count of it, as ROS 2 messages
     /// do over Fast DDS and Zenoh.
     Publication,
+    /// Nothing, its stream's silences judged by a simulation's time.
+    SimulatedTime,
 }
 
 /// A batch of `messages` messages of `size` bytes, round-robin over the
@@ -61,7 +64,7 @@ fn batch(messages: usize, size: usize, next_sequence: &mut [u32], with: With) ->
         payload[..4].copy_from_slice(&sequence.to_le_bytes());
         let sent = u64::from(*sequence) * 500_000 + 1;
         match with {
-            With::Nothing => batch.push(stream, &payload),
+            With::Nothing | With::SimulatedTime => batch.push(stream, &payload),
             With::SourceTime => batch.push_with_source_time(stream, &payload, sent),
             With::Publication => batch.push_from_publisher(
                 stream,
@@ -136,6 +139,11 @@ fn accounting(c: &mut Criterion) {
         ("accounting_rate_gap", rate_gap, With::Nothing),
         ("accounting_rate_gap_stamped", rate_gap, With::SourceTime),
         ("accounting_rate_gap_numbered", rate_gap, With::Publication),
+        (
+            "accounting_rate_gap_simulated",
+            rate_gap,
+            With::SimulatedTime,
+        ),
     ] {
         let mut group = c.benchmark_group(name);
         for (messages, size) in grid() {
@@ -144,6 +152,12 @@ fn accounting(c: &mut Criterion) {
                 let streams: Vec<_> = (0..STREAMS).map(|stream| (stream, detection)).collect();
                 let counters = Arc::new(LossCounters::new(usize::from(STREAMS)));
                 let mut accounting = Accounting::new(counters, &streams);
+                if with == With::SimulatedTime {
+                    // A simulation's time the live view set, read per batch.
+                    let now = Arc::new(SimulatedNow::new());
+                    now.set(1_000_000_000);
+                    accounting.follow_simulated(now, Duration::from_millis(48));
+                }
                 let mut next_sequence = vec![0_u32; usize::from(STREAMS)];
                 // A fresh batch each time, so sequence numbers keep rising as
                 // they do in a real recording; building it isn't timed.

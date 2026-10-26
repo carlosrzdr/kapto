@@ -114,7 +114,12 @@ messages it only delayed have had time to arrive (a second, or the stream's
 messages' sending times when they carry them (ROS 2's source timestamps),
 which a delay on the way doesn't move, and otherwise on their receive times;
 a sending time that jumps, as a source's clock being set does, starts the
-stream's count afresh. Over a ROS 2 middleware that gives each message
+stream's count afresh. For a simulation whose clock the mapping gives the
+role `time.simulated`, a silence is measured in the simulated time that
+passed across it, from the clock's newest value as the live view decodes
+it, read once per batch: a paused simulation's silence loses nothing, and
+one across a reset, or without the live view, is measured in real time.
+Over a ROS 2 middleware that gives each message
 its publisher's count of it (Fast DDS and Zenoh do, Cyclone DDS doesn't),
 a stream's loss is counted by those counts instead, each publisher's on its
 own: every number skipped is a message lost on the way, however short the

@@ -38,14 +38,16 @@ use kapto_capture::threads::ThreadMemory;
 use kapto_capture::writer::{CARRIED_RECORD, capture_record, carried_record};
 use kapto_capture::{
     Accounting, ChannelSpec, Drainer, Filler, HandedOver, HashBehind, Kept, KeptHeld, LossCounters,
-    LossDetection, PostRoll, PreRoll, Recording, RingConfig, RingStats, StreamIndex, StreamTotals,
-    Waiting, WriterConfig, discard_keeping_rings, ring,
+    LossDetection, PostRoll, PreRoll, Recording, RingConfig, RingStats, SimulatedNow, StreamIndex,
+    StreamTotals, Waiting, WriterConfig, discard_keeping_rings, ring,
 };
-use kapto_config::{MAX_DATAGRAM_BYTES, StreamDeclaration};
+use kapto_config::{ConfigFile, MAX_DATAGRAM_BYTES, StreamDeclaration, parse_mapping};
 use kapto_core::clock::monotonic_now;
 use kapto_core::{
     ClockMap, ClockSample, EpisodeId, ErrorCode, KaptoError, RecvTime, StreamId, say,
 };
+use kapto_robot::mapping::SIMULATED_TIME;
+use kapto_robot::{ValueSource, role_source};
 use kapto_store::records::{
     CAPTURE_RECORD, EPISODE_RECORD, EpisodeEnd, EpisodeStart, PREFLIGHT_RECORD, SUMMARY_RECORD,
 };
@@ -80,6 +82,9 @@ pub(crate) struct Station {
     tap_thread: Option<JoinHandle<()>>,
     /// Each stream's newest decoded values, while the live view runs.
     latest: Option<Arc<LatestValues>>,
+    /// The simulation's newest time, while the live view runs and a value
+    /// plays `time.simulated`: the loss accounting judges silences by it.
+    simulated: Option<Arc<SimulatedNow>>,
     /// The robot package the streams were declared in, named in each
     /// episode; `None` records them `unchecked`.
     pub(crate) package: Option<PackageIdentity>,
@@ -126,6 +131,24 @@ pub(crate) struct Carried {
     pub(crate) meshes_attached: bool,
     /// The SHA-256 of each package file left out, by its path.
     pub(crate) left_out: BTreeMap<String, String>,
+}
+
+impl Carried {
+    /// Where the simulation's time is among the decoded values of
+    /// `declarations`, if the mapping carried gives a field the role
+    /// `time.simulated`: as `mapping.toml`, where the checks look for it.
+    pub(crate) fn simulated_clock(
+        &self,
+        declarations: &[StreamDeclaration],
+    ) -> Option<ValueSource> {
+        let file = self.files.iter().find(|file| file.name == "mapping.toml")?;
+        let file = ConfigFile {
+            path: PathBuf::from(&file.name),
+            contents: String::from_utf8(file.data.clone()).ok()?,
+        };
+        let mapping = parse_mapping(&file).ok()?;
+        role_source(declarations, &mapping, SIMULATED_TIME)
+    }
 }
 
 /// One file a recording carries.
@@ -291,7 +314,7 @@ impl Station {
     /// An input that can't be opened, e.g. a port already in use.
     pub(crate) fn open(
         plan: Plan,
-        declarations: &[StreamDeclaration],
+        (declarations, clock): (&[StreamDeclaration], Option<ValueSource>),
         (tap_socket, frame_socket, camera_max_fps): (&Path, &Path, u32),
         data_dir: PathBuf,
         udp: UdpOptions,
@@ -320,7 +343,9 @@ impl Station {
             declarations,
             largest.max().unwrap_or(0),
             &cameras,
+            clock,
         );
+        let simulated = opened.as_ref().and_then(|opened| opened.simulated.clone());
         let (tap, tap_stats, frame_stats, tap_thread, latest) = match opened {
             Some(opened) => {
                 let viewer = opened.tap;
@@ -364,6 +389,7 @@ impl Station {
             frame_stats,
             tap_thread,
             latest,
+            simulated,
             package: None,
             carried: Carried::default(),
             session: (None, None),
@@ -856,6 +882,9 @@ impl Station {
                     .copied()
                     .collect();
                 let mut accounting = Accounting::new(Arc::clone(counters), &detections);
+                if let Some(now) = &self.simulated {
+                    accounting.follow_simulated(Arc::clone(now), viewer_tap::SIMULATED_LATENESS);
+                }
                 if recording {
                     accounting.set_post_roll(self.post_roll.clone());
                 }
@@ -1462,7 +1491,7 @@ mod tests {
         let nowhere = folder.join("missing").join("live.sock");
         Station::open(
             plan,
-            &declarations,
+            (&declarations, None),
             (&nowhere, &nowhere, 30),
             folder.join("data"),
             UdpOptions::default(),

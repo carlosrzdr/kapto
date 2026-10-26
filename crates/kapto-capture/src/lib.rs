@@ -20,6 +20,7 @@ pub mod recover;
 pub mod ring;
 pub mod salvage;
 pub mod seek;
+pub mod simulated;
 #[cfg(unix)]
 pub mod tap;
 pub mod threads;
@@ -35,6 +36,7 @@ pub use pre_roll::{HeldMessage, PreRoll, PreRollStream, Waiting};
 pub use recover::{RecoveredEpisode, recover_interrupted};
 pub use ring::{Drainer, Filler, Received, RingConfig, RingStats, Sent, ring};
 pub use salvage::{Salvaged, salvage};
+pub use simulated::SimulatedNow;
 pub use writer::{
     ChannelSchema, ChannelSpec, Compression, HandedOver, Recording, WriterConfig, discard,
     discard_keeping_rings,

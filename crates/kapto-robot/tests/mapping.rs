@@ -264,3 +264,32 @@ fn only_a_single_time_plays_the_simulations_time_and_a_time_drives_no_joint() {
     );
     assert!(ErrorCode::MappingRoleType.remedy().contains("`time`"));
 }
+
+#[test]
+fn the_value_playing_a_role_is_found_among_its_streams_decoded_values() {
+    let streams = streams();
+    let clock = streams
+        .iter()
+        .position(|stream| stream.id.as_str() == "clock");
+    let source = |mapping: &str, role: &str| {
+        let mapping = parse_mapping(&config("mapping.toml", mapping)).unwrap();
+        kapto_robot::role_source(&streams, &mapping, role)
+    };
+    let simulated = "[roles]\n\"time.simulated\" = \"clock.time\"\n";
+    assert_eq!(
+        source(simulated, "time.simulated"),
+        Some(ValueSource {
+            stream: clock.unwrap(),
+            value: 0
+        })
+    );
+    // After `sequence` and the 7 positions: the 3rd effort is value 10.
+    let effort = "[roles]\n\"arm.third\" = \"arm.efforts[2]\"\n";
+    assert_eq!(
+        source(effort, "arm.third").map(|found| found.value),
+        Some(10)
+    );
+    assert_eq!(source(simulated, "arm.third"), None, "not given");
+    let wrong = "[roles]\n\"time.simulated\" = \"arm.sequence\"\n";
+    assert_eq!(source(wrong, "time.simulated"), None, "a u32 can't play it");
+}

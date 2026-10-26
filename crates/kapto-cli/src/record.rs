@@ -956,16 +956,17 @@ fn session(
     let (declarations, plan) = load_plan(streams, &RecordSettings::of(&deployment))?;
     recover(&deployment.data_dir.value, &mut |_| {});
     let writer = crate::capture::writer_config(&deployment);
+    let (package, carried) = package_of(streams, mapping, deployment.attach_meshes.value);
+    let clock = carried.simulated_clock(&declarations);
     let mut station = Station::open(
         plan,
-        &declarations,
+        (&declarations, clock),
         crate::capture::live_view(&deployment),
         deployment.data_dir.value.clone(),
         crate::capture::udp_options(&deployment),
     )
     .map_err(|error| vec![error])?;
-    (station.package, station.carried) =
-        package_of(streams, mapping, deployment.attach_meshes.value);
+    (station.package, station.carried) = (package, carried);
     station.writer = writer;
     if station.package.is_some() {
         say!("Recording with {}.", describe(station.package.as_ref()));

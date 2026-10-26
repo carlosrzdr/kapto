@@ -257,16 +257,17 @@ fn open_station(
     plan: Plan,
     declarations: &[StreamDeclaration],
 ) -> Outcome<Station> {
+    let (package, carried) = package_of(streams, mapping, deployment.attach_meshes.value);
+    let clock = carried.simulated_clock(declarations);
     let mut station = Station::open(
         plan,
-        declarations,
+        (declarations, clock),
         live_view(deployment),
         deployment.data_dir.value.clone(),
         udp_options(deployment),
     )
     .map_err(|error| vec![error])?;
-    (station.package, station.carried) =
-        package_of(streams, mapping, deployment.attach_meshes.value);
+    (station.package, station.carried) = (package, carried);
     station.writer = writer_config(deployment);
     Ok(station)
 }

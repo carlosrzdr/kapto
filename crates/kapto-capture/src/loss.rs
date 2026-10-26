@@ -13,19 +13,22 @@
 //!
 //! The receiver thread counts each batch with [`Accounting::count`], adding
 //! to the shared [`LossCounters`] once per run of messages from one stream,
-//! not once per message.
+//! not once per message. Following a simulation's time, it reads it once
+//! per batch.
 
 mod rate;
 mod sequence;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use kapto_core::{RecvTime, StreamId};
 use kapto_store::{LossDetectionKind, StreamSummary};
 
 use crate::batch::{Batch, Gap, Publication, StreamIndex};
 use crate::post_roll::PostRoll;
+use crate::simulated::SimulatedNow;
 
 pub use rate::{RateGap, RateGapDetector, Sent};
 pub use sequence::{ByteOrder, SequenceField, SequenceTracker, SequenceWidth};
@@ -244,6 +247,8 @@ pub struct Accounting {
     /// When the episode is stopped, after which each stream's messages past
     /// its post-roll aren't counted.
     post_roll: PostRoll,
+    /// The simulation's newest time, if its silences are judged by it.
+    simulated: Option<Arc<SimulatedNow>>,
 }
 
 /// One stream's loss in the batch being counted, which becomes a
@@ -387,7 +392,20 @@ impl Accounting {
             gaps,
             from: RecvTime::from_nanos(0),
             post_roll: PostRoll::default(),
+            simulated: None,
         }
+    }
+
+    /// Judges the silences of streams with a declared rate in the
+    /// simulation's time that `now` holds, which may be up to `lateness`
+    /// old; until it holds one, and across a reset, in real time.
+    pub fn follow_simulated(&mut self, now: Arc<SimulatedNow>, lateness: Duration) {
+        for detector in &mut self.detectors {
+            if let Detector::RateGap(detector, _) = detector {
+                detector.allow_simulated_lateness(lateness);
+            }
+        }
+        self.simulated = Some(now);
     }
 
     /// Counts nothing of a stream's messages past its post-roll once
@@ -494,6 +512,7 @@ impl Accounting {
     /// once; otherwise by its rate, if it has one.
     fn finish_batch(&mut self, batch: &mut Batch, numbered: bool) {
         let time = batch.recv_time();
+        let simulated = self.simulated.as_ref().and_then(|now| now.get());
         let streams = self
             .counters
             .streams
@@ -515,7 +534,12 @@ impl Accounting {
                 if by_publishers.is_some() {
                     detector.forget();
                 } else {
-                    let lost = detector.observe_sent(time, in_batch.count, in_batch.sent());
+                    let lost = detector.observe_simulated(
+                        time,
+                        in_batch.count,
+                        in_batch.sent(),
+                        simulated,
+                    );
                     if lost > 0 {
                         gap.lost = gap.lost.saturating_add_unsigned(lost);
                         gap.silent_since = detector.counted_since();
@@ -767,6 +791,50 @@ mod tests {
         }
         batch.set_recv_time(RecvTime::from_nanos(time_ms * 1_000_000));
         batch
+    }
+
+    #[test]
+    fn a_paused_simulations_silence_is_no_loss_once_its_time_is_followed() {
+        // 100 Hz, running at real time, paused from 2 s to 7 s.
+        let simulated_ms = |ms: u64| match ms {
+            0..2_000 => ms,
+            2_000..7_000 => 2_000,
+            _ => ms - 5_000,
+        };
+        let record = |follow: bool| {
+            let counters = Arc::new(LossCounters::new(1));
+            let rate = LossDetection::RateGap(RateGap::for_rate(100));
+            let mut accounting = Accounting::new(Arc::clone(&counters), &[(0, rate)]);
+            let now = Arc::new(SimulatedNow::new());
+            if follow {
+                accounting.follow_simulated(Arc::clone(&now), Duration::from_millis(16));
+            }
+            for ms in (0..2_000).chain(7_000..10_000).step_by(10) {
+                now.set(i64::try_from(simulated_ms(ms) * 1_000_000).unwrap());
+                accounting.count(&mut batch_of(&[(0, 0)], ms));
+            }
+            accounting.settle();
+            counters.totals(0).lost_upstream
+        };
+        assert_eq!(record(true), 0);
+        assert_eq!(record(false), 500, "in real time, 5 s of 100 Hz missing");
+    }
+
+    #[test]
+    fn a_simulation_whose_time_is_not_read_yet_is_judged_in_real_time() {
+        let counters = Arc::new(LossCounters::new(1));
+        let rate = LossDetection::RateGap(RateGap::for_rate(100));
+        let mut accounting = Accounting::new(Arc::clone(&counters), &[(0, rate)]);
+        accounting.follow_simulated(Arc::new(SimulatedNow::new()), Duration::ZERO);
+        for ms in (0..1_000).chain(1_100..3_000).step_by(10) {
+            accounting.count(&mut batch_of(&[(0, 0)], ms));
+        }
+        accounting.settle();
+        assert_eq!(
+            counters.totals(0).lost_upstream,
+            10,
+            "nothing from 990 to 1,100 ms"
+        );
     }
 
     /// Accounting for one stream at 2 kHz, with `detection`.
