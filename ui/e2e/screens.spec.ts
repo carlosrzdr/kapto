@@ -1,7 +1,7 @@
 import { expect, type Locator, test, type Route } from "@playwright/test";
 
 import { open, shot, shotWhole, tab, viewer, VIEWPORT } from "./screens";
-import { answerSimulation } from "./simulated";
+import { answerSimulatedClock, answerSimulation } from "./simulated";
 import { choose, pick } from "./controls";
 import { drawnShare } from "./drawn";
 import { forgetLayouts, showLayout } from "./layouts";
@@ -879,5 +879,15 @@ test("a screenshot of a package's changed layout offered, and of the layout an e
   await viewer(page, false);
   await page.getByRole("banner").getByRole("button", { name: "Back to live" }).click();
   await forgetLayouts(page);
+  nothingLeft();
+});
+
+test("a screenshot of a simulation's time beside now on the timeline", async ({ page }) => {
+  // The demo's sequence number given as the simulation's clock.
+  await answerSimulatedClock(page);
+  const nothingLeft = await open(page);
+  const moment = page.getByRole("slider", { name: "Moment shown" });
+  await expect(moment).toHaveAttribute("aria-valuetext", /simulated/, { timeout: 60_000 });
+  await shot(page.locator(".timeline"), "timeline-simulated");
   nothingLeft();
 });

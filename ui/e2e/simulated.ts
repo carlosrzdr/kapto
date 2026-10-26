@@ -41,3 +41,18 @@ export async function answerSimulation(page: Page): Promise<void> {
     });
   });
 }
+
+/**
+ * Gives the role `time.simulated` to the demo arm's sequence number, which
+ * rises steadily as a simulation's clock does: the demo has no clock.
+ */
+export async function answerSimulatedClock(page: Page): Promise<void> {
+  await page.route("**/api/robot", async (route) => {
+    const response = await route.fetch();
+    const robot = (await response.json()) as { roles: { role: string; field: string }[] };
+    await route.fulfill({
+      response,
+      json: { ...robot, roles: [{ role: "time.simulated", field: "arm_joints.sequence" }, ...robot.roles] },
+    });
+  });
+}

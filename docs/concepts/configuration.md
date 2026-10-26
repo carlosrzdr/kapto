@@ -492,4 +492,5 @@ wait (`[simulated]` in `qa.toml`, 10 by default) and comes back a tick on.
 The checks `streams.rate` and `streams.gap`, and each stream's `rate_hz`
 statistic, are judged in simulated time by it, and so are pre-flight's
 rate checks and the loss capture estimates from silences while its live
-view runs, and a replay can play in it.
+view runs, and a replay can play in it; the live view's timeline says it
+beside now, and when the simulation is paused.

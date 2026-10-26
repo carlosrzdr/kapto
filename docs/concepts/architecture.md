@@ -658,7 +658,11 @@ cursor moves through the simulation's time, from the points
 `/api/episodes/{id}/simulated` gives, so a pause passes at once and the
 segments between resets play in turn; the bar counts simulated seconds,
 the timeline says the simulation's time and its segment, and the plots'
-time axis is in simulated seconds. Off, it plays as received.
+time axis is in simulated seconds. Off, it plays as received. Live, the
+timeline says the simulation's time beside now, from the newest value of
+the field playing `time.simulated` in the viewer stream, plotted or not,
+and that it is paused once that value holds still or falls silent for ten
+times its usual wait, as the worker judges a recorded one.
 [The viewer's design](../design/a-viewer-of-our-own.md) explains why replays
 are Kapto's own.
 

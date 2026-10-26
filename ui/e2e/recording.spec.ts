@@ -5,7 +5,7 @@ import { expect, type Locator, test, type Page, type Route } from "@playwright/t
 import { changedShare, drawnShare, pictureOf, robotSpan } from "./drawn";
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
-import { answerSimulation } from "./simulated";
+import { answerSimulatedClock, answerSimulation } from "./simulated";
 import { choose } from "./controls";
 import { arrangeFolded, type Column, forgetLayouts, savedLayout, savedLayouts, settled, showLayout } from "./layouts";
 
@@ -2288,4 +2288,20 @@ test("a replay of a simulation that paused and was reset plays in its simulated 
   await expect(bar).toContainText(/Playing 0:0\d of 0:0[234] simulated/);
   await expect(bar).toContainText("Episode over", { timeout: 30_000 });
   await expect(page.getByRole("slider", { name: "Moment shown" })).toHaveAttribute("aria-valuetext", /after reset 1$/);
+});
+
+test("the live view says a simulation's time beside now, from the value its mapping gives the role", async ({ page }) => {
+  await answerSimulatedClock(page);
+  await page.goto("/");
+  await expect(page.getByText("Live, not recording")).toBeVisible();
+  const moment = page.getByRole("slider", { name: "Moment shown" });
+  await expect(moment).toHaveAttribute("aria-valuetext", /^now · simulated \d+\.\d s$/, { timeout: 30_000 });
+  const first = Number((await moment.getAttribute("aria-valuetext"))?.match(/(\d+\.\d) s$/)?.[1]);
+  // It moves on with the clock.
+  await expect
+    .poll(async () => Number((await moment.getAttribute("aria-valuetext"))?.match(/(\d+\.\d) s$/)?.[1]))
+    .toBeGreaterThan(first);
+  // Looking back, the moment shown is said instead.
+  await page.locator(".timeline").getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(moment).toHaveAttribute("aria-valuetext", /^−/);
 });

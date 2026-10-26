@@ -64,13 +64,13 @@
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
-  import type { SimulatedTime } from "./viewer/simulated";
+  import { clockIn, LiveClock, type SimulatedTime, simulatedNowLabel } from "./viewer/simulated";
   import { applyPoses, buildRobot, drawsNow, type Robot, standingBox } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { Questions } from "./viewer/questions";
   import { type Bounds, boxesOf, eased, fitted, framed as framedFrom, leftAt, placedOf, type Point, sameBoxes, widenedTo } from "./viewer/views";
-  import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
+  import { decodeStretch, type Opening, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
   import { sentence, time } from "./format";
   import { shortcut } from "./keys";
   import { token } from "./theme";
@@ -122,6 +122,19 @@
   const roleFields = $derived(
     Object.fromEntries((replay?.opening.layout ? replay.opening.roles : roles).map((each) => [each.role, each.field])),
   );
+  /** Each stream of the live stream and its values, plotted or not, as its opening says. */
+  let liveStreams = $state.raw<Opening["streams"]>([]);
+  /**
+   * Where the live stream carries the simulation's time, if a value plays
+   * `time.simulated`: a clock's field is in a unit of time, so it isn't
+   * plotted, but its samples carry it.
+   */
+  const clockValue = $derived(clockIn(liveStreams, roleFields["time.simulated"]));
+  /** The simulation's clock as the live view follows it, read afresh with each opening. */
+  let liveClock = new LiveClock();
+  /** The simulation's time now, in words, while it is followed live. */
+  let simulatedNow = $state<string | null>(null);
+
   /** How many times the robot's views were drawn, and the frame whose poses they showed last, for the page's tests. */
   let draws = $state(0);
   let drawnFrame = $state(0);
@@ -1736,6 +1749,8 @@
         items = [];
         recordingSince = null;
         plots = plotStreams(opening);
+        liveStreams = opening.streams;
+        liveClock = new LiveClock();
         dropPictures();
         cameras = camerasOf(opening);
         historyMs = opening.history_s * 1000;
@@ -1754,12 +1769,21 @@
         // merged into its parts as the bridge merges them, so its end moves
         // with every frame and looks the same once asked for again.
         const followed = !paused && !replay ? lookedBack : null;
+        const clock = clockValue;
         for (const sample of received.samples) {
+          if (clock && sample.stream === clock.stream) {
+            liveClock.observe(sample.newestMs, sample.extremes[clock.at] ?? Number.NaN);
+          }
           plots.find((stream) => stream.index === sample.stream)?.samples.push(sample.newestMs, sample.extremes);
           followed?.find((stream) => stream.index === sample.stream)?.samples.pushInto(sample.newestMs, sample.extremes, partMs);
         }
         if (received.poses) {
           pending = received.poses;
+        }
+        const now = clock ? liveClock.now(received.receivedMs) : null;
+        const said = now ? simulatedNowLabel(now) : null;
+        if (said !== simulatedNow) {
+          simulatedNow = said;
         }
         // The bridge keeps up to its history behind the newest; its
         // answers say exactly. A replay's span is its episode's.
@@ -2100,6 +2124,7 @@
   onwatch={watch}
   replaying={replay !== null}
   {simulatedTime}
+  simulatedNow={replay ? null : simulatedNow}
 />
 <!-- Marks go to what is recorded now: not offered while an episode is replayed. -->
 <div hidden={replay !== null}><MarkBar onkinds={knowKinds} /></div>

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SimulatedRun } from "../api-types";
 import { replayItems, SIMULATION_KIND } from "./replay";
-import { axisSimulated, SimulatedTime, simulatedLabel } from "./simulated";
+import { axisSimulated, clockIn, LiveClock, SimulatedTime, simulatedLabel, simulatedNowLabel } from "./simulated";
 
 const S = 1e9;
 /** When the episode's first message arrived, UTC nanoseconds. */
@@ -114,5 +114,67 @@ describe("a replay's marks of its simulation", () => {
       { kind: SIMULATION_KIND, startMs: T0_MS + 3_000, endMs: T0_MS + 6_000, label: "Simulation paused at 1.0 s" },
       { kind: SIMULATION_KIND, startMs: T0_MS + 8_000, endMs: T0_MS + 8_000, label: "Simulation reset from 2.0 s to 0.0 s" },
     ]);
+  });
+});
+
+describe("a simulation's clock followed live", () => {
+  /** A clock read every 10 ms from `fromMs` to `toMs`, at `pace` of real time from `seconds`. */
+  function feed(clock: LiveClock, fromMs: number, toMs: number, seconds: number, pace: number) {
+    for (let ms = fromMs; ms <= toMs; ms += 10) {
+      clock.observe(ms, seconds + ((ms - fromMs) / 1000) * pace);
+    }
+  }
+
+  it("says nothing before its first value", () => {
+    expect(new LiveClock().now(1_000)).toBeNull();
+  });
+
+  it("says its newest time while it moves, at whatever pace", () => {
+    const clock = new LiveClock();
+    feed(clock, 0, 2_000, 0, 0.5);
+    expect(clock.now(2_000)).toEqual({ seconds: 1, paused: false });
+    expect(simulatedNowLabel(clock.now(2_000)!)).toBe("simulated 1.0 s");
+  });
+
+  it("reads as paused once it holds still or falls silent for long, and plays again when it moves", () => {
+    const clock = new LiveClock();
+    feed(clock, 0, 1_000, 0, 1);
+    // Held still: the same value published on.
+    for (let ms = 1_010; ms <= 1_200; ms += 10) {
+      clock.observe(ms, 1);
+    }
+    expect(clock.now(1_200)?.paused).toBe(false);
+    expect(clock.now(1_300)).toEqual({ seconds: 1, paused: true });
+    expect(simulatedNowLabel(clock.now(1_300)!)).toBe("simulation paused at 1.0 s");
+    // Silent, the other streams going on.
+    expect(clock.now(5_000)?.paused).toBe(true);
+    clock.observe(5_010, 1.01);
+    expect(clock.now(5_020)).toEqual({ seconds: 1.01, paused: false });
+  });
+
+  it("takes a reset as a move, its time going back", () => {
+    const clock = new LiveClock();
+    feed(clock, 0, 1_000, 5, 1);
+    clock.observe(1_010, 0);
+    expect(clock.now(1_020)).toEqual({ seconds: 0, paused: false });
+  });
+});
+
+describe("the clock's value in the live stream", () => {
+  const streams = [
+    { name: "arm", values: [{ name: "sequence" }, { name: "position[0]" }] },
+    { name: "clock", values: [{ name: "time" }, { name: "times[0]" }, { name: "times[1]" }] },
+  ];
+
+  it("is found among every value, plotted or not, at its maximum", () => {
+    expect(clockIn(streams, "clock.time")).toEqual({ stream: 1, at: 1 });
+    expect(clockIn(streams, "clock.times[1]")).toEqual({ stream: 1, at: 5 });
+    expect(clockIn(streams, "arm.sequence")).toEqual({ stream: 0, at: 1 });
+  });
+
+  it("is none where the role isn't given or names nothing streamed", () => {
+    expect(clockIn(streams, undefined)).toBeNull();
+    expect(clockIn(streams, "clock.missing")).toBeNull();
+    expect(clockIn(streams, "elsewhere.time")).toBeNull();
   });
 });

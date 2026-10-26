@@ -155,7 +155,9 @@ and replay the episode as any other.
   Once the episode is checked,
   `GET /api/episodes/{id}/simulated` says how it ran: how much simulated
   time passed, how fast against real time, and when it was paused or
-  reset. While it is paused its streams fall silent, which capture
+  reset. Live, the timeline says the simulation's time beside now
+  (`now · simulated 12.3 s`), and `simulation paused at` while it holds
+  still or its clock falls silent. While it is paused its streams fall silent, which capture
   doesn't count as messages lost, since the mapping gives `/clock` the
   role `time.simulated`.
 - **Raw pictures cost more to show.** Kapto stores them as received; to

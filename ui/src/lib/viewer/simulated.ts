@@ -177,3 +177,82 @@ export function axisSimulated(moment: SimulatedMoment | null, step: number): str
   const seconds = `${moment.seconds.toFixed(step < 10 ? 1 : 0)} s`;
   return moment.segment === 0 ? seconds : `${seconds}\nafter reset ${moment.segment}`;
 }
+
+/** How many times its usual wait a clock holds still before it reads as paused, as `qa.toml`'s default. */
+export const PAUSE_SILENCE = 10;
+
+/** However fast the clock usually moves, it holds still this long before it reads as paused, in milliseconds. */
+const PAUSED_AFTER_MS = 250;
+
+/** The waits between the clock's moves it remembers, newest last. */
+const WAITS_KEPT = 32;
+
+/** The simulation's time now, and whether it is paused. */
+export interface SimulatedNow {
+  seconds: number;
+  paused: boolean;
+}
+
+/**
+ * A simulation's clock as the live view follows it, from its newest values:
+ * paused once it has held still, or fallen silent, for `PAUSE_SILENCE` times
+ * its usual wait between moves, as the worker judges a recorded one.
+ */
+export class LiveClock {
+  private seconds: number | null = null;
+  private movedMs = 0;
+  private readonly waits: number[] = [];
+
+  /** Takes the clock's value, `seconds`, received at `receiveMs`. */
+  observe(receiveMs: number, seconds: number) {
+    if (!Number.isFinite(seconds) || seconds === this.seconds) {
+      return;
+    }
+    // Back is a reset: its wait says nothing of the clock's pace.
+    if (this.seconds !== null && seconds > this.seconds) {
+      this.waits.push(receiveMs - this.movedMs);
+      if (this.waits.length > WAITS_KEPT) {
+        this.waits.shift();
+      }
+    }
+    this.seconds = seconds;
+    this.movedMs = receiveMs;
+  }
+
+  /** The simulation's time as of `receiveMs`, or `null` before its clock is read. */
+  now(receiveMs: number): SimulatedNow | null {
+    if (this.seconds === null) {
+      return null;
+    }
+    const sorted = [...this.waits].sort((a, b) => a - b);
+    const usual = sorted[Math.floor(sorted.length / 2)];
+    const held = receiveMs - this.movedMs;
+    const paused = usual !== undefined && held > Math.max(PAUSE_SILENCE * usual, PAUSED_AFTER_MS);
+    return { seconds: this.seconds, paused };
+  }
+}
+
+/** The simulation's time now in words: `simulated 12.3 s`, or `simulation paused at 12.3 s`. */
+export function simulatedNowLabel(now: SimulatedNow): string {
+  const seconds = `${now.seconds.toFixed(1)} s`;
+  return now.paused ? `simulation paused at ${seconds}` : `simulated ${seconds}`;
+}
+
+/**
+ * Where the live stream carries the value `field` names (`clock.time`, or
+ * `clock.times[1]`), plotted or not: its stream's position among the
+ * opening's, and the place of its maximum among the stream's samples, each
+ * value's minimum then maximum.
+ */
+export function clockIn(
+  streams: { name: string; values: { name: string }[] }[],
+  field: string | undefined,
+): { stream: number; at: number } | null {
+  const match = field?.match(/^([^.]+)\.(.+)$/);
+  if (!match) {
+    return null;
+  }
+  const stream = streams.findIndex((each) => each.name === match[1]);
+  const value = streams[stream]?.values.findIndex((each) => each.name === match[2] || each.name === `${match[2]}[0]`);
+  return value === undefined || value < 0 ? null : { stream, at: value * 2 + 1 };
+}

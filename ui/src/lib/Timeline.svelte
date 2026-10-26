@@ -40,6 +40,8 @@
     replaying?: boolean;
     /** The simulation's time a replay plays in, if it does: how far in is counted in it. */
     simulatedTime?: SimulatedTime | null;
+    /** The simulation's time now, in words, while the live view follows one. */
+    simulatedNow?: string | null;
   }
 
   let {
@@ -62,6 +64,7 @@
     onwatch,
     replaying = false,
     simulatedTime = null,
+    simulatedNow = null,
   }: Props = $props();
 
   /** The stretches the plots can show. */
@@ -83,7 +86,9 @@
         ? duration((at - oldest) / 1000)
         : paused
           ? `−${duration((newest - at) / 1000)}`
-          : "now",
+          : simulatedNow
+            ? `now · ${simulatedNow}`
+            : "now",
   );
   /** How far back can be looked now. */
   const kept = $derived(
