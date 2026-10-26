@@ -73,7 +73,10 @@ test("the page shows the robot's stream, records an episode and lists it", async
   // share said once, in the key, not again over the chart.
   const viewport = page.viewportSize();
   await page.setViewportSize({ width: 2200, height: 900 });
-  await expect(jointPlot.getByText("arm_joints · joints · position", { exact: true })).toBeVisible();
+  // The key measures itself again once the panel widens; folded until
+  // then, its heading titles the plot instead: waited for in the key.
+  await expect(jointPlot.getByRole("list").getByText("arm_joints · joints · position", { exact: true })).toBeVisible();
+  await expect(jointPlot.locator("p.title")).toHaveCount(0);
   await expect(jointPlot.locator(".u-title")).toHaveCount(0);
   // A value of the key clicked shows alone, with its band from minimum to
   // maximum, on the chart already drawn rather than one made again;
