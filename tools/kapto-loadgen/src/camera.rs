@@ -6,10 +6,12 @@
 //! in a loop, so sending a frame costs no more than sending its bytes; each
 //! stream starts at a frame of its own.
 //!
-//! The picture is a colour gradient sweeping across and a bright square
-//! circling the middle, so consecutive frames differ as a camera's do,
-//! with a grain over every pixel, so they compress to a real scene's sizes
-//! (about 360 KB at 1920x1080) rather than a flat picture's.
+//! The picture is a wrist camera's view of the sample arm's cell, drawn
+//! plainly: the table with the red cube and the bin swaying past as the
+//! arm moves, and the gripper's fingers opening and closing in front, so
+//! consecutive frames differ as a camera's do, with a grain over every
+//! pixel, so they compress to a real scene's sizes (about 360 KB at
+//! 1920x1080) rather than a flat picture's.
 //!
 //! Raw frames are the same pictures' pixels, uncompressed, as a simulator
 //! or a depth camera sends them; fewer of them loop, [`RAW_FRAMES`], as
@@ -129,28 +131,93 @@ impl Frames {
 fn picture(width: u16, height: u16, turn: f64) -> Vec<u8> {
     use std::f64::consts::TAU;
     let (w, h) = (f64::from(width), f64::from(height));
-    let side = w.min(h) / 5.0;
-    let centre = (
-        w / 2.0 + (turn * TAU).cos() * w / 4.0,
-        h / 2.0 + (turn * TAU).sin() * h / 4.0,
-    );
+    // The camera sways over the table as the arm moves, and the gripper's
+    // fingers, fixed to the camera, open and close.
+    let sway = (0.06 * (turn * TAU).cos() * w, 0.04 * (turn * TAU).sin() * h);
+    let opening = 0.5 + 0.5 * (turn * TAU).sin();
     let mut rgb = Vec::with_capacity(usize::from(width) * usize::from(height) * 3);
     let frame = (turn * 1e6) as u32;
     for row in 0..height {
         for column in 0..width {
             let (x, y) = (f64::from(column), f64::from(row));
-            let inside = (x - centre.0).abs() < side / 2.0 && (y - centre.1).abs() < side / 2.0;
-            let base = if inside {
-                [250, 240, 90]
-            } else {
-                let sweep = ((x / w + turn).fract() * 255.0) as u8;
-                [sweep, (y / h * 255.0) as u8, 255 - sweep]
-            };
+            let base = wrist_view(
+                x / w,
+                y / h,
+                (x + sway.0) / h,
+                (y + sway.1) / h,
+                w / h,
+                opening,
+            );
+            // Darker towards the corners, as a small lens is.
+            let (dx, dy) = (x / w - 0.5, y / h - 0.5);
+            let light = 1.0 - 0.9 * (dx * dx + dy * dy);
             let grain = noise(u32::from(column), u32::from(row), frame);
-            rgb.extend(base.map(|value| value.saturating_add_signed(grain)));
+            rgb.extend(
+                base.map(|value| ((f64::from(value) * light) as u8).saturating_add_signed(grain)),
+            );
         }
     }
     rgb
+}
+
+/// The colour a wrist camera sees at `(u, v)` of its frame (each 0 to 1):
+/// the gripper's fingers `opening` (0 to 1) apart in front, then on the
+/// table at `(tx, ty)` (in frame heights, the camera's sway added) the red
+/// cube, its shadow and the bin, with the wall beyond the table's edge.
+/// `aspect` is the frame's width over its height.
+fn wrist_view(u: f64, v: f64, tx: f64, ty: f64, aspect: f64, opening: f64) -> [u8; 3] {
+    // The fingers, from the bottom edge, and the palm between them.
+    let finger = 0.07;
+    let gap = 0.12 + 0.1 * opening;
+    let left = 0.5 - gap;
+    let right = 0.5 + gap;
+    if v > 0.92 && (0.2..0.8).contains(&u) {
+        return [55, 58, 64];
+    }
+    if v > 0.7 && ((left - finger..left).contains(&u) || (right..right + finger).contains(&u)) {
+        let edge = (u - (left - finger)).abs() < 0.008 || (u - (right + finger)).abs() < 0.008;
+        return if edge {
+            [190, 196, 204]
+        } else {
+            [140, 146, 154]
+        };
+    }
+    // The red cube: its top face, its front face below, and its shadow.
+    let cube = (0.42 * aspect, 0.55);
+    let half = 0.09;
+    let (cx, cy) = (tx - cube.0, ty - cube.1);
+    if cx.abs() < half && cy.abs() < half {
+        return [205, 42, 38];
+    }
+    if cx.abs() < half && (half..half + 0.05).contains(&cy) {
+        return [140, 26, 24];
+    }
+    let shadowed = (cx - 0.04).abs() < half && (half..half + 0.09).contains(&(cy - 0.02));
+    // The bin: a rim around a dark inside.
+    let bin = (0.78 * aspect, 0.42);
+    let (bx, by) = ((tx - bin.0) / 0.2, (ty - bin.1) / 0.14);
+    let reach = bx * bx + by * by;
+    if reach < 0.62 {
+        return [28, 30, 34];
+    }
+    if reach < 1.0 {
+        return [72, 78, 86];
+    }
+    // The wall beyond the table's far edge, and the table's planks.
+    if ty < 0.16 {
+        return [64, 72, 84];
+    }
+    let plank = (tx / 0.14).fract() < 0.06;
+    let base = if plank {
+        [128, 112, 94]
+    } else {
+        [172, 154, 132]
+    };
+    if shadowed {
+        base.map(|value| value / 2 + 20)
+    } else {
+        base
+    }
 }
 
 /// The grain of `(x, y)` in `frame`: a pixel's own variation, between
