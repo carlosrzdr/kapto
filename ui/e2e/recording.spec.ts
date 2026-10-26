@@ -1019,6 +1019,85 @@ test("a replay is arranged by the layout its recording carries", async ({ page }
   await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
 });
 
+test("a package's layout changed since the browser saw it is offered, never applied, and the old one kept under a name", async ({
+  page,
+}) => {
+  // The demo's package as if its layout.toml were edited between loads.
+  const panel = (kind: string) => ({ kind, height: 1, fields: [], missing: [] });
+  const own = (...kinds: string[]) => ({ source: "package", columns: [{ width: 1, panels: kinds.map(panel) }] });
+  let shipped = own("robot", "events");
+  await page.route("**/api/layouts", async (route) => {
+    if (route.request().method() !== "GET") {
+      return route.fallback();
+    }
+    const response = await route.fetch();
+    const list = (await response.json()) as { package: object | null };
+    list.package = shipped;
+    await route.fulfill({ response, json: list });
+  });
+  await page.goto("/");
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const list = page.getByRole("button", { name: /^Layout: / });
+  const offer = page.getByRole("region", { name: "Another layout" });
+  await showLayout(page, "Mine", [
+    {
+      width: 1,
+      panels: [
+        { kind: "robot", height: 1 },
+        { kind: "plot", height: 1, fields: ["role:gripper.opening"] },
+      ],
+    },
+  ]);
+  await expect(list).toHaveAccessibleName("Layout: Mine", { timeout: 20_000 });
+  // The first time, the package's is kept as seen without asking.
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+  await expect(offer).toHaveCount(0);
+
+  // Changed, it is offered above the panels, the one shown kept until a choice is made.
+  shipped = own("robot", "health");
+  await page.reload();
+  await expect(offer).toContainText("The package's layout has changed since this browser last showed it.", { timeout: 20_000 });
+  await expect(list).toHaveAccessibleName("Layout: Mine");
+  const above = (await offer.boundingBox())!;
+  expect(above.y + above.height).toBeLessThanOrEqual((await panels.boundingBox())!.y);
+  // A name taken is refused, saying why; another saves the old one, then the new one is shown.
+  await offer.getByRole("button", { name: "Save the old one as…" }).click();
+  const name = offer.getByRole("textbox", { name: "Name" });
+  await expect(name).toHaveValue("Package's (old)");
+  await name.fill("mine");
+  await offer.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(offer.getByRole("alert")).toContainText("Another layout has that name");
+  await name.fill("Package's (old)");
+  await offer.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(offer).toHaveCount(0);
+  await expect(list).toHaveAccessibleName("Layout: Package's");
+  const old = (await savedLayouts(page)).find((each) => each.name === "Package's (old)");
+  expect(old?.layout.columns[0]?.panels.map((each) => each.kind)).toEqual(["robot", "events"]);
+  await page.reload();
+  await expect(list).toHaveAccessibleName("Layout: Package's", { timeout: 20_000 });
+  await expect(offer).toHaveCount(0);
+
+  // Kept as it is, it isn't offered again.
+  await list.click();
+  await page.getByRole("menuitemradio", { name: "Mine", exact: true }).click();
+  shipped = own("health", "robot");
+  await page.reload();
+  await offer.getByRole("button", { name: "Keep this one" }).click({ timeout: 20_000 });
+  await expect(offer).toHaveCount(0);
+  await expect(list).toHaveAccessibleName("Layout: Mine");
+  await page.reload();
+  await expect(list).toHaveAccessibleName("Layout: Mine", { timeout: 20_000 });
+  await expect(offer).toHaveCount(0);
+
+  // Used, the new one is shown.
+  shipped = own("events", "robot");
+  await page.reload();
+  await offer.getByRole("button", { name: "Use the new one" }).click({ timeout: 20_000 });
+  await expect(list).toHaveAccessibleName("Layout: Package's");
+  await expect(panels.getByRole("region", { name: "What happened" })).toBeVisible();
+  await forgetLayouts(page);
+});
+
 test("Arrange is at the view's top right, above its panels, and pressed while its editor is open under it", async ({ page }) => {
   await page.goto("/");
   const panels = page.getByRole("group", { name: "The view's panels" });

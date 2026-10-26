@@ -757,3 +757,47 @@ test("a screenshot of each tab at a tablet's width", async ({ page }) => {
   expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
   nothingLeft();
 });
+
+test("a screenshot of a package's changed layout offered", async ({ page }) => {
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], missing: [], ...more });
+  // The demo's package as if its layout.toml were edited between two loads.
+  let shipped = { source: "package", columns: [{ width: 1, panels: [panel("robot"), panel("events")] }] };
+  await page.route("**/api/layouts", async (route) => {
+    if (route.request().method() !== "GET") {
+      return route.fallback();
+    }
+    const response = await route.fetch();
+    const list = (await response.json()) as { package: object | null };
+    list.package = shipped;
+    await route.fulfill({ response, json: list });
+  });
+  const nothingLeft = await open(page);
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 60_000 });
+  await showLayout(page, "Wrist view", [
+    { width: 3, panels: [panel("robot")] },
+    { width: 2, panels: [panel("camera", { stream: "wrist_camera" }), panel("plot", { fields: ["role:gripper.opening"] })] },
+  ]);
+  await expect(page.getByRole("button", { name: /^Layout: / })).toHaveAccessibleName("Layout: Wrist view", { timeout: 60_000 });
+  shipped = {
+    source: "package",
+    columns: [
+      { width: 2, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] },
+      { width: 3, panels: [panel("robot")] },
+    ],
+  };
+  await page.reload();
+  const offer = page.getByRole("region", { name: "Another layout" });
+  await expect(offer).toBeVisible({ timeout: 60_000 });
+  await page.waitForTimeout(3_000);
+  await shot(page, "live-layout-changed");
+  await viewer(page, false);
+  await offer.getByRole("button", { name: "Save the old one as…" }).click();
+  await viewer(page, true);
+  await page.waitForTimeout(2_000);
+  await shot(page, "live-layout-changed-save-old");
+  await viewer(page, false);
+  await offer.getByRole("button", { name: "Cancel" }).click();
+  await offer.getByRole("button", { name: "Keep this one" }).click();
+  await forgetLayouts(page);
+  nothingLeft();
+});

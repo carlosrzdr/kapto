@@ -19,6 +19,7 @@
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
   import LayoutEditor from "./LayoutEditor.svelte";
   import LayoutList from "./LayoutList.svelte";
+  import LayoutOffer from "./LayoutOffer.svelte";
   import MarkBar from "./MarkBar.svelte";
   import PanelTitle from "./PanelTitle.svelte";
   import PlotPanel from "./PlotPanel.svelte";
@@ -1425,6 +1426,18 @@
       />
     </div>
   {/if}
+{/if}
+{#if chosen?.stale && replay === null}
+  {@const layouts = chosen}
+  <LayoutOffer
+    said="The package's layout has changed since this browser last showed it."
+    use="Use the new one"
+    save="Save the old one as…"
+    suggested={layouts.nameFor("Package's", " (old)")}
+    onuse={() => layouts.useNew()}
+    onsave={(name) => layouts.saveOld(name)}
+    onkeep={() => layouts.keepThis()}
+  />
 {/if}
 <div class="home" hidden bind:this={home}>
 <div

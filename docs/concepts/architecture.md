@@ -544,9 +544,15 @@ duplicates and deletes a named layout, saves the one shown as *Default*,
 exports it as a `.toml` file and imports one as a new named layout,
 asking for another name if its own is taken; the server writes and reads
 the file (`/api/layout/export`, `/api/layout/import`), by the same rules
-as `layout.toml`. A
-replay is arranged by the layout its recording carries, or one made from
-what the recording declares, which the worker stores in the replay view. The page loads nothing from
+as `layout.toml`. The
+browser also keeps, per package, the package's own layout as it last saw
+it; when the package's differs, compared as parsed (its columns and
+panels, not the file's spacing, key order or comments), a notice above the
+panels offers *Use the new one*, *Save the old one as…* (kept as a named
+layout, then the new one shown) or *Keep this one*, and nothing changes
+until one is chosen. A replay is arranged by the layout its recording
+carries, or one made from what the recording declares, which the worker
+stores in the replay view. The page loads nothing from
 elsewhere and its Content-Security-Policy lets it reach only Kapto's API
 and the bridge's stream, so the view works offline and nothing leaves the
 machine.

@@ -16,6 +16,7 @@ import {
 import type { LayoutFile, LayoutInput, NamedLayout, NamedLayoutInput, NamedLayouts, ViewLayout } from "../api-types";
 import { sentence } from "../format";
 import { editable, laidOut } from "./layouts";
+import { type OfferMemory, offerMemory, packageSeen } from "./layout-offer";
 
 /** *Default*'s id among the named layouts. */
 export const DEFAULT = "default";
@@ -158,6 +159,11 @@ export class PackageLayouts {
   failed = $state(false);
   /** A layout being imported whose name the server refused: saved once given another. */
   clash = $state.raw<NamedLayoutInput | null>(null);
+  /**
+   * The package's own layout as this browser last saw it, while the
+   * package's differs from it: the new one offered, never applied.
+   */
+  stale = $state.raw<LayoutInput | null>(null);
 
   readonly offers = $derived(this.list ? offersOf(this.list) : []);
   readonly shown = $derived(this.offers.find((offer) => offer.id === this.shownId) ?? null);
@@ -173,6 +179,7 @@ export class PackageLayouts {
     readonly packageId: string,
     private readonly api: LayoutApi = serverLayouts,
     private readonly memory: ShownMemory = browserMemory(),
+    private readonly seenMemory: OfferMemory = offerMemory(),
   ) {}
 
   /** Settles once every change so far is saved, or has failed. */
@@ -187,6 +194,12 @@ export class PackageLayouts {
       if (!this.offers.some((offer) => offer.id === this.shownId)) {
         this.shownId = opensOn(this.offers, this.memory.get(this.packageId));
       }
+      const seen = packageSeen(this.seenMemory.seen(this.packageId), this.list.package);
+      if (seen.kind === "first") {
+        // Nothing to compare it with: kept as seen without asking.
+        this.seeNow();
+      }
+      this.stale = seen.kind === "changed" ? seen.old : null;
     } catch (error) {
       this.say(error);
     }
@@ -331,6 +344,61 @@ export class PackageLayouts {
     this.said = "";
   }
 
+  /** Shows the package's new layout, which is then the one seen. */
+  useNew() {
+    this.seeNow();
+    this.pick(PACKAGE);
+  }
+
+  /** Keeps the one shown; the package's new layout is then the one seen, and not offered again. */
+  keepThis() {
+    this.seeNow();
+  }
+
+  /** Saves the package's old layout under `name`, then shows the new one; why it couldn't be, if it couldn't. */
+  saveOld(name: string): Promise<string | null> {
+    const old = this.stale;
+    return old
+      ? this.saveNamed(name, old, () => {
+          this.seeNow();
+          this.pick(PACKAGE);
+        })
+      : Promise.resolve(null);
+  }
+
+  /** Saves `layout` under `name`, which is then shown; why it couldn't be, if it couldn't. */
+  saveAs(name: string, layout: LayoutInput): Promise<string | null> {
+    return this.saveNamed(name, layout, (saved) => this.pick(saved.id));
+  }
+
+  /** A name for a layout saved from `base`, not yet taken. */
+  nameFor(base: string, suffix: string): string {
+    return unique(base, suffix, this.names());
+  }
+
+  private seeNow() {
+    const now = this.list?.package;
+    if (now) {
+      this.seenMemory.see(this.packageId, editable(now));
+    }
+    this.stale = null;
+  }
+
+  private saveNamed(name: string, layout: LayoutInput, then: (saved: NamedLayout) => void): Promise<string | null> {
+    let failed: string | null = null;
+    this.queue = this.queue.then(async () => {
+      try {
+        const saved = await this.api.create({ name: name.trim(), columns: layout.columns });
+        this.keep(saved);
+        then(saved);
+        this.tell(`Saved as ${saved.name}.`);
+      } catch (error) {
+        failed = reason(error);
+      }
+    });
+    return this.queue.then(() => failed);
+  }
+
   /** Forgets what the last change said. */
   dismiss() {
     this.said = "";
@@ -379,7 +447,11 @@ export class PackageLayouts {
   }
 
   private say(error: unknown) {
-    this.said = error instanceof ApiFailure ? `${sentence(error.message)} ${error.remedy}` : String(error);
+    this.said = reason(error);
     this.failed = true;
   }
 }
+
+/** Why `error` happened and what to do, in a sentence or two. */
+const reason = (error: unknown): string =>
+  error instanceof ApiFailure ? `${sentence(error.message)} ${error.remedy}` : String(error);
