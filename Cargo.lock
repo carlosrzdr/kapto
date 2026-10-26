@@ -1634,7 +1634,7 @@ dependencies = [
  "mesh-loader",
  "nalgebra",
  "proptest",
- "roxmltree",
+ "roxmltree 0.21.2",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -1890,7 +1890,7 @@ version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47168834301d6956a01e8e0a7772891a40918067c18d02c34d0932739426b7d2"
 dependencies = [
- "roxmltree",
+ "roxmltree 0.20.0",
 ]
 
 [[package]]
@@ -2744,6 +2744,15 @@ name = "roxmltree"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
+
+[[package]]
+name = "roxmltree"
+version = "0.21.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "rsqlite-vfs"

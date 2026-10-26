@@ -65,7 +65,7 @@ prost-reflect = { version = "0.16", default-features = false }
 # The HTTP client in the API guide's Rust example; plain HTTP to this
 # machine, so no TLS.
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json"] }
-roxmltree = "0.20"
+roxmltree = "0.21"
 # ROS 2's own client library (rcl), for ROS 2 topics; only with the `ros2`
 # feature, which needs a ROS 2 installation and libclang to build.
 r2r = "0.9.7"
