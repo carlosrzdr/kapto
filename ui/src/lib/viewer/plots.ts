@@ -449,6 +449,18 @@ export function resolvePlot(fields: string[], roles: Record<string, string>, str
 }
 
 /**
+ * A plot's title made from what it draws: the streams, each once, then
+ * what its values share (`arm_joints · joints · position`), or how many
+ * there are when they share nothing. A lone value is left to its key's
+ * entry, which names it.
+ */
+export function plotTitle(streams: string[], labels: string[]): string {
+  const named = [...new Set(streams)].join(", ");
+  const values = shortLabels(labels).heading || (labels.length > 1 ? `${labels.length} values` : "");
+  return [named, values].filter(Boolean).join(" · ");
+}
+
+/**
  * Labels made short for a panel's key: the dot-separated segments every
  * label shares at its start and end (`joints.` and `.position` of
  * `joints.joint_1.position`) said once as the heading, each label keeping

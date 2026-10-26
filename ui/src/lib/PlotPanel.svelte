@@ -15,6 +15,7 @@
     type PlotPart,
     plotColumns,
     type PlotStream,
+    plotTitle,
     resolvePlot,
     shortLabels,
     stretchShown,
@@ -50,14 +51,14 @@
   const firsts = $derived(parts.map((_, index) => parts.slice(0, index).reduce((sum, part) => sum + part.labels.length, 0)));
   const count = $derived(parts.reduce((sum, part) => sum + part.labels.length, 0));
   /**
-   * The key: each value's label, short, drawn as its line is. Its heading
-   * says once what they share, and the stream when the panel draws only
-   * one, rather than again as a title over its chart.
+   * The key: each value's label, short, drawn as its line is. Its heading,
+   * the plot's title, says its streams and what their values share once,
+   * rather than again over each value; a title of the panel's own wins.
    */
   const key = $derived.by(() => {
-    const short = shortLabels(parts.flatMap((part) => part.labels));
-    const made = parts.length === 1 ? [parts[0]!.stream.name, short.heading].filter(Boolean).join(" · ") : short.heading;
-    const heading = title ?? made;
+    const labels = parts.flatMap((part) => part.labels);
+    const short = shortLabels(labels);
+    const heading = title ?? plotTitle(parts.map((part) => part.stream.name), labels);
     return { heading, entries: short.labels.map((label, index) => ({ label, style: seriesStyle(index) })) };
   });
   /**
@@ -192,9 +193,11 @@
     // Room on the right for half the widest time label, centred on the last tick.
     const timeOverhang = Math.ceil(measure("00:00:00.000") / 2) + 6;
 
+    // Its height as laid out, rather than `clientHeight`, which rounds a
+    // fraction of a pixel up and would make the chart overrun its room.
     const size = () => ({
       width: holder?.clientWidth ?? 300,
-      height: Math.max(80, Math.floor((holder?.clientHeight ?? 160) / Math.max(charts.length, 1)) - 26),
+      height: Math.max(80, Math.floor((holder?.getBoundingClientRect().height ?? 160) / Math.max(charts.length, 1)) - 26),
     });
 
     /** The chart the pointer is over, whose values the tip shows. */
@@ -508,6 +511,10 @@
       </li>
     {/each}
   </ul>
+  {#if folded && key.heading}
+    <!-- The key folded into the menu, its heading still titles the plot. -->
+    <p class="title">{key.heading}</p>
+  {/if}
   {#if folded && choosable}
     <ValuesMenu heading={key.heading} entries={key.entries} {shown} toggle={(place) => show(place, true)} {showAll} />
   {/if}
@@ -557,6 +564,21 @@
   }
   .labels .heading {
     color: var(--text);
+  }
+  /* Clear of the values menu's button in the corner, and a whole number of
+     pixels high, so the charts under it, scrolled to, are never cut by a fraction. */
+  .title {
+    flex: none;
+    margin: 0;
+    box-sizing: border-box;
+    height: 30px;
+    padding: 6px calc(var(--control-height) + var(--space-2)) 0 0.6rem;
+    overflow: hidden;
+    color: var(--text);
+    font-size: var(--text-xs);
+    line-height: 1.5rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   /* An entry that shows its value alone, or every one again. */
   .labels button {

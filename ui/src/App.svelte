@@ -734,6 +734,8 @@
     <p>{fatal.message}</p>
     <p class="remedy">{fatal.remedy}</p>
     <p class="code">{fatal.code}</p>
+    <!-- What the remedy says to do, at hand: the page asks Kapto again from the start. -->
+    <button type="button" class="reload" onclick={() => location.reload()}>Reload</button>
   </main>
 {:else}
   <header data-state={shellState} data-level={healthNow.level}>
@@ -980,9 +982,10 @@
     flex: 1;
     flex-direction: column;
     justify-content: center;
-    align-items: flex-start;
+    align-items: center;
     gap: var(--space-2);
     max-width: 36rem;
+    text-align: center;
     margin: 0 auto;
     padding: var(--space-6);
   }
@@ -1126,6 +1129,20 @@
   .code {
     color: var(--muted);
     font-family: var(--font-data);
+  }
+  .reload {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
   }
   footer {
     padding: 0 1rem;

@@ -203,6 +203,8 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   });
   await page.waitForTimeout(2_000);
   await shot(page, "recording-marks");
+  // The timeline alone, its marks on their lane over the track.
+  await shot(page.locator(".timeline"), "timeline-marks");
   await marks.getByRole("button", { name: "End Intervention" }).click();
   await viewer(page, false);
   // The list as it is before the worker has checked the new episode, which
@@ -326,6 +328,9 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   const viewerSection = page.locator("section.viewer");
   const bar = page.getByRole("status", { name: "Replay" });
   await expect(bar).toContainText("Preparing the replay");
+  await expect(bar.getByRole("progressbar", { name: "Preparing the replay" })).toBeVisible();
+  // A few seconds in, so the time taken shows it counting.
+  await page.waitForTimeout(3_000);
   await shot(bar, "replay-preparing");
   await page.unroute(replayStatus);
   // What a replay of a robot whose meshes weren't recorded says. The demo's
@@ -646,6 +651,7 @@ test("a screenshot of the page Kapto can't show, built for another version of it
   await page.route("**/api/version", (route) => route.fulfill({ json: { kapto: "9.9.9", api: 999 } }));
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Kapto can't show this page" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload" })).toBeVisible();
   await shot(page, "wrong-api-version");
 });
 

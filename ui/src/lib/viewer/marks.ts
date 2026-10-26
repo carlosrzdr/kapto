@@ -3,6 +3,7 @@
 // the timeline draws.
 
 import { clock, lasting as lasted } from "../format";
+import { SERIES } from "../theme";
 
 /** An event as capture kept it. */
 export interface StreamEvent {
@@ -165,4 +166,68 @@ export class MarkLog {
   private push(item: Item): void {
     this.items.push(item);
   }
+}
+
+/** The lane's width in its own units, drawn stretched along the timeline's track. */
+export const LANE_WIDTH = 1000;
+/** The narrowest a mark is drawn, so a moment can be seen. */
+const NARROWEST = 4;
+
+/**
+ * `kind`'s colour on the lane: one of the series colours, never a state's,
+ * as a mark says what happened rather than whether it is good or bad.
+ * Kinds of the page's and Kapto's own (episodes, checks, `kapto.*`) take
+ * one by their name; others the colour configured for them, if any.
+ */
+export function markColor(kind: string, colors: Record<string, string>): string {
+  const own = kind === "episode" || kind === "check" || kind.startsWith("kapto.");
+  const given = own ? undefined : colors[kind];
+  if (given) {
+    return given;
+  }
+  // By the kind's name, so each keeps its own from one page to the next.
+  let hash = 0;
+  for (const character of kind) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return SERIES[hash % SERIES.length]!;
+}
+
+/** A mark placed on the lane, in its units. */
+export interface LaneMark {
+  item: Item;
+  left: number;
+  width: number;
+  /** Where the part that takes the pointer starts, and how wide it is: never narrower than `hitWidth`. */
+  hitLeft: number;
+  hit: number;
+  color: string;
+}
+
+/**
+ * The marks of `items` within `fromMs`..`toMs`, placed on a lane
+ * [`LANE_WIDTH`] wide: where the timeline's thumb stands at a moment, its
+ * mark starts. A stretch still open is drawn up to `toMs`; each is at
+ * least as wide as can be seen, and takes the pointer at least `hitWidth`
+ * wide, centred on it, both kept on the lane.
+ */
+export function laneMarks(
+  items: Item[],
+  fromMs: number,
+  toMs: number,
+  colors: Record<string, string>,
+  hitWidth: number,
+): LaneMark[] {
+  const x = (ms: number) => ((ms - fromMs) / Math.max(toMs - fromMs, 1)) * LANE_WIDTH;
+  return items
+    .filter((item) => (item.endMs ?? toMs) >= fromMs && item.startMs <= toMs)
+    .map((item) => {
+      const left = Math.max(0, x(item.startMs));
+      const right = Math.min(LANE_WIDTH, x(item.endMs ?? toMs));
+      const width = Math.max(right - left, NARROWEST);
+      const shown = Math.min(left, LANE_WIDTH - width);
+      const hit = Math.min(Math.max(width, hitWidth), LANE_WIDTH);
+      const hitLeft = Math.min(Math.max(shown + width / 2 - hit / 2, 0), LANE_WIDTH - hit);
+      return { item, left: shown, width, hitLeft, hit, color: markColor(item.kind, colors) };
+    });
 }

@@ -167,6 +167,8 @@ describe("PlotPanel", () => {
     watched.forEach((seen) => seen());
     await tick();
     expect(document.querySelector("ul.labels")?.getAttribute("aria-hidden")).toBe("true");
+    // Still titled with its stream and its values, the key folded away.
+    expect(document.querySelector("p.title")?.textContent).toBe("arm_joints · 3 values");
     const opener = screen.getByRole("button", { name: "Values shown" });
     expect(opener.getAttribute("aria-expanded")).toBe("false");
     // Opened from the keyboard, it takes the focus to its first value.
@@ -194,6 +196,7 @@ describe("PlotPanel", () => {
     watched.forEach((seen) => seen());
     await tick();
     expect(screen.queryByRole("button", { name: "Values shown" })).toBeNull();
+    expect(document.querySelector("p.title")).toBeNull();
     vi.unstubAllGlobals();
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { type Mark, MarkLog, markTip } from "./marks";
+import { SERIES } from "../theme";
+import { LANE_WIDTH, laneMarks, type Mark, MarkLog, markColor, markTip } from "./marks";
 
 const kapto = (kind: string, at: number, stream: string): Mark => ({
   noted: { event: { kind, at_utc_ns: at * 1e6, phase: "moment", source: "kapto", attributes: { stream } }, episode: null },
@@ -83,5 +84,55 @@ describe("MarkLog's windows of Kapto's own", () => {
       { kind: "kapto.stream_silent", startMs: 2000, endMs: 8000, label: "kapto.stream_silent (kapto) · left" },
       { kind: "kapto.stream_silent", startMs: 2000, endMs: null, label: "kapto.stream_silent (kapto) · right" },
     ]);
+  });
+});
+
+describe("laneMarks", () => {
+  const item = (kind: string, startMs: number, endMs: number | null) => ({ kind, startMs, endMs, label: kind });
+
+  it("places each mark on the lane where the timeline's thumb stands at its moment, an open one up to the end", () => {
+    const placed = laneMarks([item("note", 1_250, 1_250), item("grasp", 1_500, null), item("slip", 1_000, 1_100)], 1_000, 2_000, {}, 0);
+    expect(placed.map(({ left, width }) => [left, width])).toEqual([
+      [250, 4],
+      [500, 500],
+      [0, 100],
+    ]);
+  });
+
+  it("leaves out what is outside the timeline, and keeps a moment at its end on the lane", () => {
+    const placed = laneMarks([item("note", 500, 500), item("note", 2_500, 2_500), item("note", 2_000, 2_000)], 1_000, 2_000, {}, 0);
+    expect(placed.map(({ left, width }) => [left, width])).toEqual([[LANE_WIDTH - 4, 4]]);
+  });
+
+  it("takes the pointer at least as wide as asked, centred on the mark and kept on the lane", () => {
+    const [middle, first] = laneMarks([item("note", 1_500, 1_500), item("note", 1_000, 1_000)], 1_000, 2_000, {}, 40);
+    expect([middle!.hitLeft, middle!.hit]).toEqual([482, 40]);
+    expect([first!.hitLeft, first!.hit]).toEqual([0, 40]);
+  });
+
+  it("colours every mark, Kapto's own, checks and episodes too, from the series colours, never a state's", () => {
+    const kinds = ["episode", "check", "kapto.stream_silent", "kapto.stream_back", "note", "grasp"];
+    const placed = laneMarks(
+      kinds.map((kind) => item(kind, 1_500, 1_500)),
+      1_000,
+      2_000,
+      {},
+      0,
+    );
+    // Green, sky blue, amber, red and the muted grey of `app.css`.
+    const states = ["#22c55e", "#38bdf8", "#f59e0b", "#f87171", "#9ca3a8"];
+    expect(placed).toHaveLength(kinds.length);
+    for (const { color } of placed) {
+      expect(SERIES).toContain(color);
+      expect(states).not.toContain(color);
+    }
+  });
+
+  it("takes a kind's configured colour, but never for a kind of the page's or Kapto's own", () => {
+    const colors = { grasp: "#123456", check: "#654321", episode: "#654321", "kapto.stream_silent": "#654321" };
+    expect(markColor("grasp", colors)).toBe("#123456");
+    for (const own of ["check", "episode", "kapto.stream_silent"]) {
+      expect(markColor(own, colors)).toBe(markColor(own, {}));
+    }
   });
 });

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { type Item, markTip } from "./viewer/marks";
-  import { SERIES, token } from "./theme";
+  import { type Item, LANE_WIDTH as WIDTH, laneMarks, markTip } from "./viewer/marks";
 
   interface Props {
     /** What happened, oldest first. */
@@ -16,17 +15,6 @@
 
   let { items, fromMs, toMs, colors, onseek }: Props = $props();
 
-  /** Colours for kinds without one, picked by the kind's name so each keeps its own. */
-  const PALETTE = SERIES;
-  /** Kapto's own: something went wrong with a stream. */
-  const OWN = token("danger", "#f87171");
-  /** What a quality check found: the state colour the episode's checks are shown in, whatever a kind is given. */
-  const CHECK = token("warning", "#f59e0b");
-  const EPISODE = token("muted", "#9ca3a8");
-  /** The strip's width in its own units; drawn stretched to the timeline's. */
-  const WIDTH = 1000;
-  /** The narrowest a mark is drawn, so a moment can be seen. */
-  const NARROWEST = 4;
   /** The strip's height, and the least a mark takes to be hit: 24px. */
   const HEIGHT = 24;
 
@@ -36,46 +24,10 @@
 
   /** The strip's width on the page, to keep every mark 24px wide to the pointer. */
   let shownWidth = $state(WIDTH);
-  const hitWidth = $derived(shownWidth > 0 ? Math.min((HEIGHT * WIDTH) / shownWidth, WIDTH) : NARROWEST);
+  const hitWidth = $derived(shownWidth > 0 ? Math.min((HEIGHT * WIDTH) / shownWidth, WIDTH) : 0);
 
-  function color(kind: string): string {
-    if (kind === "episode") {
-      return EPISODE;
-    }
-    if (kind.startsWith("kapto.")) {
-      return OWN;
-    }
-    if (kind === "check") {
-      return CHECK;
-    }
-    const given = colors[kind];
-    if (given) {
-      return given;
-    }
-    let hash = 0;
-    for (const character of kind) {
-      hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-    }
-    return PALETTE[hash % PALETTE.length] ?? EPISODE;
-  }
-
-  const x = (ms: number) => ((ms - fromMs) / Math.max(toMs - fromMs, 1)) * WIDTH;
-
-  /** The items in view, placed. */
-  const placed = $derived(
-    items
-      .filter((item) => (item.endMs ?? toMs) >= fromMs && item.startMs <= toMs)
-      .map((item) => {
-        const left = Math.max(0, x(item.startMs));
-        const right = Math.min(WIDTH, x(item.endMs ?? toMs));
-        const width = Math.max(right - left, NARROWEST);
-        const shown = Math.min(left, WIDTH - width);
-        // Centred on the mark, never narrower than a fingertip.
-        const hit = Math.max(width, hitWidth);
-        const hitLeft = Math.min(Math.max(shown + width / 2 - hit / 2, 0), WIDTH - hit);
-        return { item, left: shown, width, hitLeft, hit, color: color(item.kind) };
-      }),
-  );
+  /** The items in view, placed on the lane. */
+  const placed = $derived(laneMarks(items, fromMs, toMs, colors, hitWidth));
   const told = $derived(pointed === null ? null : (placed[pointed] ?? null));
 
   // Over the mark it is about, kept inside the strip. Placed from here, as
@@ -107,6 +59,8 @@
     aria-label="What happened"
     data-marks={placed.length}
   >
+    <!-- The lane the marks run along, above the track and as long as the thumb travels. -->
+    <rect class="lane" x="0" y="10" width={WIDTH} height="12" />
     {#each placed as { item, left, width, hitLeft, hit, color: fill }, index (index)}
       <g
         role="button"
@@ -127,7 +81,8 @@
           }
         }}
       >
-        <rect class="shown" x={left} y={item.kind === "episode" ? 2 : 7} {width} height={item.kind === "episode" ? 20 : 10} {fill} />
+        <!-- An episode's start or end crosses the lane; what happened within it stays on it. -->
+        <rect class="shown" x={left} y={item.kind === "episode" ? 4 : 12} {width} height={item.kind === "episode" ? 20 : 8} {fill} />
         <rect class="hit" x={hitLeft} y="0" width={hit} height={HEIGHT} />
       </g>
     {/each}
@@ -135,9 +90,11 @@
 </div>
 
 <style>
+  /* Inset by half the slider's thumb, which travels that much short of
+     each end: a mark starts where the thumb stands at its moment. */
   .strip {
     position: relative;
-    width: 100%;
+    margin-inline: calc(var(--thumb, 0.875rem) / 2);
   }
   /* Above the strip, over the mark it is about. */
   .tip {
@@ -171,6 +128,9 @@
     height: 24px;
     /* So the focus ring round a mark's target isn't cut off at the edge. */
     overflow: visible;
+  }
+  .lane {
+    fill: var(--line);
   }
   .mark {
     cursor: pointer;

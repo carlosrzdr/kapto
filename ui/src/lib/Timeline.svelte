@@ -126,7 +126,7 @@
       oninput={(event) => onseek(Number(event.currentTarget.value))}
     />
   </div>
-  <span class="behind" class:paused>{behind}</span>
+  <span class="behind">{behind}</span>
   {#if kept !== null}
     <span class="kept" title={limit}>{paused ? `of ${kept}` : `${kept} kept`}</span>
   {/if}
@@ -159,18 +159,19 @@
     font-size: var(--text-sm);
     cursor: pointer;
   }
+  /* The marks' lane right on the track, so each is read against it. */
   .track {
+    --thumb: 0.875rem;
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 0.1rem;
   }
   /* A quiet line to slide along, as wide as the timeline, with only the
      moment shown in the accent: drawn here, as the browser's own fills the
      track up to the thumb, all of it while live. */
   input {
     width: 100%;
-    height: 1.5rem;
+    height: 1rem;
     margin: 0;
     background: transparent;
     appearance: none;
@@ -190,17 +191,17 @@
     background: var(--control-line);
   }
   input::-webkit-slider-thumb {
-    width: 0.875rem;
-    height: 0.875rem;
-    margin-top: calc(1px - 0.4375rem);
+    width: var(--thumb);
+    height: var(--thumb);
+    margin-top: calc(1px - var(--thumb) / 2);
     border: none;
     border-radius: 50%;
     background: var(--accent);
     appearance: none;
   }
   input::-moz-range-thumb {
-    width: 0.875rem;
-    height: 0.875rem;
+    width: var(--thumb);
+    height: var(--thumb);
     border: none;
     border-radius: 50%;
     background: var(--accent);
@@ -211,15 +212,13 @@
   input:disabled::-moz-range-thumb {
     background: var(--muted);
   }
+  /* The moment shown, in the text's colour: where the view is, not a state. */
   .behind {
     min-width: 3.5rem;
-    color: var(--muted);
+    color: var(--text);
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     text-align: right;
-  }
-  .behind.paused {
-    color: var(--warning);
   }
   .kept {
     color: var(--muted);

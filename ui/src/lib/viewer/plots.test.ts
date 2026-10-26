@@ -13,6 +13,7 @@ import {
   plotColumns,
   type PlotStream,
   plotStreams,
+  plotTitle,
   resolvePlot,
   SampleBuffer,
   shortLabels,
@@ -160,6 +161,23 @@ describe("shortLabels", () => {
     expect(shortLabels(["gripper.opening"])).toEqual({ heading: "", labels: ["gripper.opening"] });
     expect(shortLabels(["joint_positions[0]", "gripper"])).toEqual({ heading: "", labels: ["joint_positions[0]", "gripper"] });
     expect(shortLabels(["a.b", "a.b"])).toEqual({ heading: "a", labels: ["b", "b"] });
+  });
+});
+
+describe("plotTitle", () => {
+  it("titles a plot with its stream and what its values share", () => {
+    expect(plotTitle(["arm_joints", "arm_joints"], ["joints.joint_1.position", "joints.joint_2.position"])).toBe(
+      "arm_joints · joints · position",
+    );
+  });
+
+  it("says how many values it draws when they share nothing, and leaves a lone one to its key", () => {
+    expect(plotTitle(["arm_joints"], ["joint_positions[0]", "gripper"])).toBe("arm_joints · 2 values");
+    expect(plotTitle(["arm_joints"], ["gripper.opening"])).toBe("arm_joints");
+  });
+
+  it("names each stream it draws once", () => {
+    expect(plotTitle(["arm_joints", "wrist", "arm_joints"], ["torque", "force", "speed"])).toBe("arm_joints, wrist · 3 values");
   });
 });
 

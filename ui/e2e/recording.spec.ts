@@ -37,6 +37,11 @@ test("a page for another version of the API says it can't show itself, under Kap
   await expect(heading).toBeVisible();
   await expect(heading.locator("svg.logo")).toBeVisible();
   await expect(page.getByText(/serves version 999/)).toBeVisible();
+  // Reloaded once Kapto serves the version the page was built for: the page itself.
+  await page.unroute("**/api/version");
+  await page.getByRole("button", { name: "Reload" }).click();
+  await expect(page.getByRole("banner").getByRole("heading", { name: "Kapto", exact: true })).toBeVisible();
+  await expect(heading).toBeHidden();
 });
 
 test("the page shows the robot's stream, records an episode and lists it", async ({ page }) => {

@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/svelte";
 import { describe, expect, it, vi } from "vitest";
 
 import { choose } from "./controls/testing";
+import { SERIES } from "./theme";
 import Timeline from "./Timeline.svelte";
 
 function props(overrides: Record<string, unknown> = {}) {
@@ -101,11 +102,11 @@ describe("Timeline's marks", () => {
     expect(shown.onseek).toHaveBeenCalledWith(1_100_000);
   });
 
-  it("draws what a check found in the warning colour, whatever colour a kind of the same name is given", () => {
+  it("draws what a check found in a series colour, never the warning one, whatever colour a kind of the same name is given", () => {
     const items = [{ kind: "check", startMs: 1_200_000, endMs: 1_210_000, label: "motion.frozen: stopped dead" }];
     render(Timeline, props({ items, colors: { check: "#123456" } }));
     const found = screen.getByRole("button", { name: "motion.frozen: stopped dead" }).querySelector("rect.shown")!;
-    expect(found.getAttribute("fill")).toBe("#f59e0b");
+    expect(SERIES).toContain(found.getAttribute("fill"));
   });
 
   it("says what a mark is, when and for how long, while it is pointed at or focused", async () => {
