@@ -455,10 +455,14 @@ fn an_episode_is_hashed_while_it_is_recorded_by_cap_hash_at_the_workers_low_prio
     let streams = streams_file(&dir.0, free_ports(1), 1, 1000, Transport::Udp);
     let data = dir.0.join("data");
     let (child, _) = start_recording(&streams, &data, 3);
+    // The thread is named as it starts and lowers its own priority after,
+    // so under load it can be seen at capture's priority for a moment:
+    // read until it shows the lowered one, then assert it, so a thread
+    // that never lowers it still fails at the deadline.
     let start = std::time::Instant::now();
     let nice = loop {
         let nice = nice_of_threads_named(child.id(), "cap-hash");
-        if !nice.is_empty() || start.elapsed() > Duration::from_secs(3) {
+        if nice == [10] || start.elapsed() > Duration::from_secs(3) {
             break nice;
         }
         std::thread::sleep(Duration::from_millis(20));
