@@ -150,8 +150,9 @@ and replay the episode as any other.
   simulated time as Isaac Sim gives it, beside the time Kapto received it
   on the machine's clock, and the `/clock` stream records the simulated
   time as it went. A simulation that runs slower or faster than real time
-  is recorded as it ran, and replayed at the machine's pace, not the
-  simulation's. Once the episode is checked,
+  is recorded as it ran, and replayed at the machine's pace, or with the
+  replay's **Simulated time** at the simulation's, a pause passed at once.
+  Once the episode is checked,
   `GET /api/episodes/{id}/simulated` says how it ran: how much simulated
   time passed, how fast against real time, and when it was paused or
   reset. While it is paused its streams fall silent, which capture

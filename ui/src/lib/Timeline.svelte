@@ -6,6 +6,7 @@
   import type { Item } from "./viewer/marks";
   import { ALL_MS } from "./viewer/plots";
   import { SPEEDS } from "./viewer/play";
+  import { type SimulatedTime, simulatedLabel } from "./viewer/simulated";
 
   interface Props {
     /** Whether the view is held at `cursorMs` rather than following now. */
@@ -37,6 +38,8 @@
     onwatch?: (ms: number) => void;
     /** Whether an episode is replayed: its span is `keptMs`, and leaving goes back to live. */
     replaying?: boolean;
+    /** The simulation's time a replay plays in, if it does: how far in is counted in it. */
+    simulatedTime?: SimulatedTime | null;
   }
 
   let {
@@ -58,6 +61,7 @@
     onspeed = () => {},
     onwatch,
     replaying = false,
+    simulatedTime = null,
   }: Props = $props();
 
   /** The stretches the plots can show. */
@@ -73,10 +77,22 @@
   const newest = $derived(keptMs?.[1] ?? 0);
   const at = $derived(paused && cursorMs !== null ? Math.min(Math.max(cursorMs, oldest), newest) : newest);
   const behind = $derived(
-    replaying ? duration((at - oldest) / 1000) : paused ? `−${duration((newest - at) / 1000)}` : "now",
+    replaying && simulatedTime
+      ? `${duration(simulatedTime.played(at) / 1000)} · ${simulatedLabel(simulatedTime.at(at))}`
+      : replaying
+        ? duration((at - oldest) / 1000)
+        : paused
+          ? `−${duration((newest - at) / 1000)}`
+          : "now",
   );
   /** How far back can be looked now. */
-  const kept = $derived(keptMs === null ? null : duration((newest - oldest) / 1000));
+  const kept = $derived(
+    keptMs === null
+      ? null
+      : replaying && simulatedTime
+        ? duration(simulatedTime.lengthMs / 1000)
+        : duration((newest - oldest) / 1000),
+  );
   const limit = $derived(
     replaying
       ? "How long the episode replayed is."

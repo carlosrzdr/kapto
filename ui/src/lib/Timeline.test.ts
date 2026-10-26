@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { choose } from "./controls/testing";
 import { SERIES } from "./theme";
 import Timeline from "./Timeline.svelte";
+import { SimulatedTime } from "./viewer/simulated";
 
 function props(overrides: Record<string, unknown> = {}) {
   return {
@@ -54,6 +55,32 @@ describe("Timeline", () => {
     expect(screen.getByText("of 10:00")).toBeTruthy();
     // One Back to live on the page, the header's.
     expect(screen.queryByRole("button", { name: /^Back to (live|now)$/ })).toBeNull();
+  });
+
+  it("replaying in a simulation's time, says where in it and of how long, as the simulation counts", () => {
+    // The 10 minutes at half real time from the start, as one segment.
+    const simulatedTime = new SimulatedTime(
+      {
+        start_ns: 0,
+        end_ns: 300e9,
+        simulated_ns: 300e9,
+        real_ns: 600e9,
+        paused_ns: 0,
+        ratio: 0.5,
+        pauses: [],
+        resets: [],
+        segments: [
+          [
+            { receive_utc_ns: 1_000_000e6, simulated_ns: 0 },
+            { receive_utc_ns: 1_600_000e6, simulated_ns: 300e9 },
+          ],
+        ],
+      },
+      [1_000_000, 1_600_000],
+    );
+    render(Timeline, props({ paused: true, cursorMs: 1_180_000, replaying: true, simulatedTime }));
+    expect(screen.getByText("1:30 · 90.0 s")).toBeTruthy();
+    expect(screen.getByText("of 5:00")).toBeTruthy();
   });
 
   it("paused live, goes back to now", async () => {

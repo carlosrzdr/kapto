@@ -652,7 +652,13 @@ the robot it was recorded with, from `/replay/scene` and its meshes, and
 **Back to live** the one Kapto runs again; each is loaded once and kept
 while it can be shown again, and the camera is framed again only for a
 robot that reaches elsewhere. A replay recorded without a robot shows its
-values alone and says so.
+values alone and says so. A replay of a simulation, once checked, marks
+each pause and reset on its timeline and offers **Simulated time**: the
+cursor moves through the simulation's time, from the points
+`/api/episodes/{id}/simulated` gives, so a pause passes at once and the
+segments between resets play in turn; the bar counts simulated seconds,
+the timeline says the simulation's time and its segment, and the plots'
+time axis is in simulated seconds. Off, it plays as received.
 [The viewer's design](../design/a-viewer-of-our-own.md) explains why replays
 are Kapto's own.
 

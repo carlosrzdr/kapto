@@ -5,6 +5,7 @@ import { expect, type Locator, test, type Page, type Route } from "@playwright/t
 import { changedShare, drawnShare, pictureOf, robotSpan } from "./drawn";
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
+import { answerSimulation } from "./simulated";
 import { choose } from "./controls";
 import { arrangeFolded, type Column, forgetLayouts, savedLayout, savedLayouts, settled, showLayout } from "./layouts";
 
@@ -2253,3 +2254,38 @@ test("nothing in the side panel is cut off, at a laptop's width or a tablet's", 
   }
 });
 
+
+test("a replay of a simulation that paused and was reset plays in its simulated time once asked", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/");
+  await expect(page.getByText("Live, not recording")).toBeVisible();
+  const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
+  expect((await page.request.post("/api/episodes/start", json)).status()).toBe(201);
+  await page.waitForTimeout(4_000);
+  expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
+
+  await answerSimulation(page);
+
+  await open(page, /^Episodes/);
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
+  await episode.getByTitle("Show this episode in full").click();
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  const bar = page.getByRole("status", { name: "Replay" });
+  await expect(bar).toContainText("Replay of the episode recorded", { timeout: 90_000 });
+  // Its pause and its reset are marked on the timeline.
+  await expect(page.getByRole("button", { name: "Simulation paused at 0.5 s" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /^Simulation reset from 0\.5 s to 0\.0 s$/ })).toHaveCount(1);
+
+  // As received, it lasts its four seconds or so.
+  await expect(bar).toContainText(/Episode over · 0:0[345](?! simulated)/, { timeout: 30_000 });
+  const toggle = bar.getByRole("button", { name: "Simulated time" });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  // In the simulation's time, a second shorter: the pause takes none, the
+  // first second half; it ends in the segment after the reset.
+  await expect(bar).toContainText(/Episode over · 0:0[234] simulated/);
+  await bar.getByRole("button", { name: "Play again" }).click();
+  await expect(bar).toContainText(/Playing 0:0\d of 0:0[234] simulated/);
+  await expect(bar).toContainText("Episode over", { timeout: 30_000 });
+  await expect(page.getByRole("slider", { name: "Moment shown" })).toHaveAttribute("aria-valuetext", /after reset 1$/);
+});

@@ -64,6 +64,7 @@
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
+  import type { SimulatedTime } from "./viewer/simulated";
   import { applyPoses, buildRobot, drawsNow, type Robot, standingBox } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
@@ -79,6 +80,8 @@
     port: number;
     /** The episode replayed instead of the live robot, if one is. */
     replay?: Replaying | null;
+    /** The simulation's time the replay plays in, if it does: pauses passed at once, segments in turn. */
+    simulatedTime?: SimulatedTime | null;
     /** Where the replay is playing, as it moves. */
     onplayed?: (played: Played) => void;
     /** Asked to leave the replay for the live view. */
@@ -100,6 +103,7 @@
   let {
     port,
     replay = null,
+    simulatedTime = null,
     onplayed = () => {},
     onleave = () => {},
     layout = null,
@@ -1148,10 +1152,29 @@
     }
     cursorMs = ms;
     if (playing) {
-      started = { fromMs: ms, wallMs: performance.now() };
+      started = startedAt(ms);
     }
     lookBack(ms);
   }
+
+  /**
+   * A play starting at `ms`: where it starts counted in the simulation's
+   * time while the replay plays in it, which then moves at its pace.
+   */
+  function startedAt(ms: number): Started {
+    return { fromMs: simulatedTime ? simulatedTime.played(ms) : ms, wallMs: performance.now() };
+  }
+
+  // Switched into the simulation's time or out of it, a play goes on from
+  // where it is, counted the new way.
+  $effect(() => {
+    void simulatedTime;
+    untrack(() => {
+      if (playing && cursorMs !== null) {
+        started = startedAt(cursorMs);
+      }
+    });
+  });
 
   /** Plays on from the moment shown. */
   function play() {
@@ -1164,7 +1187,7 @@
       lookBack(cursorMs);
     }
     playing = true;
-    started = { fromMs: cursorMs, wallMs: performance.now() };
+    started = startedAt(cursorMs);
   }
 
   /** Holds the moment shown. */
@@ -1175,7 +1198,7 @@
 
   function setSpeed(chosen: number) {
     if (playing && cursorMs !== null) {
-      started = { fromMs: cursorMs, wallMs: performance.now() };
+      started = startedAt(cursorMs);
     }
     speed = chosen;
   }
@@ -1483,7 +1506,8 @@
       lastDrawMs = nowMs;
       let robotMoved = false;
       if (playing && started) {
-        const to = playedTo(started, performance.now(), speed);
+        const played = playedTo(started, performance.now(), speed);
+        const to = simulatedTime ? simulatedTime.receiveAt(played) : played;
         const newest = keptMs?.[1];
         if (newest !== undefined && to >= newest && replay) {
           // Its last moment: held there.
@@ -2009,6 +2033,7 @@
               {spanMs}
               endMs={paused ? cursorMs : null}
               {fromMs}
+              {simulatedTime}
             />
           {:else if panel.kind === "health"}
             {@render health?.()}
@@ -2074,6 +2099,7 @@
   onspeed={setSpeed}
   onwatch={watch}
   replaying={replay !== null}
+  {simulatedTime}
 />
 <!-- Marks go to what is recorded now: not offered while an episode is replayed. -->
 <div hidden={replay !== null}><MarkBar onkinds={knowKinds} /></div>

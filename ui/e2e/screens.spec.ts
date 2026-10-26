@@ -1,6 +1,7 @@
 import { expect, type Locator, test, type Route } from "@playwright/test";
 
 import { open, shot, shotWhole, tab, viewer, VIEWPORT } from "./screens";
+import { answerSimulation } from "./simulated";
 import { choose, pick } from "./controls";
 import { drawnShare } from "./drawn";
 import { forgetLayouts, showLayout } from "./layouts";
@@ -327,7 +328,10 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await episode.getByTitle("Show this episode in full").click();
   await expect(details).toContainText("99 % within");
 
-  // A replay, held as being prepared for its screenshot, then as made.
+  // A replay, held as being prepared for its screenshot, then as made: of
+  // a simulation, answered for the demo's episode, so the replay offers its
+  // simulated time.
+  await answerSimulation(page);
   const replayStatus = "**/api/episodes/*/replay";
   await page.route(replayStatus, async (route) => {
     const response = await route.fetch();
@@ -366,6 +370,13 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await shot(viewerSection, "replay-viewer");
   await expect(bar).toContainText("Episode over", { timeout: 90_000 });
   await shot(bar, "replay-over");
+  // Played again in the simulation's time, then over in it.
+  await bar.getByRole("button", { name: "Simulated time" }).click();
+  await bar.getByRole("button", { name: "Play again" }).click();
+  await page.waitForTimeout(1_500);
+  await shot(page, "replay-simulated");
+  await expect(bar).toContainText("Episode over", { timeout: 90_000 });
+  await shot(bar, "replay-simulated-over");
   await viewer(page, false);
   await shot(aside, "episode-replaying");
   await page.getByRole("banner").getByRole("button", { name: "Back to live" }).click();

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Toggle } from "bits-ui";
   import { untrack } from "svelte";
 
   import type { ReplayStatus } from "./api-types";
@@ -14,9 +15,25 @@
     playback?: Playback | null;
     /** Asked to play the replay again from its start. */
     onplayagain?: () => void;
+    /** Whether the episode recorded a simulation whose time it can play in. */
+    simulatable?: boolean;
+    /** Whether it plays in that time. */
+    inSimulatedTime?: boolean;
+    /** Asked to play in the simulation's time, or as received. */
+    onsimulated?: (on: boolean) => void;
   }
 
-  let { replay, label, playback = null, onplayagain = () => {} }: Props = $props();
+  let {
+    replay,
+    label,
+    playback = null,
+    onplayagain = () => {},
+    simulatable = false,
+    inSimulatedTime = false,
+    onsimulated = () => {},
+  }: Props = $props();
+  /** Whose time the times said are in. */
+  const counted = $derived(playback?.simulated ? " simulated" : "");
 
   /**
    * What the replay lacks, each said once: every missing mesh has the same
@@ -68,11 +85,19 @@
     {#if replay.state === "ready"}
       <strong>Replay</strong> of the episode recorded {label}
       {#if playback?.over}
-        <span class="playback"><strong>Episode over</strong> · {duration(playback.length)}</span>
+        <span class="playback"><strong>Episode over</strong> · {duration(playback.length)}{counted}</span>
         <button type="button" onclick={onplayagain}>Play again</button>
       {:else if playback}
         <span class="playback"
-          >{playback.playing ? "Playing" : "Paused at"} {duration(playback.at)} of {duration(playback.length)}</span
+          >{playback.playing ? "Playing" : "Paused at"} {duration(playback.at)} of {duration(playback.length)}{counted}</span
+        >
+      {/if}
+      {#if simulatable}
+        <Toggle.Root
+          class="simulated"
+          pressed={inSimulatedTime}
+          title="Play in the simulation's time: a pause passes at once, each segment between resets in turn"
+          onPressedChange={(pressed) => onsimulated(pressed)}>Simulated time</Toggle.Root
         >
       {/if}
       {#if lacking}
@@ -135,6 +160,22 @@
     font: inherit;
     font-size: var(--text-sm);
     cursor: pointer;
+  }
+  .bar :global(.simulated) {
+    height: var(--control-height);
+    margin-left: 0.75rem;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--control-line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .bar :global(.simulated[data-state="on"]) {
+    border-color: var(--accent);
+    color: var(--accent);
   }
   .lacks {
     margin: 0.25rem 0 0;

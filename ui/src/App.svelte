@@ -11,6 +11,7 @@
     emptyBin,
     getEpisode,
     getEpisodeQuality,
+    getEpisodeSimulated,
     getEpisodeEvents,
     getEpisodeStatistics,
     getEpisodeUploads,
@@ -74,6 +75,7 @@
   import { type Measured, measure } from "./lib/uploads";
   import UploadsPanel from "./lib/UploadsPanel.svelte";
   import { type Playback, type Played, type Replaying, replayItems } from "./lib/viewer/replay";
+  import { SimulatedTime } from "./lib/viewer/simulated";
   import { oneAtATime } from "./lib/poll";
   import Tabs from "./lib/Tabs.svelte";
   import { shortcut, SHORTCUTS } from "./lib/keys";
@@ -276,6 +278,10 @@
   let replaying = $state.raw<Replaying | null>(null);
   /** Where the shown replay is playing, as the live view last said. */
   let playback = $state<Playback | null>(null);
+  /** Whether the replay plays in its simulation's time, where it has one. */
+  let inSimulatedTime = $state(false);
+  /** The simulation's time the replay plays in, while it does. */
+  const simulatedTime = $derived(inSimulatedTime ? (replaying?.simulated ?? null) : null);
 
   function backToLive() {
     replay = null;
@@ -290,8 +296,10 @@
       return;
     }
     const start = replaying.opening.start_utc_ns / 1e6;
-    const length = (replaying.opening.end_utc_ns / 1e6 - start) / 1000;
-    playback = { playing: where.playing, at: (where.atMs - start) / 1000, length, over: where.over };
+    const simulated = simulatedTime;
+    const length = simulated ? simulated.lengthMs / 1000 : (replaying.opening.end_utc_ns / 1e6 - start) / 1000;
+    const at = simulated ? simulated.played(where.atMs) / 1000 : (where.atMs - start) / 1000;
+    playback = { playing: where.playing, at, length, over: where.over, simulated: simulated !== null };
   }
 
   /** Opens the replay shown again, a few seconds before `atNs` or at its start. */
@@ -307,17 +315,21 @@
   async function showReplay(made: ReplayStatus) {
     const id = made.episode;
     try {
-      const [opening, events, quality, episode] = await Promise.all([
+      const [opening, events, quality, episode, ran] = await Promise.all([
         getReplayOpening(id),
         getEpisodeEvents(id).catch(() => null),
         getEpisodeQuality(id).catch(() => null),
         getEpisode(id).catch(() => null),
+        getEpisodeSimulated(id).catch(() => null),
       ]);
       if (replay?.episode === id) {
         const atMs = replayAt === null ? null : replayAt / 1e6;
         const span: [number, number] = [opening.start_utc_ns, opening.end_utc_ns];
-        const items = replayItems(events, quality, episode, span);
-        replaying = { id, opening, items, atMs, asked: replayAsked };
+        const run = ran?.simulated ?? null;
+        const items = replayItems(events, quality, episode, span, run);
+        const time = run ? new SimulatedTime(run, [span[0] / 1e6, span[1] / 1e6]) : null;
+        const simulated = time?.covered ? time : null;
+        replaying = { id, opening, items, atMs, asked: replayAsked, simulated };
       }
     } catch (error) {
       problem = failure(error);
@@ -818,12 +830,16 @@
           label={replayLabel}
           {playback}
           onplayagain={() => reopen(null)}
+          simulatable={replaying?.simulated != null}
+          {inSimulatedTime}
+          onsimulated={(on) => (inSimulatedTime = on)}
         />
       {/if}
       {#if status}
         <LiveView
           port={status.viewer.stream_port}
           replay={replaying}
+          {simulatedTime}
           onplayed={played}
           onleave={backToLive}
           layout={robot?.layout ?? null}

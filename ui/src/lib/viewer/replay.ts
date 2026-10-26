@@ -1,8 +1,9 @@
 // An episode replayed in the live view: what its stretches hold, and what
 // happened in it, drawn along the timeline.
 
-import type { EpisodeDetail, EpisodeEvents, EpisodeQuality, ReplayOpening } from "../api-types";
+import type { EpisodeDetail, EpisodeEvents, EpisodeQuality, ReplayOpening, SimulatedRun } from "../api-types";
 import { type Item, MarkLog } from "./marks";
+import type { SimulatedTime } from "./simulated";
 import { type Opening, STREAM_VERSION } from "./stream";
 
 /** The episode the live view replays, and where to open it. */
@@ -16,6 +17,8 @@ export interface Replaying {
   atMs: number | null;
   /** Changed to open it there again. */
   asked: number;
+  /** Its simulation's time, if it recorded one whose mapping the server kept. */
+  simulated: SimulatedTime | null;
 }
 
 /** Where a replay is playing, for the bar above it. */
@@ -37,7 +40,12 @@ export interface Playback {
   length: number;
   /** Stopped on its last moment. */
   over: boolean;
+  /** Counted in its simulation's time. */
+  simulated?: boolean;
 }
+
+/** The kind of a simulation's pauses and resets on the timeline: Kapto's own, coloured by its name. */
+export const SIMULATION_KIND = "kapto.simulation";
 
 /** A replay's opening as the live stream's, so the live view's plots read it. */
 export function openingOf(replay: ReplayOpening): Opening {
@@ -52,13 +60,15 @@ export function openingOf(replay: ReplayOpening): Opening {
  * stretch. The commands are drawn within `span`, the replay's from its
  * first message to its last, UTC nanoseconds: Stop is asked a moment after
  * the last message of an episode without a post-roll, and is drawn at its
- * end rather than left off.
+ * end rather than left off. A simulation it recorded adds each pause, as a
+ * stretch, and each reset.
  */
 export function replayItems(
   events: EpisodeEvents | null,
   quality: EpisodeQuality | null,
   episode: EpisodeDetail | null = null,
   span: [number, number] | null = null,
+  simulated: SimulatedRun | null = null,
 ): Item[] {
   const log = new MarkLog();
   log.add(
@@ -95,5 +105,19 @@ export function replayItems(
     const at = span ? Math.min(Math.max(asked, span[0]), span[1]) / 1e6 : asked / 1e6;
     return [{ kind: "episode", startMs: at, endMs: at, label }];
   });
-  return [...commands, ...log.items, ...found].sort((a, b) => a.startMs - b.startMs);
+  const simulation: Item[] = [
+    ...(simulated?.pauses ?? []).map((pause) => ({
+      kind: SIMULATION_KIND,
+      startMs: pause.start_utc_ns / 1e6,
+      endMs: pause.end_utc_ns / 1e6,
+      label: `Simulation paused at ${(pause.simulated_ns / 1e9).toFixed(1)} s`,
+    })),
+    ...(simulated?.resets ?? []).map((reset) => ({
+      kind: SIMULATION_KIND,
+      startMs: reset.at_utc_ns / 1e6,
+      endMs: reset.at_utc_ns / 1e6,
+      label: `Simulation reset from ${(reset.from_ns / 1e9).toFixed(1)} s to ${(reset.to_ns / 1e9).toFixed(1)} s`,
+    })),
+  ];
+  return [...commands, ...log.items, ...found, ...simulation].sort((a, b) => a.startMs - b.startMs);
 }

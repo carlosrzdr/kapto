@@ -10,6 +10,7 @@ import {
   type EpisodeDetail,
   type EpisodeEvents,
   type EpisodeQuality,
+  type EpisodeSimulated,
   type EpisodeStatistics,
   type EpisodeSummary,
   type EpisodeUploads,
@@ -208,6 +209,10 @@ export const getEpisode = (id: string): Promise<EpisodeDetail> =>
 
 export const getEpisodeQuality = (id: string): Promise<EpisodeQuality> =>
   request<EpisodeQuality>(`/api/episodes/${encodeURIComponent(id)}/qa`);
+
+/** How a simulation the episode recorded ran, once it is checked. */
+export const getEpisodeSimulated = (id: string): Promise<EpisodeSimulated> =>
+  request<EpisodeSimulated>(`/api/episodes/${encodeURIComponent(id)}/simulated`);
 
 export const getEpisodeEvents = (id: string): Promise<EpisodeEvents> =>
   request<EpisodeEvents>(`/api/episodes/${encodeURIComponent(id)}/events`);

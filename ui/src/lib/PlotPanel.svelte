@@ -24,6 +24,7 @@
   } from "./viewer/plots";
   import { seriesStyle, token } from "./theme";
   import ValuesMenu from "./ValuesMenu.svelte";
+  import { type SimulatedTime, axisSimulated } from "./viewer/simulated";
 
   interface Props {
     /** What it draws: `stream.field`, `stream.field[3]` or `role:gripper.opening`. */
@@ -40,9 +41,20 @@
     fromMs?: number | null;
     /** Its own title, heading its key in place of the one made from what it draws. */
     title?: string;
+    /** The simulation's time a replay plays in, if it does: the time axis says it. */
+    simulatedTime?: SimulatedTime | null;
   }
 
-  let { fields, roles, streams, spanMs = 30_000, endMs = null, fromMs = null, title }: Props = $props();
+  let {
+    fields,
+    roles,
+    streams,
+    spanMs = 30_000,
+    endMs = null,
+    fromMs = null,
+    title,
+    simulatedTime = null,
+  }: Props = $props();
   /** The most times a second it is drawn again. */
   const DRAWS_PER_SECOND = 30;
 
@@ -332,7 +344,10 @@
                 // without fractions still get more than one.
                 incrs: AXIS_TIME_STEPS,
                 space: (_, _axis, min, max, dim) => axisTimesStep(min, max, dim, measure).space,
-                values: (_, ticks, _axis, _space, step) => axisTimes(ticks, step),
+                values: (_, ticks, _axis, _space, step) =>
+                  simulatedTime
+                    ? ticks.map((tick) => axisSimulated(simulatedTime?.at(tick * 1000) ?? null, step))
+                    : axisTimes(ticks, step),
                 // A line for the times, and one more only while the dates are written under them.
                 size: (_, values) => (values?.some((value) => value.includes("\n")) ? 48 : 32),
               },

@@ -138,4 +138,20 @@ describe("ReplayBar", () => {
     await rerender({ replay, label, playback: { ...playing, at: 0.1 }, onplayagain });
     expect(bar.textContent).not.toContain("Episode over");
   });
+
+  it("offers the simulation's time where the episode has one, and counts in it once chosen", async () => {
+    const replay: ReplayStatus = { episode, state: "ready", lacks: [] };
+    const asked: boolean[] = [];
+    const playback = { playing: true, at: 2, length: 5, over: false };
+    const { rerender } = render(ReplayBar, { replay, label, playback });
+    expect(screen.queryByRole("button", { name: "Simulated time" })).toBeNull();
+    await rerender({ replay, label, playback, simulatable: true, onsimulated: (on: boolean) => asked.push(on) });
+    const toggle = screen.getByRole("button", { name: "Simulated time" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    await fireEvent.click(toggle);
+    expect(asked).toEqual([true]);
+    await rerender({ replay, label, playback: { ...playback, simulated: true }, simulatable: true, inSimulatedTime: true });
+    expect(screen.getByRole("button", { name: "Simulated time" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("status", { name: "Replay" }).textContent).toContain("Playing 0:02 of 0:05 simulated");
+  });
 });
