@@ -314,4 +314,6 @@ an episode closed on a thread of its own while capture receives again;
 episodes deleted by hand put in a bin, emptied by the
 retention executor; a simulation's time read from the field given the
 role `time.simulated`, mapped from receive time, never a timestamp;
+the robot chosen when serve starts, a package by ID or a URDF made
+into one on the data volume, kept running with its report when invalid;
 Docker as the only build prerequisite, automation in `cargo xtask`.

@@ -26,6 +26,7 @@ without other documents, and always describe the design as it is.
 | [Deleting episodes](deleting-episodes-through-a-bin.md) | Episodes deleted by hand go to a bin, emptied by the retention executor after a set time, when the disk runs low or on request |
 | [Closing an episode](closing-an-episode-beside-receiving.md) | An episode is closed on a thread of its own while capture receives again; Stop is answered once it is finalised |
 | [Simulated time](simulated-time.md) | A simulation's time read from the field its package gives the role `time.simulated`, as a mapping from receive time beside the two timestamps, never replacing them; rates judged and replays paced by it |
+| [Choosing the robot](choosing-the-robot-at-startup.md) | The robot chosen when serve starts: a package by ID, or a URDF made into one on the data volume receiving ROS 2 joint states; an invalid robot shown with its report, never a crash loop |
 
 ## Writing one
 
