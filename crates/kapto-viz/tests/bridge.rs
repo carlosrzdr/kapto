@@ -854,6 +854,52 @@ fn a_page_streamed_to_without_pause_still_has_its_questions_answered() {
     sender.join().unwrap();
 }
 
+#[test]
+fn questions_a_page_sends_together_are_each_answered_without_waiting_for_another() {
+    let opening = Opening {
+        version: STREAM_VERSION,
+        links: Vec::new(),
+        streams: Vec::new(),
+        history_s: 600,
+        cameras: Vec::new(),
+    };
+    let stream = FrameStream::start(
+        (LOCALHOST, 0, 7700),
+        &opening,
+        History::new(i64::MAX, usize::MAX),
+        Marks::new(i64::MAX),
+    )
+    .unwrap();
+    let mut page = watch(stream.address().port(), None).unwrap();
+    let Message::Text(_) = page.read().unwrap() else {
+        panic!("the opening message comes first")
+    };
+    // Written at once, as a page asks for a stretch and a camera's picture
+    // in the same moment: they reach the bridge in one read.
+    for id in [4, 5] {
+        let question = format!(r#"{{"history":{{"id":{id},"from":0,"to":1,"points":1}}}}"#);
+        page.write(Message::text(question)).unwrap();
+    }
+    page.flush().unwrap();
+    // Nothing more is sent, so an answer held back would never come.
+    if let tungstenite::stream::MaybeTlsStream::Plain(socket) = page.get_ref() {
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+    }
+    let mut answered = Vec::new();
+    while answered.len() < 2 {
+        match page.read() {
+            Ok(Message::Binary(bytes)) if bytes.starts_with(HISTORY_MAGIC) => {
+                answered.push(read_reply(&bytes).0);
+            }
+            Ok(_) => {}
+            Err(error) => panic!("answered {answered:?}, then nothing: {error}"),
+        }
+    }
+    assert_eq!(answered, [4, 5]);
+}
+
 /// A JPEG of `width` by `height` in one grey.
 fn grey_jpeg(width: u16, height: u16) -> Vec<u8> {
     let pixels = vec![128_u8; usize::from(width) * usize::from(height)];

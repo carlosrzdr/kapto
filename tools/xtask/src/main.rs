@@ -57,6 +57,11 @@ enum Command {
         /// What to do.
         #[arg(value_enum)]
         task: ui::Task,
+        /// For `e2e`, arguments to Playwright after `--`, e.g. `--grep
+        /// "returns to now" --repeat-each 20`: then only the flows with
+        /// capture up run.
+        #[arg(last = true)]
+        playwright: Vec<String>,
     },
     /// Show what the build folder holds, and remove what is cheap to build
     /// again.
@@ -183,7 +188,8 @@ fn main() -> ExitCode {
         Command::Profile(ProfileCommand::Trace(args)) => bench::profile::trace(&repo_root(), args),
         Command::Profile(ProfileCommand::Page(args)) => bench::profile::page(&repo_root(), args),
         Command::Profile(ProfileCommand::Report) => bench::profile::report(&repo_root()),
-        Command::Ui { task } => ui::run(&repo_root(), task),
+        Command::Ui { task, playwright } if playwright.is_empty() => ui::run(&repo_root(), task),
+        Command::Ui { task, playwright } => ui::run_flows(&repo_root(), task, &playwright),
         Command::Clean { workspace, all } => clean::run(
             &repo_root(),
             match (workspace, all) {

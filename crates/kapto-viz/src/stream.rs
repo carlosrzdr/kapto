@@ -821,33 +821,52 @@ fn converse(
             }
             sent.fetch_add(1, Ordering::Relaxed);
         }
-        match asked(socket.get_ref()) {
-            Some(false) => continue,
-            Some(true) => {}
-            None => return,
-        }
-        let answer = match socket.read() {
-            Ok(Message::Text(text)) => answer(&text, histories),
-            Ok(Message::Close(_)) | Err(_) => return,
-            Ok(_) => continue,
-        };
-        if socket.send(answer).is_err() {
-            return;
+        // Every question waiting, not only the first: questions sent
+        // together arrive in one read, and those after the first are then
+        // held in the socket's buffer, where the connection no longer shows
+        // them, until the page sends something else.
+        loop {
+            match asked(socket) {
+                Asked::Question(text) => {
+                    if socket.send(answer(&text, histories)).is_err() {
+                        return;
+                    }
+                }
+                Asked::Other => {}
+                Asked::Nothing => break,
+                Asked::Gone => return,
+            }
         }
     }
 }
 
-/// Whether the page has sent something, looked at without waiting;
-/// `None` if it has gone.
-fn asked(connection: &TcpStream) -> Option<bool> {
-    connection.set_nonblocking(true).ok()?;
-    let peeked = connection.peek(&mut [0_u8]);
-    connection.set_nonblocking(false).ok()?;
-    match peeked {
-        Ok(0) => None,
-        Ok(_) => Some(true),
-        Err(error) if error.kind() == ErrorKind::WouldBlock => Some(false),
-        Err(_) => None,
+/// What the page has sent, read without waiting.
+enum Asked {
+    Question(tungstenite::Utf8Bytes),
+    /// Something that isn't a question, such as a ping.
+    Other,
+    Nothing,
+    Gone,
+}
+
+/// The next message the page has sent, read without waiting for one; a
+/// message only partly received is read on once the rest comes.
+fn asked(socket: &mut WebSocket<TcpStream>) -> Asked {
+    if socket.get_ref().set_nonblocking(true).is_err() {
+        return Asked::Gone;
+    }
+    let read = socket.read();
+    if socket.get_ref().set_nonblocking(false).is_err() {
+        return Asked::Gone;
+    }
+    match read {
+        Ok(Message::Text(text)) => Asked::Question(text),
+        Ok(Message::Close(_)) => Asked::Gone,
+        Ok(_) => Asked::Other,
+        Err(tungstenite::Error::Io(error)) if error.kind() == ErrorKind::WouldBlock => {
+            Asked::Nothing
+        }
+        Err(_) => Asked::Gone,
     }
 }
 

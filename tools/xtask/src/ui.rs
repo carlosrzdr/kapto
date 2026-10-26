@@ -59,6 +59,16 @@ pub(crate) fn run(root: &Path, task: Task) -> ExitCode {
     run_with(root, task, &[])
 }
 
+/// Runs the flows with capture up, given `arguments` for Playwright, to
+/// run some of them, or one again and again.
+pub(crate) fn run_flows(root: &Path, task: Task, arguments: &[String]) -> ExitCode {
+    if task != Task::E2e {
+        eprintln!("error: only `cargo xtask ui e2e` takes arguments for Playwright");
+        return ExitCode::FAILURE;
+    }
+    e2e::run_with(root, e2e::Run::Flows, arguments)
+}
+
 /// Runs `task` as [`run`] does, with `environment` set in the Node
 /// container, e.g. `KAPTO_UI_MINIFY=false` for a build whose functions keep
 /// their names.

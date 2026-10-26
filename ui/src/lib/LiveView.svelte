@@ -61,6 +61,7 @@
   import { applyPoses, buildRobot, drawsNow, type Robot, viewingDistance } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
+  import { Questions } from "./viewer/questions";
   import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
   import { sentence, time } from "./format";
   import { shortcut } from "./keys";
@@ -821,9 +822,8 @@
   /** How long each part of the stretch shown from the bridge is, to merge live samples into. */
   let partMs = 1;
 
-  /** Whether a question is on its way, and the one to ask once it is answered. */
-  let asking = false;
-  let wanted: [number, number] | null = null;
+  /** The stretches asked for, one at a time; a late answer to what was left is dropped. */
+  const questions = new Questions();
 
   /** A stretch from the replay, or from the bridge's last minutes. */
   function ask(from: number, to: number, points: number): Promise<Stretch> {
@@ -847,27 +847,17 @@
 
   /** Fills the plots, and while paused the robot, from the stretch ending at `endMs`. */
   function lookBack(endMs: number) {
+    if (!(replay || watched)) {
+      return;
+    }
     const start = spanMs === ALL_MS ? Math.max(keptMs?.[0] ?? 0, fromMs ?? 0) : endMs - spanMs;
     // A tenth more before what is shown, so what slides in from the left
     // as the plot moves on was loaded already.
-    wanted = [start - (endMs - start) / 10, endMs];
-    if (asking || !(replay || watched)) {
-      return;
-    }
-    const question = asked(wanted[0], wanted[1], POINTS * 1.1);
-    wanted = null;
-    asking = true;
-    ask(question.fromMs, question.toMs, question.points)
-      .then((stretch) => show(stretch, question.partMs))
-      .catch(() => {
-        // Shown as it was; the next question may be answered.
-      })
-      .finally(() => {
-        asking = false;
-        if (wanted) {
-          lookBack(wanted[1]);
-        }
-      });
+    const question = asked(start - (endMs - start) / 10, endMs, POINTS * 1.1);
+    questions.ask(
+      () => ask(question.fromMs, question.toMs, question.points),
+      (stretch) => show(stretch, question.partMs),
+    );
   }
 
   /**
@@ -877,26 +867,18 @@
   function measureKept() {
     // One question at a time, as `lookBack` asks: skipped if one is out.
     // A replay's span is its episode's.
-    if (asking || !watched || replay) {
+    if (questions.busy || !watched || replay) {
       return;
     }
-    asking = true;
-    watched
-      .ask(0, Date.now() + 86_400_000, 1)
-      .then((stretch) => {
+    const asking = watched;
+    questions.ask(
+      () => asking.ask(0, Date.now() + 86_400_000, 1),
+      (stretch) => {
         if (stretch.keptMs) {
           keptMs = [stretch.keptMs[0], Math.max(stretch.keptMs[1], keptMs?.[1] ?? 0)];
         }
-      })
-      .catch(() => {
-        // Known again at the next try.
-      })
-      .finally(() => {
-        asking = false;
-        if (wanted) {
-          lookBack(wanted[1]);
-        }
-      });
+      },
+    );
   }
 
   function show(stretch: Stretch, parts: number) {
@@ -924,6 +906,8 @@
     const end = opened.opening.end_utc_ns / 1e6;
     keptMs = [start, end];
     drawRobotOf(opened.id);
+    // What was asked of the live view, or of another replay, isn't shown here.
+    questions.forget();
     lookedBack = null;
     paused = true;
     playing = false;
@@ -983,6 +967,8 @@
   });
 
   function pause() {
+    // A stretch asked for to follow now isn't the moment held.
+    questions.forget();
     paused = true;
     cursorMs = keptMs?.[1] ?? null;
     if (cursorMs !== null) {
@@ -995,6 +981,9 @@
       onleave();
       return;
     }
+    // What was asked while looking back, answered late, would look back
+    // again: dropped.
+    questions.forget();
     playing = false;
     started = null;
     paused = false;
@@ -1049,6 +1038,8 @@
   }
 
   function setSpan(ms: number) {
+    // A stretch of the span before, answered late, isn't this span's.
+    questions.forget();
     spanMs = ms;
     if (!paused && !beyondPage()) {
       lookedBack = null;

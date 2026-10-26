@@ -606,6 +606,9 @@ test("the live view pauses, looks back over the last minutes, and returns to now
   await expect(live).toHaveAttribute("data-showing", "live", { timeout: 15_000 });
   await expect(live).toHaveAttribute("data-playing", "no");
 
+  // A span the page keeps of its own: with *All*, once the demo has kept
+  // more than a minute, the live view rightly follows now from the bridge.
+  await choose(page, "Span", "30 s");
   await page.getByRole("button", { name: "Pause" }).click();
   await page.getByRole("button", { name: "Back to now" }).click();
   await expect(live).toHaveAttribute("data-showing", "live");

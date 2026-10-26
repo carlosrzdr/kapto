@@ -47,10 +47,16 @@ impl Run {
 }
 
 pub(crate) fn run(root: &Path, what: Run) -> ExitCode {
+    run_with(root, what, &[])
+}
+
+/// Runs `what` as [`run`] does; given `arguments` for Playwright, only its
+/// first step runs, with them.
+pub(crate) fn run_with(root: &Path, what: Run, arguments: &[String]) -> ExitCode {
     let result = if what == Run::Screenshots {
         screenshots(root)
     } else {
-        against_demo(root, what, None)
+        against_demo(root, what, None, arguments)
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -67,7 +73,7 @@ fn screenshots(root: &Path) -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder)
         .map_err(|error| format!("can't create {}: {error}", folder.display()))?;
-    against_demo(root, Run::Screenshots, Some(&folder))?;
+    against_demo(root, Run::Screenshots, Some(&folder), &[])?;
     let mut taken: Vec<String> = std::fs::read_dir(&folder)
         .map_err(|error| format!("can't read {}: {error}", folder.display()))?
         .filter_map(Result::ok)
@@ -82,8 +88,15 @@ fn screenshots(root: &Path) -> Result<(), String> {
 }
 
 /// Builds the UI and Kapto, starts the demo and runs `what`'s two steps,
-/// saving screenshots into `screenshots` if given.
-fn against_demo(root: &Path, what: Run, screenshots: Option<&Path>) -> Result<(), String> {
+/// saving screenshots into `screenshots` if given. Given `arguments` for
+/// Playwright, only the first step runs, with them: a `--grep` would find
+/// nothing in the second.
+fn against_demo(
+    root: &Path,
+    what: Run,
+    screenshots: Option<&Path>,
+    arguments: &[String],
+) -> Result<(), String> {
     if super::run(root, super::Task::Build) != ExitCode::SUCCESS {
         return Err("the UI didn't build".into());
     }
@@ -103,6 +116,13 @@ fn against_demo(root: &Path, what: Run, screenshots: Option<&Path>) -> Result<()
     let mut kapto = Kapto::start(&root.join("target/debug/kapto"), &folder, &config)?;
     let [up, without_capture] = what.specs();
     let result = (|| {
+        if !arguments.is_empty() {
+            let spec = std::iter::once(up.to_owned())
+                .chain(arguments.iter().map(|argument| quoted(argument)))
+                .collect::<Vec<_>>()
+                .join(" ");
+            return playwright(root, &kapto.url, &spec, &docker_args(screenshots));
+        }
         playwright(root, &kapto.url, up, &docker_args(screenshots))?;
         eprintln!("Killing the capture process (pid {})", kapto.capture);
         kill("-KILL", kapto.capture)?;
@@ -293,6 +313,11 @@ pub(crate) fn playwright(
     }
 }
 
+/// `argument` quoted for `sh`.
+fn quoted(argument: &str) -> String {
+    format!("'{}'", argument.replace('\'', "'\\''"))
+}
+
 fn kill(signal: &str, pid: u32) -> Result<(), String> {
     let status = Command::new("kill")
         .args([signal, &pid.to_string()])
@@ -322,6 +347,12 @@ fn free_udp_port() -> Result<u16, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_argument_for_playwright_reaches_it_as_one_word() {
+        assert_eq!(quoted("returns to now"), "'returns to now'");
+        assert_eq!(quoted("it's"), "'it'\\''s'");
+    }
 
     #[test]
     fn the_playwright_image_matches_the_package_the_specs_use() {
