@@ -732,7 +732,7 @@ before it.
 
 ## Part 5. Phase B work packages: v1 (P1)
 
-Critical path: MVP → M9 → M10 → M16 → M12 → M13. M14, M15, M17, M18 run in
+Critical path: MVP → M9 → M10 → M16 → M12 → M13. M14, M15, M17, M18, M21 run in
 parallel after M9; M11 after M16.
 
 ### WP M9: Sessions, storage contract, configuration, security
@@ -920,6 +920,16 @@ fit), which is robust to delay spikes. Written in the repo (§2.7).
 | M18-03 `feat(transport): ros 2 record-all` | Discovery-driven subscriptions with include/exclude (TRN-13) | ROS image test with several talkers | Exit criterion |
 | M18-04 `feat(ui): ros 2 topics in the robot tab` | What `kapto topics --streams` finds, in the web UI: each topic of the ROS 2 network with its type, measured rate and whether a stream already declares it, and the `streams.toml` declarations of those not declared, to copy; an endpoint over the same discovery, answered only in the ROS 2 image, saying why elsewhere | Handler and error-code tests (outside the ROS 2 image); ROS image test with several talkers, one declared; Playwright happy path and the not-in-this-image path | Declarations pasted into a package lint clean |
 | M18-05 `feat(docker): a robot's own message types mounted into the ros 2 image` | As the [ROS 2 design](../design/ros-2-through-rcl.md) says: the image's entrypoint sources every `/overlays/<name>/setup.sh` after ROS 2's own, stopping at start on a folder without one; a type's `.msg` files from the installation alone where there is one, the package's `msg/` folder only where there isn't, a package copy that differs refused (`config.ros2_msg_differs`); `kapto topics` says whether each topic's type loads, with the remedy; the ROS 2 guide shows building a package's interfaces against the image's distribution and mounting them | ROS image test: a message package built for it, mounted, a topic of its type recorded and decoded; the same topic refused without the mount (`transport.ros2.type_unavailable`); an overlay without `setup.sh` stops the container; a package `msg/` copy differing from the installation refused, naming both files; without an installation the package's copy decodes | A robot's own types recorded without an image of the user's |
+
+### WP M21: Recording a dora dataflow *(parallel)*
+
+**Goal:** record a robot built on dora (a Rust dataflow framework, Apache-2.0,
+Arrow IPC payloads over shared memory and Zenoh) as Kapto records a ROS 2
+one. Nothing is built until the first row has decided how.
+
+| PR | Delivers | Tests | You check |
+|---|---|---|---|
+| M21-01 `docs(design): recording a dora dataflow` | A spike in `spikes/dora/` (a dynamic node, `path: dynamic`, through `dora-node-api` against a small dataflow), then the design document choosing the way in: dora's ROS 2 bridge recorded as any ROS 2 robot (no code, but the bridge is experimental); Kapto as a dynamic node; a subscriber of Kapto's own on dora's Zenoh keys (`dora/{network}/{dataflow}/output/{node}/{output}`); or `.drec` files imported with the folder import (M18). What the spike answers first: whether a receiving node can have each message's Arrow IPC bytes as received (`Event::Input` hands over a decoded `DoraArray`, which would have to be encoded again, against payloads stored as received); whether messages dora drops before Kapto (`drop_oldest` inputs, counted in its daemon) can be counted in Kapto, or only as gaps in the `SEQ` parameter producers set, while `backpressure` inputs would slow the robot for Kapto; whether the Zenoh keys carry data without `enable_debug_inspection`; and the cost at 2 kHz and with two 1080p cameras. The document also settles the MCAP message encoding for Arrow (none of MCAP's own), an Arrow decoder for mapped fields without allocating on the live path, `uhlc` timestamps as the source time, and `dora-node-api`'s weight (tokio, zenoh, arrow) behind a feature as `r2r` is. **Estimate**, if a transport is chosen: 8 to 10 PRs, as many as the ROS 2 transport took (transport and its Docker test, the Arrow decoder, cameras from `std/media/v1/Image`, a sample package and a guide) | The spike's numbers, on the maintainer's machine | Which way in, and why |
 
 ### WP M19: Operator and security extras *(low priority, not needed for v1)*
 
