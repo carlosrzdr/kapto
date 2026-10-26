@@ -151,7 +151,10 @@ and replay the episode as any other.
   on the machine's clock, and the `/clock` stream records the simulated
   time as it went. A simulation that runs slower or faster than real time
   is recorded as it ran, and replayed at the machine's pace, not the
-  simulation's.
+  simulation's. Once the episode is checked,
+  `GET /api/episodes/{id}/simulated` says how it ran: how much simulated
+  time passed, how fast against real time, and when it was paused or
+  reset.
 - **Raw pictures cost more to show.** Kapto stores them as received; to
   show one live, the viewer bridge encodes it for the page, which takes
   more of a core than passing a camera's JPEG on.

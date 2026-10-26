@@ -447,6 +447,7 @@ fn checked(id: &str, verdict: Verdict) -> QaRun {
             }],
         }],
         model: None,
+        simulated: None,
     }
 }
 
@@ -621,6 +622,95 @@ async fn an_episodes_statistics_are_summarised_and_none_until_it_is_checked() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!({"computed_utc_ns": null, "statistics": []}));
     let (status, body) = call(serving, "GET", "/api/episodes/notanid/statistics", None).await;
+    assert_eq!(
+        (status, &body["code"]),
+        (StatusCode::BAD_REQUEST, &json!("api.invalid_request"))
+    );
+}
+
+#[tokio::test]
+async fn how_a_simulation_ran_is_served_once_checked_and_null_without_a_clock() {
+    use kapto_store::{Simulated, SimulatedPause, SimulatedReset};
+
+    let folder = scratch("simulated");
+    let data = folder.join("data");
+    let (simulated, real, unchecked) = (
+        "20260310T120000.000Z-00000001",
+        "20260310T120500.000Z-00000002",
+        "20260310T121000.000Z-00000003",
+    );
+    for (id, at) in [(simulated, 0), (real, 300), (unchecked, 600)] {
+        finalised_episode(&data, id, at);
+    }
+    let serving = state(&folder);
+    let mut run = checked(simulated, Verdict::Passed);
+    run.simulated = Some(Box::new(Simulated {
+        start_ns: 0,
+        end_ns: 500_000_000,
+        simulated_ns: 1_500_000_000,
+        real_ns: 4_000_000_000,
+        paused_ns: 1_000_000_000,
+        ratio: Some(0.5),
+        pauses: vec![SimulatedPause {
+            start_utc_ns: 1_772_700_401_000_000_000,
+            end_utc_ns: 1_772_700_402_000_000_000,
+            simulated_ns: 500_000_000,
+        }],
+        resets: vec![SimulatedReset {
+            at_utc_ns: 1_772_700_403_000_000_000,
+            from_ns: 1_000_000_000,
+            to_ns: 0,
+        }],
+    }));
+    serving.store.record_qa(run).unwrap();
+    serving
+        .store
+        .record_qa(checked(real, Verdict::Passed))
+        .unwrap();
+
+    let get = |id: &str| {
+        let (serving, path) = (serving.clone(), format!("/api/episodes/{id}/simulated"));
+        async move { call(serving, "GET", &path, None).await }
+    };
+    let (status, body) = get(simulated).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        json!({
+            "computed_utc_ns": 1_772_700_500_000_000_000_i64,
+            "simulated": {
+                "start_ns": 0,
+                "end_ns": 500_000_000,
+                "simulated_ns": 1_500_000_000,
+                "real_ns": 4_000_000_000_i64,
+                "paused_ns": 1_000_000_000,
+                "ratio": 0.5,
+                "pauses": [{
+                    "start_utc_ns": 1_772_700_401_000_000_000_i64,
+                    "end_utc_ns": 1_772_700_402_000_000_000_i64,
+                    "simulated_ns": 500_000_000,
+                }],
+                "resets": [{
+                    "at_utc_ns": 1_772_700_403_000_000_000_i64,
+                    "from_ns": 1_000_000_000,
+                    "to_ns": 0,
+                }],
+            },
+        })
+    );
+    let (_, body) = get(real).await;
+    assert_eq!(
+        body,
+        json!({"computed_utc_ns": 1_772_700_500_000_000_000_i64, "simulated": null})
+    );
+    let (_, body) = get(unchecked).await;
+    assert_eq!(body, json!({"computed_utc_ns": null, "simulated": null}));
+    let (status, body) = get("20260310T121500.000Z-00000004").await;
+    assert_eq!(
+        (status, &body["code"]),
+        (StatusCode::NOT_FOUND, &json!("api.episode_not_found"))
+    );
+    let (status, body) = get("notanid").await;
     assert_eq!(
         (status, &body["code"]),
         (StatusCode::BAD_REQUEST, &json!("api.invalid_request"))

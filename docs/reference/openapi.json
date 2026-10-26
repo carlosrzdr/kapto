@@ -1245,6 +1245,65 @@
         }
       }
     },
+    "/api/episodes/{id}/simulated": {
+      "get": {
+        "tags": [],
+        "summary": "How a simulation the finalised episode recorded ran, worked out with\nits quality checks from the field its package gives the role\n`time.simulated`: simulated start, end and duration, the ratio of\nsimulated to real time while it ran, each pause and each reset. Before\nthe worker has checked it, `computed_utc_ns` is `null`; `simulated` is\n`null` then, and for an episode without a simulation's clock.",
+        "operationId": "simulated",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The episode's ID, as `/api/episodes` lists it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EpisodeSimulated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The ID isn't an episode ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No episode, here or deleted here, has this ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "It can't be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/episodes/{id}/statistics": {
       "get": {
         "tags": [],
@@ -3092,6 +3151,31 @@
           "reason": {
             "type": "string",
             "description": "Why it had to be recovered, in words."
+          }
+        }
+      },
+      "EpisodeSimulated": {
+        "type": "object",
+        "description": "How a simulation an episode recorded ran, worked out with its quality\nchecks from the messages of the field its package gives the role\n`time.simulated`.",
+        "properties": {
+          "computed_utc_ns": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "When it was worked out, in UTC nanoseconds since the Unix epoch;\n`null` until the worker has checked the episode."
+          },
+          "simulated": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SimulatedRun",
+                "description": "How it ran; `null` until then, and for an episode without a\nsimulation's clock, or whose clock sent nothing."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -4997,6 +5081,120 @@
               "$ref": "#/components/schemas/Setting"
             },
             "description": "Every setting, in the order the configuration reference lists them."
+          }
+        }
+      },
+      "SimulatedPauseSpan": {
+        "type": "object",
+        "description": "A span in which a simulation was paused.",
+        "required": [
+          "start_utc_ns",
+          "end_utc_ns",
+          "simulated_ns"
+        ],
+        "properties": {
+          "end_utc_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it played again, in UTC nanoseconds."
+          },
+          "simulated_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The simulated time it was paused at."
+          },
+          "start_utc_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it was paused, in UTC nanoseconds."
+          }
+        }
+      },
+      "SimulatedResetAt": {
+        "type": "object",
+        "description": "A simulation reset: its time going back.",
+        "required": [
+          "at_utc_ns",
+          "from_ns",
+          "to_ns"
+        ],
+        "properties": {
+          "at_utc_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When the clock's first message after it was received, in UTC\nnanoseconds."
+          },
+          "from_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The simulated time before it."
+          },
+          "to_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The simulated time it went back to."
+          }
+        }
+      },
+      "SimulatedRun": {
+        "type": "object",
+        "description": "How a simulation ran over an episode. Its own times are in simulated\nnanoseconds; when something happened, in UTC nanoseconds since the Unix\nepoch, as Kapto received the clock's messages.",
+        "required": [
+          "start_ns",
+          "end_ns",
+          "simulated_ns",
+          "real_ns",
+          "paused_ns",
+          "pauses",
+          "resets"
+        ],
+        "properties": {
+          "end_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The simulated time of its last."
+          },
+          "paused_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How much of that the simulation was paused."
+          },
+          "pauses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SimulatedPauseSpan"
+            },
+            "description": "Each pause, in order."
+          },
+          "ratio": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Simulated time over real time while it wasn't paused: 0.5 at half\nreal time, 2 at twice; `null` if it was paused throughout."
+          },
+          "real_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How much time passed from the clock's first message to its last, as\nKapto received them."
+          },
+          "resets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SimulatedResetAt"
+            },
+            "description": "Each reset, simulated time going back, in order."
+          },
+          "simulated_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How much simulated time passed, each segment between resets added up."
+          },
+          "start_ns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The simulated time of the clock's first message."
           }
         }
       },

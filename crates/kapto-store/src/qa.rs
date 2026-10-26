@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 
+use kapto_core::simulated::SimulatedSummary;
+
 use crate::models::AnomalyModel;
 
 /// Whether a check can reject an episode.
@@ -94,6 +96,88 @@ pub struct QaRun {
     /// results.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<Box<AnomalyModel>>,
+    /// How the simulation ran, for an episode whose package gives the role
+    /// `time.simulated` a clock that has messages in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub simulated: Option<Box<Simulated>>,
+}
+
+/// How a simulation ran over an episode, worked out from its clock's
+/// messages (`kapto_core::simulated`). Times of the simulation are in its
+/// own nanoseconds, receive times in UTC nanoseconds since the Unix epoch.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Simulated {
+    /// The simulated time of the clock's first message.
+    pub start_ns: i64,
+    /// The simulated time of its last.
+    pub end_ns: i64,
+    /// How much simulated time passed, each segment between resets added up.
+    pub simulated_ns: i64,
+    /// How much receive time passed from its first message to its last.
+    pub real_ns: i64,
+    /// How much of that the simulation was paused.
+    pub paused_ns: i64,
+    /// Simulated time over receive time while it wasn't paused; `None` if
+    /// it was paused throughout, or had one message.
+    pub ratio: Option<f64>,
+    /// Each pause, in order.
+    pub pauses: Vec<SimulatedPause>,
+    /// Each time simulated time went back, in order.
+    pub resets: Vec<SimulatedReset>,
+}
+
+/// A span in which the simulation was paused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SimulatedPause {
+    /// When it was paused, in UTC nanoseconds.
+    pub start_utc_ns: i64,
+    /// When it played again, in UTC nanoseconds.
+    pub end_utc_ns: i64,
+    /// The simulated time it was paused at.
+    pub simulated_ns: i64,
+}
+
+/// Simulated time going back, as a simulation reset does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SimulatedReset {
+    /// When the clock's first message after it was received, in UTC
+    /// nanoseconds.
+    pub at_utc_ns: i64,
+    /// The simulated time before it.
+    pub from_ns: i64,
+    /// The simulated time it went back to.
+    pub to_ns: i64,
+}
+
+impl From<SimulatedSummary> for Simulated {
+    fn from(summary: SimulatedSummary) -> Self {
+        Self {
+            start_ns: summary.start_ns,
+            end_ns: summary.end_ns,
+            simulated_ns: summary.simulated_ns,
+            real_ns: summary.real_ns,
+            paused_ns: summary.paused_ns,
+            ratio: summary.ratio,
+            pauses: summary
+                .pauses
+                .into_iter()
+                .map(|pause| SimulatedPause {
+                    start_utc_ns: pause.start_utc_ns,
+                    end_utc_ns: pause.end_utc_ns,
+                    simulated_ns: pause.simulated_ns,
+                })
+                .collect(),
+            resets: summary
+                .resets
+                .into_iter()
+                .map(|reset| SimulatedReset {
+                    at_utc_ns: reset.at_utc_ns,
+                    from_ns: reset.from_ns,
+                    to_ns: reset.to_ns,
+                })
+                .collect(),
+        }
+    }
 }
 
 impl QaRun {
@@ -133,6 +217,10 @@ pub(crate) const SCHEMA: &str = "CREATE TABLE qa_runs (
         measured TEXT NOT NULL,
         ranges TEXT NOT NULL,
         PRIMARY KEY (episode, position)
+    ) STRICT;
+    CREATE TABLE qa_simulated (
+        episode TEXT PRIMARY KEY NOT NULL,
+        summary TEXT NOT NULL
     ) STRICT;";
 
 /// Replaces what the tables hold for `run`'s episode with `run`.
@@ -148,6 +236,16 @@ pub(crate) fn record(tx: &Transaction<'_>, run: &QaRun) -> rusqlite::Result<()> 
     let mut statistic = tx.prepare_cached("INSERT INTO qa_statistics VALUES (?1, ?2, ?3)")?;
     for (name, value) in &run.statistics {
         statistic.execute(params![run.episode, name, json(value)])?;
+    }
+    tx.execute(
+        "DELETE FROM qa_simulated WHERE episode = ?1",
+        [&run.episode],
+    )?;
+    if let Some(simulated) = &run.simulated {
+        tx.execute(
+            "INSERT INTO qa_simulated VALUES (?1, ?2)",
+            params![run.episode, json(simulated)],
+        )?;
     }
     tx.execute(
         "INSERT OR REPLACE INTO qa_runs VALUES (?1, ?2, ?3)",
@@ -189,6 +287,7 @@ pub(crate) fn read(connection: &Connection, episode: &str) -> rusqlite::Result<O
                 results: Vec::new(),
                 statistics: BTreeMap::new(),
                 model: None,
+                simulated: None,
             })
         })
         .optional()?;
@@ -219,6 +318,12 @@ pub(crate) fn read(connection: &Connection, episode: &str) -> rusqlite::Result<O
             run.statistics.insert(row.get(0)?, value);
         }
     }
+    // A summary stored in a form this version doesn't read is left out.
+    run.simulated = connection
+        .prepare_cached("SELECT summary FROM qa_simulated WHERE episode = ?1")?
+        .query_row([episode], |row| row.get::<_, String>(0))
+        .optional()?
+        .and_then(|summary| serde_json::from_str(&summary).ok());
     Ok(Some(run))
 }
 
@@ -308,7 +413,45 @@ mod tests {
             results,
             statistics: BTreeMap::new(),
             model: None,
+            simulated: None,
         }
+    }
+
+    #[test]
+    fn how_a_simulation_ran_is_kept_with_its_run_and_gone_with_a_run_without_one() {
+        let folder =
+            std::env::temp_dir().join(format!("kapto-{}-qa-simulated", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let writer = Writer::open(&folder.join(DATABASE_FILE)).unwrap();
+        let mut simulated = run(Vec::new());
+        simulated.simulated = Some(Box::new(Simulated {
+            start_ns: 0,
+            end_ns: 500_000_000,
+            simulated_ns: 1_500_000_000,
+            real_ns: 4_000_000_000,
+            paused_ns: 1_000_000_000,
+            ratio: Some(0.5),
+            pauses: vec![SimulatedPause {
+                start_utc_ns: 1_772_700_401_000_000_000,
+                end_utc_ns: 1_772_700_402_000_000_000,
+                simulated_ns: 500_000_000,
+            }],
+            resets: vec![SimulatedReset {
+                at_utc_ns: 1_772_700_403_000_000_000,
+                from_ns: 1_000_000_000,
+                to_ns: 0,
+            }],
+        }));
+        writer.record_qa(simulated.clone()).unwrap();
+        assert_eq!(
+            writer.reader().unwrap().qa(EPISODE).unwrap(),
+            Some(simulated)
+        );
+        writer.record_qa(run(Vec::new())).unwrap();
+        let again = writer.reader().unwrap().qa(EPISODE).unwrap().unwrap();
+        assert_eq!(again.simulated, None);
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

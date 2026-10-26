@@ -373,6 +373,24 @@ export interface EpisodeRecovered {
   reason: string;
 }
 
+/**
+ * How a simulation an episode recorded ran, worked out with its quality
+ * checks from the messages of the field its package gives the role
+ * `time.simulated`.
+ */
+export interface EpisodeSimulated {
+  /**
+   * When it was worked out, in UTC nanoseconds since the Unix epoch;
+   * `null` until the worker has checked the episode.
+   */
+  computed_utc_ns?: number | null;
+  /**
+   * How it ran; `null` until then, and for an episode without a
+   * simulation's clock, or whose clock sent nothing.
+   */
+  simulated?: SimulatedRun | null;
+}
+
 /** An episode's statistics, worked out with its quality checks. */
 export interface EpisodeStatistics {
   /**
@@ -1152,6 +1170,59 @@ export interface SettingsOverview {
   file_found: boolean;
   /** Every setting, in the order the configuration reference lists them. */
   settings: Setting[];
+}
+
+/** A span in which a simulation was paused. */
+export interface SimulatedPauseSpan {
+  /** When it played again, in UTC nanoseconds. */
+  end_utc_ns: number;
+  /** The simulated time it was paused at. */
+  simulated_ns: number;
+  /** When it was paused, in UTC nanoseconds. */
+  start_utc_ns: number;
+}
+
+/** A simulation reset: its time going back. */
+export interface SimulatedResetAt {
+  /**
+   * When the clock's first message after it was received, in UTC
+   * nanoseconds.
+   */
+  at_utc_ns: number;
+  /** The simulated time before it. */
+  from_ns: number;
+  /** The simulated time it went back to. */
+  to_ns: number;
+}
+
+/**
+ * How a simulation ran over an episode. Its own times are in simulated
+ * nanoseconds; when something happened, in UTC nanoseconds since the Unix
+ * epoch, as Kapto received the clock's messages.
+ */
+export interface SimulatedRun {
+  /** The simulated time of its last. */
+  end_ns: number;
+  /** How much of that the simulation was paused. */
+  paused_ns: number;
+  /** Each pause, in order. */
+  pauses: SimulatedPauseSpan[];
+  /**
+   * Simulated time over real time while it wasn't paused: 0.5 at half
+   * real time, 2 at twice; `null` if it was paused throughout.
+   */
+  ratio?: number | null;
+  /**
+   * How much time passed from the clock's first message to its last, as
+   * Kapto received them.
+   */
+  real_ns: number;
+  /** Each reset, simulated time going back, in order. */
+  resets: SimulatedResetAt[];
+  /** How much simulated time passed, each segment between resets added up. */
+  simulated_ns: number;
+  /** The simulated time of the clock's first message. */
+  start_ns: number;
 }
 
 /** Start recording an episode. */

@@ -68,7 +68,8 @@ use crate::layouts::{
 use crate::preflight::{PreflightCheck, PreflightRequest, PreflightRun};
 use crate::processes::{ProcessState, ProcessStatus, Processes};
 use crate::quality::{
-    CheckRange, CheckResult, EpisodeQuality, EpisodeStatistics, StatisticSummary,
+    CheckRange, CheckResult, EpisodeQuality, EpisodeSimulated, EpisodeStatistics,
+    SimulatedPauseSpan, SimulatedResetAt, SimulatedRun, StatisticSummary,
 };
 use crate::replays::{self, ReplayOpening, ReplayState, ReplayStatus};
 use crate::robot::{
@@ -91,8 +92,9 @@ use capture::{
 };
 use episodes::{
     __path_delete_episode, __path_empty_bin, __path_episode, __path_episode_events,
-    __path_episodes, __path_quality, __path_restore_episode, __path_statistics, delete_episode,
-    empty_bin, episode, episode_events, episodes, quality, restore_episode, statistics,
+    __path_episodes, __path_quality, __path_restore_episode, __path_simulated, __path_statistics,
+    delete_episode, empty_bin, episode, episode_events, episodes, quality, restore_episode,
+    simulated, statistics,
 };
 use events::{__path_events, events};
 use profiles::{__path_event_kinds, __path_profiles, __path_tasks, event_kinds, profiles, tasks};
@@ -199,6 +201,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/episodes/{id}/qa", get(quality))
         .route("/api/episodes/{id}/events", get(episode_events))
         .route("/api/episodes/{id}/statistics", get(statistics))
+        .route("/api/episodes/{id}/simulated", get(simulated))
         .route("/api/episodes/{id}/replay", get(replay).post(ask_replay))
         .route("/api/episodes/{id}/replay/opening", get(replay_opening))
         .route("/api/episodes/{id}/replay/window", get(replay_window))
@@ -311,6 +314,7 @@ async fn stopped(stop: Arc<AtomicBool>) {
         quality,
         episode_events,
         statistics,
+        simulated,
         replay,
         ask_replay,
         replay_opening,
@@ -380,6 +384,10 @@ async fn stopped(stop: Arc<AtomicBool>) {
         CheckRange,
         EpisodeStatistics,
         StatisticSummary,
+        EpisodeSimulated,
+        SimulatedRun,
+        SimulatedPauseSpan,
+        SimulatedResetAt,
         ReplayStatus,
         ReplayOpening,
         crate::cameras::CameraFrames,

@@ -799,7 +799,12 @@ each joint's position, speed, acceleration, jerk and effort, each
 gripper's cycles; all of them unless the `[statistics]` of its `qa.toml`
 leaves some out), sent and stored with
 the results: distributions that pool, so a session's come from its
-episodes'. Then the **anomaly detectors** the `qa.toml` turns on compare
+episodes'. For a package whose mapping gives a simulation's clock the role
+`time.simulated`, it also works out how the simulation ran, from that
+role's values (`kapto_core::simulated`: segments between resets, pauses
+where the clock held still or fell silent), kept in `kapto.db` with the
+results and given by `/api/episodes/{id}/simulated`; `episode.json` is
+never changed for it. Then the **anomaly detectors** the `qa.toml` turns on compare
 the episode with the other checked episodes of its **session**, those
 recorded with the same robot package, profile and task on the same day,
 whose statistics the worker reads from `kapto.db` with a read-only

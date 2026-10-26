@@ -585,6 +585,131 @@ fn the_worker_checks_each_episode_with_the_quality_settings_its_recording_carrie
     worker.wait().unwrap();
 }
 
+/// Writes the recording of episode `id` in `data`: a simulation's clock,
+/// given the role `time.simulated`, at half real time for a second, silent
+/// for two while paused, then playing on and reset to zero; and `qa`, if
+/// given, as its `qa.toml`.
+fn recorded_simulation(data: &Path, id: &str, qa: Option<&str>) {
+    let layout = StructLayout {
+        fields: vec![FieldSpec::new("time", ScalarType::Time, 0)],
+    };
+    let clock_stream = ChannelSpec {
+        stream: 0,
+        id: "clock".parse::<StreamId>().unwrap(),
+        schema: Some(ChannelSchema {
+            message_encoding: STRUCT_ENCODING.to_owned(),
+            name: "clock".to_owned(),
+            encoding: STRUCT_ENCODING.to_owned(),
+            data: layout.to_schema_json().into_bytes(),
+            metadata: BTreeMap::new(),
+        }),
+    };
+    let clock = ClockMap::new(ClockSample::now());
+    let mut recording = Recording::create(
+        &data.join(id).join("recording.mcap"),
+        &[clock_stream],
+        &clock,
+        &WriterConfig::default(),
+    )
+    .unwrap();
+    let mapping = "[roles]\n\"time.simulated\" = \"clock.time\"\n";
+    recording
+        .attach("mapping.toml", "application/toml", 0, mapping.as_bytes())
+        .unwrap();
+    if let Some(qa) = qa {
+        recording
+            .attach("qa.toml", "application/toml", 0, qa.as_bytes())
+            .unwrap();
+    }
+    // Every 10 ms, 5 ms of simulation: to 0.5 s, then from 3 s of receive
+    // time on a tick later to 0.755 s, then back to zero, to 0.25 s.
+    let ms = 1_000_000_u64;
+    let readings = (0..=100_u32)
+        .map(|n| (u64::from(n) * 10 * ms, 0.005 * f64::from(n)))
+        .chain((0..=50_u32).map(|n| {
+            (
+                3000 * ms + u64::from(n) * 10 * ms,
+                0.505 + 0.005 * f64::from(n),
+            )
+        }))
+        .chain((0..=50_u32).map(|n| (3510 * ms + u64::from(n) * 10 * ms, 0.005 * f64::from(n))));
+    let counters = LossCounters::new(1);
+    for (received, simulated) in readings {
+        let mut batch = Batch::new(1, 8);
+        batch.push(0, &simulated.to_le_bytes());
+        batch.set_recv_time(RecvTime::from_nanos(received + 1));
+        recording.write(&batch, &counters).unwrap();
+    }
+    recording.finish(&clock).unwrap();
+}
+
+#[test]
+fn the_worker_works_out_how_a_recorded_simulation_ran_with_the_pause_silence_it_carries() {
+    let folder = scratch("worker-simulated");
+    let data = folder.join("data");
+    let (defaults, patient, real) = (
+        "20260310T120100.000Z-00000001",
+        "20260310T120200.000Z-00000002",
+        "20260310T120300.000Z-00000003",
+    );
+    for episode in [defaults, patient, real] {
+        finalised(&data, episode);
+        summarised(&data, episode, 0);
+    }
+    recorded_simulation(&data, defaults, None);
+    recorded_simulation(
+        &data,
+        patient,
+        Some("qa_params_version = \"2\"\n[simulated]\npause_silence = 1000\n"),
+    );
+    recorded(&data, real, None);
+    let store = Writer::open(&data.join(DATABASE_FILE)).unwrap();
+    for episode in [defaults, patient, real] {
+        store.enqueue(QA, episode).unwrap();
+    }
+    let _serve = JobServer::listen(&data.join(JOB_SOCKET), store.clone()).unwrap();
+    let mut worker = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .arg("worker")
+        .args(["--parent", &std::process::id().to_string()])
+        .arg("--data-dir")
+        .arg(&data)
+        .env_clear()
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let reader = store.reader().unwrap();
+    wait_until("every job to end", || {
+        reader
+            .jobs(10)
+            .unwrap()
+            .iter()
+            .all(|job| job.state == JobState::Done)
+    });
+    let ran = |episode: &str| reader.qa(episode).unwrap().unwrap().simulated;
+
+    let ran_by_default = ran(defaults).unwrap();
+    assert_eq!(
+        (ran_by_default.start_ns, ran_by_default.end_ns),
+        (0, 250_000_000)
+    );
+    assert_eq!(ran_by_default.simulated_ns, 1_005_000_000);
+    assert_eq!(ran_by_default.real_ns, 4_010_000_000);
+    assert_eq!(ran_by_default.resets.len(), 1);
+    assert_eq!(ran_by_default.resets[0].to_ns, 0);
+    assert_eq!(ran_by_default.pauses.len(), 1);
+    assert_eq!(ran_by_default.pauses[0].simulated_ns, 500_000_000);
+    assert_eq!(ran_by_default.paused_ns, 1_990_000_000);
+    let ratio = ran_by_default.ratio.unwrap();
+    assert!((ratio - 0.4975).abs() < 1e-3, "{ratio}");
+    // Silent 200 times its usual wait: no pause for 1000.
+    assert_eq!(ran(patient).unwrap().pauses, []);
+    // A recording without the role ran no simulation.
+    assert_eq!(ran(real), None);
+    worker.kill().unwrap();
+    worker.wait().unwrap();
+}
+
 /// Writes the recording of episode `id` in `data`: a few messages of one
 /// stream, and `events` on its channel of events.
 fn recorded_with_events(data: &Path, id: &str, events: &[Event]) {

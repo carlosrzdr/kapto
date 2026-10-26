@@ -119,6 +119,7 @@ max_dropped = 0
 | `anomalies.autoencoder.max_episodes` | no | How many of them, the newest, a model learns from at most, from 3 to 10000. `200` by default. |
 | `anomalies.autoencoder.variance` | no | How much of the spread of the statistics the model keeps, from 0.5 to 1: the more, the closer it follows the episodes learned from. `0.9` by default. |
 | `anomalies.autoencoder.retrain_after` | no | How many new accepted episodes of the package and task make it learn again, from 1 to 10000. `10` by default. |
+| `simulated.pause_silence` | no | For a package whose mapping gives the role `time.simulated`: how many times longer than its clock usually waits between messages it must fall silent, coming back no more than a tick on, for the simulation to count as paused, as one that publishes its clock only while it plays is, from 2 to 1000. A clock that holds still is paused however long. `10` by default. |
 
 ## `layout.toml`
 

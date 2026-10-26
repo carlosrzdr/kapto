@@ -38,6 +38,7 @@ use kapto_qa::autoencoder::AutoencoderAnomalies;
 use kapto_qa::carried::carried;
 use kapto_qa::episode_statistics::Statistics;
 use kapto_qa::roles::read_episode;
+use kapto_qa::simulated::how_it_ran;
 use kapto_qa::{
     Check, CheckKind, EpisodeView, Finding, QaResult, QaRun, checks, episode_statistics, run_checks,
 };
@@ -206,6 +207,7 @@ impl Job for Quality {
         run.results
             .extend(detect(&detectors, &episode, &statistics, folder));
         run.statistics = episode_statistics::to_stored(statistics);
+        run.simulated = how_it_ran(&episode, &settings.simulated);
         Ok(Done {
             qa: Some(run),
             ..Done::default()

@@ -32,7 +32,7 @@ pub const QA_FILE: &str = "qa.toml";
 
 /// Every key of `qa.toml`, in the order they are documented: a check's
 /// settings are named after its ID.
-pub const QA_KEYS: [FileKey; 53] = [
+pub const QA_KEYS: [FileKey; 54] = [
     FileKey {
         name: "qa_params_version",
         required: true,
@@ -298,6 +298,11 @@ pub const QA_KEYS: [FileKey; 53] = [
         required: false,
         help: "How many new accepted episodes of the package and task make it learn again, from 1 to 10000. `10` by default.",
     },
+    FileKey {
+        name: "simulated.pause_silence",
+        required: false,
+        help: "For a package whose mapping gives the role `time.simulated`: how many times longer than its clock usually waits between messages it must fall silent, coming back no more than a tick on, for the simulation to count as paused, as one that publishes its clock only while it plays is, from 2 to 1000. A clock that holds still is paused however long. `10` by default.",
+    },
 ];
 
 /// The quality settings of a robot package.
@@ -331,6 +336,22 @@ pub struct QaSettings {
     pub statistical_anomalies: StatisticalAnomaliesSettings,
     /// The anomalies an autoencoder finds, `anomalies.autoencoder`.
     pub autoencoder_anomalies: AutoencoderAnomaliesSettings,
+    /// How a simulation's clock is read, for a package that has one.
+    pub simulated: SimulatedSettings,
+}
+
+/// How a simulation's clock, the role `time.simulated`, is read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SimulatedSettings {
+    /// How many times longer than its clock usually waits between messages
+    /// it must fall silent, back no more than a tick on, to count as paused.
+    pub pause_silence: u32,
+}
+
+impl Default for SimulatedSettings {
+    fn default() -> Self {
+        Self { pause_silence: 10 }
+    }
 }
 
 /// The settings of the gate `streams.complete`.
@@ -862,6 +883,13 @@ fn read_settings(
             .number("window_seconds", 0.001..=3600.0)
             .unwrap_or(check.window_seconds);
     });
+    read_table(file, root, "simulated", errors, |reader, _| {
+        let simulated = &mut settings.simulated;
+        simulated.pause_silence = reader
+            .whole("pause_silence", 2..=1000)
+            .and_then(|whole| u32::try_from(whole).ok())
+            .unwrap_or(simulated.pause_silence);
+    });
     read_table(file, root, "motion.idle", errors, |reader, _| {
         let check = &mut settings.idle;
         check.enabled = reader.switch("enabled").unwrap_or(check.enabled);
@@ -1172,6 +1200,7 @@ mod tests {
                     variance: 0.9,
                     retrain_after: 10,
                 },
+                simulated: SimulatedSettings { pause_silence: 10 },
             }
         );
     }
@@ -1290,6 +1319,22 @@ mod tests {
             [
                 "config.invalid_value 3: Invalid configuration value: `critical` must be a list of stream names",
                 "config.invalid_value 5: Invalid configuration value: `max_seconds` must be a number from 1 to 86400"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_simulations_pause_silence_is_set_in_its_table_and_kept_in_its_range() {
+        assert_eq!(
+            parse("qa_params_version = \"1\"\n").unwrap().simulated,
+            SimulatedSettings { pause_silence: 10 }
+        );
+        let settings = parse("qa_params_version = \"1\"\n[simulated]\npause_silence = 40\n");
+        assert_eq!(settings.unwrap().simulated.pause_silence, 40);
+        assert_eq!(
+            problems("qa_params_version = \"1\"\n[simulated]\npause_silence = 1\n"),
+            [
+                "config.invalid_value 3: Invalid configuration value: `pause_silence` must be a whole number from 2 to 1000"
             ]
         );
     }

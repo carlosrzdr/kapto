@@ -720,7 +720,6 @@ before it.
 
 | PR | Delivers | Tests | You check |
 |---|---|---|---|
-| M20-02c `feat(server): how a simulation ran, in kapto.db and the api` | With the role `time.simulated` given, the quality job works out the episode's `SimulatedClock` (`kapto_core::simulated`) from the role's values it reads already, and its summary (simulated start, end and duration, the ratio while it ran, each pause and reset) is kept in `kapto.db` with the job's results and given by `GET /api/episodes/{id}/simulated`; `episode.json` unchanged, as the [simulated-time design](../design/simulated-time.md) says | An episode recorded with a synthetic clock at half real time, paused and reset: the summary kept and served; an episode without the role has none; handler and error-code tests, regenerated OpenAPI | — |
 | M20-02d `feat(qa): rates in simulated time` | With the role given, pre-flight's rate check, the rate checks and the loss estimated from silences judged per simulated second, a paused simulation's silences not lost | Loadgen with a `/clock` at half real time: no slow stream, no loss; paused: no silence counted | — |
 | M20-02e `feat(ui): replays and the live view in simulated time` | The replay's *Simulated time* switch: the cursor through simulated time, pauses passed at once, segments between resets in turn with each marked, the axis in simulated seconds; the live view's simulated time, paused or not | Vitest for the mapping in the page; Playwright: a replay of a reset episode played in simulated time; screenshots | Watching a slowed simulation replayed at its own pace |
 | M20-03 `perf(viz): raw pictures at the size a page shows them` | With a page open, five raw 1080p cameras fill the bridge's one frames thread (1.0 cores, the page within its budget at 20 ms): it encodes each picture a page's share takes whole, though a page shows five cameras in panels a fraction of 1080p wide. Each page would tell the bridge how wide it draws each camera, and the bridge encode a raw picture no wider than the widest page's panel, made smaller from its pixels as the look-back's already are; the page asks again as its panels change. **Open question:** whether a picture smaller than the camera's, shown live, is acceptable, with the whole one a replay away | `profile page --scenario five-cameras --raw-cameras`: the bridge under half a core, the page within its budget | — |
@@ -1005,7 +1004,7 @@ reference.
    the live view's memory over hours (M15-06f); `tokio-console`
    (M15-06b) once its open question is answered.
 4. Recording a robot simulated in Isaac Sim (WP M20), starting with
-   M20-02c, simulated time, in its three PRs left.
+   M20-02d, simulated time, in its two PRs left.
 
 The other work packages wait until then.
 

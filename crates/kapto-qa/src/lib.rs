@@ -29,6 +29,7 @@ pub mod checks;
 pub mod conformance;
 pub mod episode_statistics;
 pub mod roles;
+pub mod simulated;
 pub mod statistics;
 pub mod timing;
 
@@ -276,5 +277,6 @@ pub fn run_checks(
         computed_utc_ns: utc_now_ns(),
         results,
         model: None,
+        simulated: None,
     }
 }

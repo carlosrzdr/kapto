@@ -204,6 +204,7 @@ fn what_a_detector_flags_is_advisory_and_never_rejects_the_episode() {
         results,
         statistics: BTreeMap::new(),
         model: None,
+        simulated: None,
     };
     assert!(run.accepted());
 }

@@ -224,7 +224,7 @@ fn find_field(
 }
 
 /// The role a simulation's time plays, which only a single `time` field can.
-pub const SIMULATED_TIME: &str = "time.simulated";
+pub const SIMULATED_TIME: &str = kapto_core::simulated::ROLE;
 
 /// Checks that the value `reference` names for `role` is decoded: a whole
 /// field, or an element of an array field. Any type plays a role, a

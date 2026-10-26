@@ -9,12 +9,16 @@
 //! as it did between them. Where it goes back by more than a tick the
 //! simulation was reset, and a new [`Segment`] starts; a smaller step back
 //! is a reading out of order, left out. Where it doesn't move, or where the
-//! clock fell silent for [`PAUSE_SILENCE`] times longer than it usually
-//! waits between readings and came back no more than a tick on, the
-//! simulation was paused.
+//! clock fell silent for `pause_silence` times longer than it usually waits
+//! between readings and came back no more than a tick on, the simulation
+//! was paused.
 //!
 //! Worked out the same way by the worker, the server and the viewer's
 //! bridge, so all three agree; nothing here reads a clock.
+
+/// The role of the field holding the simulation's time, given in a
+/// package's mapping.
+pub const ROLE: &str = "time.simulated";
 
 /// One message of the clock stream: when Kapto received it and the
 /// simulated time it carries.
@@ -25,13 +29,6 @@ pub struct ClockReading {
     /// The simulated time it carries, in nanoseconds.
     pub simulated_ns: i64,
 }
-
-/// How many times longer than the clock usually waits between readings it
-/// must fall silent, coming back no more than a tick on, to count as a
-/// pause: a simulation that publishes its clock only while it plays goes
-/// silent when paused, while one that is merely slow still publishes at its
-/// own steady pace.
-pub const PAUSE_SILENCE: i64 = 10;
 
 /// A span of receive time in which the simulation was paused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,9 +155,16 @@ pub struct SimulatedClock {
 
 impl SimulatedClock {
     /// The mapping made from a clock stream's readings, sorted by receive
-    /// time first if they aren't.
+    /// time first if they aren't. `pause_silence` is how many times longer
+    /// than the clock usually waits between readings it must fall silent,
+    /// coming back no more than a tick on, to count as a pause: a simulation
+    /// that publishes its clock only while it plays goes silent when paused,
+    /// while one that is merely slow still publishes at its own steady pace.
     #[must_use]
-    pub fn from_readings(readings: impl IntoIterator<Item = ClockReading>) -> Self {
+    pub fn from_readings(
+        readings: impl IntoIterator<Item = ClockReading>,
+        pause_silence: u32,
+    ) -> Self {
         let mut readings: Vec<ClockReading> = readings.into_iter().collect();
         readings.sort_by_key(|reading| reading.receive_utc_ns);
         let mut clock = Self::default();
@@ -181,14 +185,16 @@ impl SimulatedClock {
                     from_ns: last.simulated_ns,
                     to_ns: reading.simulated_ns,
                 });
-                clock.segments.push(segment(std::mem::take(&mut current)));
+                clock
+                    .segments
+                    .push(segment(std::mem::take(&mut current), pause_silence));
                 current.push(reading);
                 largest_step = 0;
             }
             // Otherwise back by no more than a tick: out of order, left out.
         }
         if !current.is_empty() {
-            clock.segments.push(segment(current));
+            clock.segments.push(segment(current, pause_silence));
         }
         clock
     }
@@ -276,7 +282,7 @@ pub struct SimulatedSummary {
 }
 
 /// A segment of `readings`, never going back, with its pauses found.
-fn segment(readings: Vec<ClockReading>) -> Segment {
+fn segment(readings: Vec<ClockReading>, pause_silence: u32) -> Segment {
     let steps = || readings.windows(2).map(|pair| (pair[0], pair[1]));
     // What the clock usually does between readings while it plays: its
     // median wait and its median tick.
@@ -306,7 +312,7 @@ fn segment(readings: Vec<ClockReading>) -> Segment {
                 // Silent far longer than usual, and back less than two ticks
                 // on: paused until a usual wait before it came back.
                 Some((usual_wait, usual_tick))
-                    if wait >= PAUSE_SILENCE.saturating_mul(usual_wait)
+                    if wait >= i64::from(pause_silence).saturating_mul(usual_wait)
                         && tick < usual_tick.saturating_mul(2) =>
                 {
                     to.receive_utc_ns - usual_wait
@@ -348,6 +354,8 @@ mod tests {
     const S: i64 = 1_000 * MS;
     /// When the episode's first reading arrived, in UTC.
     const T0: i64 = 1_800_000_000 * S;
+    /// `qa.toml`'s default.
+    const PAUSE_SILENCE: u32 = 10;
 
     /// A clock read every `wait` of receive time, moving `tick` each time,
     /// `count` times from `start` (receive offset) and `simulated`.
@@ -361,7 +369,9 @@ mod tests {
     }
 
     fn summary(readings: Vec<ClockReading>) -> SimulatedSummary {
-        SimulatedClock::from_readings(readings).summary().unwrap()
+        SimulatedClock::from_readings(readings, PAUSE_SILENCE)
+            .summary()
+            .unwrap()
     }
 
     #[test]
@@ -387,7 +397,7 @@ mod tests {
         let mut readings = steady(0, 0, 10 * MS, 10 * MS, 101);
         readings.extend(steady(S + 10 * MS, S, 10 * MS, 0, 200));
         readings.extend(steady(3 * S + 10 * MS, S + 10 * MS, 10 * MS, 10 * MS, 100));
-        let clock = SimulatedClock::from_readings(readings);
+        let clock = SimulatedClock::from_readings(readings, PAUSE_SILENCE);
         let run = clock.summary().unwrap();
         assert_eq!(
             run.pauses,
@@ -412,7 +422,7 @@ mod tests {
         // Plays 1 s, publishes nothing for 5 s, then plays on a tick later.
         let mut readings = steady(0, 0, 10 * MS, 10 * MS, 101);
         readings.extend(steady(6 * S, S + 10 * MS, 10 * MS, 10 * MS, 100));
-        let clock = SimulatedClock::from_readings(readings);
+        let clock = SimulatedClock::from_readings(readings, PAUSE_SILENCE);
         let run = clock.summary().unwrap();
         assert_eq!(
             run.pauses,
@@ -429,6 +439,19 @@ mod tests {
             clock.at(T0 + 6 * S - 5 * MS).unwrap().simulated_ns,
             S + 5 * MS
         );
+    }
+
+    #[test]
+    fn a_silence_shorter_than_pause_silence_times_the_usual_wait_is_no_pause() {
+        // Silent 500 times the usual 10 ms: a pause at 500, not at 1000.
+        let mut readings = steady(0, 0, 10 * MS, 10 * MS, 101);
+        readings.extend(steady(6 * S, S + 10 * MS, 10 * MS, 10 * MS, 100));
+        let paused = |silence| {
+            SimulatedClock::from_readings(readings.clone(), silence)
+                .pauses()
+                .count()
+        };
+        assert_eq!((paused(500), paused(1000)), (1, 0));
     }
 
     #[test]
@@ -458,7 +481,7 @@ mod tests {
     fn a_reset_to_zero_starts_a_new_segment_and_both_count() {
         let mut readings = steady(0, 0, 10 * MS, 10 * MS, 101);
         readings.extend(steady(S + 10 * MS, 0, 10 * MS, 10 * MS, 51));
-        let clock = SimulatedClock::from_readings(readings);
+        let clock = SimulatedClock::from_readings(readings, PAUSE_SILENCE);
         let run = clock.summary().unwrap();
         assert_eq!(clock.segments().len(), 2);
         assert_eq!(
@@ -488,14 +511,14 @@ mod tests {
             receive_utc_ns: T0 + 110 * MS,
             simulated_ns: 110 * MS,
         });
-        let clock = SimulatedClock::from_readings(readings);
+        let clock = SimulatedClock::from_readings(readings, PAUSE_SILENCE);
         assert_eq!(clock.resets(), []);
         assert_eq!(clock.segments()[0].readings().len(), 12);
     }
 
     #[test]
     fn between_readings_simulated_time_moves_at_their_pace() {
-        let clock = SimulatedClock::from_readings(steady(0, 0, 10 * MS, 5 * MS, 3));
+        let clock = SimulatedClock::from_readings(steady(0, 0, 10 * MS, 5 * MS, 3), PAUSE_SILENCE);
         assert_eq!(clock.at(T0 + 4 * MS).unwrap().simulated_ns, 2 * MS);
         assert_eq!(clock.at(T0 + 20 * MS).unwrap().simulated_ns, 10 * MS);
         assert_eq!(clock.at(T0 - 1), None);
@@ -511,7 +534,10 @@ mod tests {
 
     #[test]
     fn no_readings_have_no_summary_and_one_has_no_ratio() {
-        assert_eq!(SimulatedClock::from_readings([]).summary(), None);
+        assert_eq!(
+            SimulatedClock::from_readings([], PAUSE_SILENCE).summary(),
+            None
+        );
         let one = summary(steady(0, 7 * S, 0, 0, 1));
         assert_eq!(
             (one.start_ns, one.end_ns, one.simulated_ns),
@@ -533,7 +559,7 @@ mod tests {
                     simulated_ns: last.simulated_ns + tick,
                 });
             }
-            let clock = SimulatedClock::from_readings(readings.clone());
+            let clock = SimulatedClock::from_readings(readings.clone(), PAUSE_SILENCE);
             proptest::prop_assert_eq!(clock.segments().len(), 1);
             for reading in &readings {
                 let at = clock.at(reading.receive_utc_ns).unwrap();

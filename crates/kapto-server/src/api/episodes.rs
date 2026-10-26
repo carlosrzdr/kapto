@@ -18,7 +18,7 @@ use crate::episode::{
 };
 use crate::episode_bin;
 use crate::episode_events::{self, EpisodeEvents};
-use crate::quality::{self, EpisodeQuality, EpisodeStatistics};
+use crate::quality::{self, EpisodeQuality, EpisodeSimulated, EpisodeStatistics};
 
 use super::{ApiError, ApiState, Failure, StreamCounts};
 
@@ -317,6 +317,37 @@ pub(super) async fn statistics(
 ) -> Result<Json<EpisodeStatistics>, Failure> {
     let (data_dir, store) = (state.data_dir.clone(), state.store.clone());
     tokio::task::spawn_blocking(move || quality::statistics(&data_dir, &store.reader()?, &id))
+        .await
+        .map_err(|error| {
+            Failure::from(KaptoError::new(ErrorCode::StoreQueryFailed).detail(error.to_string()))
+        })?
+        .map(Json)
+        .map_err(Failure::from)
+}
+
+/// How a simulation the finalised episode recorded ran, worked out with
+/// its quality checks from the field its package gives the role
+/// `time.simulated`: simulated start, end and duration, the ratio of
+/// simulated to real time while it ran, each pause and each reset. Before
+/// the worker has checked it, `computed_utc_ns` is `null`; `simulated` is
+/// `null` then, and for an episode without a simulation's clock.
+#[utoipa::path(
+    get,
+    path = "/api/episodes/{id}/simulated",
+    params(("id" = String, Path, description = "The episode's ID, as `/api/episodes` lists it.")),
+    responses(
+        (status = 200, body = EpisodeSimulated),
+        (status = 400, description = "The ID isn't an episode ID", body = ApiError),
+        (status = 404, description = "No episode, here or deleted here, has this ID", body = ApiError),
+        (status = 500, description = "It can't be read", body = ApiError)
+    )
+)]
+pub(super) async fn simulated(
+    State(state): State<Arc<ApiState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<EpisodeSimulated>, Failure> {
+    let (data_dir, store) = (state.data_dir.clone(), state.store.clone());
+    tokio::task::spawn_blocking(move || quality::simulated(&data_dir, &store.reader()?, &id))
         .await
         .map_err(|error| {
             Failure::from(KaptoError::new(ErrorCode::StoreQueryFailed).detail(error.to_string()))

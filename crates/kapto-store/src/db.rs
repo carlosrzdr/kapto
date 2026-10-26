@@ -1260,6 +1260,7 @@ mod tests {
                 ranges: Vec::new(),
             }],
             model: None,
+            simulated: None,
         };
         // A failed gate rejects; a failed advisory doesn't.
         writer
@@ -1493,6 +1494,7 @@ mod tests {
                             serde_json::json!({"value": 30.0}),
                         )]),
                         model: None,
+                        simulated: None,
                     })
                     .unwrap();
             }
@@ -1548,6 +1550,7 @@ mod tests {
                     serde_json::json!({"value": duration_s}),
                 )]),
                 model: None,
+                simulated: None,
             })
             .unwrap();
     }
@@ -1632,6 +1635,7 @@ mod tests {
                 results: Vec::new(),
                 statistics: BTreeMap::new(),
                 model: Some(Box::new(model)),
+                simulated: None,
             })
         };
         let reader = writer.reader().unwrap();
