@@ -896,7 +896,9 @@ that the package lacks), the package's named layouts (`/api/layouts`
 lists, writes, renames and deletes them: files in `layouts/<package
 id>/` of the configuration folder, each starting with its `name` and
 named from it, read as written when edited by hand; `default.toml` among
-them is *Default*), what each process is doing and costs
+them is *Default*; the list also gives the package's own layout and the
+one made from it), a layout as a file to download or one read from a
+file (`/api/layout/export`, `/api/layout/import`, nothing saved), what each process is doing and costs
 (`/api/processes`, which answers even while capture doesn't), the
 settings it runs with and where each came from (`/api/settings`), how much room the data directory
 has and what its episodes take (`/api/storage`), the finalised episodes

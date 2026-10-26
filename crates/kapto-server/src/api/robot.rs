@@ -9,11 +9,14 @@ use axum::Json;
 use axum::body::Body;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
-use axum::http::{HeaderValue, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use kapto_core::{ErrorCode, KaptoError};
 
-use crate::layouts::{LayoutName, NamedLayout, NamedLayoutInput, NamedLayouts};
+use crate::layouts::{
+    LayoutFile, LayoutName, NamedLayout, NamedLayoutInput, NamedLayouts, exported, imported,
+    where_in_file,
+};
 use crate::robot::{LayoutInput, RobotOverview, ViewLayout};
 use crate::scene::RobotScene;
 
@@ -126,7 +129,7 @@ pub(super) async fn rename_layout(
 
 /// What a layout lacks: the layout as the live view draws it, each panel
 /// with what the robot's streams lack of it, by the rules every layout is
-/// held to. For one the operator keeps in their browser; nothing is saved.
+/// held to; nothing is saved.
 #[utoipa::path(
     post,
     path = "/api/layout/check",
@@ -147,6 +150,62 @@ pub(super) async fn check_layout(
             KaptoError::new(ErrorCode::LayoutWithoutPackage).detail("no reason given".to_owned())
         }))
     })
+}
+
+/// A layout as a file of its own, to download: named from its name, its
+/// text as `layout.toml` holds it, starting with its `name`. Nothing is
+/// saved.
+#[utoipa::path(
+    post,
+    path = "/api/layout/export",
+    request_body = NamedLayoutInput,
+    responses(
+        (status = 200, body = LayoutFile),
+        (status = 400, description = "The body isn't a named layout", body = ApiError),
+        (status = 409, description = "The name is empty or too long, or the layout breaks a rule of layout.toml", body = ApiError)
+    )
+)]
+pub(super) async fn export_layout(
+    request: Result<Json<NamedLayoutInput>, JsonRejection>,
+) -> Result<Json<LayoutFile>, Failure> {
+    let Json(input) = request.map_err(|rejection| invalid(&rejection))?;
+    exported(&input).map(Json).map_err(first)
+}
+
+/// The layout a file holds, read as `layout.toml` is and named as it
+/// names itself, else from the file's name: what to save with `POST
+/// /api/layouts`, under another name if its own is taken. Nothing is
+/// saved; each problem says where in the file it is.
+#[utoipa::path(
+    post,
+    path = "/api/layout/import",
+    request_body = LayoutFile,
+    responses(
+        (status = 200, body = NamedLayoutInput),
+        (status = 400, description = "The body isn't a file", body = ApiError),
+        (status = 409, description = "The file isn't a layout, or breaks a rule of layout.toml", body = ApiError)
+    )
+)]
+pub(super) async fn import_layout(
+    request: Result<Json<LayoutFile>, JsonRejection>,
+) -> Result<Json<NamedLayoutInput>, (StatusCode, Json<ApiError>)> {
+    let Json(file) = request.map_err(|rejection| {
+        let Failure(status, problem) = invalid(&rejection);
+        (status, Json(ApiError::from(&problem)))
+    })?;
+    imported(&file).map(Json).map_err(|problems| {
+        let Failure(status, problem) = first(problems);
+        let mut said = ApiError::from(&problem);
+        said.message = format!("{}: {}", where_in_file(&file.file, &problem), said.message);
+        (status, Json(said))
+    })
+}
+
+/// The first of `problems` as the answer.
+fn first(problems: Vec<KaptoError>) -> Failure {
+    Failure::from(problems.into_iter().next().unwrap_or_else(|| {
+        KaptoError::new(ErrorCode::ConfigInvalidValue).detail("no reason given".to_owned())
+    }))
 }
 
 /// Delete a named layout, if it is there. Deleting `default` arranges the

@@ -62,7 +62,9 @@ use crate::episode::{
     EpisodeProfile, EpisodeRecovered, EpisodeStream, EpisodeTask,
 };
 use crate::episode_events::EpisodeEvents;
-use crate::layouts::{LayoutName, Layouts, NamedLayout, NamedLayoutInput, NamedLayouts};
+use crate::layouts::{
+    LayoutFile, LayoutName, Layouts, NamedLayout, NamedLayoutInput, NamedLayouts,
+};
 use crate::preflight::{PreflightCheck, PreflightRequest, PreflightRun};
 use crate::processes::{ProcessState, ProcessStatus, Processes};
 use crate::quality::{
@@ -101,9 +103,10 @@ use replay::{
     replay_window,
 };
 use robot::{
-    __path_check_layout, __path_create_layout, __path_delete_layout, __path_layouts, __path_mesh,
-    __path_rename_layout, __path_robot, __path_scene, __path_write_layout, check_layout,
-    create_layout, delete_layout, layouts, mesh, rename_layout, robot, scene, write_layout,
+    __path_check_layout, __path_create_layout, __path_delete_layout, __path_export_layout,
+    __path_import_layout, __path_layouts, __path_mesh, __path_rename_layout, __path_robot,
+    __path_scene, __path_write_layout, check_layout, create_layout, delete_layout, export_layout,
+    import_layout, layouts, mesh, rename_layout, robot, scene, write_layout,
 };
 use status::{
     __path_processes, __path_settings, __path_status, __path_storage, __path_version, processes,
@@ -172,6 +175,8 @@ pub fn router(state: ApiState) -> Router {
             put(write_layout).patch(rename_layout).delete(delete_layout),
         )
         .route("/api/layout/check", post(check_layout))
+        .route("/api/layout/export", post(export_layout))
+        .route("/api/layout/import", post(import_layout))
         .route("/api/robot/scene", get(scene))
         .route("/api/robot/meshes/{n}", get(mesh))
         .route("/api/settings", get(settings))
@@ -284,6 +289,8 @@ async fn stopped(stop: Arc<AtomicBool>) {
         rename_layout,
         delete_layout,
         check_layout,
+        export_layout,
+        import_layout,
         scene,
         mesh,
         settings,
@@ -344,6 +351,7 @@ async fn stopped(stop: Arc<AtomicBool>) {
         NamedLayouts,
         NamedLayoutInput,
         LayoutName,
+        LayoutFile,
         ColumnInput,
         PanelInput,
         RobotScene,

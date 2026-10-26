@@ -20,7 +20,8 @@ pub struct RobotOverview {
     /// The robot's name in its description.
     pub name: String,
     /// The ID of the robot package its files are, if they are one's: what
-    /// a layout saved as default, or kept in a browser, is kept for.
+    /// its named layouts are saved for, and a browser remembers which one
+    /// it shows for.
     pub package: Option<String>,
     /// The files it was loaded from.
     pub files: RobotFiles,

@@ -43,7 +43,9 @@ once a second. A page from another site may not open it
 | POST | `/api/episodes/{id}/uploads/retry` | Tries an episode's failed uploads again now, without waiting for `upload.retry_failed_after`. |
 | GET | `/api/event-kinds` | The kinds of events that may be sent: the vocabulary file's, or the defaults without it, then each task's subtasks, and what is wrong with the file. Read again on each request. |
 | GET | `/api/events` | Events as they happen, over a WebSocket. Each message is one `Event` as JSON. Connections from another site's web page are refused. |
-| POST | `/api/layout/check` | What a layout lacks: the layout as the live view draws it, each panel with what the robot's streams lack of it, by the rules every layout is held to. For one the operator keeps in their browser; nothing is saved. |
+| POST | `/api/layout/check` | What a layout lacks: the layout as the live view draws it, each panel with what the robot's streams lack of it, by the rules every layout is held to; nothing is saved. |
+| POST | `/api/layout/export` | A layout as a file of its own, to download: named from its name, its text as `layout.toml` holds it, starting with its `name`. Nothing is saved. |
+| POST | `/api/layout/import` | The layout a file holds, read as `layout.toml` is and named as it names itself, else from the file's name: what to save with `POST /api/layouts`, under another name if its own is taken. Nothing is saved; each problem says where in the file it is. |
 | GET | `/api/layouts` | The named layouts of the robot package Kapto runs, as their files in `layouts/<package id>/` of the configuration folder hold them now: *Default* (`default`) first, the rest by name, and why any file doesn't read. |
 | POST | `/api/layouts` | Save a layout under a new name, read by every browser: written to the file named from it, checked as `layout.toml` is. |
 | PUT | `/api/layouts/{id}` | Save a layout over a named one, keeping its name. `default` is the package's *Default*, which `/api/robot` gives from then on, made if there is none. |

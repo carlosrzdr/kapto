@@ -652,7 +652,10 @@ async fn named_layouts_are_saved_listed_renamed_and_deleted_each_in_a_file_named
     let (_, body) = call(api.clone(), "DELETE", "/api/layouts/arm-close-up", None).await;
     assert_eq!(body["source"], "made");
     let (_, list) = call(api, "GET", "/api/layouts", None).await;
-    assert_eq!(list, json!({"layouts": [], "problems": []}));
+    assert_eq!(
+        (&list["layouts"], &list["problems"]),
+        (&json!([]), &json!([]))
+    );
 }
 
 #[tokio::test]
@@ -783,4 +786,133 @@ async fn a_hand_edited_layout_renamed_keeps_the_rest_as_written() {
         text.replace("\"Night (by hand)\"", "\"Night shift\"")
     );
     assert!(!layouts.join("Night.toml").exists());
+}
+
+#[tokio::test]
+async fn the_list_offers_the_package_s_own_layout_if_it_has_one_and_the_one_made_from_it() {
+    let folder = scratch("layouts-offered");
+    let (_, list) = call(arranged(&folder, Some("arm7")), "GET", "/api/layouts", None).await;
+    // Without a layout.toml of its own, the view is made from the package.
+    assert_eq!(list["package"], Value::Null);
+    assert_eq!(list["made"]["source"], "made");
+    let kinds: Vec<&Value> = list["made"]["columns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|column| column["panels"].as_array().unwrap())
+        .map(|panel| &panel["kind"])
+        .collect();
+    assert_eq!(kinds, [&json!("robot"), &json!("plot")]);
+
+    let mut api = arranged(&folder, Some("arm7"));
+    let own: kapto_server::robot::ViewLayout = serde_json::from_value(json!({
+        "source": "package",
+        "columns": [{"width": 1, "panels": [{"kind": "health", "height": 1, "stream": null, "fields": [], "missing": []}]}]
+    }))
+    .unwrap();
+    let declared = kapto_robot::Declared::default();
+    api.layouts = Layouts::load(&folder.join("config"), Some("arm7"), declared, own.clone()).0;
+    let (_, list) = call(api, "GET", "/api/layouts", None).await;
+    assert_eq!(list["package"], serde_json::to_value(&own).unwrap());
+}
+
+#[tokio::test]
+async fn a_layout_exported_is_a_file_named_from_it_that_imports_as_the_same_layout() {
+    let folder = scratch("layouts-exported");
+    let api = arranged(&folder, Some("arm7"));
+    let (status, file) = call(
+        api.clone(),
+        "POST",
+        "/api/layout/export",
+        Some(("application/json", &named("Wrist view"))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{file}");
+    assert_eq!(file["file"], "wrist-view.toml");
+    let text = file["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("name = \"Wrist view\"\n\n[[columns]]\nwidth = 2\n"),
+        "{text}"
+    );
+
+    let (status, input) = call(
+        api.clone(),
+        "POST",
+        "/api/layout/import",
+        Some(("application/json", &file.to_string())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{input}");
+    assert_eq!(input["name"], "Wrist view");
+    let (status, again) = call(
+        api,
+        "POST",
+        "/api/layout/export",
+        Some(("application/json", &input.to_string())),
+    )
+    .await;
+    assert_eq!((status, &again), (StatusCode::OK, &file));
+    // Nothing is saved either way.
+    assert!(!folder.join("config/layouts").exists());
+}
+
+#[tokio::test]
+async fn a_file_without_a_name_imports_named_from_the_file_and_one_that_isnt_a_layout_says_where() {
+    let folder = scratch("layouts-imported");
+    let api = arranged(&folder, Some("arm7"));
+    let file = json!({
+        "file": "layout.toml",
+        "text": "# the package's own\n[[columns]]\npanels = [{ kind = \"health\", title = \"Streams\" }]\n",
+    });
+    let (status, input) = call(
+        api.clone(),
+        "POST",
+        "/api/layout/import",
+        Some(("application/json", &file.to_string())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{input}");
+    assert_eq!(
+        input,
+        json!({"name": "layout", "columns": [{"width": 1, "panels": [
+            {"kind": "health", "height": 1, "stream": null, "fields": [], "title": "Streams"}
+        ]}]})
+    );
+
+    for (text, code) in [
+        ("name = \"Night\"\n[[columns]\n", "config.invalid_syntax"),
+        (
+            "name = \"Night\"\n[[columns]]\npanels = [{ kind = \"radar\" }]\n",
+            "config.invalid_value",
+        ),
+    ] {
+        let file = json!({"file": "night.toml", "text": text});
+        let (status, error) = call(
+            api.clone(),
+            "POST",
+            "/api/layout/import",
+            Some(("application/json", &file.to_string())),
+        )
+        .await;
+        assert_eq!(
+            (status, &error["code"]),
+            (StatusCode::CONFLICT, &json!(code)),
+            "{error}"
+        );
+        let message = error["message"].as_str().unwrap();
+        assert!(message.starts_with("`night.toml` line "), "{message}");
+        assert_ne!(error["remedy"], json!(""));
+    }
+
+    let (status, error) = call(
+        api,
+        "POST",
+        "/api/layout/export",
+        Some(("application/json", &named("  ,  "))),
+    )
+    .await;
+    assert_eq!(
+        (status, &error["code"]),
+        (StatusCode::CONFLICT, &json!("layout.name_empty"))
+    );
 }

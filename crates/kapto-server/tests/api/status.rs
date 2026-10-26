@@ -246,6 +246,8 @@ fn the_openapi_document_describes_every_route_and_its_error_body() {
             "/api/event-kinds",
             "/api/events",
             "/api/layout/check",
+            "/api/layout/export",
+            "/api/layout/import",
             "/api/layouts",
             "/api/layouts/{id}",
             "/api/preflight",

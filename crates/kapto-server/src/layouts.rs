@@ -11,11 +11,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use kapto_config::{
     ConfigFile, DEFAULT_NAMED_LAYOUT, Layout, check_layout_name, layout_file_stem,
-    package_layouts_folder, parse_named_layout, renamed_layout,
+    package_layouts_folder, parse_layout, parse_named_layout, renamed_layout,
 };
 use kapto_core::{ErrorCode, KaptoError};
-use kapto_robot::Declared;
-use kapto_viz::page_layout::{ColumnInput, LayoutInput, ViewLayout, view_of};
+use kapto_robot::{Declared, made_layout};
+use kapto_viz::page_layout::{ColumnInput, LayoutInput, PanelInput, ViewLayout, view_of};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -37,13 +37,27 @@ pub struct NamedLayout {
     pub layout: ViewLayout,
 }
 
-/// A package's named layouts, *Default* first and the rest by name.
+/// A package's named layouts, *Default* first and the rest by name, and
+/// the two that follow the package, which the page offers beside them.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NamedLayouts {
     /// The ones that read.
     pub layouts: Vec<NamedLayout>,
     /// Why each of the others doesn't, with its file and line.
     pub problems: Vec<ApiError>,
+    /// The package's own `layout.toml`, if it has one that reads.
+    pub package: Option<ViewLayout>,
+    /// The one made from what the package declares.
+    pub made: ViewLayout,
+}
+
+/// A layout as a file of its own, as it is exported and imported.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct LayoutFile {
+    /// The file's name, e.g. `wrist-view.toml`.
+    pub file: String,
+    /// Its text, as `layout.toml` holds a layout.
+    pub text: String,
 }
 
 /// A layout to be saved under a name of its own.
@@ -167,6 +181,8 @@ impl Layouts {
             }
             list.layouts
                 .sort_by_key(|each| (each.id != DEFAULT_NAMED_LAYOUT, each.name.to_lowercase()));
+            list.package = (arranged.package.source == "package").then(|| arranged.package.clone());
+            list.made = view_of(&made_layout(&arranged.declared), &arranged.declared, "made");
             Ok(list)
         })
     }
@@ -323,6 +339,66 @@ impl Arranged {
     }
 }
 
+/// `input` as a file of its own, named from its name, its text starting
+/// with it as a named layout's does; nothing is saved.
+///
+/// # Errors
+///
+/// `layout.name_empty` or `layout.name_too_long` for its name; the
+/// layout's problems.
+pub fn exported(input: &NamedLayoutInput) -> Result<LayoutFile, Problems> {
+    let name = input.name.trim();
+    check_layout_name(name).map_err(|error| vec![error])?;
+    let file = format!("{}.toml", layout_file_stem(name));
+    let layout = LayoutInput {
+        columns: input.columns.clone(),
+    }
+    .to_layout(Path::new(&file))?;
+    let text = Layout {
+        name: Some(name.to_owned()),
+        ..layout
+    }
+    .to_toml();
+    Ok(LayoutFile { file, text })
+}
+
+/// The layout in `file`, read as `layout.toml` is, named as it names
+/// itself, else from the file's name, so a package's own imports as well
+/// as an exported one. Nothing is saved; its name is checked when it is.
+///
+/// # Errors
+///
+/// The file's problems, each with its line.
+pub fn imported(file: &LayoutFile) -> Result<NamedLayoutInput, Problems> {
+    let layout = parse_layout(&ConfigFile {
+        path: PathBuf::from(&file.file),
+        contents: file.text.clone(),
+    })?;
+    let name = layout.name.clone().unwrap_or_else(|| {
+        let base = file.file.rsplit(['/', '\\']).next().unwrap_or_default();
+        base.strip_suffix(".toml").unwrap_or(base).to_owned()
+    });
+    let columns = view_of(&layout, &Declared::default(), "own")
+        .columns
+        .into_iter()
+        .map(|column| ColumnInput {
+            width: column.width,
+            panels: column
+                .panels
+                .into_iter()
+                .map(|panel| PanelInput {
+                    kind: panel.kind,
+                    height: panel.height,
+                    stream: panel.stream,
+                    fields: panel.fields,
+                    title: panel.title,
+                })
+                .collect(),
+        })
+        .collect();
+    Ok(NamedLayoutInput { name, columns })
+}
+
 /// The file stem `name` is saved as, unless it breaks a rule of a name or
 /// another of the layouts in `folder` (but `except`) has it or its file.
 fn free_stem(folder: &Path, name: &str, except: Option<&str>) -> Result<String, Problems> {
@@ -418,12 +494,17 @@ fn remove(file: &Path) -> Result<(), Problems> {
 /// The file of layout `id` and the line `problem` is at, which an
 /// [`ApiError`] doesn't carry, e.g. `` `night.toml` line 2 ``.
 fn where_in(id: &str, problem: &KaptoError) -> String {
+    where_in_file(&format!("{id}.toml"), problem)
+}
+
+/// The file `file` and the line `problem` is at, e.g. `` `night.toml` line 2 ``.
+pub(crate) fn where_in_file(file: &str, problem: &KaptoError) -> String {
     let line = problem
         .context_entries()
         .iter()
         .find(|(key, _)| *key == "line")
         .map(|(_, line)| format!(" line {line}"));
-    format!("`{id}.toml`{}", line.unwrap_or_default())
+    format!("`{file}`{}", line.unwrap_or_default())
 }
 
 fn without_package() -> KaptoError {

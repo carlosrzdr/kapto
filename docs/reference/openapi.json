@@ -1453,7 +1453,7 @@
     "/api/layout/check": {
       "post": {
         "tags": [],
-        "summary": "What a layout lacks: the layout as the live view draws it, each panel\nwith what the robot's streams lack of it, by the rules every layout is\nheld to. For one the operator keeps in their browser; nothing is saved.",
+        "summary": "What a layout lacks: the layout as the live view draws it, each panel\nwith what the robot's streams lack of it, by the rules every layout is\nheld to; nothing is saved.",
         "operationId": "check_layout",
         "requestBody": {
           "content": {
@@ -1487,6 +1487,102 @@
           },
           "409": {
             "description": "The layout breaks a rule of layout.toml",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/layout/export": {
+      "post": {
+        "tags": [],
+        "summary": "A layout as a file of its own, to download: named from its name, its\ntext as `layout.toml` holds it, starting with its `name`. Nothing is\nsaved.",
+        "operationId": "export_layout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NamedLayoutInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutFile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't a named layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The name is empty or too long, or the layout breaks a rule of layout.toml",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/layout/import": {
+      "post": {
+        "tags": [],
+        "summary": "The layout a file holds, read as `layout.toml` is and named as it\nnames itself, else from the file's name: what to save with `POST\n/api/layouts`, under another name if its own is taken. Nothing is\nsaved; each problem says where in the file it is.",
+        "operationId": "import_layout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutFile"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamedLayoutInput"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't a file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The file isn't a layout, or breaks a rule of layout.toml",
             "content": {
               "application/json": {
                 "schema": {
@@ -3453,6 +3549,24 @@
           }
         }
       },
+      "LayoutFile": {
+        "type": "object",
+        "description": "A layout as a file of its own, as it is exported and imported.",
+        "required": [
+          "file",
+          "text"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "The file's name, e.g. `wrist-view.toml`."
+          },
+          "text": {
+            "type": "string",
+            "description": "Its text, as `layout.toml` holds a layout."
+          }
+        }
+      },
       "LayoutInput": {
         "type": "object",
         "description": "A layout as the page sends it to be saved: what [`ViewLayout`] gives,\nwithout what the API works out.",
@@ -3571,10 +3685,11 @@
       },
       "NamedLayouts": {
         "type": "object",
-        "description": "A package's named layouts, *Default* first and the rest by name.",
+        "description": "A package's named layouts, *Default* first and the rest by name, and\nthe two that follow the package, which the page offers beside them.",
         "required": [
           "layouts",
-          "problems"
+          "problems",
+          "made"
         ],
         "properties": {
           "layouts": {
@@ -3583,6 +3698,21 @@
               "$ref": "#/components/schemas/NamedLayout"
             },
             "description": "The ones that read."
+          },
+          "made": {
+            "$ref": "#/components/schemas/ViewLayout",
+            "description": "The one made from what the package declares."
+          },
+          "package": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ViewLayout",
+                "description": "The package's own `layout.toml`, if it has one that reads."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "problems": {
             "type": "array",
@@ -4270,7 +4400,7 @@
               "string",
               "null"
             ],
-            "description": "The ID of the robot package its files are, if they are one's: what\na layout saved as default, or kept in a browser, is kept for."
+            "description": "The ID of the robot package its files are, if they are one's: what\nits named layouts are saved for, and a browser remembers which one\nit shows for."
           },
           "roles": {
             "type": "array",

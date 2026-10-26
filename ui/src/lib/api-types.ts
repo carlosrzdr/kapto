@@ -564,6 +564,14 @@ export interface EventVocabulary {
   problems: ApiError[];
 }
 
+/** A layout as a file of its own, as it is exported and imported. */
+export interface LayoutFile {
+  /** The file's name, e.g. `wrist-view.toml`. */
+  file: string;
+  /** Its text, as `layout.toml` holds a layout. */
+  text: string;
+}
+
 /**
  * A layout as the page sends it to be saved: what [`ViewLayout`] gives,
  * without what the API works out.
@@ -629,10 +637,17 @@ export interface NamedLayoutInput {
   name: string;
 }
 
-/** A package's named layouts, *Default* first and the rest by name. */
+/**
+ * A package's named layouts, *Default* first and the rest by name, and
+ * the two that follow the package, which the page offers beside them.
+ */
 export interface NamedLayouts {
   /** The ones that read. */
   layouts: NamedLayout[];
+  /** The one made from what the package declares. */
+  made: ViewLayout;
+  /** The package's own `layout.toml`, if it has one that reads. */
+  package?: ViewLayout | null;
   /** Why each of the others doesn't, with its file and line. */
   problems: ApiError[];
 }
@@ -918,7 +933,8 @@ export interface RobotOverview {
   name: string;
   /**
    * The ID of the robot package its files are, if they are one's: what
-   * a layout saved as default, or kept in a browser, is kept for.
+   * its named layouts are saved for, and a browser remembers which one
+   * it shows for.
    */
   package?: string | null;
   /**
