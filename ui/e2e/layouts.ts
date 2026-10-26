@@ -59,10 +59,15 @@ export async function settled(page: Page): Promise<void> {
 
 /**
  * Opens Arrange with its editor folded to its bar, as an operator does to
- * reach the panels the editor floats over, when nothing in it is needed.
+ * reach the panels the editor floats over, when nothing in it is needed:
+ * the bar then sits in the row with Arrange, above every panel.
  */
 export async function arrangeFolded(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Arrange" }).click();
   await page.getByRole("button", { name: "Fold the editor" }).click();
   await expect(page.getByRole("region", { name: "Arrange the view" })).toBeHidden();
+  await expect(page.locator("#arranging")).toBeVisible();
+  const bar = (await page.locator("#arranging").boundingBox())!;
+  const panels = (await page.getByRole("group", { name: "The view's panels" }).boundingBox())!;
+  expect(bar.y + bar.height, "the folded editor above the panels").toBeLessThanOrEqual(panels.y + 1);
 }

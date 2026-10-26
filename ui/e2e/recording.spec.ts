@@ -1283,8 +1283,17 @@ test("the arranging editor floats over the view at its full width, folds, moves 
   await expect(unfold).toHaveAttribute("aria-expanded", "false");
   await expect(editor).toBeHidden();
   expect((await box.boundingBox())!.height).toBeLessThan(48);
+  // Its bar in the row with Arrange, left of the list of layouts, over no
+  // panel: the plot's remove button at the view's top right is reached.
+  const folded = (await box.boundingBox())!;
+  const list = (await page.getByRole("group", { name: "Layouts" }).boundingBox())!;
+  expect(folded.height, "the folded bar as tall as its buttons").toBeGreaterThan(20);
+  expect(folded.y + folded.height, "the folded bar above the panels").toBeLessThanOrEqual(arranged.y + 1);
+  expect(folded.x + folded.width, "the folded bar left of the list").toBeLessThanOrEqual(list.x + 1);
+  await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click({ trial: true });
   await page.getByRole("button", { name: "Move to the left" }).click();
   await expect.poll(async () => Math.abs((await box.boundingBox())!.x - arranged.x)).toBeLessThan(2);
+  expect((await box.boundingBox())!.y + (await box.boundingBox())!.height, "moved left, still above the panels").toBeLessThanOrEqual(arranged.y + 1);
 
   // Both kept after a reload, in this browser.
   await page.reload();
@@ -1551,8 +1560,7 @@ test("the operator arranges the view by dragging its panels and the edges betwee
   // Already first in the first place it can go: nothing moves.
   await page.keyboard.press("ArrowUp");
   expect(await kinds()).toEqual([["events"], ["plot", "robot"]]);
-  // The editor's bar is over the plot's corner, at the view's top right: moved aside first.
-  await page.getByRole("button", { name: "Move to the left" }).click();
+  // The folded editor sits beside Arrange, so the plot's corner at the view's top right is reached as it is.
   await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click();
   await expect.poll(kinds).toEqual([["events"], ["robot"]]);
   await forgetLayouts(page);

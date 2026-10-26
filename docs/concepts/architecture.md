@@ -563,8 +563,9 @@ their panels are each frame; the arrow keys slide them the same way. A
 panel given a title of its own by clicking its name on the grip, shown in
 place of the one made from what it shows. Its editor floats over the view
 under *Arrange*, so the columns arranged keep the width they are shown
-at; it folds to its bar or moves to the view's left side when it covers a
-panel, remembered per browser, and lets the pointer through while an edge
+at; it folds to its bar, which then sits in the row with *Arrange* and
+the list of layouts rather than over a panel, or moves to the view's left
+side, remembered per browser, and lets the pointer through while an edge
 or panel is dragged. Below a tablet's width there is no room to float:
 it sits between *Arrange* and the panels. A named layout is saved
 through the API as it is arranged; *Package's* and *Made from roles*

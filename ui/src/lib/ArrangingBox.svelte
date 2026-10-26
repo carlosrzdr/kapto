@@ -152,16 +152,37 @@
   .body[hidden] {
     display: none;
   }
-  /* No room to float, as on a tablet: between its button and the panels,
-     taking room, so it never covers them; no side to move it to. */
+  /* Folded where it floats, its bar in the row with Arrange, in the room
+     left of the list of layouts, or at the row's left when moved there:
+     never over a panel. */
+  @media (width > 70rem) {
+    .folded {
+      position: static;
+      order: -1;
+      max-height: none;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+    }
+    .folded.left {
+      margin-right: auto;
+    }
+    .folded .bar {
+      padding: 0 0 0 var(--space-3);
+      border-bottom: none;
+    }
+  }
+  /* No room to float, as on a tablet: on a line of its own between its
+     button and the panels, taking room, so it never covers them; no side
+     to move it to. */
   @media (max-width: 70rem) {
     .arranging,
     .arranging.left {
       position: static;
       flex: none;
       width: 100%;
-      max-height: 40%;
-      margin-bottom: var(--space-2);
+      max-height: 30vh;
+      margin-bottom: var(--space-1);
       box-shadow: none;
     }
     .side {

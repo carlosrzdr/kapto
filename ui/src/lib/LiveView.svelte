@@ -1804,19 +1804,20 @@
     >
       Arrange
     </button>
+    {#if arranging}
+      <!-- Next to its button in the page's order too, so at a tablet's width
+           it opens under it rather than at the page's foot; in this bar, so
+           folded it takes the room beside Arrange rather than a panel's. -->
+      <ArrangingBox faded={carried !== null || sharing !== null}>
+        <LayoutEditor
+          layout={editing()}
+          {offered}
+          {recordedOnly}
+          onchange={arrange}
+        />
+      </ArrangingBox>
+    {/if}
   </div>
-  {#if arranging}
-    <!-- Next to its button in the page's order too, so at a tablet's width
-         it opens under it rather than at the page's foot. -->
-    <ArrangingBox faded={carried !== null || sharing !== null}>
-      <LayoutEditor
-        layout={editing()}
-        {offered}
-        {recordedOnly}
-        onchange={arrange}
-      />
-    </ArrangingBox>
-  {/if}
 {/if}
 {#if chosen?.stale && replay === null}
   {@const layouts = chosen}
@@ -2441,7 +2442,15 @@
     height: var(--control-height);
     margin-bottom: var(--space-1);
   }
+  /* As on a tablet, the arranging editor goes on a line of its own under it. */
+  @media (max-width: 70rem) {
+    .view-bar {
+      flex-wrap: wrap;
+      height: auto;
+    }
+  }
   .arrange-toggle {
+    height: var(--control-height);
     padding: 0 var(--space-3);
     border: 1px solid var(--control-line);
     border-radius: var(--radius);

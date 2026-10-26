@@ -625,6 +625,12 @@ test("a screenshot of the shares an edge gives while dragged, and of a panel car
       { width: 1, panels: [plot, panel("events")] },
     ]);
     await page.getByRole("button", { name: "Arrange" }).click();
+    // Folded to its bar beside Arrange, so the editor covers none of the panels; put back after.
+    await expect(page.locator("#arranging")).toBeVisible();
+    const fold = page.getByRole("button", { name: "Fold the editor", exact: true });
+    if (await fold.isVisible()) {
+      await fold.click();
+    }
     await viewer(page, false);
   };
   const middle = (box: { x: number; y: number; width: number; height: number } | null) => ({
@@ -663,6 +669,7 @@ test("a screenshot of the shares an edge gives while dragged, and of a panel car
   await page.setViewportSize({ width: 1024, height: 768 });
   await holding(columns, async (at) => ({ x: at.x + 80, y: at.y - 90 }), "tablet-live-arrange-edge-dragging");
   await holding(grip, () => into(0.9, 0.5), "tablet-live-arrange-carrying");
+  await page.evaluate(() => localStorage.removeItem("kapto.arranging"));
   await forgetLayouts(page);
   nothingLeft();
 });
