@@ -43,8 +43,9 @@ pub use keys::{DEPLOYMENT_KEYS, DefaultValue, Key};
 pub use layout::{
     Column, DEFAULT_NAMED_LAYOUT, LAYOUT_COLUMN_KEYS, LAYOUT_EXAMPLE, LAYOUT_FILE, LAYOUT_KEYS,
     LAYOUT_PANEL_KEYS, LAYOUTS_FOLDER, Layout, MAX_LAYOUT_NAME, MAX_PANEL_TITLE, MAX_PANELS,
-    MAX_PLOT_FIELDS, Panel, PanelKind, PlotField, check_layout_name, check_panel_title,
-    layout_file_stem, package_layouts_folder, parse_layout, parse_named_layout, renamed_layout,
+    MAX_PLOT_FIELDS, MAX_ROBOT_VIEWS, MAX_VIEW_REACH, Panel, PanelKind, PlotField, RobotView,
+    check_layout_name, check_panel_title, layout_file_stem, package_layouts_folder, parse_layout,
+    parse_named_layout, renamed_layout,
 };
 pub use mapping::{
     FieldReference, JOINT_ROLES, JointMapping, MappingDeclaration, RoleMapping, joint_role,

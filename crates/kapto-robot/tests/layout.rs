@@ -12,7 +12,8 @@
 use std::path::{Path, PathBuf};
 
 use kapto_config::{
-    ConfigFile, Layout, MAX_PANELS, PanelKind, parse_layout, parse_mapping, parse_streams,
+    ConfigFile, Layout, MAX_PANELS, PanelKind, RobotView, parse_layout, parse_mapping,
+    parse_streams,
 };
 use kapto_robot::{
     Declared, DeclaredStream, Missing, load_package, load_urdf, made_layout, missing,
@@ -77,7 +78,12 @@ panels = [
 fn the_ros2_sample_arm_is_made_the_same_way_from_its_topics() {
     let text = made(&declared("arm7_ros2"));
     let made = layout(&text);
-    assert_eq!(made.columns[0].panels[0].kind, PanelKind::Robot);
+    assert_eq!(
+        made.columns[0].panels[0].kind,
+        PanelKind::Robot {
+            view: RobotView::Framed
+        }
+    );
     let side = &made.columns[1].panels;
     assert!(
         matches!(&side[0].kind, PanelKind::Plot { fields } if fields[0].to_string() == "role:joints.joint_1.position"),
@@ -180,7 +186,7 @@ fn a_robot_that_doesnt_move_gets_no_3d_view_and_each_camera_comes_first() {
             PanelKind::Plot { fields } if fields.len() == 16 => "plot of 16",
             PanelKind::Plot { .. } => "plot",
             PanelKind::Health => "health",
-            PanelKind::Robot | PanelKind::Events => "other",
+            PanelKind::Robot { .. } | PanelKind::Events => "other",
         })
         .collect();
     assert_eq!(
@@ -206,7 +212,7 @@ fn a_package_declaring_more_than_a_page_can_draw_keeps_the_first_panels() {
         .flat_map(|column| column.panels.iter().map(|panel| &panel.kind))
         .collect();
     assert_eq!(panels.len(), MAX_PANELS);
-    assert_eq!(panels[0], &PanelKind::Robot);
+    assert!(matches!(panels[0], PanelKind::Robot { .. }));
     assert!(matches!(panels.last(), Some(PanelKind::Camera { .. })));
 }
 

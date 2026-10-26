@@ -4,7 +4,7 @@
 //! a package, or for a recording from the files it carries, each panel with
 //! what it names that they lack, and the roles its plots may name.
 
-use kapto_config::{Layout, MappingDeclaration, PanelKind};
+use kapto_config::{Layout, MappingDeclaration, PanelKind, RobotView};
 use kapto_core::KaptoError;
 use kapto_robot::{Declared, made_layout, missing};
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ pub struct RobotRole {
 
 /// How the live view or a replay is arranged: columns side by side, each a
 /// stack of panels, as `docs/reference/package.md` describes `layout.toml`.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ViewLayout {
     /// Where it comes from: `package` (the package's `layout.toml`),
     /// `made` (made from what the package declares), `default` (the
@@ -34,7 +34,7 @@ pub struct ViewLayout {
 }
 
 /// A column of panels.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ViewColumn {
     /// Its width relative to the other columns'.
     pub width: u8,
@@ -43,7 +43,7 @@ pub struct ViewColumn {
 }
 
 /// One panel of a column.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ViewPanel {
     /// What it shows: `robot`, `camera`, `plot`, `health` or `events`.
     pub kind: String,
@@ -60,18 +60,74 @@ pub struct ViewPanel {
     /// Its own title, shown in place of the one made from what it shows.
     #[serde(default)]
     pub title: Option<String>,
+    /// A robot panel's viewpoint; none for the angle that frames the robot.
+    #[serde(default)]
+    pub view: Option<PanelView>,
+}
+
+/// Where a `robot` panel sees the robot from: a preset's name, or a place
+/// in metres in the robot's frame.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum PanelView {
+    /// From in front, its right or above.
+    Preset(ViewPreset),
+    /// From where an operator left it while arranging.
+    Placed {
+        /// Where the camera is, `[x, y, z]`.
+        from: [f64; 3],
+        /// The point it looks at, `[x, y, z]`.
+        at: [f64; 3],
+    },
+}
+
+/// A robot panel's preset viewpoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewPreset {
+    /// From in front, along the robot's x axis.
+    Front,
+    /// From its right, along its y axis.
+    Side,
+    /// From above, along its z axis.
+    Top,
+}
+
+impl PanelView {
+    /// `view` as the page reads it; `None` for the default framing.
+    #[must_use]
+    pub const fn of(view: RobotView) -> Option<Self> {
+        match view {
+            RobotView::Framed => None,
+            RobotView::Front => Some(Self::Preset(ViewPreset::Front)),
+            RobotView::Side => Some(Self::Preset(ViewPreset::Side)),
+            RobotView::Top => Some(Self::Preset(ViewPreset::Top)),
+            RobotView::Placed { from, at } => Some(Self::Placed { from, at }),
+        }
+    }
+
+    /// The view as `layout.toml` holds it.
+    #[must_use]
+    pub const fn robot_view(self) -> RobotView {
+        match self {
+            Self::Preset(ViewPreset::Front) => RobotView::Front,
+            Self::Preset(ViewPreset::Side) => RobotView::Side,
+            Self::Preset(ViewPreset::Top) => RobotView::Top,
+            Self::Placed { from, at } => RobotView::Placed { from, at },
+        }
+    }
 }
 
 /// A layout as the page sends it to be saved: what [`ViewLayout`] gives,
 /// without what the API works out.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct LayoutInput {
     /// Its columns, left to right.
     pub columns: Vec<ColumnInput>,
 }
 
 /// A column of a layout to be saved.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ColumnInput {
     /// Its width relative to the other columns', from 1 to 12.
     pub width: u8,
@@ -80,7 +136,7 @@ pub struct ColumnInput {
 }
 
 /// A panel of a layout to be saved.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PanelInput {
     /// `robot`, `camera`, `plot`, `health` or `events`.
     pub kind: String,
@@ -97,6 +153,10 @@ pub struct PanelInput {
     /// made from what it shows.
     #[serde(default)]
     pub title: Option<String>,
+    /// A robot panel's viewpoint; none for the angle that frames the robot.
+    /// Only for a robot panel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<PanelView>,
 }
 
 impl LayoutInput {
@@ -117,8 +177,13 @@ impl LayoutInput {
                     .panels
                     .iter()
                     .filter_map(|panel| {
+                        if panel.view.is_some() && panel.kind != "robot" {
+                            problems.push(invalid("`view` is only for a `robot` panel".to_owned()));
+                        }
                         let kind = match panel.kind.as_str() {
-                            "robot" => PanelKind::Robot,
+                            "robot" => PanelKind::Robot {
+                                view: panel.view.map_or(RobotView::Framed, PanelView::robot_view),
+                            },
                             "camera" => PanelKind::Camera {
                                 stream: panel.stream.clone().unwrap_or_default(),
                             },
@@ -220,8 +285,12 @@ pub fn view_of(layout: &Layout, declared: &Declared, source: &str) -> ViewLayout
                 .iter()
                 .enumerate()
                 .map(|(place, panel)| {
+                    let view = match &panel.kind {
+                        PanelKind::Robot { view } => PanelView::of(*view),
+                        _ => None,
+                    };
                     let (kind, stream, fields) = match &panel.kind {
-                        PanelKind::Robot => ("robot", None, Vec::new()),
+                        PanelKind::Robot { .. } => ("robot", None, Vec::new()),
                         PanelKind::Camera { stream } => {
                             ("camera", Some(stream.clone()), Vec::new())
                         }
@@ -243,6 +312,7 @@ pub fn view_of(layout: &Layout, declared: &Declared, source: &str) -> ViewLayout
                             .find(|found| found.column == column && found.panel == place)
                             .map_or_else(Vec::new, |found| found.what.clone()),
                         title: panel.title.clone(),
+                        view,
                     }
                 })
                 .collect(),

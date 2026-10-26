@@ -1,7 +1,7 @@
 // A layout as the operator arranges it in the page: each change a new
 // layout, saved by the server, which says what each of its panels lacks.
 
-import type { LayoutInput, PanelInput, ViewLayout, ViewPanel } from "../api-types";
+import type { LayoutInput, PanelInput, PanelView, ViewLayout, ViewPanel } from "../api-types";
 
 /** The most panels a page can draw, as `layout.toml` allows. */
 export const MAX_PANELS = 24;
@@ -11,6 +11,8 @@ export const MAX_PLOT_FIELDS = 16;
 export const MAX_SHARE = 12;
 /** The longest title a panel may have, in characters, as `layout.toml` allows. */
 export const MAX_PANEL_TITLE = 64;
+/** The most robot panels a layout may have: each is a draw of the whole scene a frame. */
+export const MAX_ROBOT_VIEWS = 4;
 
 /** What the package has that a layout may show. */
 export interface Offered {
@@ -27,12 +29,13 @@ export function editable(view: ViewLayout): LayoutInput {
   return {
     columns: view.columns.map((column) => ({
       width: column.width,
-      panels: column.panels.map(({ kind, height, stream, fields, title }) => ({
+      panels: column.panels.map(({ kind, height, stream, fields, title, view }) => ({
         kind,
         height,
         stream: stream ?? undefined,
         fields: [...fields],
         ...(title ? { title } : {}),
+        ...(view ? { view: copyView(view) } : {}),
       })),
     })),
   };
@@ -54,6 +57,7 @@ export function laidOut(layout: LayoutInput): ViewLayout {
         fields: panel.fields ?? [],
         missing: [],
         title: panel.title ?? null,
+        view: panel.view ?? null,
       })),
     })),
   };
@@ -69,9 +73,19 @@ export function panelCount(layout: LayoutInput): number {
 const copy = (layout: LayoutInput): LayoutInput => JSON.parse(JSON.stringify(layout)) as LayoutInput;
 const clamp = (value: number) => Math.min(MAX_SHARE, Math.max(1, value));
 
-/** `layout` with `panel` added at the end of column `column`, a new column past the last; unchanged when full. */
+/** How many robot panels `layout` has. */
+export function robotCount(layout: LayoutInput): number {
+  return layout.columns.reduce((total, column) => total + column.panels.filter((panel) => panel.kind === "robot").length, 0);
+}
+
+const copyView = (view: PanelView): PanelView => (typeof view === "string" ? view : { from: [...view.from], at: [...view.at] });
+
+/**
+ * `layout` with `panel` added at the end of column `column`, a new column
+ * past the last; unchanged when full, or when it is a fifth robot panel.
+ */
 export function added(layout: LayoutInput, column: number, panel: PanelInput): LayoutInput {
-  if (panelCount(layout) >= MAX_PANELS) {
+  if (panelCount(layout) >= MAX_PANELS || (panel.kind === "robot" && robotCount(layout) >= MAX_ROBOT_VIEWS)) {
     return layout;
   }
   const next = copy(layout);
@@ -107,6 +121,21 @@ export function retitled(layout: LayoutInput, column: number, place: number, tit
     delete panel.title;
   } else {
     panel.title = kept;
+  }
+  return next;
+}
+
+/** `layout` with the robot panel at `place` of `column` seen from `view`, or framing the robot when `null`. */
+export function withView(layout: LayoutInput, column: number, place: number, view: PanelView | null): LayoutInput {
+  const next = copy(layout);
+  const panel = next.columns[column]?.panels[place];
+  if (panel?.kind !== "robot") {
+    return layout;
+  }
+  if (view === null) {
+    delete panel.view;
+  } else {
+    panel.view = copyView(view);
   }
   return next;
 }

@@ -25,7 +25,7 @@ use crate::api::ApiError;
 const DEFAULT_NAME: &str = "Default";
 
 /// One of a package's named layouts.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct NamedLayout {
     /// Its file's name without `.toml`, which the API asks for it by:
     /// `default` for the package's *Default*.
@@ -39,7 +39,7 @@ pub struct NamedLayout {
 
 /// A package's named layouts, *Default* first and the rest by name, and
 /// the two that follow the package, which the page offers beside them.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct NamedLayouts {
     /// The ones that read.
     pub layouts: Vec<NamedLayout>,
@@ -61,7 +61,7 @@ pub struct LayoutFile {
 }
 
 /// A layout to be saved under a name of its own.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct NamedLayoutInput {
     /// Its name: at most 64 characters, with a letter or digit, unique
     /// among the package's layouts. Its file is named from it.
@@ -392,6 +392,7 @@ pub fn imported(file: &LayoutFile) -> Result<NamedLayoutInput, Problems> {
                     stream: panel.stream,
                     fields: panel.fields,
                     title: panel.title,
+                    view: panel.view,
                 })
                 .collect(),
         })

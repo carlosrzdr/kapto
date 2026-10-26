@@ -181,6 +181,7 @@ Each panel:
 | `height` | no | Its height relative to the other panels' in its column, a whole number from 1 to 12. 1 if not given. |
 | `stream` | no | A `camera` panel's stream, by its ID. Only for `camera`, which needs it. |
 | `fields` | no | A `plot` panel's fields, 1 to 16: each a stream's field, `stream.field` or `stream.field[3]`, or a role, `role:gripper.opening`. Only for `plot`, which needs them. |
+| `view` | no | A `robot` panel's viewpoint: `"front"` (from in front, along its x axis), `"side"` (from its right) or `"top"` (from above), or `{ from = [x, y, z], at = [x, y, z] }`, where the camera is and the point it looks at, in metres in the robot's frame, each from -100 to 100. Not given, the angle from the front right and above that frames the robot. Only for `robot`; at most 4 of them in a layout. |
 | `title` | no | Its title, shown in place of the one made from what it shows: one line, not blank, at most 64 characters. Any panel may have one. |
 
 ## Identity

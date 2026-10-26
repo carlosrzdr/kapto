@@ -261,7 +261,7 @@ error_codes! {
     /// panel's.
     LayoutUnknownKey = "layout.unknown_key" {
         summary: "Unknown key in a layout",
-        remedy: "Remove the key or correct its spelling. A layout holds its `name` and `[[columns]]` tables, each with `width` and `panels`; a panel has `kind`, `height`, an optional `title`, and `stream` for a camera or `fields` for a plot. The robot package format reference (docs/reference/package.md) describes them.",
+        remedy: "Remove the key or correct its spelling. A layout holds its `name` and `[[columns]]` tables, each with `width` and `panels`; a panel has `kind`, `height`, an optional `title`, and `stream` for a camera, `fields` for a plot or `view` for the robot, whose place has `from` and `at`. The robot package format reference (docs/reference/package.md) describes them.",
     }
 
     /// A named layout was to be listed or saved, but Kapto runs no robot
@@ -294,6 +294,12 @@ error_codes! {
     LayoutTitleTooLong = "layout.title_too_long" {
         summary: "The panel's title is too long",
         remedy: "Shorten the panel's `title` to 64 characters or fewer, or remove it to show the one made from what the panel shows.",
+    }
+
+    /// A layout has more `robot` panels than the page draws each frame.
+    LayoutTooManyViews = "layout.too_many_views" {
+        summary: "The layout has too many views of the robot",
+        remedy: "Keep at most 4 `robot` panels in the layout: each is a draw of the whole robot every frame. Remove one, or give the others a `view` that shows what it did.",
     }
 
     /// Another of the package's named layouts has the name, or one its

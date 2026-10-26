@@ -113,7 +113,7 @@ pub fn ask(data_dir: &Path, store: &Writer, id: &str) -> Result<ReplayStatus, Ka
 
 /// What a replay shows, for the page to name what each stretch of it
 /// holds, as the live stream's opening message does for the live view.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ReplayOpening {
     /// When its first message was received, UTC nanoseconds.
     pub start_utc_ns: i64,

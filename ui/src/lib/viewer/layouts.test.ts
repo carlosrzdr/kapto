@@ -8,6 +8,7 @@ import {
   laidOut,
   MAX_PANEL_TITLE,
   MAX_PANELS,
+  MAX_ROBOT_VIEWS,
   moved,
   nudged,
   panelCount,
@@ -16,7 +17,9 @@ import {
   removed,
   reshared,
   retitled,
+  robotCount,
   withHeights,
+  withView,
   withWidths,
 } from "./layouts";
 import { dragged } from "./dragging";
@@ -121,6 +124,30 @@ describe("editing a layout", () => {
     expect(panelTitle("")).toBeNull();
   });
 
+  it("adds at most four robot panels, as many as the page draws each frame", () => {
+    let views = layout;
+    for (let index = 0; index < MAX_ROBOT_VIEWS + 2; index++) {
+      views = added(views, 0, { kind: "robot", height: 1, fields: [], view: "side" });
+    }
+    expect(robotCount(views)).toBe(MAX_ROBOT_VIEWS);
+    // Other panels still go in.
+    expect(panelCount(added(views, 1, { kind: "health", height: 1, fields: [] }))).toBe(panelCount(views) + 1);
+  });
+
+  it("sees a robot panel from a preset or a place of its own, and only a robot panel", () => {
+    const placedView = { from: [1.5, -1, 0.8], at: [0, 0, 0.4] };
+    const seen = withView(layout, 0, 0, placedView);
+    expect(seen.columns[0]!.panels[0]!.view).toEqual(placedView);
+    expect(withView(seen, 0, 0, "top").columns[0]!.panels[0]!.view).toBe("top");
+    expect("view" in withView(seen, 0, 0, null).columns[0]!.panels[0]!).toBe(false);
+    // Not a robot panel, or not there: unchanged.
+    expect(withView(layout, 1, 0, "top")).toBe(layout);
+    expect(withView(layout, 3, 0, "top")).toBe(layout);
+    // Kept both ways, the server's `null` for none left out.
+    expect(editable(laidOut(seen))).toEqual(seen);
+    expect(laidOut(layout).columns[0]!.panels[0]!.view).toBeNull();
+  });
+
   it("never changes the layout it is given", () => {
     const before = structuredClone(layout);
     placed(layout, 1, 0, { between: 0 });
@@ -129,6 +156,7 @@ describe("editing a layout", () => {
     removed(layout, 0, 0);
     withHeights(layout, 0, [4]);
     retitled(layout, 0, 0, "Arm");
+    withView(layout, 0, 0, { from: [1, 0, 1], at: [0, 0, 0] });
     expect(layout).toEqual(before);
   });
 });

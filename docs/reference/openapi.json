@@ -3761,8 +3761,54 @@
               "null"
             ],
             "description": "Its own title, at most 64 characters on one line; none shows the one\nmade from what it shows."
+          },
+          "view": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PanelView",
+                "description": "A robot panel's viewpoint; none for the angle that frames the robot.\nOnly for a robot panel."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
+      },
+      "PanelView": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ViewPreset",
+            "description": "From in front, its right or above."
+          },
+          {
+            "type": "object",
+            "description": "From where an operator left it while arranging.",
+            "required": [
+              "from",
+              "at"
+            ],
+            "properties": {
+              "at": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "description": "The point it looks at, `[x, y, z]`."
+              },
+              "from": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "description": "Where the camera is, `[x, y, z]`."
+              }
+            }
+          }
+        ],
+        "description": "Where a `robot` panel sees the robot from: a preset's name, or a place\nin metres in the robot's frame."
       },
       "Placement": {
         "type": "object",
@@ -5627,8 +5673,28 @@
               "null"
             ],
             "description": "Its own title, shown in place of the one made from what it shows."
+          },
+          "view": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PanelView",
+                "description": "A robot panel's viewpoint; none for the angle that frames the robot."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
+      },
+      "ViewPreset": {
+        "type": "string",
+        "description": "A robot panel's preset viewpoint.",
+        "enum": [
+          "front",
+          "side",
+          "top"
+        ]
       },
       "Viewer": {
         "type": "object",

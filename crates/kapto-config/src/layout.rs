@@ -151,6 +151,15 @@ pub const MAX_PLOT_FIELDS: usize = 16;
 /// The largest relative width or height.
 const MAX_SHARE: i64 = 12;
 
+/// The most `robot` panels a layout may have: each is a draw of the whole
+/// scene every frame.
+pub const MAX_ROBOT_VIEWS: usize = 4;
+
+/// How far from the robot's origin a view's `from` and `at` may be, in
+/// metres along each axis: far past any robot, and near enough that a typing
+/// slip of a few zeros is caught.
+pub const MAX_VIEW_REACH: f64 = 100.0;
+
 /// An example of the file, as the reference shows it.
 pub const LAYOUT_EXAMPLE: &str = "[[columns]]
 width = 3
@@ -198,7 +207,7 @@ pub const LAYOUT_COLUMN_KEYS: [FileKey; 2] = [
 ];
 
 /// Every key of a panel, in the order they are documented.
-pub const LAYOUT_PANEL_KEYS: [FileKey; 5] = [
+pub const LAYOUT_PANEL_KEYS: [FileKey; 6] = [
     FileKey {
         name: "kind",
         required: true,
@@ -220,6 +229,11 @@ pub const LAYOUT_PANEL_KEYS: [FileKey; 5] = [
         help: "A `plot` panel's fields, 1 to 16: each a stream's field, `stream.field` or `stream.field[3]`, or a role, `role:gripper.opening`. Only for `plot`, which needs them.",
     },
     FileKey {
+        name: "view",
+        required: false,
+        help: "A `robot` panel's viewpoint: `\"front\"` (from in front, along its x axis), `\"side\"` (from its right) or `\"top\"` (from above), or `{ from = [x, y, z], at = [x, y, z] }`, where the camera is and the point it looks at, in metres in the robot's frame, each from -100 to 100. Not given, the angle from the front right and above that frames the robot. Only for `robot`; at most 4 of them in a layout.",
+    },
+    FileKey {
         name: "title",
         required: false,
         help: "Its title, shown in place of the one made from what it shows: one line, not blank, at most 64 characters. Any panel may have one.",
@@ -227,7 +241,7 @@ pub const LAYOUT_PANEL_KEYS: [FileKey; 5] = [
 ];
 
 /// A whole layout.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Layout {
     /// Its name: a named layout's in the configuration folder, optional in
     /// a package's own.
@@ -237,7 +251,7 @@ pub struct Layout {
 }
 
 /// A column of panels.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Column {
     /// Its width relative to the other columns'.
     pub width: u8,
@@ -246,7 +260,7 @@ pub struct Column {
 }
 
 /// One panel of a column.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Panel {
     /// What it shows.
     pub kind: PanelKind,
@@ -257,10 +271,13 @@ pub struct Panel {
 }
 
 /// What a panel shows.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PanelKind {
     /// The robot in 3D.
-    Robot,
+    Robot {
+        /// Where it is seen from.
+        view: RobotView,
+    },
     /// One camera stream.
     Camera {
         /// The stream's ID.
@@ -275,6 +292,64 @@ pub enum PanelKind {
     Health,
     /// The timeline's marks as a list.
     Events,
+}
+
+/// Where a `robot` panel sees the robot from.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum RobotView {
+    /// From the front right and a little above, as far as frames the robot.
+    #[default]
+    Framed,
+    /// From in front, along the robot's x axis.
+    Front,
+    /// From its right, along its y axis.
+    Side,
+    /// From above, along its z axis.
+    Top,
+    /// From a place of its own, as an operator left it while arranging.
+    Placed {
+        /// Where the camera is, in metres in the robot's frame.
+        from: [f64; 3],
+        /// The point it looks at.
+        at: [f64; 3],
+    },
+}
+
+impl RobotView {
+    /// A preset by its name in `layout.toml`: `front`, `side` or `top`.
+    #[must_use]
+    pub fn preset(name: &str) -> Option<Self> {
+        match name {
+            "front" => Some(Self::Front),
+            "side" => Some(Self::Side),
+            "top" => Some(Self::Top),
+            _ => None,
+        }
+    }
+
+    /// The preset's name, `None` for the default framing or a place.
+    #[must_use]
+    pub const fn preset_name(self) -> Option<&'static str> {
+        match self {
+            Self::Front => Some("front"),
+            Self::Side => Some("side"),
+            Self::Top => Some("top"),
+            Self::Framed | Self::Placed { .. } => None,
+        }
+    }
+
+    /// The view as `layout.toml` writes it after `view = `; `None` for the
+    /// default framing, which is written as nothing.
+    fn to_toml(self) -> Option<String> {
+        let point = |[x, y, z]: [f64; 3]| format!("[{x:?}, {y:?}, {z:?}]");
+        match self {
+            Self::Framed => None,
+            Self::Placed { from, at } => {
+                Some(format!("{{ from = {}, at = {} }}", point(from), point(at)))
+            }
+            preset => preset.preset_name().map(|name| format!("\"{name}\"")),
+        }
+    }
 }
 
 /// One thing a plot draws.
@@ -310,7 +385,10 @@ impl Layout {
             let _ = write!(text, "[[columns]]\nwidth = {}\npanels = [\n", column.width);
             for panel in &column.panels {
                 let what = match &panel.kind {
-                    PanelKind::Robot => "kind = \"robot\"".to_owned(),
+                    PanelKind::Robot { view } => match view.to_toml() {
+                        Some(view) => format!("kind = \"robot\", view = {view}"),
+                        None => "kind = \"robot\"".to_owned(),
+                    },
                     PanelKind::Camera { stream } => {
                         format!("kind = \"camera\", stream = \"{stream}\"")
                     }
@@ -355,7 +433,8 @@ impl FromStr for PlotField {
 /// missing, invalid or too many values (`config.invalid_value`), a name
 /// without a letter or digit (`layout.name_empty`) or too long
 /// (`layout.name_too_long`), a panel's title too long
-/// (`layout.title_too_long`).
+/// (`layout.title_too_long`), more than [`MAX_ROBOT_VIEWS`] `robot` panels
+/// (`layout.too_many_views`).
 pub fn parse_layout(file: &ConfigFile) -> Result<Layout, Vec<KaptoError>> {
     read_layout(file, &LAYOUT_KEYS, &format!("`{LAYOUT_FILE}`"))
 }
@@ -402,6 +481,18 @@ fn read_layout(file: &ConfigFile, keys: &[FileKey], what: &str) -> Result<Layout
     if panels > MAX_PANELS {
         let error = KaptoError::new(ErrorCode::ConfigInvalidValue).detail(format!(
             "the layout has {panels} panels, more than the {MAX_PANELS} a page can draw"
+        ));
+        errors.push(at_key(error, file, root, "columns"));
+    }
+    let views = layout
+        .columns
+        .iter()
+        .flat_map(|each| &each.panels)
+        .filter(|panel| matches!(panel.kind, PanelKind::Robot { .. }))
+        .count();
+    if views > MAX_ROBOT_VIEWS {
+        let error = KaptoError::new(ErrorCode::LayoutTooManyViews).detail(format!(
+            "the layout has {views} robot panels, more than the {MAX_ROBOT_VIEWS} a page draws each frame"
         ));
         errors.push(at_key(error, file, root, "columns"));
     }
@@ -483,7 +574,11 @@ fn panel(file: &ConfigFile, table: &InlineTable, errors: &mut Vec<KaptoError>) -
             .detail(format!("a `{kind}` panel needs `{key}`"))
     };
     let named = kind.as_deref();
-    for (key, belongs) in [("stream", "camera"), ("fields", "plot")] {
+    let view = match table.get("view") {
+        Some(item) if named == Some("robot") => robot_view(file, item, &mut reader),
+        _ => None,
+    };
+    for (key, belongs) in [("stream", "camera"), ("fields", "plot"), ("view", "robot")] {
         if named.is_some_and(|kind| kind != belongs) && table.get(key).is_some() {
             reader.located(only_for(key, belongs), key);
         }
@@ -514,7 +609,9 @@ fn panel(file: &ConfigFile, table: &InlineTable, errors: &mut Vec<KaptoError>) -
         Some("plot") => Some(PanelKind::Plot {
             fields: fields.iter().filter_map(|text| text.parse().ok()).collect(),
         }),
-        Some("robot") => Some(PanelKind::Robot),
+        Some("robot") => Some(PanelKind::Robot {
+            view: view.unwrap_or_default(),
+        }),
         Some("health") => Some(PanelKind::Health),
         Some("events") => Some(PanelKind::Events),
         _ => None,
@@ -526,6 +623,104 @@ fn panel(file: &ConfigFile, table: &InlineTable, errors: &mut Vec<KaptoError>) -
         height: share(height),
         title,
     })
+}
+
+/// A `robot` panel's `view`, a preset's name or `{ from, at }`; `None` with
+/// its problems added to `reader`.
+fn robot_view(
+    file: &ConfigFile,
+    item: &toml_edit::Value,
+    reader: &mut Reader<'_>,
+) -> Option<RobotView> {
+    if let Some(name) = item.as_str() {
+        let preset = RobotView::preset(name);
+        if preset.is_none() {
+            let error = KaptoError::new(ErrorCode::ConfigInvalidValue).detail(
+                "`view` must be \"front\", \"side\", \"top\" or `{ from = [x, y, z], at = [x, y, z] }`"
+                    .to_owned(),
+            );
+            reader.located(error, "view");
+        }
+        return preset;
+    }
+    let Some(place) = item.as_inline_table() else {
+        let error = KaptoError::new(ErrorCode::ConfigInvalidValue).detail(
+            "`view` must be \"front\", \"side\", \"top\" or `{ from = [x, y, z], at = [x, y, z] }`"
+                .to_owned(),
+        );
+        reader.located(error, "view");
+        return None;
+    };
+    // Problems inside it are found at its own keys, on the panel's line.
+    let mut inner = Reader::new(file, place);
+    inner.check_keys(&VIEW_KEYS, ErrorCode::LayoutUnknownKey, "a view");
+    let from = point(&mut inner, "from");
+    let at = point(&mut inner, "at");
+    let view = match (from, at) {
+        (Some(from), Some(at)) if apart(from, at) < 0.001 => {
+            let error = KaptoError::new(ErrorCode::ConfigInvalidValue)
+                .detail("a view's `from` and `at` must be at least a millimetre apart".to_owned());
+            inner.located(error, "from");
+            None
+        }
+        (Some(from), Some(at)) => Some(RobotView::Placed { from, at }),
+        _ => None,
+    };
+    reader.errors.append(&mut inner.errors);
+    view
+}
+
+/// How far apart two points are, in metres: a camera looking at where it
+/// is has no direction to look in.
+fn apart(one: [f64; 3], other: [f64; 3]) -> f64 {
+    one.iter()
+        .zip(other)
+        .map(|(a, b)| (a - b).powi(2))
+        .sum::<f64>()
+        .sqrt()
+}
+
+/// The keys of a `view` given as a place.
+const VIEW_KEYS: [FileKey; 2] = [
+    FileKey {
+        name: "from",
+        required: true,
+        help: "Where the camera is.",
+    },
+    FileKey {
+        name: "at",
+        required: true,
+        help: "The point it looks at.",
+    },
+];
+
+/// Three numbers at `key`, each within [`MAX_VIEW_REACH`]; `None` (and an
+/// error) if not, or `None` if it's absent.
+fn point(reader: &mut Reader<'_>, key: &str) -> Option<[f64; 3]> {
+    let item = reader.root.get(key)?;
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "any whole number within reach is exact"
+    )]
+    let numbers: Option<Vec<f64>> = item.as_array().and_then(|array| {
+        array
+            .iter()
+            .map(|value| {
+                value
+                    .as_float()
+                    .or_else(|| value.as_integer().map(|whole| whole as f64))
+                    .filter(|number| number.abs() <= MAX_VIEW_REACH)
+            })
+            .collect()
+    });
+    let point = numbers.and_then(|numbers| <[f64; 3]>::try_from(numbers).ok());
+    if point.is_none() {
+        let error = KaptoError::new(ErrorCode::ConfigInvalidValue).detail(format!(
+            "`{key}` must be three numbers, [x, y, z], each from -{MAX_VIEW_REACH} to {MAX_VIEW_REACH} metres"
+        ));
+        reader.located(error, key);
+    }
+    point
 }
 
 /// A relative width or height read, 1 if absent.
@@ -576,7 +771,9 @@ mod tests {
             layout.columns[0].panels,
             [
                 Panel {
-                    kind: PanelKind::Robot,
+                    kind: PanelKind::Robot {
+                        view: RobotView::Framed,
+                    },
                     height: 3,
                     title: None,
                 },
@@ -732,6 +929,112 @@ panels = [
             ]
         );
         assert!(check_panel_title(&"é".repeat(MAX_PANEL_TITLE)).is_ok());
+    }
+
+    #[test]
+    fn a_robot_panels_view_reads_back_the_same_whether_a_preset_or_a_place() {
+        let text = r#"[[columns]]
+panels = [
+  { kind = "robot" },
+  { kind = "robot", view = "front" },
+  { kind = "robot", view = "top", height = 2 },
+  { kind = "robot", view = { from = [1.5, -1, 0.8], at = [0, 0, 0.4] } },
+]
+"#;
+        let layout = parse_layout(&file(text)).unwrap();
+        let views: Vec<RobotView> = layout.columns[0]
+            .panels
+            .iter()
+            .filter_map(|panel| match panel.kind {
+                PanelKind::Robot { view } => Some(view),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            views,
+            [
+                RobotView::Framed,
+                RobotView::Front,
+                RobotView::Top,
+                RobotView::Placed {
+                    from: [1.5, -1.0, 0.8],
+                    at: [0.0, 0.0, 0.4]
+                },
+            ]
+        );
+        let written = layout.to_toml();
+        assert!(
+            written.contains(
+                r#"{ kind = "robot", view = { from = [1.5, -1.0, 0.8], at = [0.0, 0.0, 0.4] }, height = 1 }"#
+            ),
+            "{written}"
+        );
+        assert!(
+            written.contains(r#"{ kind = "robot", height = 1 }"#),
+            "{written}"
+        );
+        assert_eq!(parse_layout(&file(&written)).unwrap(), layout);
+        // Any place within reach, down to the last digit a float keeps.
+        let mut placed = layout;
+        placed.columns[0].panels[3].kind = PanelKind::Robot {
+            view: RobotView::Placed {
+                from: [0.1 + 0.2, -MAX_VIEW_REACH, 1e-7],
+                at: [MAX_VIEW_REACH, 2.0 / 3.0, -0.0],
+            },
+        };
+        assert_eq!(parse_layout(&file(&placed.to_toml())).unwrap(), placed);
+    }
+
+    #[test]
+    fn a_wrong_view_is_refused_at_its_line() {
+        let text = r#"[[columns]]
+panels = [
+  { kind = "robot", view = "back" },
+  { kind = "robot", view = 3 },
+  { kind = "robot", view = { from = [1, 2], at = [0, 0, 0] } },
+  { kind = "health", view = "top" },
+]
+
+[[columns]]
+panels = [
+  { kind = "robot", view = { from = [1, 2, 300], at = [0, 0, "up"] } },
+  { kind = "robot", view = { from = [1, 1, 1], at = [1, 1, 1] } },
+  { kind = "robot", view = { from = [1, 1, 1], to = [0, 0, 0] } },
+]
+"#;
+        let preset =
+            r#"`view` must be "front", "side", "top" or `{ from = [x, y, z], at = [x, y, z] }`"#;
+        let three = "must be three numbers, [x, y, z], each from -100 to 100 metres";
+        assert_eq!(
+            problems(text),
+            [
+                format!("config.invalid_value 3: {preset}"),
+                format!("config.invalid_value 4: {preset}"),
+                format!("config.invalid_value 5: `from` {three}"),
+                "config.invalid_value 6: `view` is only for a `robot` panel".to_owned(),
+                format!("config.invalid_value 11: `from` {three}"),
+                format!("config.invalid_value 11: `at` {three}"),
+                "config.invalid_value 12: a view's `from` and `at` must be at least a millimetre apart"
+                    .to_owned(),
+                "layout.unknown_key 13: `to`".to_owned(),
+                "config.invalid_value 13: a view needs `at`".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_fifth_view_of_the_robot_is_refused() {
+        let robots = |count: usize| {
+            let robot = r#"{ kind = "robot", view = "side" }, "#.repeat(count);
+            format!("[[columns]]\npanels = [{robot}{{ kind = \"health\" }}]\n")
+        };
+        assert!(parse_layout(&file(&robots(MAX_ROBOT_VIEWS))).is_ok());
+        assert_eq!(
+            problems(&robots(MAX_ROBOT_VIEWS + 1)),
+            [
+                "layout.too_many_views 1: the layout has 5 robot panels, more than the 4 a page draws each frame"
+            ]
+        );
     }
 
     #[test]

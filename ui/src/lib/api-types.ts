@@ -670,7 +670,18 @@ export interface PanelInput {
    * made from what it shows.
    */
   title?: string | null;
+  /**
+   * A robot panel's viewpoint; none for the angle that frames the robot.
+   * Only for a robot panel.
+   */
+  view?: PanelView | null;
 }
+
+/**
+ * Where a `robot` panel sees the robot from: a preset's name, or a place
+ * in metres in the robot's frame.
+ */
+export type PanelView = ViewPreset | { at: number[]; from: number[] };
 
 /** A position and an orientation. */
 export interface Placement {
@@ -1428,7 +1439,12 @@ export interface ViewPanel {
   stream?: string | null;
   /** Its own title, shown in place of the one made from what it shows. */
   title?: string | null;
+  /** A robot panel's viewpoint; none for the angle that frames the robot. */
+  view?: PanelView | null;
 }
+
+/** A robot panel's preset viewpoint. */
+export type ViewPreset = "front" | "side" | "top";
 
 /** Where the live view's stream is, on the host the API was reached on. */
 export interface Viewer {

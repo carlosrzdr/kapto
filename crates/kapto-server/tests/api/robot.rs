@@ -426,6 +426,69 @@ async fn a_panels_own_title_is_saved_given_back_and_refused_when_too_long() {
 }
 
 #[tokio::test]
+async fn a_robot_panels_view_is_saved_given_back_and_a_fifth_view_refused() {
+    let folder = scratch("layout-views");
+    let api = arranged(&folder, Some("arm7"));
+    let viewed = r#"{"columns": [{"width": 1, "panels": [
+        {"kind": "robot", "height": 1, "view": "top"},
+        {"kind": "robot", "height": 1, "view": {"from": [1.5, -1, 0.8], "at": [0, 0, 0.4]}},
+        {"kind": "robot", "height": 1}
+    ]}]}"#;
+    let (status, body) = call(
+        api.clone(),
+        "PUT",
+        "/api/layouts/default",
+        Some(("application/json", viewed)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let panels = &body["layout"]["columns"][0]["panels"];
+    assert_eq!(
+        (&panels[0]["view"], &panels[1]["view"], &panels[2]["view"]),
+        (
+            &json!("top"),
+            &json!({"from": [1.5, -1.0, 0.8], "at": [0.0, 0.0, 0.4]}),
+            &Value::Null
+        )
+    );
+    let written = std::fs::read_to_string(folder.join("config/layouts/arm7/default.toml")).unwrap();
+    assert!(
+        written.contains(r#"{ kind = "robot", view = { from = [1.5, -1.0, 0.8], at = [0.0, 0.0, 0.4] }, height = 1 }"#),
+        "{written}"
+    );
+
+    let robot = r#"{"kind": "robot", "height": 1, "view": "side"}"#;
+    let five = format!(
+        r#"{{"columns": [{{"width": 1, "panels": [{}]}}]}}"#,
+        [robot; 5].join(", ")
+    );
+    let on_a_plot = r#"{"columns": [{"width": 1, "panels": [
+        {"kind": "plot", "height": 1, "fields": ["arm_joints.joint_positions"], "view": "top"}
+    ]}]}"#;
+    for (layout, code) in [
+        (five.as_str(), "layout.too_many_views"),
+        (on_a_plot, "config.invalid_value"),
+    ] {
+        for (method, uri) in [
+            ("POST", "/api/layout/check"),
+            ("PUT", "/api/layouts/default"),
+        ] {
+            let (status, error) =
+                call(api.clone(), method, uri, Some(("application/json", layout))).await;
+            assert_eq!(
+                (status, &error["code"]),
+                (StatusCode::CONFLICT, &json!(code)),
+                "{method} {uri}: {error}"
+            );
+        }
+    }
+    // Refused, the one saved before stays.
+    let written_after =
+        std::fs::read_to_string(folder.join("config/layouts/arm7/default.toml")).unwrap();
+    assert_eq!(written_after, written);
+}
+
+#[tokio::test]
 async fn a_layout_cant_be_saved_without_a_package_or_a_folder_to_write_it_in() {
     let folder = scratch("layout-nowhere");
     let (status, error) = call(

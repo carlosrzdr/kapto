@@ -5,7 +5,7 @@
 
 use kapto_config::{
     Column, FieldReference, Layout, MAX_PANELS, MAX_PLOT_FIELDS, MappingDeclaration, Panel,
-    PanelKind, PlotField, StreamDeclaration,
+    PanelKind, PlotField, RobotView, StreamDeclaration,
 };
 use kapto_core::Role;
 
@@ -101,7 +101,9 @@ pub fn made_layout(declared: &Declared) -> Layout {
     if declared.robot_moves {
         columns.push(Column {
             width: 3,
-            panels: vec![panel(PanelKind::Robot)],
+            panels: vec![panel(PanelKind::Robot {
+                view: RobotView::Framed,
+            })],
         });
     }
     columns.push(Column {
@@ -258,7 +260,7 @@ fn lacking(kind: &PanelKind, declared: &Declared) -> Vec<String> {
                 PlotField::Field(field) => lacking_field(field, declared),
             })
             .collect(),
-        PanelKind::Robot | PanelKind::Health | PanelKind::Events => Vec::new(),
+        PanelKind::Robot { .. } | PanelKind::Health | PanelKind::Events => Vec::new(),
     }
 }
 
