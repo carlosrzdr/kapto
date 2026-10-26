@@ -6,7 +6,7 @@ import { changedShare, drawnShare, pictureOf, robotSpan } from "./drawn";
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
 import { choose } from "./controls";
-import { type Column, forgetLayouts, savedLayout, savedLayouts, showLayout } from "./layouts";
+import { arrangeFolded, type Column, forgetLayouts, savedLayout, savedLayouts, showLayout } from "./layouts";
 
 const open = (page: Page, tab: RegExp) => page.getByRole("tab", { name: tab }).click();
 
@@ -1210,18 +1210,27 @@ test("Arrange is at the view's top right, above its panels, and pressed while it
     await expect(arrange).toHaveAttribute("aria-expanded", "true");
     await expect(editor).toBeVisible();
     // The editor opens right under its button, its right edge on the button's;
-    // measured by the box it scrolls in, which is what takes room.
-    const box = (await editor.locator("xpath=..").boundingBox())!;
+    // measured by the box the button opens, its bar and all.
+    const box = (await page.locator(`#${await arrange.getAttribute("aria-controls")}`).boundingBox())!;
     const pressed = (await arrange.boundingBox())!;
     expect(box.y - (pressed.y + pressed.height), `the editor's gap under it ${at}`).toBeGreaterThanOrEqual(0);
     expect(box.y - (pressed.y + pressed.height), `the editor's gap under it ${at}`).toBeLessThan(12);
     expect(Math.abs(box.x + box.width - (pressed.x + pressed.width)), `the editor's right edge ${at}`).toBeLessThan(2);
-    // Beside the panels where there is room; above them, never over them, where there isn't.
+    // Over the panels where there is room, which keep the width they are
+    // shown at; above them, never over them, where there isn't.
     const after = (await panels.boundingBox())!;
     if (size.width === 1024) {
       expect(after.y, `the panels' top ${at}`).toBeGreaterThanOrEqual(box.y + box.height);
     } else {
-      expect(after.x + after.width, `the panels' right edge ${at}`).toBeLessThanOrEqual(box.x);
+      expect(Math.abs(after.width - view.width), `the panels' width ${at}`).toBeLessThan(1);
+      expect(Math.abs(after.x + after.width - (box.x + box.width)), `the panels' right edge ${at}`).toBeLessThan(2);
+      expect(box.y + box.height, `the editor over the panels ${at}`).toBeGreaterThan(after.y);
+      // Drawn above them, not under: what is at its middle is the editor.
+      const over = await page.evaluate(
+        ([x, y]) => Boolean(document.elementFromPoint(x!, y!)?.closest("#arranging")),
+        [box.x + box.width / 2, box.y + box.height / 2],
+      );
+      expect(over, `the editor drawn over the panels ${at}`).toBe(true);
     }
 
     await arrange.click();
@@ -1231,6 +1240,86 @@ test("Arrange is at the view's top right, above its panels, and pressed while it
   if (viewport) {
     await page.setViewportSize(viewport);
   }
+});
+
+test("the arranging editor floats over the view at its full width, folds, moves aside, is kept after a reload, and never blocks an edge dragged under it", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  const id = await showLayout(page, "Floating", [
+    { width: 1, panels: [panel("robot")] },
+    { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] })] },
+  ]);
+  const arrange = page.getByRole("button", { name: "Arrange" });
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const editor = page.getByRole("region", { name: "Arrange the view" });
+  const box = page.locator("#arranging");
+  /** The panels' width, and the columns' and edges' between them, end to end. */
+  const widths = () =>
+    panels.evaluate((group) => ({
+      group: group.getBoundingClientRect().width,
+      spanned: group.lastElementChild!.getBoundingClientRect().right - group.firstElementChild!.getBoundingClientRect().left,
+    }));
+  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+  const shown = (await panels.boundingBox())!;
+
+  // Arranged at the width shown: nothing set aside for the editor.
+  await arrange.click();
+  await expect(editor).toBeVisible();
+  const arranged = (await panels.boundingBox())!;
+  expect(Math.abs(arranged.width - shown.width)).toBeLessThan(1);
+  const { group, spanned } = await widths();
+  expect(Math.abs(spanned - group)).toBeLessThan(1);
+  const right = (await box.boundingBox())!;
+  expect(Math.abs(right.x + right.width - (arranged.x + arranged.width))).toBeLessThan(2);
+
+  // Folded to its bar, then moved to the view's left.
+  const fold = page.getByRole("button", { name: "Fold the editor" });
+  await expect(fold).toHaveAttribute("aria-expanded", "true");
+  await fold.click();
+  const unfold = page.getByRole("button", { name: "Unfold the editor" });
+  await expect(unfold).toHaveAttribute("aria-expanded", "false");
+  await expect(editor).toBeHidden();
+  expect((await box.boundingBox())!.height).toBeLessThan(48);
+  await page.getByRole("button", { name: "Move to the left" }).click();
+  await expect.poll(async () => Math.abs((await box.boundingBox())!.x - arranged.x)).toBeLessThan(2);
+
+  // Both kept after a reload, in this browser.
+  await page.reload();
+  await arrange.click();
+  await expect(unfold).toHaveAttribute("aria-expanded", "false");
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => Math.abs((await box.boundingBox())!.x - arranged.x)).toBeLessThan(2);
+  await unfold.click();
+  await expect(editor).toBeVisible();
+  await page.getByRole("button", { name: "Move to the right" }).click();
+  await expect.poll(async () => Math.abs((await box.boundingBox())!.x + (await box.boundingBox())!.width - (arranged.x + arranged.width))).toBeLessThan(2);
+
+  // The edge between the columns taken from under the editor into it: it
+  // lets the pointer through while held, and the edge is let go there.
+  const editorBox = (await box.boundingBox())!;
+  const edge = (await panels.getByRole("separator", { name: "Between columns 1 and 2" }).boundingBox())!;
+  const from = { x: edge.x + edge.width / 2, y: editorBox.y + editorBox.height + 30 };
+  const to = { x: editorBox.x + editorBox.width / 2, y: editorBox.y + editorBox.height / 2 };
+  expect(to.x).toBeGreaterThan(from.x);
+  expect(from.y).toBeLessThan(edge.y + edge.height);
+  const covered = (x: number, y: number) =>
+    page.evaluate(([x, y]) => Boolean(document.elementFromPoint(x!, y!)?.closest("#arranging")), [x, y]);
+  expect(await covered(to.x, to.y), "the editor covers where the edge is taken to").toBe(true);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await expect(box).toHaveCSS("pointer-events", "none");
+  expect(await covered(to.x, to.y), "the editor in the way while the edge is held").toBe(false);
+  await expect(page.getByText(/^\d+ : \d+$/)).toBeVisible();
+  await page.mouse.up();
+  await expect(box).toHaveCSS("pointer-events", "auto");
+  await expect.poll(async () => (await savedLayout(page, id)).map((column) => column.width)).toEqual([12, expect.any(Number)]);
+  const [wide, narrow] = (await savedLayout(page, id)).map((column) => column.width);
+  expect(narrow).toBeLessThan(wide!);
+  await forgetLayouts(page);
 });
 
 /** The list of layouts beside Arrange on `page`: its button, what it says, and picking or doing what it offers. */
@@ -1268,7 +1357,7 @@ test("layouts are picked from the list beside Arrange, saved as arranged, rename
 
   // Arranged, it is first saved as a layout of its own, which is then the one shown.
   const arrange = page.getByRole("button", { name: "Arrange" });
-  await arrange.click();
+  await arrangeFolded(page);
   await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click();
   await expect(list).toHaveAccessibleName("Layout: Made from roles (edited)");
   await expect(gripper).toHaveCount(0);
@@ -1393,7 +1482,7 @@ test("the operator arranges the view by dragging its panels and the edges betwee
   ]);
   const kept = async () => ({ columns: await savedLayout(page, id) });
   const kinds = async () => (await kept()).columns.map((column) => column.panels.map((each) => each.kind));
-  await page.getByRole("button", { name: "Arrange" }).click();
+  await arrangeFolded(page);
   const panels = page.getByRole("group", { name: "The view's panels" });
   const drag = async (from: { x: number; y: number }, to: { x: number; y: number }) => {
     await page.mouse.move(from.x, from.y);
@@ -1461,6 +1550,8 @@ test("the operator arranges the view by dragging its panels and the edges betwee
   // Already first in the first place it can go: nothing moves.
   await page.keyboard.press("ArrowUp");
   expect(await kinds()).toEqual([["events"], ["plot", "robot"]]);
+  // The editor's bar is over the plot's corner, at the view's top right: moved aside first.
+  await page.getByRole("button", { name: "Move to the left" }).click();
   await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click();
   await expect.poll(kinds).toEqual([["events"], ["robot"]]);
   await forgetLayouts(page);
@@ -1476,7 +1567,7 @@ test("a panel is given a title of its own by clicking its name while arranging, 
   ]);
   const panels = page.getByRole("group", { name: "The view's panels" });
   const kept = async () => (await savedLayout(page, id)).map((column) => column.panels.map((each) => each.title ?? null));
-  await page.getByRole("button", { name: "Arrange" }).click();
+  await arrangeFolded(page);
 
   // Its name clicked: a field in its place, the made name shown while empty.
   await panels.getByRole("button", { name: "Drag the plot of role:gripper.opening to another place" }).click();
@@ -1614,7 +1705,7 @@ test("the robot isn't drawn while no panel shows it, and is drawn standing as it
 
   // The robot's panel removed: frames keep coming, and the robot is posed by
   // them, but nothing of it is drawn.
-  await page.getByRole("button", { name: "Arrange" }).click();
+  await arrangeFolded(page);
   const panels = page.getByRole("group", { name: "The view's panels" });
   await panels.getByRole("button", { name: "Remove the robot panel" }).click();
   await expect(panels.locator(".slot")).toHaveCount(0);
@@ -1627,6 +1718,7 @@ test("the robot isn't drawn while no panel shows it, and is drawn standing as it
 
   // Shown again: drawn at once, standing as the newest frame has it.
   const since = await count("data-frames");
+  await page.getByRole("button", { name: "Unfold the editor" }).click();
   await choose(page, "Shows", /^Robot$/);
   await choose(page, "In", "a new column");
   await page.getByRole("region", { name: "Arrange the view" }).getByRole("button", { name: "Add" }).click();
@@ -1703,7 +1795,7 @@ test("where an operator leaves a view of the robot while arranging is kept with 
   expect((await savedLayout(page, id))[1]!.panels[0]!.view).toBe("side");
 
   // Turned while arranging: kept as where it was left, in the robot's frame.
-  await page.getByRole("button", { name: "Arrange" }).click();
+  await arrangeFolded(page);
   await turn();
   await expect.poll(async () => (await savedLayout(page, id))[1]!.panels[0]!.view).toMatchObject({ from: expect.any(Array), at: expect.any(Array) });
   const left = (await savedLayout(page, id))[1]!.panels[0]!.view as { from: number[]; at: number[] };
@@ -1743,7 +1835,7 @@ test("the edge between two plots in a column of more than fit resizes them both"
   // As a robot of many streams is shown by the layout made for it.
   const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
   await showLayout(page, "Many plots", [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }]);
-  await page.getByRole("button", { name: "Arrange" }).click();
+  await arrangeFolded(page);
   const panels = page.getByRole("group", { name: "The view's panels" });
   const column = panels.locator(".column").nth(1);
   const heights = async () => Promise.all([0, 1, 2].map(async (at) => (await column.locator(":scope > .panel").nth(at).boundingBox())?.height ?? 0));

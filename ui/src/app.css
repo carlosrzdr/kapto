@@ -64,6 +64,8 @@
   --inset: var(--space-2);
   --radius: 0.25rem;
   --control-height: 1.75rem;
+  /* Under what floats over the view, so it reads as above the panels. */
+  --shadow-floating: 0 8px 24px rgb(0 0 0 / 50%);
   color-scheme: dark;
 }
 

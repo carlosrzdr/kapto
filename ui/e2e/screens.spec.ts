@@ -100,7 +100,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await page.getByRole("button", { name: /^Environment/ }).click();
   await page.waitForTimeout(1_000);
   await shot(page, "live-environment");
-  // Arranging the view: the editor open beside it.
+  // Arranging the view: the editor open over it.
   await page.getByRole("button", { name: "Arrange" }).click();
   await page.waitForTimeout(500);
   await shot(page, "live-arrange");
@@ -116,6 +116,16 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
     await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2, { steps: 6 });
     await page.mouse.up();
   }
+  // The editor folded to its bar, then open on the view's left side; put
+  // back after, as this browser remembers both.
+  await page.getByRole("button", { name: "Fold the editor" }).click();
+  await page.waitForTimeout(500);
+  await shot(page, "live-arrange-folded");
+  await page.getByRole("button", { name: "Unfold the editor" }).click();
+  await page.getByRole("button", { name: "Move to the left" }).click();
+  await page.waitForTimeout(500);
+  await shot(page, "live-arrange-left");
+  await page.getByRole("button", { name: "Move to the right" }).click();
   await page.getByRole("button", { name: "Arrange" }).click();
   await viewer(page, false);
 

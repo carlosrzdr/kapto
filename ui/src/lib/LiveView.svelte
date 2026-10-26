@@ -15,6 +15,7 @@
     getRobotScene,
   } from "./api";
   import type { LayoutInput, LiveViewCounts, PanelView, RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
+  import ArrangingBox from "./ArrangingBox.svelte";
   import CameraPanel from "./CameraPanel.svelte";
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
   import LayoutEditor from "./LayoutEditor.svelte";
@@ -1678,14 +1679,14 @@
   {#if arranging}
     <!-- Next to its button in the page's order too, so at a tablet's width
          it opens under it rather than at the page's foot. -->
-    <div class="arranging" id="arranging" class:faded={carried !== null || sharing !== null}>
+    <ArrangingBox faded={carried !== null || sharing !== null}>
       <LayoutEditor
         layout={editing()}
         {offered}
         {recordedOnly}
         onchange={arrange}
       />
-    </div>
+    </ArrangingBox>
   {/if}
 {/if}
 {#if chosen?.stale && replay === null}
@@ -2041,15 +2042,11 @@
     flex-grow: 12;
     --shares: 12;
   }
-  /* Arranged on: the room between columns and panels is the edges to drag,
-     and the columns make room for the editor beside them rather than
-     going under it. */
+  /* Arranged on: the room between columns and panels is the edges to drag.
+     The editor floats over them, so they keep the width they are shown at. */
   .columns.on-view,
   .on-view .column {
     gap: 0;
-  }
-  .columns.on-view {
-    margin-right: calc(min(30rem, 100%) + 0.5rem);
   }
   .on-view .panel {
     position: relative;
@@ -2186,10 +2183,6 @@
     white-space: nowrap;
     pointer-events: none;
   }
-  .arranging.faded {
-    opacity: 0.25;
-    pointer-events: none;
-  }
   /* Narrower, as on a tablet: the columns one under another, each one's
      panels side by side, never over the controls below. */
   @media (max-width: 70rem) {
@@ -2202,10 +2195,6 @@
     /* Side by side, the panels share the column's width rather than scroll across. */
     .panel {
       flex-basis: 0;
-    }
-    /* No room beside: the editor goes above the panels instead. */
-    .columns.on-view {
-      margin-right: 0;
     }
     .between-columns {
       width: auto;
@@ -2348,33 +2337,6 @@
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 15%, transparent);
     color: var(--accent);
-  }
-  /* Right under its button, the columns making room for it beside them. */
-  .arranging {
-    position: absolute;
-    top: calc(var(--control-height) + var(--space-1));
-    right: 0;
-    z-index: 2;
-    width: min(30rem, 100%);
-    max-height: calc(100% - 6rem);
-    overflow-y: auto;
-    border: 1px solid var(--line);
-    border-top-color: var(--accent);
-    border-radius: var(--radius);
-    background: var(--panel);
-    /* Its edges inside its width, so it ends where its button and the view do. */
-    box-sizing: border-box;
-  }
-  /* No room beside, as on a tablet: the editor goes between its button and
-     the panels instead. After the rule above, which it would lose to before it. */
-  @media (max-width: 70rem) {
-    .arranging {
-      position: static;
-      flex: none;
-      width: 100%;
-      max-height: 40%;
-      margin-bottom: var(--space-2);
-    }
   }
   .environment {
     position: absolute;

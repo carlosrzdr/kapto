@@ -47,3 +47,13 @@ export async function forgetLayouts(page: Page): Promise<void> {
   }
   await page.evaluate((key) => localStorage.removeItem(key), SHOWN);
 }
+
+/**
+ * Opens Arrange with its editor folded to its bar, as an operator does to
+ * reach the panels the editor floats over, when nothing in it is needed.
+ */
+export async function arrangeFolded(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await page.getByRole("button", { name: "Fold the editor" }).click();
+  await expect(page.getByRole("region", { name: "Arrange the view" })).toBeHidden();
+}
