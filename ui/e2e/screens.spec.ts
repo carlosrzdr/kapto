@@ -758,7 +758,9 @@ test("a screenshot of each tab at a tablet's width", async ({ page }) => {
   nothingLeft();
 });
 
-test("a screenshot of a package's changed layout offered", async ({ page }) => {
+test("a screenshot of a package's changed layout offered, and of the layout an episode was recorded with", async ({ page }) => {
+  // The replay waits for the worker.
+  test.setTimeout(240_000);
   const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], missing: [], ...more });
   // The demo's package as if its layout.toml were edited between two loads.
   let shipped = { source: "package", columns: [{ width: 1, panels: [panel("robot"), panel("events")] }] };
@@ -798,6 +800,35 @@ test("a screenshot of a package's changed layout offered", async ({ page }) => {
   await viewer(page, false);
   await offer.getByRole("button", { name: "Cancel" }).click();
   await offer.getByRole("button", { name: "Keep this one" }).click();
+
+  // A replay of an episode recorded with a layout of its own.
+  const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
+  expect((await page.request.post("/api/episodes/start", json)).status()).toBe(201);
+  await page.waitForTimeout(3_000);
+  expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
+  await page.route("**/replay/opening", async (route) => {
+    const response = await route.fetch();
+    const opening = (await response.json()) as { layout: object };
+    opening.layout = {
+      source: "package",
+      columns: [
+        { width: 2, panels: [panel("robot")] },
+        { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] },
+      ],
+    };
+    await route.fulfill({ response, json: opening });
+  });
+  await tab(page, /^Episodes/);
+  const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
+  await episode.getByTitle("Show this episode in full").click();
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  await expect(page.getByRole("status", { name: "Replay" })).toContainText("Episode over", { timeout: 120_000 });
+  await expect(offer).toBeVisible();
+  await viewer(page, true);
+  await page.waitForTimeout(3_000);
+  await shot(page, "replay-layout-offered");
+  await viewer(page, false);
+  await page.getByRole("banner").getByRole("button", { name: "Back to live" }).click();
   await forgetLayouts(page);
   nothingLeft();
 });

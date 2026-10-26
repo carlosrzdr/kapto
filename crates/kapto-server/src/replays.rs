@@ -127,9 +127,11 @@ pub struct ReplayOpening {
     /// frames come from `/api/episodes/{id}/cameras/{camera}/frames`. Empty
     /// if the files the recording carries can't be read.
     pub cameras: Vec<String>,
-    /// How the page arranges it: the layout the recording carries, or one
-    /// made from what it declares, each panel with what the recording
-    /// lacks; absent for a replay made before replays had one.
+    /// The layout the recording carries, or one made from what it
+    /// declares, each panel with what the recording lacks; absent for a
+    /// replay made before replays had one. The page arranges a replay by
+    /// the layout chosen, like the live view, and offers the recording's
+    /// own when it is another.
     pub layout: Option<ViewLayout>,
     /// Each role the recording's mapping gives a value.
     pub roles: Vec<RobotRole>,

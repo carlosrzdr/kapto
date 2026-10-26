@@ -150,8 +150,9 @@ Then each sample:
   unchanged, by the SHA-256 the recording names it with, whatever else in
   that package changed since; one no such package has isn't in the scene,
   and one that couldn't be read has length 0. Absent with `scene`.
-- `layout`: how the page arranges the replay, as `/api/robot` gives the
-  live view's: the [`layout.toml`](package.md#layouttoml) the recording
+- `layout`: the layout the replay was recorded with, as `/api/robot`
+  gives the live view's, which the page offers rather than arranges the
+  replay by (it arranges it by the layout chosen): the [`layout.toml`](package.md#layouttoml) the recording
   carries (`source` `package`), or one made from what it declares (`made`)
   when it carries none or one that doesn't read, which is then one of the
   replay's problems; each panel with what it names that the recording

@@ -550,9 +550,13 @@ it; when the package's differs, compared as parsed (its columns and
 panels, not the file's spacing, key order or comments), a notice above the
 panels offers *Use the new one*, *Save the old one as…* (kept as a named
 layout, then the new one shown) or *Keep this one*, and nothing changes
-until one is chosen. A replay is arranged by the layout its recording
-carries, or one made from what the recording declares, which the worker
-stores in the replay view. The page loads nothing from
+until one is chosen. A replay is arranged by the layout chosen, like the
+live view. The layout its recording carries (its package's
+`layout.toml`, which the worker stores in the replay view, else one made
+from what the recording declares) is only offered: when it is the
+recording's own and not the one shown, the same notice offers *Use the
+episode's* (shown for that replay only, nothing saved), *Save it as…* or
+*Keep this one*, once per episode in that browser. The page loads nothing from
 elsewhere and its Content-Security-Policy lets it reach only Kapto's API
 and the bridge's stream, so the view works offline and nothing leaves the
 machine.

@@ -54,6 +54,7 @@
     withWidths,
   } from "./viewer/layouts";
   import { PackageLayouts } from "./viewer/layout-list.svelte";
+  import { offerMemory, offersEpisode } from "./viewer/layout-offer";
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
@@ -410,13 +411,37 @@
     roles: roles.map((each) => each.role),
   });
   const liveLayout = $derived(chosen?.view ?? layout ?? ROBOT_ONLY);
-  // A replay is arranged as its recording says, if its replay says; else
-  // as the live view is.
-  const arrangedBy = $derived(replay?.opening.layout ?? liveLayout);
+  // A replay is arranged by the layout chosen, like the live view; the one
+  // its recording carries is offered, once per episode, and shown only for
+  // the replay it was asked for.
+  const answers = offerMemory();
+  /** The episode whose layout was answered on this page, and the one whose layout is shown for its replay. */
+  let answered = $state<string | null>(null);
+  let usingEpisode = $state<string | null>(null);
+  $effect(() => {
+    if (replay?.id !== untrack(() => usingEpisode)) {
+      usingEpisode = null;
+    }
+  });
+  const episodeOffered = $derived(
+    replay !== null && chosen !== null && replay.id !== answered && offersEpisode(replay.opening.layout, liveLayout, answers.answered(replay.id))
+      ? replay
+      : null,
+  );
+  const arrangedBy = $derived(replay !== null && usingEpisode === replay.id ? (replay.opening.layout ?? liveLayout) : liveLayout);
   const columns = $derived(arrangedBy.columns);
 
   function arrange(next: LayoutInput) {
     chosen?.arrange(next);
+  }
+
+  /** Answers the offer of episode `id`'s layout, which isn't offered for it again. */
+  function answerEpisode(id: string, use: boolean) {
+    answers.answer(id);
+    answered = id;
+    if (use) {
+      usingEpisode = id;
+    }
   }
 
   // Arranging on the view itself: a panel dragged by its grip to another
@@ -1437,6 +1462,25 @@
     onuse={() => layouts.useNew()}
     onsave={(name) => layouts.saveOld(name)}
     onkeep={() => layouts.keepThis()}
+  />
+{:else if episodeOffered?.opening.layout && chosen}
+  {@const episode = episodeOffered}
+  {@const carried = episodeOffered.opening.layout}
+  {@const layouts = chosen}
+  <LayoutOffer
+    said="This episode was recorded with another layout than the one shown."
+    use="Use the episode's"
+    save="Save it as…"
+    suggested={layouts.nameFor("Episode's", "")}
+    onuse={() => answerEpisode(episode.id, true)}
+    onsave={async (name) => {
+      const failed = await layouts.saveAs(name, editable(carried));
+      if (failed === null) {
+        answerEpisode(episode.id, false);
+      }
+      return failed;
+    }}
+    onkeep={() => answerEpisode(episode.id, false)}
   />
 {/if}
 <div class="home" hidden bind:this={home}>

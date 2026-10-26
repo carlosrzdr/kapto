@@ -982,17 +982,17 @@ test("a package's own layout arranges the view, a panel naming what the package 
   await expect(panels.getByRole("region", { name: "Cameras" })).toHaveCount(0);
 });
 
-test("a replay is arranged by the layout its recording carries", async ({ page }) => {
-  // Making the replay waits for the worker's other jobs.
-  test.setTimeout(120_000);
+test("a replay is arranged by the layout chosen, offering the one its episode was recorded with once", async ({ page }) => {
+  // Making the replay, three times over, waits for the worker's other jobs.
+  test.setTimeout(240_000);
   await page.goto("/");
   await expect(page.getByText("Live, not recording")).toBeVisible();
   const json = { headers: { "Content-Type": "application/json" }, data: "{}" };
   expect((await page.request.post("/api/episodes/start", json)).status()).toBe(201);
   await page.waitForTimeout(2_000);
   expect((await page.request.post("/api/episodes/stop", json)).status()).toBe(200);
-  // As if the episode had been recorded with a layout naming a camera its
-  // package didn't have.
+  // As if the episode had been recorded with a layout of its own, naming a
+  // camera its package didn't have.
   await page.route("**/replay/opening", async (route) => {
     const response = await route.fetch();
     const opening = (await response.json()) as { layout: object };
@@ -1003,20 +1003,60 @@ test("a replay is arranged by the layout its recording carries", async ({ page }
     };
     await route.fulfill({ response, json: opening });
   });
+  const saved = (await savedLayouts(page)).length;
   await open(page, /^Episodes/);
   const episode = page.getByRole("listitem").filter({ has: page.getByTitle("Show this episode in full") }).first();
   await episode.getByTitle("Show this episode in full").click();
-  await page.getByRole("button", { name: "Replay", exact: true }).click();
-  await expect(page.getByRole("status", { name: "Replay" })).toContainText(/Episode over/, { timeout: 90_000 });
+  const replay = page.getByRole("button", { name: "Replay", exact: true });
+  const bar = page.getByRole("status", { name: "Replay" });
+  const back = page.getByRole("banner").getByRole("button", { name: "Back to live" });
   const panels = page.getByRole("group", { name: "The view's panels" });
-  await expect(panels.getByRole("note")).toContainText("The camera head_camera can't be shown");
-  // Arranged as recorded, not as the live view is: no plots, no wrist camera.
-  await expect(panels.getByRole("region", { name: /^Plot of / })).toHaveCount(0);
-  await expect(panels.getByRole("region", { name: "Cameras" })).toHaveCount(0);
-  // A recording is arranged as it says: nothing to arrange on a replay.
+  const gripper = panels.getByRole("region", { name: "Plot of role:gripper.opening" });
+  const offer = page.getByRole("region", { name: "Another layout" });
+  await replay.click();
+  await expect(bar).toContainText(/Episode over/, { timeout: 90_000 });
+  // Arranged as the live view is, the episode's own offered, never applied.
+  await expect(offer).toContainText("This episode was recorded with another layout than the one shown.");
+  await expect(gripper).toBeVisible();
+  await expect(panels.getByRole("note")).toHaveCount(0);
+  // Above the panels, covering none of them; nothing to arrange on a replay.
+  const above = (await offer.boundingBox())!;
+  expect(above.y + above.height).toBeLessThanOrEqual((await panels.boundingBox())!.y);
   await expect(page.getByRole("button", { name: "Arrange" })).toHaveCount(0);
-  await page.getByRole("banner").getByRole("button", { name: "Back to live" }).click();
-  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
+  await offer.getByRole("button", { name: "Use the episode's" }).click();
+  await expect(offer).toHaveCount(0);
+  await expect(panels.getByRole("note")).toContainText("The camera head_camera can't be shown");
+  await expect(gripper).toHaveCount(0);
+  // For that replay only: nothing saved, and the live view as it was.
+  expect(await savedLayouts(page)).toHaveLength(saved);
+  await back.click();
+  await expect(gripper).toBeVisible();
+  // Asked once per episode: replayed again, it is arranged by the one chosen and not asked.
+  await replay.click();
+  await expect(bar).toContainText(/Episode over/, { timeout: 90_000 });
+  await expect(gripper).toBeVisible();
+  await expect(offer).toHaveCount(0);
+  await back.click();
+
+  // Asked again in a browser that hasn't answered, it is saved as a named layout, then shown.
+  await page.evaluate(() => localStorage.removeItem("kapto.layout-answered"));
+  await page.reload();
+  await open(page, /^Episodes/);
+  await episode.getByTitle("Show this episode in full").click();
+  await replay.click();
+  await expect(bar).toContainText(/Episode over/, { timeout: 90_000 });
+  await offer.getByRole("button", { name: "Save it as…" }).click();
+  const name = offer.getByRole("textbox", { name: "Name" });
+  await expect(name).toHaveValue("Episode's");
+  await name.fill("Head camera view");
+  await offer.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(offer).toHaveCount(0);
+  await expect(panels.getByRole("note")).toContainText("The camera head_camera can't be shown");
+  const kept = (await savedLayouts(page)).find((each) => each.name === "Head camera view");
+  expect(kept?.layout.columns[0]?.panels.map((each) => each.kind)).toEqual(["robot", "camera"]);
+  await back.click();
+  await expect(page.getByRole("button", { name: /^Layout: / })).toHaveAccessibleName("Layout: Head camera view");
+  await forgetLayouts(page);
 });
 
 test("a package's layout changed since the browser saw it is offered, never applied, and the old one kept under a name", async ({

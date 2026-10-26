@@ -815,9 +815,11 @@ export interface ReplayOpening {
   /** When its last was. */
   end_utc_ns: number;
   /**
-   * How the page arranges it: the layout the recording carries, or one
-   * made from what it declares, each panel with what the recording
-   * lacks; absent for a replay made before replays had one.
+   * The layout the recording carries, or one made from what it
+   * declares, each panel with what the recording lacks; absent for a
+   * replay made before replays had one. The page arranges a replay by
+   * the layout chosen, like the live view, and offers the recording's
+   * own when it is another.
    */
   layout?: ViewLayout | null;
   /** Each link's name, in the order a stretch gives its pose. */

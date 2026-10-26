@@ -4089,7 +4089,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/ViewLayout",
-                "description": "How the page arranges it: the layout the recording carries, or one\nmade from what it declares, each panel with what the recording\nlacks; absent for a replay made before replays had one."
+                "description": "The layout the recording carries, or one made from what it\ndeclares, each panel with what the recording lacks; absent for a\nreplay made before replays had one. The page arranges a replay by\nthe layout chosen, like the live view, and offers the recording's\nown when it is another."
               },
               {
                 "type": "null"
