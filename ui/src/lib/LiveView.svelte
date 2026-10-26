@@ -51,6 +51,7 @@
     retitled,
     reshared,
     withHeights,
+    withView,
     withWidths,
   } from "./viewer/layouts";
   import { PackageLayouts } from "./viewer/layout-list.svelte";
@@ -62,7 +63,7 @@
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { Questions } from "./viewer/questions";
-  import { boxesOf, framed as framedFrom, placedOf, sameBoxes } from "./viewer/views";
+  import { boxesOf, framed as framedFrom, leftAt, placedOf, sameBoxes } from "./viewer/views";
   import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
   import { sentence, time } from "./format";
   import { shortcut } from "./keys";
@@ -1119,6 +1120,16 @@
       const view: View = { slot, camera, controls, framed: false, from: "", boxes: null };
       place(view);
       controls.addEventListener("change", () => (dirty = true));
+      // Where it was left while arranging is kept with the layout; only looking leaves the layout as it was.
+      controls.addEventListener("end", () => {
+        if (!onView) {
+          return;
+        }
+        const left = leftAt(camera.position.toArray(), controls.target.toArray());
+        // Its own change: the camera stays where it is rather than being placed again.
+        view.from = JSON.stringify(left);
+        arrange(withView(editing(), slot.column, slot.at, left));
+      });
       return view;
     };
     /** Puts `view`'s camera where its layout says: a place as it is, a preset framed from its side. */

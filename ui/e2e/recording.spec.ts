@@ -1634,6 +1634,46 @@ test("the robot is seen from two sides at once, both views moving with it, and a
   await forgetLayouts(page);
 });
 
+test("where an operator leaves a view of the robot while arranging is kept with the layout, and only then", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  const id = await showLayout(page, "Left there", [
+    { width: 1, panels: [panel("robot")] },
+    { width: 1, panels: [panel("robot", { view: "side" })] },
+  ]);
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const other = panels.getByTitle("Another view of the robot");
+  await expect(panels.getByTitle("Live view of the robot").getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
+  const turn = async () => {
+    const box = (await other.locator(".orbit").boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.7);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height * 0.6, { steps: 8 });
+    await page.mouse.up();
+  };
+  // Turned while only looking: the layout stays as it was.
+  await turn();
+  await page.waitForTimeout(500);
+  expect((await savedLayout(page, id))[1]!.panels[0]!.view).toBe("side");
+
+  // Turned while arranging: kept as where it was left, in the robot's frame.
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await turn();
+  await expect.poll(async () => (await savedLayout(page, id))[1]!.panels[0]!.view).toMatchObject({ from: expect.any(Array), at: expect.any(Array) });
+  const left = (await savedLayout(page, id))[1]!.panels[0]!.view as { from: number[]; at: number[] };
+  expect(left.from).toHaveLength(3);
+  // Turned away from its side: no longer looking along y alone.
+  expect(Math.abs(left.from[0]! - left.at[0]!)).toBeGreaterThan(0.005);
+  // The other view kept framing the robot by default.
+  expect((await savedLayout(page, id))[0]!.panels[0]!.view ?? null).toBeNull();
+  // Opened again, the view is where it was left, and is drawn.
+  await page.reload();
+  await expect(other).toBeVisible({ timeout: 20_000 });
+  await expect.poll(() => drawnShare(other), { message: "the view drawn from where it was left" }).toBeGreaterThan(0.02);
+  await forgetLayouts(page);
+});
+
 test("a column of more plots than fit scrolls, each plot keeping room for its chart", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });

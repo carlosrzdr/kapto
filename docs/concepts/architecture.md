@@ -537,7 +537,9 @@ right framing the robot, or a place `{ from, at }`), turned within the
 panel, and one renderer draws each into the panel's place on the canvas
 (its viewport and scissor), so the meshes reach the graphics card once;
 while no panel shows the robot nothing is drawn. *Frame robot* frames its
-panel's view, `F` every view. An
+panel's view, `F` every view. While arranging, where an operator leaves a
+panel's camera is saved with the layout as that panel's `{ from, at }`, to
+the millimetre; turned while only looking, the layout stays as it was. An
 operator arranges their own view with *Arrange*, on the view itself: a
 panel dragged by its grip into any column or beside one as a new column,
 an edge between two columns or panels dragged to share the room anew, each
