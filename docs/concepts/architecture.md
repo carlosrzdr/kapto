@@ -534,8 +534,10 @@ robot is one three.js scene, posed once a frame, under one canvas laid
 beneath the whole view: each `robot` panel, at most four, is a camera onto
 it from the panel's `view` (`front`, `side`, `top`, by default the front
 right framing the robot, or a place `{ from, at }`), turned within the
-panel, and one renderer draws each into the panel's place on the canvas
-(its viewport and scissor), so the meshes reach the graphics card once;
+panel; framed, the box around where the robot reaches fills the panel by
+its width or its height, whichever binds, whatever the panel's shape; and
+one renderer draws each into the panel's place on the canvas (its
+viewport and scissor), so the meshes reach the graphics card once;
 while no panel shows the robot nothing is drawn. *Frame robot* frames its
 panel's view, `F` every view. While arranging, where an operator leaves a
 panel's camera is saved with the layout as that panel's `{ from, at }`, to

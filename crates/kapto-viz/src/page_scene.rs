@@ -41,13 +41,18 @@ pub struct RobotScene {
     pub reach: Option<SceneReach>,
 }
 
-/// A sphere in the root link's frame.
+/// A sphere in the root link's frame, with the box along its axes it is
+/// centred on, which a viewer frames more closely.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct SceneReach {
     /// Its centre: x, y and z, in metres.
     pub center: [f64; 3],
     /// Its radius, in metres.
     pub radius: f64,
+    /// The box's lowest corner: x, y and z, in metres.
+    pub low: [f64; 3],
+    /// The box's highest corner: x, y and z, in metres.
+    pub high: [f64; 3],
 }
 
 /// One link and what it looks like.
@@ -252,6 +257,8 @@ fn reach_of(robot: &RobotModel, loaded: &mut Loaded) -> Option<SceneReach> {
     found.ok().flatten().map(|found| SceneReach {
         center: found.center,
         radius: found.radius,
+        low: found.low,
+        high: found.high,
     })
 }
 

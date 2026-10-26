@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RobotScene } from "../api-types";
-import { applyPoses, buildRobot, drawsNow, viewingDistance } from "./robot";
+import { applyPoses, buildRobot, drawsNow } from "./robot";
 
 const still = { translation: [0, 0, 0], rotation: [0, 0, 0, 1] };
 
@@ -67,17 +67,6 @@ describe("applyPoses", () => {
     expect(links[1]!.position.toArray().map((value) => Number(value.toFixed(3)))).toEqual([0.1, 0.2, 0.3]);
     expect(links[1]!.quaternion.z).toBeCloseTo(turned);
     expect(applyPoses(links, new Float32Array(7))).toBe(false);
-  });
-});
-
-describe("viewingDistance", () => {
-  it("fits a sphere by the vertical field of view in a wide view and the horizontal one in a tall view", () => {
-    const wide = viewingDistance(1, 45, 2);
-    expect(wide).toBeCloseTo(1 / Math.sin(THREE.MathUtils.degToRad(22.5)));
-    const tall = viewingDistance(1, 45, 0.5);
-    const horizontal = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(22.5)) * 0.5);
-    expect(tall).toBeCloseTo(1 / Math.sin(horizontal / 2));
-    expect(tall).toBeGreaterThan(wide);
   });
 });
 

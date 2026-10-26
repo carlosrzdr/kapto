@@ -41,7 +41,12 @@ the robot reaches. The
     }
   ],
   "meshes": 1,
-  "reach": {"center": [0.0, 0.0, 0.45], "radius": 0.62}
+  "reach": {
+    "center": [0.0, 0.0, 0.45],
+    "radius": 0.62,
+    "low": [-0.35, -0.35, 0.0],
+    "high": [0.35, 0.35, 0.9]
+  }
 }
 ```
 
@@ -62,11 +67,13 @@ the robot reaches. The
 - **A mesh file used by several shapes** is one mesh. A shape whose mesh
   file wasn't found is left out of the scene; `/api/robot` warns of it.
 - **Reach** is a sphere in the root link's frame (`center` x, y and z,
-  `radius`, in metres) around everywhere the robot's shapes can be: each
+  `radius`, in metres), and the box along its axes it is centred on (`low`
+  and `high`, its lowest and highest corner), around everywhere the
+  robot's shapes can be: each
   shape as the box around it, over 512 joint configurations sampled within
   the joints' limits (a continuous joint a full turn) and every joint at
   zero, with floating, planar and spherical joints at rest. A viewer frames
-  it once so the robot stays in view however it moves. It is absent for a
+  the box once so the robot stays in view however it moves. It is absent for a
   robot without shapes. Meshes are read once for their bounds when
   `kapto serve` starts.
 

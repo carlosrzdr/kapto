@@ -1041,10 +1041,17 @@ export interface SceneLink {
   visuals: SceneVisual[];
 }
 
-/** A sphere in the root link's frame. */
+/**
+ * A sphere in the root link's frame, with the box along its axes it is
+ * centred on, which a viewer frames more closely.
+ */
 export interface SceneReach {
   /** Its centre: x, y and z, in metres. */
   center: number[];
+  /** The box's highest corner: x, y and z, in metres. */
+  high: number[];
+  /** The box's lowest corner: x, y and z, in metres. */
+  low: number[];
   /** Its radius, in metres. */
   radius: number;
 }

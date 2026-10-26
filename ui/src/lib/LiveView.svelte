@@ -59,11 +59,11 @@
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
-  import { applyPoses, buildRobot, drawsNow, type Robot, viewingDistance } from "./viewer/robot";
+  import { applyPoses, buildRobot, drawsNow, type Robot } from "./viewer/robot";
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { Questions } from "./viewer/questions";
-  import { boxesOf, framed as framedFrom, leftAt, placedOf, sameBoxes } from "./viewer/views";
+  import { boxesOf, fitted, framed as framedFrom, leftAt, placedOf, type Point, sameBoxes } from "./viewer/views";
   import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
   import { sentence, time } from "./format";
   import { shortcut } from "./keys";
@@ -1208,21 +1208,23 @@
     let closed = false;
 
     /**
-     * Puts `sphere` in view of each of `which`, each from its own side;
-     * counted as one framing for the page's tests. Hidden, a view keeps the
-     * aspect it had, so one framed then isn't left out of sight once shown.
+     * Fills each of `which` with `box` (within a sphere of `radius` around
+     * its middle, if known), each from its own side, by the panel's width
+     * and height alike; counted as one framing for the page's tests.
+     * Hidden, a view keeps the aspect it had, so one framed then isn't left
+     * out of sight once shown.
      */
-    const frameSphere = (sphere: THREE.Sphere, which: View[], counted = true) => {
-      if (sphere.radius <= 0 || !Number.isFinite(sphere.radius) || which.length === 0) {
+    const frameBox = ({ box, radius }: Reach, which: View[], counted = true) => {
+      const bounds = { low: box.min.toArray(), high: box.max.toArray(), radius };
+      if (box.isEmpty() || ![...bounds.low, ...bounds.high].every(Number.isFinite) || which.length === 0) {
         return;
       }
       for (const view of which) {
         const { camera, controls } = view;
-        const distance = viewingDistance(sphere.radius, camera.fov, camera.aspect);
         // A place left while arranging keeps its direction, framed along it.
         const given = view.slot.view() ?? null;
         const side = placedOf(given) ? { from: camera.position.toArray(), at: controls.target.toArray() } : given;
-        const { from, at } = framedFrom(side, sphere.center.toArray(), distance);
+        const { from, at } = fitted(side, bounds, camera.fov, camera.aspect);
         camera.position.fromArray(from);
         controls.target.fromArray(at);
         controls.update();
@@ -1233,17 +1235,22 @@
       }
       dirty = true;
     };
+    /** The box and the sphere around where the robot can be. */
+    interface Reach {
+      box: THREE.Box3;
+      radius?: number;
+    }
     /** The whole robot as it stands now. */
-    const bounds = (root: THREE.Object3D) => new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere());
+    const bounds = (root: THREE.Object3D): Reach => ({ box: new THREE.Box3().setFromObject(root) });
     frameNow = () => {
       if (robot) {
-        frameSphere(bounds(robot.root), [...views.values()]);
+        frameBox(bounds(robot.root), [...views.values()]);
       }
     };
     frameSlot = (column, at) => {
       const view = [...views.values()].find(({ slot }) => slot.column === column && slot.at === at);
       if (robot && view) {
-        frameSphere(bounds(robot.root), [view]);
+        frameBox(bounds(robot.root), [view]);
       }
     };
 
@@ -1292,7 +1299,7 @@
         // A robot whose reach the scene doesn't give: framed as it first stands.
         const unframed = [...views.values()].filter((view) => !view.framed);
         if (unframed.length > 0 && !framedReach) {
-          frameSphere(bounds(robot.root), unframed);
+          frameBox(bounds(robot.root), unframed);
         }
         dirty = true;
       }
@@ -1333,7 +1340,7 @@
         shown ||= boxes !== null;
         // A view new since the robot was framed: framed once it has a size, as it stands or by its reach.
         if (boxes && !view.framed && robot) {
-          frameSphere(framedReach ?? bounds(robot.root), [view], false);
+          frameBox(framedReach ?? bounds(robot.root), [view], false);
         }
       }
       if (moved) {
@@ -1366,7 +1373,7 @@
     /** A robot built, with where it can reach. */
     interface Loaded {
       built: Robot;
-      reach: THREE.Sphere | null;
+      reach: Reach | null;
     }
     const robots = new Robots<Loaded>(async (id) => {
       const loaded = await (id === null ? getRobotScene() : getReplayScene(id)).catch((error: unknown) => {
@@ -1380,12 +1387,15 @@
       }
       const mesh = (n: number) => (id === null ? getMesh(n) : getReplayMesh(id, n)).then(decodeMesh);
       const built = await buildRobot(loaded, mesh, (n) => (said = `Mesh ${n} couldn't be read`));
-      const [x = 0, y = 0, z = 0] = loaded.reach?.center ?? [];
-      const reach = loaded.reach ? new THREE.Sphere(new THREE.Vector3(x, y, z), loaded.reach.radius) : null;
+      // The box around everywhere it reaches, which can fill a panel more closely than the sphere around it.
+      const corner = (values: number[]) => new THREE.Vector3(...([0, 1, 2].map((axis) => values[axis] ?? 0) as Point));
+      const reach = loaded.reach
+        ? { box: new THREE.Box3(corner(loaded.reach.low), corner(loaded.reach.high)), radius: loaded.reach.radius }
+        : null;
       return { built, reach };
     });
     /** Where the robot framed last can reach: framed again only for one that reaches elsewhere. */
-    let framedReach: THREE.Sphere | null = null;
+    let framedReach: Reach | null = null;
     drawRobotOf = (id) => {
       // Gone at once: poses of one robot never move another.
       if (robot) {
@@ -1415,9 +1425,10 @@
           }
           // Everywhere it can reach, framed once: it stays in view as it moves.
           // A place left while arranging stays where it was left.
-          if (loaded.reach && !(framedReach && framedReach.equals(loaded.reach))) {
+          const same = (one: Reach, other: Reach) => one.box.equals(other.box) && one.radius === other.radius;
+          if (loaded.reach && !(framedReach && same(framedReach, loaded.reach))) {
             framedReach = loaded.reach;
-            frameSphere(
+            frameBox(
               loaded.reach,
               [...views.values()].filter((view) => !placedOf(view.slot.view())),
             );

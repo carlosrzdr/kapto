@@ -128,18 +128,6 @@ export async function buildRobot(
 }
 
 /**
- * How far from the centre of a sphere of `radius` a camera with a vertical
- * field of view of `fovDegrees` and width over height `aspect` must be to
- * see all of it: by the narrower of its two fields of view, so a robot
- * reaching sideways stays in a tall view.
- */
-export function viewingDistance(radius: number, fovDegrees: number, aspect: number): number {
-  const vertical = THREE.MathUtils.degToRad(fovDegrees);
-  const horizontal = 2 * Math.atan(Math.tan(vertical / 2) * aspect);
-  return radius / Math.sin(Math.min(vertical, horizontal) / 2);
-}
-
-/**
  * Places each link as `poses` says: seven numbers a link, relative to the
  * root link, in the scene's link order. Returns whether they fitted.
  */

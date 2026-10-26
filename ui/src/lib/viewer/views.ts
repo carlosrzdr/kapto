@@ -60,9 +60,8 @@ export function directionOf(view: PanelView | null | undefined): Point {
 }
 
 /**
- * Where a panel's camera goes to frame a sphere around `center` `distance`
- * away (as far as its fields of view need): looking at its centre, from
- * the panel's direction.
+ * Where a panel's camera goes to look at `center` from `distance` away (as
+ * far as its fields of view need), from the panel's direction.
  */
 export function framed(view: PanelView | null | undefined, center: Point, distance: number): Placed {
   const direction = directionOf(view);
@@ -70,6 +69,81 @@ export function framed(view: PanelView | null | undefined, center: Point, distan
     from: [0, 1, 2].map((axis) => center[axis]! + direction[axis]! * distance) as Point,
     at: [...center],
   };
+}
+
+/**
+ * A box along the robot's axes, by its lowest and highest corner, and, if
+ * known, the radius of a sphere around its middle the robot is within too.
+ */
+export interface Bounds {
+  low: Point;
+  high: Point;
+  radius?: number;
+}
+
+/** The middle of `bounds`, where a camera framing it looks. */
+export function middleOf(bounds: Bounds): Point {
+  return [0, 1, 2].map((axis) => (bounds.low[axis]! + bounds.high[axis]!) / 2) as Point;
+}
+
+/**
+ * How much of a panel's width or height, whichever binds, a framed box
+ * takes: a little short of the edge, so the robot never touches it.
+ */
+export const FILLED = 0.95;
+
+/**
+ * How far from the middle of `bounds` a camera looking at it from
+ * `direction` (from the point looked at to the camera) must be for the box
+ * to fit a panel of `aspect` (width over height) with a vertical field of
+ * view of `fovDegrees`: each corner within both fields of view, the side
+ * that binds filled to `FILLED`. So a tall panel shows a tall robot by its
+ * height, and a wide one a wide robot by its width. With a sphere around
+ * it too, whichever of the two lets the camera come closer: the robot is
+ * within both, and a box's far-out corners, near the camera, can need more
+ * room than the sphere does.
+ */
+export function fittingDistance(direction: Point, bounds: Bounds, fovDegrees: number, aspect: number): number {
+  const vertical = Math.tan(((fovDegrees * Math.PI) / 180) / 2) * FILLED;
+  const horizontal = vertical * aspect;
+  // The camera's own axes, Z up as the scene's: right across the panel and up it.
+  const forward = direction.map((value) => -value) as Point;
+  let right = cross(forward, [0, 0, 1]);
+  if (Math.hypot(...right) < 1e-9) {
+    right = [0, -1, 0];
+  }
+  right = unit(right);
+  const up = cross(right, forward);
+  const middle = middleOf(bounds);
+  let distance = 0;
+  for (let corner = 0; corner < 8; corner += 1) {
+    const offset = [0, 1, 2].map((axis) => ((corner >> axis) & 1 ? bounds.high[axis]! : bounds.low[axis]!) - middle[axis]!) as Point;
+    // How far towards the camera the corner is: nearer, it looks bigger.
+    const toward = dot(offset, direction);
+    distance = Math.max(distance, toward + Math.abs(dot(offset, right)) / horizontal, toward + Math.abs(dot(offset, up)) / vertical);
+  }
+  if (bounds.radius !== undefined && bounds.radius > 0) {
+    // The sphere just inside the narrower field of view, as filled.
+    distance = Math.min(distance, bounds.radius / Math.sin(Math.atan(Math.min(vertical, horizontal))));
+  }
+  // A box with no size: as close as a box a centimetre across.
+  return Math.max(distance, 0.01 / vertical);
+}
+
+const dot = (a: Point, b: Point) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: Point, b: Point): Point => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const unit = (a: Point): Point => {
+  const length = Math.hypot(...a) || 1;
+  return [a[0] / length, a[1] / length, a[2] / length];
+};
+
+/**
+ * Where a panel's camera goes to fill its panel with `bounds`, seen from
+ * `view`'s side: a preset's or the default's direction, or for a place, the
+ * way it looks.
+ */
+export function fitted(view: PanelView | null | undefined, bounds: Bounds, fovDegrees: number, aspect: number): Placed {
+  return framed(view, middleOf(bounds), fittingDistance(directionOf(view), bounds, fovDegrees, aspect));
 }
 
 /** Where a place in a layout puts the camera, before anything is framed; `null` for a preset or none. */

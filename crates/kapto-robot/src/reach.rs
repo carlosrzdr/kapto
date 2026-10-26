@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! How far a robot reaches: a sphere around every place its visual shapes
-//! can be, over joint values sampled within their limits, so a viewer can
-//! frame the robot once and keep it in view however it moves.
+//! How far a robot reaches: the box and the sphere around every place its
+//! visual shapes can be, over joint values sampled within their limits, so
+//! a viewer can frame the robot once and keep it in view however it moves.
 
 use std::f64::consts::PI;
 use std::path::Path;
@@ -20,13 +20,17 @@ pub const SAMPLES: usize = 512;
 pub type Bounds = ([f64; 3], [f64; 3]);
 
 /// A sphere around everywhere the robot's shapes can be, in the root
-/// link's frame.
+/// link's frame, with the box along its axes it is centred on.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Reach {
     /// Its centre: x, y and z, in metres.
     pub center: [f64; 3],
     /// Its radius, in metres.
     pub radius: f64,
+    /// The box's lowest corner: x, y and z, in metres.
+    pub low: [f64; 3],
+    /// The box's highest corner: x, y and z, in metres.
+    pub high: [f64; 3],
 }
 
 /// The reach of `robot` with each joint moved within its limits, a
@@ -167,7 +171,12 @@ fn enclosing(points: &[[f64; 3]]) -> Reach {
             (x * x + y * y + z * z).sqrt()
         })
         .fold(0.0, f64::max);
-    Reach { center, radius }
+    Reach {
+        center,
+        radius,
+        low,
+        high,
+    }
 }
 
 /// Fixed pseudo-random numbers, so the same robot always gets the same reach.

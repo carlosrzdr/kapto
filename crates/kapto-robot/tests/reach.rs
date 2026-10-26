@@ -46,6 +46,24 @@ fn a_bar_turning_all_the_way_round_reaches_a_disc_of_its_length() {
     assert!(distance([0.1, 0.1, -0.1], reach.center) <= reach.radius + 1e-9);
     // Not much more: the disc's corners, with the bar's own width.
     assert!(reach.radius < 1.3, "{reach:?}");
+    // The box: the disc across, from the cube's foot to the bar's top.
+    for axis in 0..2 {
+        assert!(
+            reach.low[axis] < -0.99 && reach.low[axis] > -1.1,
+            "{reach:?}"
+        );
+        assert!(
+            reach.high[axis] > 0.99 && reach.high[axis] < 1.1,
+            "{reach:?}"
+        );
+    }
+    assert!((reach.low[2] + 0.1).abs() < 1e-12, "{reach:?}");
+    assert!((reach.high[2] - 1.05).abs() < 1e-12, "{reach:?}");
+    // The sphere is centred on it.
+    for axis in 0..3 {
+        let middle = f64::midpoint(reach.low[axis], reach.high[axis]);
+        assert!((reach.center[axis] - middle).abs() < 1e-12, "{reach:?}");
+    }
 }
 
 #[test]
@@ -84,6 +102,7 @@ fn a_mesh_counts_by_its_bounds_scaled_and_one_that_cannot_be_read_is_left_out() 
         .unwrap()
         .unwrap();
     assert_eq!(reach.center, [1.0; 3]);
+    assert_eq!((reach.low, reach.high), ([0.0; 3], [2.0; 3]));
     assert!((reach.radius - 3.0_f64.sqrt()).abs() < 1e-12);
     assert_eq!(reach_of_unreadable(&robot), None);
 }
