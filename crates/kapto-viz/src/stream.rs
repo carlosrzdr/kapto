@@ -481,6 +481,17 @@ impl Photographer {
             .any(|page| lock(&page.pictures).wants(stream, by))
     }
 
+    /// How wide camera `stream`'s picture needs to be for every page: the
+    /// widest any page draws it at, or `None`, the whole picture, while a
+    /// page hasn't said.
+    #[must_use]
+    pub fn shown_width(&self, stream: u16) -> Option<u32> {
+        lock(&self.shared.pages)
+            .iter()
+            .map(|page| lock(&page.pictures).width(stream))
+            .try_fold(0, |widest, width| width.map(|width| widest.max(width)))
+    }
+
     /// The shortest time wanted between two frames of a camera: the
     /// history's interval with no page open, else the shortest of it and
     /// each page's share. Capture sends no frame more often, as nothing
@@ -782,6 +793,17 @@ enum Question {
     /// The picture kept of camera `stream` nearest `at`, in UTC
     /// nanoseconds.
     Picture { id: u32, stream: u16, at: i64 },
+    /// How wide, in device pixels, the page draws each camera, 0 for one it
+    /// doesn't: its raw pictures are made no wider. Not answered.
+    Widths { cameras: Vec<CameraWidth> },
+}
+
+/// How wide a page draws one camera.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CameraWidth {
+    stream: u16,
+    width: u32,
 }
 
 /// Writes the page every frame and mark it is handed, and each camera's
@@ -828,7 +850,8 @@ fn converse(
         loop {
             match asked(socket) {
                 Asked::Question(text) => {
-                    if socket.send(answer(&text, histories)).is_err() {
+                    let answered = answer(&text, histories, pictures);
+                    if answered.is_some_and(|message| socket.send(message).is_err()) {
                         return;
                     }
                 }
@@ -872,9 +895,14 @@ fn asked(socket: &mut WebSocket<TcpStream>) -> Asked {
 
 /// The answer to the question in `text`: a stretch of the history, or a
 /// camera's picture kept, as binary, or what is wrong with the question as
-/// text.
-fn answer(text: &str, (history, cameras): (&Mutex<History>, &Mutex<CameraHistory>)) -> Message {
-    match serde_json::from_str::<Question>(text) {
+/// text; none for the widths the page draws its cameras at, which its
+/// `pictures` keep.
+fn answer(
+    text: &str,
+    (history, cameras): (&Mutex<History>, &Mutex<CameraHistory>),
+    pictures: &Mutex<Waiting>,
+) -> Option<Message> {
+    Some(match serde_json::from_str::<Question>(text) {
         Ok(Question::History {
             id,
             from,
@@ -882,10 +910,10 @@ fn answer(text: &str, (history, cameras): (&Mutex<History>, &Mutex<CameraHistory
             points,
         }) => {
             if from > to || points == 0 || points > MAX_POINTS {
-                return refusal(
+                return Some(refusal(
                     Some(id),
                     &format!("ask for `from` at or before `to`, and 1 to {MAX_POINTS} points"),
-                );
+                ));
             }
             // Taken in a moment, so the bridge is never held up while the
             // stretch is merged.
@@ -896,8 +924,12 @@ fn answer(text: &str, (history, cameras): (&Mutex<History>, &Mutex<CameraHistory
             let cameras = lock(cameras);
             Message::Binary(looked_back_message(id, stream, cameras.nearest(stream, at)))
         }
+        Ok(Question::Widths { cameras }) => {
+            lock(pictures).set_widths(cameras.into_iter().map(|each| (each.stream, each.width)));
+            return None;
+        }
         Err(error) => refusal(None, &error.to_string()),
-    }
+    })
 }
 
 fn refusal(id: Option<u32>, message: &str) -> Message {

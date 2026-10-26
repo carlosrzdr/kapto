@@ -100,8 +100,18 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   rather than shown.
 - **A raw frame is encoded only when its picture is wanted.** Encoding is
   the bridge's one costly step, about 17 ms a 1080p picture, so a raw
-  frame is encoded whole only if a page's share of its camera would take
-  a picture by the time the camera's next frame comes. If the camera's
+  frame is encoded only if a page's share of its camera would take
+  a picture by the time the camera's next frame comes.
+  A raw picture is encoded no wider than the widest panel a page draws its
+  camera in. Each page tells the bridge how wide it draws each camera, in
+  device pixels, as its panels are laid out and again as they change,
+  waiting a moment while one is dragged and rounding the width up to a
+  step, so a drag doesn't ask once per movement. The bridge keeps one
+  pixel in so many across and down, as for the history, choosing the step
+  so the picture is never narrower than that panel; until a page says, and
+  for a panel wider than the camera, the picture is whole. The pixels left
+  out are dropped, not blended: a picture made smaller can show jagged
+  edges, and a replay shows the frame whole. If the camera's
   thinned history is due one, it is made from the frame's pixels, small
   first (below); a frame neither wants is counted as not encoded. With no
   page open, only the history's small pictures are made, and a page
@@ -153,6 +163,9 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   and its size, or that none is kept. It asks again as the moment changes,
   one question per camera at a time, the newest moment replacing a
   question not yet asked. Back to live, it shows the newest picture again.
+  A page's other message to the bridge says each camera's width as it
+  draws it; it needs no answer, and a bridge that doesn't know it says so
+  and carries on.
 
 ## Consequences
 
@@ -173,8 +186,11 @@ JPEG, and sends it to each page over the live view's WebSocket.**
   and spends about 17 ms of a core per 1080p raw picture on it, off the
   recording path: only as many pictures as its pages' shares and the
   cameras' histories take, on one thread, so raw cameras take at most a
-  core of the bridge. Five raw 1080p cameras shown on a page fill it, at
-  about the page's share; with no page open it reads them all and encodes
+  core of the bridge. Five raw 1080p cameras on a page, each in a panel a
+  fifth of the screen wide, are each encoded at a third of their width and
+  height, about a ninth of the whole picture's cost; a page showing one
+  camera full screen still gets it whole. With no page open it reads them
+  all and encodes
   about one frame in five, for the histories. A thread per camera was
   tried: on a laptop shared with the recording and the browser, each
   picture then took three times as long, the bridge 3.7 cores, and the

@@ -314,7 +314,8 @@ impl Reader {
                 .unwrap_or(i64::MAX)
                 .saturating_add(offset)
         };
-        match self.pictures.picture(&kind, frame) {
+        let shown_width = self.photographer.shown_width(stream);
+        match self.pictures.picture_within(&kind, frame, shown_width) {
             Ok(picture) => {
                 let sent = utc(monotonic_now().as_nanos());
                 let message = picture_message(stream, &picture, utc(recv_time_ns), sent);

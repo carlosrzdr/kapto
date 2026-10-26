@@ -92,6 +92,10 @@ impl fmt::Display for Unshown {
     }
 }
 
+/// The narrowest a picture is made for a page, in pixels: one a page
+/// doesn't draw is still sent, small.
+const MIN_SHOWN: u32 = 160;
+
 /// Takes pictures out of frames, keeping its buffers between frames.
 #[derive(Debug, Default)]
 pub struct Pictures {
@@ -114,6 +118,24 @@ impl Pictures {
         kind: &CameraKind,
         frame_bytes: &'a [u8],
     ) -> Result<Picture<'a>, Unshown> {
+        self.picture_within(kind, frame_bytes, None)
+    }
+
+    /// As [`Pictures::picture`], a raw picture made no smaller than
+    /// `shown_width` but no wider than it needs to be: one pixel kept in as
+    /// many across and down as still leaves that width, so a page drawing it
+    /// in a panel a third of its width gets a ninth of its pixels. Whole
+    /// without a width, or for a panel as wide as the picture.
+    ///
+    /// # Errors
+    ///
+    /// Why it can't be shown.
+    pub fn picture_within<'a>(
+        &'a mut self,
+        kind: &CameraKind,
+        frame_bytes: &'a [u8],
+        shown_width: Option<u32>,
+    ) -> Result<Picture<'a>, Unshown> {
         match frame(kind, frame_bytes)? {
             Frame::Compressed { format, data } => Ok(Picture {
                 format,
@@ -127,7 +149,10 @@ impl Pictures {
                 step,
                 encoding,
                 big_endian,
-            } => self.encode(data, (width, height, step), (encoding, big_endian), 1),
+            } => {
+                let every = shown_width.map_or(1, |shown| (width / shown.max(MIN_SHOWN)).max(1));
+                self.encode(data, (width, height, step), (encoding, big_endian), every)
+            }
         }
     }
 

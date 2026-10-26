@@ -456,6 +456,53 @@ fn with_no_page_open_a_raw_camera_is_only_made_small_for_looking_back() {
     std::fs::remove_dir_all(folder).unwrap();
 }
 
+/// Says, as a page, how wide it draws camera `stream`.
+fn draws(page: &mut Page, stream: u16, width: u32) {
+    page.send(Message::text(format!(
+        r#"{{"widths":{{"cameras":[{{"stream":{stream},"width":{width}}}]}}}}"#
+    )))
+    .unwrap();
+}
+
+/// Sends wide raw frames until `page` is shown one `width` wide, which the
+/// bridge does once it has read what the pages said.
+fn shown_at(capture: &mut Capture, page: &mut Page, width: u32) -> (u32, u32) {
+    for shade in 0..50 {
+        capture.send(2, &a_wide_raw_frame(shade));
+        let picture = next_picture(page);
+        if picture.size.0 == width {
+            return picture.size;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("never shown {width} wide");
+}
+
+#[test]
+fn a_raw_picture_is_encoded_no_wider_than_the_widest_page_draws_it() {
+    let folder = scratch("bridge-pictures-widths");
+    let (bridge, settings, mut capture) = bridge(&folder);
+    let (mut first, _) = watch(settings.stream_port);
+    // Until it says, whole.
+    capture.send(2, &a_wide_raw_frame(1));
+    assert_eq!(next_picture(&mut first).size, (1280, 8));
+    // In a panel 400 pixels wide: one pixel in three kept, 427 wide.
+    draws(&mut first, 2, 400);
+    assert_eq!(shown_at(&mut capture, &mut first, 427), (427, 3));
+    // A second page that hasn't said yet has it whole, and so does the first.
+    let (mut second, _) = watch(settings.stream_port);
+    assert_eq!(shown_at(&mut capture, &mut second, 1280), (1280, 8));
+    // The widest page's panel wins: 600 wide, one in two kept.
+    draws(&mut second, 2, 600);
+    assert_eq!(shown_at(&mut capture, &mut second, 640), (640, 4));
+    assert_eq!(shown_at(&mut capture, &mut first, 640), (640, 4));
+    // A panel wider than the picture has it whole.
+    draws(&mut first, 2, 2000);
+    assert_eq!(shown_at(&mut capture, &mut first, 1280), (1280, 8));
+    drop(bridge);
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
 #[test]
 fn a_raw_camera_is_encoded_only_as_often_as_a_pages_share_takes_it() {
     let folder = scratch("bridge-pictures-share-raw");

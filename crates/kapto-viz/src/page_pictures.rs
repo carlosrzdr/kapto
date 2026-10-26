@@ -68,6 +68,9 @@ pub struct Waiting {
     newest: BTreeMap<u16, (Bytes, Instant)>,
     /// When each camera's next picture is due, once one was taken.
     due: BTreeMap<u16, Instant>,
+    /// How wide, in device pixels, the page draws each camera, once it has
+    /// said; 0 for one it doesn't draw.
+    widths: BTreeMap<u16, u32>,
 }
 
 impl Waiting {
@@ -78,7 +81,20 @@ impl Waiting {
             interval,
             newest: BTreeMap::new(),
             due: BTreeMap::new(),
+            widths: BTreeMap::new(),
         }
+    }
+
+    /// Takes how wide the page draws each camera, `(stream, width)`, in
+    /// place of what it said before.
+    pub fn set_widths(&mut self, widths: impl IntoIterator<Item = (u16, u32)>) {
+        self.widths = widths.into_iter().collect();
+    }
+
+    /// How wide the page draws camera `stream`, if it has said.
+    #[must_use]
+    pub fn width(&self, stream: u16) -> Option<u32> {
+        self.widths.get(&stream).copied()
     }
 
     /// The time between two pictures of one camera.

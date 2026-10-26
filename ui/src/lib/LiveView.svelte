@@ -26,6 +26,7 @@
   import PlotPanel from "./PlotPanel.svelte";
   import Timeline from "./Timeline.svelte";
   import { camerasOf, Decoder, LATE_MS, type Shown, withPicture, withSaid } from "./viewer/cameras";
+  import { CameraWidths } from "./viewer/camera-widths";
   import { type Item, MarkLog } from "./viewer/marks";
   import { OffThreadDecoder } from "./viewer/pictures-off-thread";
   import { frameAt, replayCamera, type ReplayCamera, steppedTo } from "./viewer/replay-cameras";
@@ -410,6 +411,8 @@
 
   /** How wide each camera's picture is shown, in device pixels, by stream. */
   const shownWidths = new Map<number, number>();
+  /** How wide each live camera's panels are, said to the bridge, which encodes raw pictures no wider. */
+  const drawnWidths = new CameraWidths((cameras) => watched?.widths(cameras));
   /** How wide each camera's pictures are, learnt from one decoded whole. */
   const cameraWidths = new Map<number, number>();
   /**
@@ -1749,6 +1752,7 @@
         items = [];
         recordingSince = null;
         plots = plotStreams(opening);
+        drawnWidths.connected(opening.cameras ?? []);
         liveStreams = opening.streams;
         liveClock = new LiveClock();
         dropPictures();
@@ -1815,6 +1819,7 @@
 
     return () => {
       watched?.stop();
+      drawnWidths.stop();
       watched = null;
       offThread.stop();
       dropPictures();
@@ -2042,7 +2047,14 @@
                 cameras={shown}
                 title={panel.title ?? undefined}
                 onstep={replay === null ? undefined : stepCamera}
-                onwidth={(stream, pixels) => shownWidths.set(stream, pixels)}
+                onwidth={(stream, pixels, panel) => {
+                  if (pixels > 0) {
+                    shownWidths.set(stream, pixels);
+                  }
+                  if (replay === null) {
+                    drawnWidths.drawn(panel, stream, pixels);
+                  }
+                }}
                 tallies={replay === null ? tallies : {}}
               />
             {:else}

@@ -8,8 +8,8 @@
     cameras: Shown[];
     /** In a replay, moves to camera `stream`'s frame `step` frames on (negative: back). */
     onstep?: (stream: number, step: number) => void;
-    /** Told how wide camera `stream`'s picture is shown, in device pixels, as that changes. */
-    onwidth?: (stream: number, pixels: number) => void;
+    /** Told how wide camera `stream`'s picture is shown in `panel`, in device pixels, as that changes; 0 once it goes. */
+    onwidth?: (stream: number, pixels: number, panel: Element) => void;
     /** Live, what became of each camera's frames on their way to the view, by camera name. */
     tallies?: Record<string, LiveViewCounts | null | undefined>;
     /** Its own title, shown in place of each camera's name. */
@@ -40,11 +40,16 @@
     const observer = new ResizeObserver(([entry]) => {
       const width = entry?.contentRect.width ?? 0;
       if (width > 0) {
-        onwidth?.(stream, Math.ceil(width * window.devicePixelRatio));
+        onwidth?.(stream, Math.ceil(width * window.devicePixelRatio), element);
       }
     });
     observer.observe(element);
-    return { destroy: () => observer.disconnect() };
+    return {
+      destroy: () => {
+        observer.disconnect();
+        onwidth?.(stream, 0, element);
+      },
+    };
   }
 </script>
 

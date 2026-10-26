@@ -462,3 +462,31 @@ fn a_tcp_cameras_pictures_start_after_its_length_prefix_but_a_fixed_frame_is_all
         }
     );
 }
+
+#[test]
+fn a_raw_picture_for_a_narrower_panel_keeps_as_few_pixels_as_still_fill_it() {
+    let mut pictures = Pictures::default();
+    let frame = image(1920, 1080, "mono8", 1920, &vec![128; 1920 * 1080]);
+    let size = |pictures: &mut Pictures, shown: Option<u32>| {
+        pictures
+            .picture_within(&CameraKind::Image, &frame, shown)
+            .unwrap()
+            .size
+    };
+    // A third as wide: one pixel in three, never narrower than the panel.
+    assert_eq!(size(&mut pictures, Some(640)), Some((640, 360)));
+    assert_eq!(size(&mut pictures, Some(600)), Some((640, 360)));
+    assert_eq!(size(&mut pictures, Some(700)), Some((960, 540)));
+    // Whole without a width, or for a panel as wide or wider.
+    assert_eq!(size(&mut pictures, None), Some((1920, 1080)));
+    assert_eq!(size(&mut pictures, Some(1920)), Some((1920, 1080)));
+    assert_eq!(size(&mut pictures, Some(4000)), Some((1920, 1080)));
+    // A camera not drawn still gets a small picture, not none.
+    assert_eq!(size(&mut pictures, Some(0)), Some((160, 90)));
+    // A compressed picture is passed on as it is.
+    let jpeg = compressed_image("jpeg", &[0xFF, 0xD8, 0xFF]);
+    let passed = pictures
+        .picture_within(&CameraKind::CompressedImage, &jpeg, Some(100))
+        .unwrap();
+    assert_eq!(passed.size, None);
+}

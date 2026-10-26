@@ -249,6 +249,8 @@ export interface Watched {
   ask: (fromMs: number, toMs: number, points: number) => Promise<Stretch>;
   /** Camera `stream`'s picture the bridge kept nearest `atMs`. */
   picture: (stream: number, atMs: number) => Promise<LookedBack>;
+  /** Says how wide the page draws each camera, in device pixels; not answered. */
+  widths: (cameras: { stream: number; width: number }[]) => void;
 }
 
 /**
@@ -362,5 +364,10 @@ export function watchStream(
         (id) => `{"history":{"id":${id},"from":${nanos(fromMs)},"to":${nanos(toMs)},"points":${Math.max(1, Math.round(points))}}}`,
       ),
     picture: (stream, atMs) => question<LookedBack>((id) => `{"picture":{"id":${id},"stream":${stream},"at":${nanos(atMs)}}}`),
+    widths: (cameras) => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ widths: { cameras } }));
+      }
+    },
   };
 }

@@ -134,6 +134,19 @@ and `"unshown": null` when the camera's pictures show again. A page
 connecting is told each camera that can't be shown right after the opening
 message.
 
+A page says how wide it draws each camera, in device pixels, as text, and
+again whenever that changes; 0 for a camera it doesn't draw:
+
+```json
+{"widths": {"cameras": [{"stream": 1, "width": 640}, {"stream": 2, "width": 0}]}}
+```
+
+It isn't answered. The bridge then encodes a raw camera's pictures no
+wider than the widest any page draws it, keeping one pixel in as many
+across and down as still leave that width (never under 160 pixels), and
+whole while a page hasn't said, or for a panel as wide as the picture.
+Each picture's width and height say its size as sent.
+
 ## Looking back
 
 The bridge keeps what it streamed for the last `viewer.history_age`
