@@ -98,6 +98,15 @@ docker run --rm -p 7700:7700 -v kapto-data:/data -v "$PWD/packages:/packages:ro"
   -e KAPTO_ROBOT=arm7 kapto:dev serve
 ```
 
+A ROS 2 robot needs no package at all: mount its URDF and the folder its
+meshes are in, and Kapto makes a package from them in `/data` that receives
+the robot's joint states on `/joint_states`:
+
+```sh
+docker run --rm --network host -v kapto-data:/data -v "$PWD/my_robot:/robot:ro" \
+  -e KAPTO_URDF=/robot/urdf/my_robot.urdf -e KAPTO_MESH_PATH=/robot kapto-ros2:dev serve
+```
+
 `kapto-ros2:dev` is Kapto built with ROS 2, on a ROS 2 Jazzy base image, for
 robots that publish ROS 2 topics. On the robot's network, it lists the
 topics it sees and their message types:

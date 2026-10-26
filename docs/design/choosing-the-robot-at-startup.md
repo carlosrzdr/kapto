@@ -37,7 +37,12 @@ made to it there.
 A package made from a URDF receives the robot's ROS 2 joint states: one
 stream on `/joint_states` (`sensor_msgs/msg/JointState`), with each moving
 joint driven by the position of the same name. This is the common case,
-and it needs nothing more. A robot that sends anything else gets a
+and it needs nothing more. Its rate, which sizes capture's buffers and is
+what a slow stream is judged against, is the rate the topic is heard
+publishing at over a few seconds while the package is made. A robot silent
+then, or a build without ROS 2, gets 1000 a second, said as the package is
+made; the made package's `streams.toml` can be corrected, and is kept until
+the URDF changes. A robot that sends anything else gets a
 `streams.toml` and a `mapping.toml`, which turns it into a package.
 
 A robot that fails its lint doesn't stop serve. Serve logs the same report

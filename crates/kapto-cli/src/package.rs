@@ -10,7 +10,10 @@ use std::process::ExitCode;
 
 use clap::{Subcommand, ValueEnum};
 use kapto_core::{ErrorCode, KaptoError, say};
-use kapto_robot::{Package, discover, import_package, lint, load_package};
+use kapto_robot::{
+    Package, discover, import_package, lint, load_package, load_urdf, package_id,
+    receive_joint_states, source_hash,
+};
 
 use crate::SettingFlags;
 use crate::output::{out, outln};
@@ -257,6 +260,80 @@ pub(crate) fn find_in(packages: &Path, wanted: &str) -> Result<PathBuf, Vec<Kapt
             ))]
         })?;
     Ok(package.folder)
+}
+
+/// How long `/joint_states` is listened to, making a package from a URDF,
+/// to learn its rate.
+const LISTEN: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The rate a package made from a URDF declares when nothing is heard: a
+/// fast robot's, so capture's buffers have room for any.
+const UNHEARD_RATE_HZ: u32 = 1000;
+
+/// The package made from the robot description at `urdf`, found through
+/// `search_paths`, in `data`'s `packages/` folder: made there as `kapto
+/// package import` makes one, receiving the robot's ROS 2 joint states,
+/// and made again only when the URDF or a file it names changes. What it
+/// was made from is kept beside it, as `<id>.source`; a package there
+/// that wasn't made so is never written over.
+pub(crate) fn made_from_urdf(
+    urdf: &Path,
+    search_paths: &[PathBuf],
+    data: &Path,
+) -> Result<PathBuf, Vec<KaptoError>> {
+    let id = package_id(&load_urdf(urdf, search_paths)?.name);
+    let made = data.join("packages");
+    let folder = made.join(&id);
+    let source = made.join(format!("{id}.source"));
+    let hash = source_hash(urdf, search_paths)?;
+    let recorded = std::fs::read_to_string(&source).ok();
+    if folder.is_dir() && recorded.as_deref() == Some(hash.as_str()) {
+        return Ok(folder);
+    }
+    if folder.exists() && recorded.is_none() {
+        return Err(vec![
+            KaptoError::new(ErrorCode::PackageImportExists).detail(format!(
+                "{} wasn't made from a URDF by Kapto, so it isn't replaced",
+                folder.display()
+            )),
+        ]);
+    }
+    let unwritable = |path: &Path, error: std::io::Error| {
+        vec![
+            KaptoError::new(ErrorCode::PackageUnreadable)
+                .detail(format!("can't write {}: {error}", path.display())),
+        ]
+    };
+    // Made beside it first, so one left half made by a crash is never
+    // taken for it.
+    let making = made.join(format!("{id}.making"));
+    if making.exists() {
+        std::fs::remove_dir_all(&making).map_err(|error| unwritable(&making, error))?;
+    }
+    let imported = import_package(urdf, &BTreeMap::new(), search_paths, &making, &id, None)?;
+    let heard = crate::topics::heard_rate("/joint_states", "sensor_msgs/msg/JointState", LISTEN);
+    receive_joint_states(&imported, heard.unwrap_or(UNHEARD_RATE_HZ))?;
+    for left_out in &imported.left_out {
+        say!("warning: {}", left_out.report());
+    }
+    if folder.exists() {
+        std::fs::remove_dir_all(&folder).map_err(|error| unwritable(&folder, error))?;
+    }
+    std::fs::rename(&making, &folder).map_err(|error| unwritable(&folder, error))?;
+    std::fs::write(&source, &hash).map_err(|error| unwritable(&source, error))?;
+    let rate = match heard {
+        Some(rate) => format!("heard publishing {rate} a second"),
+        None => format!(
+            "nothing heard publishing while it was made, so declared at {UNHEARD_RATE_HZ} a second: correct `rate_hz` in {} if the robot publishes at another rate",
+            folder.join("streams.toml").display()
+        ),
+    };
+    say!(
+        "Made the robot package {id} from {} in {}: it receives the robot's ROS 2 joint states on /joint_states, {rate}.",
+        urdf.display(),
+        folder.display()
+    );
+    Ok(folder)
 }
 
 /// A package as `kapto package show` prints it.

@@ -718,9 +718,18 @@ cargo run --bin kapto -- episode stop --data-dir /tmp/kapto
 
 `kapto serve` serves one robot, given one way: a package by its ID in the
 packages folder or by its folder (`--package`, or `KAPTO_ROBOT` in a
-container), or its three files (`--robot`, `--streams`, `--mapping`). Given
-none, it serves the packages folder's one package; both ways, or none among
-several packages, end with `config.robot_ambiguous` before anything starts.
+container), a URDF alone (`--urdf` or `KAPTO_URDF`, its `package://` meshes
+also looked for in `--mesh-path` or `KAPTO_MESH_PATH`), or its three files
+(`--robot`, `--streams`, `--mapping`). Given none, it serves the packages
+folder's one package; two ways, or none among several packages, end with
+`config.robot_ambiguous` before anything starts. A URDF is made into a
+package in the data directory's `packages/`, as `kapto package import`
+makes one, receiving the robot's ROS 2 joint states on `/joint_states`,
+each moving joint found by its name, at the rate heard there over 3 s, or
+1000 a second if nothing is; the hash of the URDF and the files it names is
+kept beside it as `<id>.source`, and the package is made again only when
+that changes, so corrections to it are kept until then. A folder there that
+Kapto didn't make is never replaced (`package.import_exists`).
 
 `kapto serve` runs Kapto as its processes, all from the same binary: it
 starts `kapto capture`, `kapto viz-bridge` and `kapto worker` as children

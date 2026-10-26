@@ -725,7 +725,10 @@ fn a_robot_given_two_ways_or_not_at_all_among_several_packages_is_refused_before
     // A package and the three files.
     let both = refused(&folder, &packages, &files, &[("KAPTO_ROBOT", "arm7")]);
     assert!(both.starts_with("error[config.robot_ambiguous]"), "{both}");
-    assert!(both.contains("given the package `arm7`"), "{both}");
+    assert!(
+        both.contains("given as a package (`--package` or `KAPTO_ROBOT`) and as its files"),
+        "{both}"
+    );
     // Nothing given, and two packages to choose from.
     arm7_package(&packages, "arm7_left");
     let several = refused(&folder, &packages, &[], &[]);
@@ -741,4 +744,131 @@ fn a_robot_given_two_ways_or_not_at_all_among_several_packages_is_refused_before
     let none = refused(&folder, &folder.join("empty"), &[], &[]);
     assert!(none.starts_with("error[package.not_found]"), "{none}");
     assert!(none.contains("no robot was given"), "{none}");
+}
+
+/// A robot's description as found in a vendor's repository: a URDF naming
+/// a mesh of its own description package, which is found elsewhere.
+fn vendor_urdf(folder: &std::path::Path) -> std::path::PathBuf {
+    let meshes = folder.join("vendor/test_arm_description/meshes");
+    std::fs::create_dir_all(&meshes).unwrap();
+    std::fs::write(meshes.join("base.stl"), b"solid base\nendsolid base\n").unwrap();
+    let urdf = folder.join("robot/robot.urdf");
+    std::fs::create_dir_all(urdf.parent().unwrap()).unwrap();
+    std::fs::write(
+        &urdf,
+        r#"<robot name="Test-Arm">
+  <link name="base"><visual><geometry><mesh filename="package://test_arm_description/meshes/base.stl"/></geometry></visual></link>
+  <link name="upper"/>
+  <joint name="Shoulder-Pan" type="revolute"><parent link="base"/><child link="upper"/>
+    <limit lower="-1" upper="1" effort="1" velocity="1"/></joint>
+</robot>"#,
+    )
+    .unwrap();
+    urdf
+}
+
+/// Every file under `folder`, with its contents.
+fn contents(folder: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(folder).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            found.extend(contents(&path));
+        } else {
+            found.push((path.clone(), std::fs::read(&path).unwrap()));
+        }
+    }
+    found.sort();
+    found
+}
+
+/// What serve says making the package from `urdf`, then ending as the
+/// API's port is taken.
+fn made_once(folder: &std::path::Path, urdf: &std::path::Path) -> String {
+    let taken = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = taken.local_addr().unwrap().port().to_string();
+    let output = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .args(["serve", "--port", &port])
+        .arg("--urdf")
+        .arg(urdf)
+        .arg("--mesh-path")
+        .arg(folder.join("vendor"))
+        .arg("--data-dir")
+        .arg(folder.join("data"))
+        .env_clear()
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("error[server.listen_failed]"), "{stderr}");
+    stderr
+}
+
+#[test]
+fn a_bare_urdf_is_made_into_a_package_in_the_data_directory_its_mount_left_untouched() {
+    let folder = scratch("robot-from-urdf");
+    let urdf = vendor_urdf(&folder);
+    let before = contents(&folder.join("robot"));
+    let said = made_once(&folder, &urdf);
+    let made = folder.join("data/packages/test_arm");
+    assert!(
+        said.contains("receives the robot's ROS 2 joint states on /joint_states"),
+        "{said}"
+    );
+    // The mesh found through the mesh path is in the package, and the
+    // package is sound as it is made.
+    assert!(made.join("test_arm_description/meshes/base.stl").is_file());
+    let streams = std::fs::read_to_string(made.join("streams.toml")).unwrap();
+    assert!(
+        streams.contains("path = \"position[name=Shoulder-Pan]\""),
+        "{streams}"
+    );
+    let lint = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .args(["package", "lint"])
+        .arg(&made)
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(
+        lint.status.success(),
+        "{}",
+        String::from_utf8_lossy(&lint.stdout)
+    );
+    assert_eq!(contents(&folder.join("robot")), before);
+}
+
+#[test]
+fn a_package_made_from_a_urdf_is_made_again_only_when_the_urdf_or_a_mesh_changes() {
+    let folder = scratch("robot-made-again");
+    let urdf = vendor_urdf(&folder);
+    let made = "Made the robot package test_arm";
+    assert!(made_once(&folder, &urdf).contains(made));
+    // Corrected by hand where it was made: kept while the URDF is the same.
+    let mapping = folder.join("data/packages/test_arm/mapping.toml");
+    std::fs::write(&mapping, "[joints]\n").unwrap();
+    assert!(!made_once(&folder, &urdf).contains(made));
+    assert_eq!(std::fs::read_to_string(&mapping).unwrap(), "[joints]\n");
+    // A mesh changed: made again.
+    std::fs::write(
+        folder.join("vendor/test_arm_description/meshes/base.stl"),
+        b"solid base\n",
+    )
+    .unwrap();
+    assert!(made_once(&folder, &urdf).contains(made));
+    assert_ne!(std::fs::read_to_string(&mapping).unwrap(), "[joints]\n");
+}
+
+#[test]
+fn a_package_kapto_didnt_make_is_never_replaced_by_one_made_from_a_urdf() {
+    let folder = scratch("robot-not-replaced");
+    let urdf = vendor_urdf(&folder);
+    let own = arm7_package(&folder.join("data/packages"), "test_arm");
+    let before = contents(&own);
+    let said = refused(
+        &folder,
+        &folder.join("packages"),
+        &["--urdf", urdf.to_str().unwrap()],
+        &[],
+    );
+    assert!(said.starts_with("error[package.import_exists]"), "{said}");
+    assert_eq!(contents(&own), before);
 }

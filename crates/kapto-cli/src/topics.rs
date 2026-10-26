@@ -172,6 +172,36 @@ fn listened(
     Ok(heard)
 }
 
+/// How many messages a second `topic` of `message_type` is heard
+/// publishing over `wait`, as `kapto topics --streams` declares it; `None`
+/// if it is silent, can't be subscribed to, or Kapto is built without
+/// ROS 2.
+#[cfg(feature = "ros2")]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a rate heard is a few thousand a second at most, never negative"
+)]
+pub(crate) fn heard_rate(
+    topic: &str,
+    message_type: &str,
+    wait: std::time::Duration,
+) -> Option<u32> {
+    let topics = [(topic.to_owned(), vec![message_type.to_owned()])];
+    let rate = listened(&topics, wait).ok()?.first()?.rate?;
+    (rate >= 0.5).then(|| rate.round() as u32)
+}
+
+/// Built without ROS 2, nothing is heard.
+#[cfg(not(feature = "ros2"))]
+pub(crate) fn heard_rate(
+    _topic: &str,
+    _message_type: &str,
+    _wait: std::time::Duration,
+) -> Option<u32> {
+    None
+}
+
 #[cfg(not(feature = "ros2"))]
 fn listed(_args: &TopicsArgs) -> Result<String, KaptoError> {
     Err(KaptoError::new(

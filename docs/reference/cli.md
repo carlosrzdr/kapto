@@ -289,6 +289,8 @@ Starts the capture process, the viewer bridge and the worker, keeps them running
 | `--robot <FILE>` | The robot's URDF file, given with --streams and --mapping instead of a package |
 | `--streams <FILE>` | The streams.toml declaring each stream's input and rate |
 | `--mapping <FILE>` | The mapping.toml saying which decoded value drives which joint |
+| `--urdf <FILE>` | A robot's URDF alone, made into a package in the data directory that receives its ROS 2 joint states on `/joint_states` |
+| `--mesh-path <FOLDERS>` | Where the URDF's `package://` meshes are looked for besides the folders above it: folders separated by `:` |
 
 ## `kapto viz-bridge`
 

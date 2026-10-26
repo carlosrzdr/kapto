@@ -61,8 +61,8 @@ const SIGN_OF_LIFE: Duration = Duration::from_millis(250);
 /// How long capture may take to answer serve's connection and each sign.
 const SIGN_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// Arguments of `kapto serve`: the robot, one way or the other. Without
-/// either, the packages folder's one package.
+/// Arguments of `kapto serve`: the robot, one way of three. Without any,
+/// the packages folder's one package.
 #[derive(Args)]
 pub(crate) struct ServeArgs {
     /// The robot package to serve: its ID in the packages folder
@@ -79,6 +79,19 @@ pub(crate) struct ServeArgs {
     /// The mapping.toml saying which decoded value drives which joint.
     #[arg(long, value_name = "FILE", requires_all = ["robot", "streams"])]
     mapping: Option<PathBuf>,
+    /// A robot's URDF alone, made into a package in the data directory
+    /// that receives its ROS 2 joint states on `/joint_states`.
+    #[arg(long, value_name = "FILE", env = "KAPTO_URDF")]
+    urdf: Option<PathBuf>,
+    /// Where the URDF's `package://` meshes are looked for besides the
+    /// folders above it: folders separated by `:`.
+    #[arg(
+        long,
+        value_name = "FOLDERS",
+        env = "KAPTO_MESH_PATH",
+        value_delimiter = ':'
+    )]
+    mesh_path: Vec<PathBuf>,
 }
 
 /// The robot's files serve runs with.
@@ -102,8 +115,13 @@ impl RobotFiles {
 }
 
 pub(crate) fn serve(flags: &SettingFlags, args: &ServeArgs) -> ExitCode {
-    let files = crate::config::load(flags)
-        .and_then(|(_, deployment)| chosen(args, &deployment.packages_dir.value));
+    let files = crate::config::load(flags).and_then(|(_, deployment)| {
+        chosen(
+            args,
+            &deployment.packages_dir.value,
+            &deployment.data_dir.value,
+        )
+    });
     match files.and_then(|files| run(flags, &files)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
@@ -115,53 +133,73 @@ pub(crate) fn serve(flags: &SettingFlags, args: &ServeArgs) -> ExitCode {
 }
 
 /// The robot to serve, as it was given: a package by ID or folder, its
-/// three files, or else the one package in `packages`.
-fn chosen(args: &ServeArgs, packages: &Path) -> Outcome<RobotFiles> {
-    let ambiguous =
-        |detail: String| vec![KaptoError::new(ErrorCode::ConfigRobotAmbiguous).detail(detail)];
-    let files = (&args.robot, &args.streams, &args.mapping);
-    match (&args.package, files) {
-        (Some(wanted), (None, None, None)) => {
-            let folder = crate::package::find_in(packages, wanted)?;
-            Ok(RobotFiles::of(&load_package(&folder)?))
-        }
-        (Some(wanted), _) => Err(ambiguous(format!(
-            "given the package `{wanted}` (`--package` or `KAPTO_ROBOT`) and the robot's files too"
-        ))),
-        (None, (Some(robot), Some(streams), Some(mapping))) => Ok(RobotFiles {
+/// three files, a URDF made into a package in `data`, or else the one
+/// package in `packages`.
+fn chosen(args: &ServeArgs, packages: &Path, data: &Path) -> Outcome<RobotFiles> {
+    let ways: Vec<&str> = [
+        args.package
+            .as_ref()
+            .map(|_| "a package (`--package` or `KAPTO_ROBOT`)"),
+        args.robot
+            .as_ref()
+            .map(|_| "its files (`--robot`, `--streams`, `--mapping`)"),
+        args.urdf
+            .as_ref()
+            .map(|_| "a URDF (`--urdf` or `KAPTO_URDF`)"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if ways.len() > 1 {
+        return Err(vec![
+            KaptoError::new(ErrorCode::ConfigRobotAmbiguous)
+                .detail(format!("the robot was given as {}", ways.join(" and as "))),
+        ]);
+    }
+    if let Some(wanted) = &args.package {
+        let folder = crate::package::find_in(packages, wanted)?;
+        return Ok(RobotFiles::of(&load_package(&folder)?));
+    }
+    // The three files are given together or not at all, as the arguments
+    // require.
+    if let (Some(robot), Some(streams), Some(mapping)) = (&args.robot, &args.streams, &args.mapping)
+    {
+        return Ok(RobotFiles {
             robot: robot.clone(),
             streams: streams.clone(),
             mapping: mapping.clone(),
-        }),
-        // The three files are given together or not at all, as the
-        // arguments require; none given leaves the packages folder.
-        (None, _) => {
-            let (mut found, mut errors) = discover(packages);
-            match found.len() {
-                1 => Ok(RobotFiles::of(&found.remove(0))),
-                0 => {
-                    errors.insert(
-                        0,
-                        KaptoError::new(ErrorCode::PackageNotFound).detail(format!(
-                            "no robot was given (`--package`, `KAPTO_ROBOT`, or `--robot`, `--streams` and `--mapping`), and there is no package in {} to serve",
-                            packages.display()
-                        )),
-                    );
-                    Err(errors)
-                }
-                _ => {
-                    let ids: Vec<&str> = found
-                        .iter()
-                        .map(|package| package.manifest.id.as_str())
-                        .collect();
-                    Err(ambiguous(format!(
-                        "no robot was given, and {} holds {} packages: {}",
-                        packages.display(),
-                        ids.len(),
-                        ids.join(", ")
-                    )))
-                }
-            }
+        });
+    }
+    if let Some(urdf) = &args.urdf {
+        let folder = crate::package::made_from_urdf(urdf, &args.mesh_path, data)?;
+        return Ok(RobotFiles::of(&load_package(&folder)?));
+    }
+    let (mut found, mut errors) = discover(packages);
+    match found.len() {
+        1 => Ok(RobotFiles::of(&found.remove(0))),
+        0 => {
+            errors.insert(
+                0,
+                KaptoError::new(ErrorCode::PackageNotFound).detail(format!(
+                    "no robot was given (`--package` or `KAPTO_ROBOT`, `--urdf` or `KAPTO_URDF`, or `--robot`, `--streams` and `--mapping`), and there is no package in {} to serve",
+                    packages.display()
+                )),
+            );
+            Err(errors)
+        }
+        _ => {
+            let ids: Vec<&str> = found
+                .iter()
+                .map(|package| package.manifest.id.as_str())
+                .collect();
+            Err(vec![
+                KaptoError::new(ErrorCode::ConfigRobotAmbiguous).detail(format!(
+                    "no robot was given, and {} holds {} packages: {}",
+                    packages.display(),
+                    ids.len(),
+                    ids.join(", ")
+                )),
+            ])
         }
     }
 }
