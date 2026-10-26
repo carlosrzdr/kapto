@@ -15,6 +15,7 @@
   /** What the box under the list asks, if anything. */
   let asking = $state<"rename" | "delete" | null>(null);
   let name = $state("");
+  let picker = $state<HTMLInputElement | null>(null);
 
   const shown = $derived(layouts.shown);
   const named = $derived(shown !== null && isNamed(shown.id));
@@ -28,7 +29,9 @@
 
   async function answer(event: SubmitEvent) {
     event.preventDefault();
-    if (asking === "rename") {
+    if (layouts.clash) {
+      await layouts.importAs(name);
+    } else if (asking === "rename") {
       await layouts.rename(name);
     } else if (asking === "delete") {
       await layouts.remove();
@@ -40,9 +43,37 @@
 
   function cancel() {
     asking = null;
+    layouts.cancelImport();
   }
 
-  const prompt = $derived(asking);
+  async function download() {
+    const file = await layouts.exportShown();
+    if (!file) {
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([file.text], { type: "application/toml" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = file.file;
+    link.click();
+    // After the browser has taken the file.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function read(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) {
+      return;
+    }
+    asking = null;
+    await layouts.importFile(file.name, await file.text());
+    if (layouts.clash) {
+      name = layouts.clash.name;
+    }
+  }
+
+  const prompt = $derived(layouts.clash ? "import" : asking);
 </script>
 
 <div class="layouts" role="group" aria-label="Layouts">
@@ -67,24 +98,37 @@
         <DropdownMenu.Item class="item" onSelect={() => void layouts.duplicate()}>Duplicate</DropdownMenu.Item>
         <DropdownMenu.Item class="item" disabled={!named} onSelect={() => ask("delete")}>Delete…</DropdownMenu.Item>
         <DropdownMenu.Item class="item" disabled={isDefault} onSelect={() => void layouts.saveAsDefault()}>Save as Default</DropdownMenu.Item>
+        <DropdownMenu.Separator class="rule" />
+        <DropdownMenu.Item class="item" onSelect={() => void download()}>Export</DropdownMenu.Item>
+        <DropdownMenu.Item class="item" onSelect={() => picker?.click()}>Import…</DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Portal>
   </DropdownMenu.Root>
+  <input
+    class="picker"
+    type="file"
+    accept=".toml,application/toml"
+    aria-label="Layout file to import"
+    tabindex="-1"
+    bind:this={picker}
+    onchange={(event) => void read(event.currentTarget)}
+  />
+
   {#if prompt || layouts.said}
     <div class="box">
       {#if prompt}
-        <form aria-label={prompt === "rename" ? "Rename the layout" : "Delete the layout"} onsubmit={answer}>
+        <form aria-label={prompt === "import" ? "Import as" : prompt === "rename" ? "Rename the layout" : "Delete the layout"} onsubmit={answer}>
           {#if prompt === "delete"}
             <p>Delete {shown?.name} for every browser? Its file goes from the config folder.</p>
           {:else}
             <label>
-              Name
+              {prompt === "import" ? "Import as" : "Name"}
               <!-- svelte-ignore a11y_autofocus -->
               <input type="text" maxlength="64" required bind:value={name} autofocus />
             </label>
           {/if}
           <div class="actions">
-            <button type="submit" class="go">{prompt === "rename" ? "Rename" : "Delete"}</button>
+            <button type="submit" class="go">{prompt === "import" ? "Import" : prompt === "rename" ? "Rename" : "Delete"}</button>
             <button type="button" onclick={cancel}>Cancel</button>
           </div>
         </form>
@@ -139,6 +183,10 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* Opened by the menu's Import… only. */
+  .picker {
+    display: none;
   }
   /* The menu is drawn outside the page's flow, so its rules are global. */
   :global(.layouts-menu) {

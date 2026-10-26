@@ -540,8 +540,11 @@ place of the one made from what it shows. A named layout is saved
 through the API as it is arranged; *Package's* and *Made from roles*
 follow the package, so arranging either first saves it as a named layout
 of its own ("Package's (edited)"), then shown. The list renames,
-duplicates and deletes a named layout and saves the one shown as
-*Default*. A
+duplicates and deletes a named layout, saves the one shown as *Default*,
+exports it as a `.toml` file and imports one as a new named layout,
+asking for another name if its own is taken; the server writes and reads
+the file (`/api/layout/export`, `/api/layout/import`), by the same rules
+as `layout.toml`. A
 replay is arranged by the layout its recording carries, or one made from
 what the recording declares, which the worker stores in the replay view. The page loads nothing from
 elsewhere and its Content-Security-Policy lets it reach only Kapto's API

@@ -140,6 +140,9 @@ export const serverLayouts: LayoutApi = {
   imported: importLayout,
 };
 
+/** The cause codes of a name the server won't save a layout under: asked for another. */
+const NAME_REFUSED = new Set(["layout.name_taken", "layout.name_empty", "layout.name_too_long"]);
+
 /** A package's layouts as the page offers them, the one shown, and what the list last did. */
 export class PackageLayouts {
   /** The list as the server last gave it; none until it has. */
@@ -153,6 +156,8 @@ export class PackageLayouts {
   /** What the last change did, or why it failed, with its remedy. */
   said = $state("");
   failed = $state(false);
+  /** A layout being imported whose name the server refused: saved once given another. */
+  clash = $state.raw<NamedLayoutInput | null>(null);
 
   readonly offers = $derived(this.list ? offersOf(this.list) : []);
   readonly shown = $derived(this.offers.find((offer) => offer.id === this.shownId) ?? null);
@@ -199,6 +204,7 @@ export class PackageLayouts {
     this.arranged = null;
     this.checked = null;
     this.said = "";
+    this.clash = null;
     this.memory.set(this.packageId, id);
   }
 
@@ -292,10 +298,58 @@ export class PackageLayouts {
     });
   }
 
+  /** The one shown as a file, named from it; none if it can't be. */
+  async exportShown(): Promise<LayoutFile | null> {
+    await this.queue;
+    const shown = this.shown;
+    const layout = this.view;
+    if (!shown || !layout) {
+      return null;
+    }
+    try {
+      return await this.api.exported({ name: shown.name, columns: editable(layout).columns });
+    } catch (error) {
+      this.say(error);
+      return null;
+    }
+  }
+
+  /** Adds the layout in the file `file`, its text `text`, as a new named layout, asking for another name if its own is refused. */
+  importFile(file: string, text: string): Promise<void> {
+    return this.queued(async () => this.add(await this.api.imported({ file, text })));
+  }
+
+  /** Saves the layout being imported under `name`, its own having been refused. */
+  importAs(name: string): Promise<void> {
+    const clash = this.clash;
+    return clash ? this.queued(() => this.add({ ...clash, name: name.trim() })) : Promise.resolve();
+  }
+
+  /** Gives up the import whose name was refused. */
+  cancelImport() {
+    this.clash = null;
+    this.said = "";
+  }
+
   /** Forgets what the last change said. */
   dismiss() {
     this.said = "";
     this.failed = false;
+  }
+
+  private async add(layout: NamedLayoutInput) {
+    try {
+      const saved = await this.api.create(layout);
+      this.clash = null;
+      this.keep(saved);
+      this.pick(saved.id);
+      this.tell(`Imported ${saved.name}.`);
+    } catch (error) {
+      if (error instanceof ApiFailure && NAME_REFUSED.has(error.code)) {
+        this.clash = layout;
+      }
+      throw error;
+    }
   }
 
   private names(): string[] {

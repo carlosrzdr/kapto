@@ -609,6 +609,38 @@ test("a screenshot of a panel's title being written while arranging, and of the 
   nothingLeft();
 });
 
+test("a screenshot of the list of layouts open, and of an import whose name is taken", async ({ page }) => {
+  const nothingLeft = await open(page);
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 60_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  await showLayout(page, "Wrist view", [
+    { width: 3, panels: [panel("robot")] },
+    { width: 2, panels: [panel("camera", { stream: "wrist_camera" }), panel("plot", { fields: ["role:gripper.opening"] })] },
+  ]);
+  const list = page.getByRole("button", { name: /^Layout: / });
+  await expect(list).toHaveAccessibleName("Layout: Wrist view", { timeout: 60_000 });
+  await viewer(page, false);
+  await list.click();
+  await expect(page.getByRole("menuitem", { name: "Import…" })).toBeVisible();
+  await viewer(page, true);
+  await page.waitForTimeout(2_000);
+  await shot(page, "live-layouts-list");
+  await viewer(page, false);
+  const choosing = page.waitForEvent("filechooser");
+  await page.getByRole("menuitem", { name: "Import…" }).click();
+  await (await choosing).setFiles({
+    name: "wrist-view.toml",
+    mimeType: "application/toml",
+    buffer: Buffer.from('name = "Wrist view"\n\n[[columns]]\npanels = [{ kind = "robot" }]\n'),
+  });
+  await expect(page.getByRole("group", { name: "Layouts" }).getByRole("form", { name: "Import as" })).toBeVisible();
+  await viewer(page, true);
+  await page.waitForTimeout(2_000);
+  await shot(page, "live-layouts-import-name-taken");
+  await forgetLayouts(page);
+  nothingLeft();
+});
+
 // The console on a tablet beside the robot, held sideways: each tab whole.
 test("a screenshot of the page Kapto can't show, built for another version of its API", async ({ page }) => {
   await page.route("**/api/version", (route) => route.fulfill({ json: { kapto: "9.9.9", api: 999 } }));

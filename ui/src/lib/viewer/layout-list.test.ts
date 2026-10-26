@@ -179,4 +179,35 @@ describe("the list's actions", () => {
     expect(api.remove).toHaveBeenCalledWith("night-shift-copy");
     expect([layouts.shownId, layouts.said]).toEqual(["default", "Deleted Night shift (copy)."]);
   });
+
+  it("exports the one shown under its name", async () => {
+    const { layouts } = served([], null, false);
+    await layouts.load();
+    expect(await layouts.exportShown()).toEqual({ file: "made-from-roles.toml", text: 'name = "Made from roles"\n' });
+  });
+
+  it("imports a file as a new layout, shown, and asks for another name when its own is taken", async () => {
+    const { api, layouts } = served([named("wrist-view", "Wrist view")]);
+    await layouts.load();
+    await layouts.importFile("wrist-view.toml", 'name = "Wrist view"\n');
+    expect(layouts.clash?.name).toBe("Wrist view");
+    expect([layouts.failed, layouts.said]).toEqual([true, "Another layout has that name: `Wrist view` is taken. Choose another name."]);
+    await layouts.importAs("Wrist view");
+    expect(layouts.clash).not.toBeNull();
+    await layouts.importAs("  Wrist, again ");
+    expect(api.create).toHaveBeenLastCalledWith({ name: "Wrist, again", columns: input("camera").columns });
+    expect([layouts.clash, layouts.shownId, layouts.said]).toEqual([null, "wrist-again", "Imported Wrist, again."]);
+  });
+
+  it("says why a file isn't a layout, with its remedy, and keeps the one shown", async () => {
+    const { layouts } = served([named("night", "Night")], "night");
+    await layouts.load();
+    await layouts.importFile("night.toml", "[[columns]\n");
+    expect([layouts.failed, layouts.said, layouts.clash, layouts.shownId]).toEqual([
+      true,
+      "`night.toml` line 1: The file isn't valid TOML. Fix the line.",
+      null,
+      "night",
+    ]);
+  });
 });

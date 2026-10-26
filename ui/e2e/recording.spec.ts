@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, type Locator, test, type Page, type Route } from "@playwright/test";
 
 import { drawnShare } from "./drawn";
@@ -1147,6 +1149,67 @@ test("layouts are picked from the list beside Arrange, saved as arranged, rename
   await expect(layoutList(elsewhere).list).toHaveAccessibleName("Layout: Default", { timeout: 20_000 });
   await expect(elsewhere.getByRole("group", { name: "The view's panels" }).getByRole("region", { name: "Plot of role:gripper.opening" })).toHaveCount(0);
   await other.close();
+  await forgetLayouts(page);
+});
+
+test("a layout exported as a file is imported on a page that never had it as a new named layout", async ({ page, browser }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  await showLayout(page, "Wrist view", [{ width: 1, panels: [panel("robot"), panel("events", { title: "Marks" })] }]);
+  const { list, act } = layoutList(page);
+  await expect(list).toHaveAccessibleName("Layout: Wrist view", { timeout: 20_000 });
+  const downloading = page.waitForEvent("download");
+  await act("Export");
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe("wrist-view.toml");
+  const text = await readFile(await download.path(), "utf8");
+  expect(text).toMatch(/^name = "Wrist view"\n\n\[\[columns\]\]\n/);
+  await forgetLayouts(page);
+
+  // On a page that never had it, as on another machine.
+  const other = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+  const fresh = await other.newPage();
+  await fresh.goto("/");
+  const there = layoutList(fresh);
+  await expect(there.list).toHaveAccessibleName("Layout: Made from roles", { timeout: 20_000 });
+  const choosing = fresh.waitForEvent("filechooser");
+  await there.act("Import…");
+  await (await choosing).setFiles({ name: "wrist-view.toml", mimeType: "application/toml", buffer: Buffer.from(text) });
+  await expect(there.list).toHaveAccessibleName("Layout: Wrist view");
+  await expect(there.box.getByRole("status")).toHaveText("Imported Wrist view.");
+  await expect(fresh.getByRole("group", { name: "The view's panels" }).getByRole("region", { name: "Marks" })).toBeVisible();
+  await other.close();
+  await forgetLayouts(page);
+});
+
+test("a layout imported under a name another has is asked for another, and a file that isn't one says where", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  await showLayout(page, "Night", [{ width: 1, panels: [{ kind: "health", height: 1 }] }]);
+  const { list, box, act } = layoutList(page);
+  await expect(list).toHaveAccessibleName("Layout: Night", { timeout: 20_000 });
+  const importing = async (name: string, text: string) => {
+    const choosing = page.waitForEvent("filechooser");
+    await act("Import…");
+    await (await choosing).setFiles({ name, mimeType: "application/toml", buffer: Buffer.from(text) });
+  };
+
+  await importing("night.toml", 'name = "night"\n\n[[columns]]\npanels = [{ kind = "events", title = "Marks" }]\n');
+  const asked = box.getByRole("form", { name: "Import as" });
+  await expect(box.getByRole("alert")).toHaveText(/^Another layout has that name: `night` is taken by `night.toml`\. Choose another name/);
+  await expect(asked.getByRole("textbox")).toHaveValue("night");
+  // Nothing is saved, nor shown, until it has a name of its own.
+  await expect(list).toHaveAccessibleName("Layout: Night");
+  await asked.getByRole("textbox").fill("Night, imported");
+  await asked.getByRole("button", { name: "Import" }).click();
+  await expect(list).toHaveAccessibleName("Layout: Night, imported");
+  await expect(box.getByRole("status")).toHaveText("Imported Night, imported.");
+  await expect(page.getByRole("group", { name: "The view's panels" }).getByRole("region", { name: "Marks" })).toBeVisible();
+
+  await importing("broken.toml", "[[columns]]\npanels = [{ kind = \"radar\" }]\n");
+  await expect(box.getByRole("alert")).toHaveText(/^`broken\.toml` line 2: /);
+  await expect(list).toHaveAccessibleName("Layout: Night, imported");
   await forgetLayouts(page);
 });
 
