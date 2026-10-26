@@ -89,6 +89,15 @@ configuration file:
 docker run --rm -v ./kapto.toml:/config/kapto.toml:ro kapto:dev
 ```
 
+To run Kapto with a robot package, mount the folder that holds it at
+`/packages` and name it by its ID in `KAPTO_ROBOT`; with only one package
+there, the name can be left out:
+
+```sh
+docker run --rm -p 7700:7700 -v kapto-data:/data -v "$PWD/packages:/packages:ro" \
+  -e KAPTO_ROBOT=arm7 kapto:dev serve
+```
+
 `kapto-ros2:dev` is Kapto built with ROS 2, on a ROS 2 Jazzy base image, for
 robots that publish ROS 2 topics. On the robot's network, it lists the
 topics it sees and their message types:

@@ -175,6 +175,13 @@ error_codes! {
         remedy: "Give each listener its own port. Kapto never picks a different port on its own.",
     }
 
+    /// `kapto serve` was given its robot more than one way, or none while
+    /// the packages folder holds several packages.
+    ConfigRobotAmbiguous = "config.robot_ambiguous" {
+        summary: "Which robot to serve isn't clear",
+        remedy: "Give the robot one way: a package's ID or folder with `--package` or `KAPTO_ROBOT`, or its three files with `--robot`, `--streams` and `--mapping`. `kapto package list` lists the packages in `paths.packages`.",
+    }
+
     /// A robot package's `msg/` folder has a ROS 2 message type's `.msg`
     /// file whose text isn't that of the ROS 2 installation Kapto runs in.
     ConfigRos2MsgDiffers = "config.ros2_msg_differs" {

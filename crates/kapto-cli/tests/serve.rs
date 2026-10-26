@@ -18,7 +18,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use common::root;
-use common::serve::{Serve, streams};
+use common::serve::{Serve, arm7_package, streams};
 use kapto_capture::control::{Request, Response};
 use kapto_store::db::DATABASE_FILE;
 use kapto_store::{Episode, JobState, Writer};
@@ -622,4 +622,123 @@ fn ctrl_c_at_the_terminal_stops_every_process_once_saying_so_truthfully() {
         1,
         "{lines:#?}"
     );
+}
+
+/// Serve started with its robot given as `given` and `env`, the packages
+/// folder being `packages`.
+fn serve_given(
+    folder: &std::path::Path,
+    packages: &std::path::Path,
+    given: &[&str],
+    env: &[(&str, &str)],
+) -> Serve {
+    let given: Vec<&std::ffi::OsStr> = given.iter().map(std::ffi::OsStr::new).collect();
+    Serve::start_given(
+        folder,
+        &given,
+        &["--paths-packages", packages.to_str().unwrap()],
+        env,
+    )
+}
+
+#[test]
+fn the_package_kapto_robot_names_is_served_from_the_packages_folder() {
+    let folder = scratch("robot-by-id");
+    let packages = folder.join("packages");
+    arm7_package(&packages, "arm7");
+    let left = arm7_package(&packages, "arm7_left");
+    let serve = serve_given(&folder, &packages, &[], &[("KAPTO_ROBOT", "arm7_left")]);
+    let robot = robot_of(&serve);
+    assert_eq!(robot["package"], "arm7_left");
+    assert_eq!(
+        robot["files"]["streams"],
+        left.join("streams.toml").to_str().unwrap()
+    );
+}
+
+#[test]
+fn a_package_given_by_its_folder_is_served_whatever_the_packages_folder_holds() {
+    let folder = scratch("robot-by-folder");
+    let elsewhere = arm7_package(&folder.join("elsewhere"), "arm7_right");
+    let serve = serve_given(
+        &folder,
+        &folder.join("packages"),
+        &["--package", elsewhere.to_str().unwrap()],
+        &[],
+    );
+    assert_eq!(robot_of(&serve)["package"], "arm7_right");
+}
+
+#[test]
+fn the_packages_folders_one_package_is_served_when_no_robot_is_given() {
+    let folder = scratch("robot-the-one");
+    let packages = folder.join("packages");
+    arm7_package(&packages, "arm7");
+    let serve = serve_given(&folder, &packages, &[], &[]);
+    assert_eq!(robot_of(&serve)["package"], "arm7");
+}
+
+/// What serve says, refusing to start with its robot given as `given`
+/// and `env`, the packages folder being `packages`.
+fn refused(
+    folder: &std::path::Path,
+    packages: &std::path::Path,
+    given: &[&str],
+    env: &[(&str, &str)],
+) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_kapto"))
+        .arg("serve")
+        .args(given)
+        .arg("--paths-packages")
+        .arg(packages)
+        .arg("--data-dir")
+        .arg(folder.join("data"))
+        .env_clear()
+        .envs(env.iter().copied())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(!stderr.contains("[serve] started"), "{stderr}");
+    stderr
+}
+
+#[test]
+fn a_robot_given_two_ways_or_not_at_all_among_several_packages_is_refused_before_anything_starts() {
+    let folder = scratch("robot-ambiguous");
+    let packages = folder.join("packages");
+    let arm7 = arm7_package(&packages, "arm7");
+    let path = |file: &str| arm7.join(file).to_str().unwrap().to_owned();
+    let (robot, streams, mapping) = (
+        path("urdf/arm7.urdf"),
+        path("streams.toml"),
+        path("mapping.toml"),
+    );
+    let files = [
+        "--robot",
+        &robot,
+        "--streams",
+        &streams,
+        "--mapping",
+        &mapping,
+    ];
+    // A package and the three files.
+    let both = refused(&folder, &packages, &files, &[("KAPTO_ROBOT", "arm7")]);
+    assert!(both.starts_with("error[config.robot_ambiguous]"), "{both}");
+    assert!(both.contains("given the package `arm7`"), "{both}");
+    // Nothing given, and two packages to choose from.
+    arm7_package(&packages, "arm7_left");
+    let several = refused(&folder, &packages, &[], &[]);
+    assert!(
+        several.starts_with("error[config.robot_ambiguous]"),
+        "{several}"
+    );
+    assert!(several.contains("2 packages: arm7, arm7_left"), "{several}");
+    // A package that isn't there, by ID.
+    let unknown = refused(&folder, &packages, &["--package", "arm9"], &[]);
+    assert!(unknown.starts_with("error[package.not_found]"), "{unknown}");
+    // Nothing given, and no package at all.
+    let none = refused(&folder, &folder.join("empty"), &[], &[]);
+    assert!(none.starts_with("error[package.not_found]"), "{none}");
+    assert!(none.contains("no robot was given"), "{none}");
 }

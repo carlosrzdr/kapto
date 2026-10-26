@@ -26,6 +26,25 @@ pub(crate) fn streams(folder: &Path) -> PathBuf {
     path
 }
 
+/// The sample arm as the package `id` in `packages`, receiving on a free
+/// UDP port; answers with its folder.
+pub(crate) fn arm7_package(packages: &Path, id: &str) -> PathBuf {
+    let arm7 = root().join("packages/arm7");
+    let folder = packages.join(id);
+    std::fs::create_dir_all(folder.join("urdf")).unwrap();
+    for file in ["mapping.toml", "qa.toml", "urdf/arm7.urdf"] {
+        std::fs::copy(arm7.join(file), folder.join(file)).unwrap();
+    }
+    streams(&folder);
+    let manifest = std::fs::read_to_string(arm7.join("package.toml")).unwrap();
+    std::fs::write(
+        folder.join("package.toml"),
+        manifest.replace("id = \"arm7\"", &format!("id = \"{id}\"")),
+    )
+    .unwrap();
+    folder
+}
+
 /// ROS 2's environment, where the tests run in it, so serve finds its
 /// libraries, message types and middleware as the test does; nothing on a
 /// machine without ROS 2.
@@ -65,18 +84,32 @@ impl Serve {
         mapping: &Path,
         flags: &[&str],
     ) -> Self {
+        let given = [
+            "--robot".as_ref(),
+            robot.as_os_str(),
+            "--streams".as_ref(),
+            streams.as_os_str(),
+            "--mapping".as_ref(),
+            mapping.as_os_str(),
+        ];
+        Self::start_given(folder, &given, flags, &[])
+    }
+
+    /// The same, the robot given as `given` (arguments, or none) and with
+    /// `env` set besides ROS 2's.
+    pub(crate) fn start_given(
+        folder: &Path,
+        given: &[&std::ffi::OsStr],
+        flags: &[&str],
+        env: &[(&str, &str)],
+    ) -> Self {
         let [api_port, stream_port] = free_tcp_ports();
         let mut child = Command::new(env!("CARGO_BIN_EXE_kapto"))
             // A job of its own, as a shell starts it: Ctrl-C at its
             // terminal is SIGINT to its whole group.
             .process_group(0)
             .arg("serve")
-            .arg("--robot")
-            .arg(robot)
-            .arg("--streams")
-            .arg(streams)
-            .arg("--mapping")
-            .arg(mapping)
+            .args(given)
             .args(["--port", &api_port])
             .args(["--viewer-stream-port", &stream_port])
             .arg("--data-dir")
@@ -87,6 +120,7 @@ impl Serve {
             .args(flags)
             .env_clear()
             .envs(ros2_environment())
+            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()

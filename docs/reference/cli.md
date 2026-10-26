@@ -285,7 +285,8 @@ Starts the capture process, the viewer bridge and the worker, keeps them running
 
 | Option | Description |
 |---|---|
-| `--robot <FILE>` | The robot's URDF file |
+| `--package <ID or FOLDER>` | The robot package to serve: its ID in the packages folder (`paths.packages`), or its folder |
+| `--robot <FILE>` | The robot's URDF file, given with --streams and --mapping instead of a package |
 | `--streams <FILE>` | The streams.toml declaring each stream's input and rate |
 | `--mapping <FILE>` | The mapping.toml saying which decoded value drives which joint |
 

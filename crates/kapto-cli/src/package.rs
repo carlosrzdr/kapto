@@ -236,11 +236,17 @@ pub(crate) fn find(
 ) -> Result<(PathBuf, PathBuf), Vec<KaptoError>> {
     let (_, deployment) = crate::config::load(flags)?;
     let packages = deployment.packages_dir.value;
+    Ok((find_in(&packages, wanted)?, packages))
+}
+
+/// The folder of the package `wanted`: a folder, or the ID of a package in
+/// `packages`.
+pub(crate) fn find_in(packages: &Path, wanted: &str) -> Result<PathBuf, Vec<KaptoError>> {
     let folder = Path::new(wanted);
     if folder.is_dir() {
-        return Ok((folder.to_path_buf(), packages));
+        return Ok(folder.to_path_buf());
     }
-    let (found, _) = discover(&packages);
+    let (found, _) = discover(packages);
     let package = found
         .into_iter()
         .find(|package| package.manifest.id == wanted)
@@ -250,7 +256,7 @@ pub(crate) fn find(
                 packages.display()
             ))]
         })?;
-    Ok((package.folder, packages))
+    Ok(package.folder)
 }
 
 /// A package as `kapto package show` prints it.

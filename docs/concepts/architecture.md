@@ -716,6 +716,12 @@ cargo run --bin kapto -- episode status --data-dir /tmp/kapto
 cargo run --bin kapto -- episode stop --data-dir /tmp/kapto
 ```
 
+`kapto serve` serves one robot, given one way: a package by its ID in the
+packages folder or by its folder (`--package`, or `KAPTO_ROBOT` in a
+container), or its three files (`--robot`, `--streams`, `--mapping`). Given
+none, it serves the packages folder's one package; both ways, or none among
+several packages, end with `config.robot_ambiguous` before anything starts.
+
 `kapto serve` runs Kapto as its processes, all from the same binary: it
 starts `kapto capture`, `kapto viz-bridge` and `kapto worker` as children
 and keeps them running. It first locks `kapto.lock` in the data directory
@@ -1067,7 +1073,7 @@ curl -s http://127.0.0.1:7700/api/episodes
 ```
 
 ```sh
-cargo run --release --bin kapto -- serve --robot packages/arm7/urdf/arm7.urdf --streams packages/arm7/streams.toml --mapping packages/arm7/mapping.toml --data-dir /tmp/kapto &
+cargo run --release --bin kapto -- serve --package packages/arm7 --data-dir /tmp/kapto &
 cargo run --release -p kapto-loadgen -- --streams 1 --duration 60
 ```
 

@@ -35,7 +35,7 @@ axum = "0.8"
 # store that fails as told, in the upload tests. Already in the tree through
 # `object_store`.
 async-trait = "0.1"
-clap = { version = "4.6", features = ["derive"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 # Streams of messages as `r2r` hands them over, in the ROS 2 tests; already
 # in the tree through `r2r` and axum.

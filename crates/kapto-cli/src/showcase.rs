@@ -26,7 +26,7 @@ use kapto_store::{Phase, QaRun, Reader, Verdict};
 use crate::SettingFlags;
 use crate::demo::write_arm7;
 use crate::output::outln;
-use crate::serve::{self, ServeArgs};
+use crate::serve::{self, RobotFiles};
 use crate::station::Outcome;
 
 /// The showcase's profile and task, in a configuration folder of its own so
@@ -145,7 +145,7 @@ fn run(flags: &SettingFlags, args: &ShowcaseArgs) -> Outcome<()> {
             .map_err(|error| vec![thread_failed(&error)])?;
         let served = serve::run(
             &flags,
-            &ServeArgs {
+            &RobotFiles {
                 robot: folder.join("urdf/arm7.urdf"),
                 streams: folder.join("streams.toml"),
                 mapping: folder.join("mapping.toml"),

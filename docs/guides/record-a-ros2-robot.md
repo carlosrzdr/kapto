@@ -236,11 +236,11 @@ Mount the packages folder, and a volume for the recordings, and run
 
 ```sh
 docker run --rm --network host -v kapto-data:/data -v "$PWD/packages:/packages:ro" \
-  -e KAPTO_SERVER_BIND=127.0.0.1 kapto-ros2:dev serve \
-  --robot /packages/arm7_ros2/urdf/arm7.urdf \
-  --streams /packages/arm7_ros2/streams.toml \
-  --mapping /packages/arm7_ros2/mapping.toml
+  -e KAPTO_SERVER_BIND=127.0.0.1 -e KAPTO_ROBOT=arm7_ros2 kapto-ros2:dev serve
 ```
+
+`KAPTO_ROBOT` is the ID of the package to serve among those in
+`/packages` (or `--package arm7_ros2` after `serve`).
 
 With the robot's own types, add their mount, as above
 (`-v "$PWD/install:/overlays/acme:ro"`). Open

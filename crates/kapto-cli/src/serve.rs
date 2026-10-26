@@ -21,7 +21,7 @@ use clap::Args;
 use kapto_capture::control::{ControlClient, Request};
 use kapto_config::DeploymentConfig;
 use kapto_core::{ClockSample, ErrorCode, KaptoError, say};
-use kapto_robot::Declared;
+use kapto_robot::{Declared, Package, discover, load_package};
 use kapto_server::api::ApiError;
 use kapto_server::api::{self, ApiState, CaptureAnnouncements, StatusPoller};
 use kapto_server::jobs::{Bin, Destination, JOB_SOCKET, JobServer, Uploads};
@@ -61,22 +61,50 @@ const SIGN_OF_LIFE: Duration = Duration::from_millis(250);
 /// How long capture may take to answer serve's connection and each sign.
 const SIGN_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// Arguments of `kapto serve`.
+/// Arguments of `kapto serve`: the robot, one way or the other. Without
+/// either, the packages folder's one package.
 #[derive(Args)]
 pub(crate) struct ServeArgs {
-    /// The robot's URDF file.
-    #[arg(long, value_name = "FILE")]
-    pub(crate) robot: PathBuf,
+    /// The robot package to serve: its ID in the packages folder
+    /// (`paths.packages`), or its folder.
+    #[arg(long, value_name = "ID or FOLDER", env = "KAPTO_ROBOT")]
+    package: Option<String>,
+    /// The robot's URDF file, given with --streams and --mapping instead of
+    /// a package.
+    #[arg(long, value_name = "FILE", requires_all = ["streams", "mapping"])]
+    robot: Option<PathBuf>,
     /// The streams.toml declaring each stream's input and rate.
-    #[arg(long, value_name = "FILE")]
-    pub(crate) streams: PathBuf,
+    #[arg(long, value_name = "FILE", requires_all = ["robot", "mapping"])]
+    streams: Option<PathBuf>,
     /// The mapping.toml saying which decoded value drives which joint.
-    #[arg(long, value_name = "FILE")]
+    #[arg(long, value_name = "FILE", requires_all = ["robot", "streams"])]
+    mapping: Option<PathBuf>,
+}
+
+/// The robot's files serve runs with.
+pub(crate) struct RobotFiles {
+    /// Its URDF.
+    pub(crate) robot: PathBuf,
+    /// Its streams.toml.
+    pub(crate) streams: PathBuf,
+    /// Its mapping.toml.
     pub(crate) mapping: PathBuf,
 }
 
+impl RobotFiles {
+    fn of(package: &Package) -> Self {
+        Self {
+            robot: package.urdf(),
+            streams: package.streams(),
+            mapping: package.mapping(),
+        }
+    }
+}
+
 pub(crate) fn serve(flags: &SettingFlags, args: &ServeArgs) -> ExitCode {
-    match run(flags, args) {
+    let files = crate::config::load(flags)
+        .and_then(|(_, deployment)| chosen(args, &deployment.packages_dir.value));
+    match files.and_then(|files| run(flags, &files)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
@@ -86,10 +114,62 @@ pub(crate) fn serve(flags: &SettingFlags, args: &ServeArgs) -> ExitCode {
     }
 }
 
+/// The robot to serve, as it was given: a package by ID or folder, its
+/// three files, or else the one package in `packages`.
+fn chosen(args: &ServeArgs, packages: &Path) -> Outcome<RobotFiles> {
+    let ambiguous =
+        |detail: String| vec![KaptoError::new(ErrorCode::ConfigRobotAmbiguous).detail(detail)];
+    let files = (&args.robot, &args.streams, &args.mapping);
+    match (&args.package, files) {
+        (Some(wanted), (None, None, None)) => {
+            let folder = crate::package::find_in(packages, wanted)?;
+            Ok(RobotFiles::of(&load_package(&folder)?))
+        }
+        (Some(wanted), _) => Err(ambiguous(format!(
+            "given the package `{wanted}` (`--package` or `KAPTO_ROBOT`) and the robot's files too"
+        ))),
+        (None, (Some(robot), Some(streams), Some(mapping))) => Ok(RobotFiles {
+            robot: robot.clone(),
+            streams: streams.clone(),
+            mapping: mapping.clone(),
+        }),
+        // The three files are given together or not at all, as the
+        // arguments require; none given leaves the packages folder.
+        (None, _) => {
+            let (mut found, mut errors) = discover(packages);
+            match found.len() {
+                1 => Ok(RobotFiles::of(&found.remove(0))),
+                0 => {
+                    errors.insert(
+                        0,
+                        KaptoError::new(ErrorCode::PackageNotFound).detail(format!(
+                            "no robot was given (`--package`, `KAPTO_ROBOT`, or `--robot`, `--streams` and `--mapping`), and there is no package in {} to serve",
+                            packages.display()
+                        )),
+                    );
+                    Err(errors)
+                }
+                _ => {
+                    let ids: Vec<&str> = found
+                        .iter()
+                        .map(|package| package.manifest.id.as_str())
+                        .collect();
+                    Err(ambiguous(format!(
+                        "no robot was given, and {} holds {} packages: {}",
+                        packages.display(),
+                        ids.len(),
+                        ids.join(", ")
+                    )))
+                }
+            }
+        }
+    }
+}
+
 /// The robot and its streams as the API shows them, and the robot as the
 /// web UI draws it, from the files serve was given.
 fn robot(
-    args: &ServeArgs,
+    args: &RobotFiles,
     packages: &Path,
     config_folder: &Path,
 ) -> Outcome<(Arc<RobotOverview>, Arc<Scene>, Layouts)> {
@@ -118,7 +198,7 @@ fn robot(
 }
 
 /// Runs Kapto until SIGINT or SIGTERM.
-pub(crate) fn run(flags: &SettingFlags, args: &ServeArgs) -> Outcome<()> {
+pub(crate) fn run(flags: &SettingFlags, args: &RobotFiles) -> Outcome<()> {
     let (file, deployment) = crate::config::load(flags)?;
     // Before anything touches the data directory, held until serve returns.
     let _data_dir = DataDirLock::take(&deployment.data_dir.value).map_err(|error| vec![error])?;
@@ -304,7 +384,7 @@ impl Running {
 fn start_children(
     program: &Path,
     flags: &SettingFlags,
-    args: &ServeArgs,
+    args: &RobotFiles,
     deployment: &DeploymentConfig,
     (shutdown, processes, announcements, store): (
         &AtomicBool,
@@ -390,7 +470,7 @@ fn start_children(
 fn children(
     program: &Path,
     flags: &SettingFlags,
-    args: &ServeArgs,
+    args: &RobotFiles,
     (capture_stop_grace, bridge_stop_grace): (Duration, Duration),
 ) -> Vec<ChildSpec> {
     let settings = flags.to_args();

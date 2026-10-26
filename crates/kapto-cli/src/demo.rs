@@ -18,7 +18,7 @@ use kapto_core::{ErrorCode, KaptoError, say};
 use kapto_loadgen::{Config, Transport, prepare, run_until};
 
 use crate::SettingFlags;
-use crate::serve::{self, ServeArgs};
+use crate::serve::{self, RobotFiles};
 use crate::station::Outcome;
 
 /// The sample arm's files, as (path inside its folder, contents).
@@ -154,7 +154,7 @@ fn run(flags: &SettingFlags, args: &DemoArgs) -> Outcome<()> {
             .transpose()?;
         let served = serve::run(
             flags,
-            &ServeArgs {
+            &RobotFiles {
                 robot: folder.join("urdf/arm7.urdf"),
                 streams: folder.join("streams.toml"),
                 mapping: folder.join("mapping.toml"),

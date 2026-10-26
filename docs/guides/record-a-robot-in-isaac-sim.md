@@ -129,11 +129,11 @@ Run `serve` in the image on the host's network, with the package:
 
 ```sh
 docker run --rm --network host -v kapto-data:/data -v "$PWD/packages:/packages:ro" \
-  -e KAPTO_SERVER_BIND=127.0.0.1 kapto-ros2:dev serve \
-  --robot /packages/arm7_isaac/urdf/arm7.urdf \
-  --streams /packages/arm7_isaac/streams.toml \
-  --mapping /packages/arm7_isaac/mapping.toml
+  -e KAPTO_SERVER_BIND=127.0.0.1 -e KAPTO_ROBOT=arm7_isaac kapto-ros2:dev serve
 ```
+
+`KAPTO_ROBOT` is the ID of the package to serve among those in
+`/packages` (or `--package arm7_isaac` after `serve`).
 
 Open <http://127.0.0.1:7700>: the arm moves as Isaac Sim moves it, and the
 camera panels show what its cameras render. Pre-flight runs as `serve`
