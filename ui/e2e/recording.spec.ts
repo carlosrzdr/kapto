@@ -4,6 +4,7 @@ import { drawnShare } from "./drawn";
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
 import { choose } from "./controls";
+import { type Column, forgetLayouts, savedLayout, savedLayouts, showLayout } from "./layouts";
 
 const open = (page: Page, tab: RegExp) => page.getByRole("tab", { name: tab }).click();
 
@@ -946,21 +947,23 @@ test("episodes go up to each destination, one that can't take them says why and 
 test("a package's own layout arranges the view, a panel naming what the package lacks saying so", async ({ page }) => {
   // The demo's package as if its layout.toml put the plots first and named
   // a camera it doesn't have.
-  await page.route("**/api/robot", async (route) => {
+  await page.route("**/api/layouts", async (route) => {
     const response = await route.fetch();
-    const robot = (await response.json()) as { layout: object };
+    const list = (await response.json()) as { package: object | null };
     const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], missing: [], ...more });
-    robot.layout = {
+    list.package = {
       source: "package",
       columns: [
         { width: 2, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("camera", { stream: "head_camera", missing: ["no stream `head_camera`"] })] },
         { width: 3, panels: [panel("robot", { height: 2 }), panel("events")] },
       ],
     };
-    await route.fulfill({ response, json: robot });
+    await route.fulfill({ response, json: list });
   });
   await page.goto("/");
   const panels = page.getByRole("group", { name: "The view's panels" });
+  // Without a Default, the package's own is the one opened on.
+  await expect(page.getByRole("button", { name: /^Layout: / })).toHaveAccessibleName("Layout: Package's", { timeout: 20_000 });
   await expect(panels.getByRole("note")).toHaveText(
     "The camera head_camera can't be shown: no stream `head_camera`. Change the package's layout.toml, or what it declares.",
   );
@@ -1058,62 +1061,86 @@ test("Arrange is at the view's top right, above its panels, and pressed while it
   }
 });
 
-test("the operator arranges their own view, keeps it, and saves it for every browser", async ({ page, browser }) => {
+/** The list of layouts beside Arrange on `page`: its button, what it says, and picking or doing what it offers. */
+function layoutList(page: Page) {
+  const list = page.getByRole("button", { name: /^Layout: / });
+  const box = page.getByRole("group", { name: "Layouts" });
+  return {
+    list,
+    box,
+    pick: async (name: string) => {
+      await list.click();
+      await page.getByRole("menuitemradio", { name, exact: true }).click();
+    },
+    act: async (name: string) => {
+      await list.click();
+      await page.getByRole("menuitem", { name, exact: true }).click();
+    },
+  };
+}
+
+test("layouts are picked from the list beside Arrange, saved as arranged, and saved as Default", async ({
+  page,
+  browser,
+}) => {
   await page.goto("/");
   const panels = page.getByRole("group", { name: "The view's panels" });
-  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible({ timeout: 20_000 });
-  await page.getByRole("button", { name: "Arrange" }).click();
-  const editor = page.getByRole("region", { name: "Arrange the view" });
-  // The gripper's plot removed; the joints' positions as one plot of their
-  // own, in a column of its own.
+  const gripper = panels.getByRole("region", { name: "Plot of role:gripper.opening" });
+  await expect(gripper).toBeVisible({ timeout: 20_000 });
+  const { list, box, pick, act } = layoutList(page);
+  // Without a layout.toml or a Default, the demo's package opens on the one made from its roles.
+  await expect(list).toHaveAccessibleName("Layout: Made from roles");
+  await list.click();
+  await expect(page.getByRole("menuitemradio", { name: "Made from roles" })).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+
+  // Arranged, it is first saved as a layout of its own, which is then the one shown.
+  const arrange = page.getByRole("button", { name: "Arrange" });
+  await arrange.click();
   await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click();
-  await editor.getByRole("checkbox", { name: "arm_joints.joint_positions" }).check();
-  await choose(page, "In", "a new column");
-  await editor.getByRole("button", { name: "Add" }).click();
-  const added = panels.getByRole("region", { name: "Plot of arm_joints.joint_positions" });
-  await expect(added).toBeVisible();
-  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toHaveCount(0);
-
-  // Kept in this browser.
+  await expect(list).toHaveAccessibleName("Layout: Made from roles (edited)");
+  await expect(gripper).toHaveCount(0);
+  await arrange.click();
+  // The one shown is remembered by this browser.
   await page.reload();
-  await expect(added).toBeVisible({ timeout: 20_000 });
-  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toHaveCount(0);
+  await expect(list).toHaveAccessibleName("Layout: Made from roles (edited)", { timeout: 20_000 });
+  await expect(gripper).toHaveCount(0);
+  // The one made from roles is still as it was.
+  await pick("Made from roles");
+  await expect(gripper).toBeVisible();
+  await pick("Made from roles (edited)");
+  await expect(gripper).toHaveCount(0);
 
-  // Saved as the default, another browser shows it too.
-  await page.getByRole("button", { name: "Arrange" }).click();
-  await editor.getByRole("button", { name: "Save as default" }).click();
-  await expect(editor.getByRole("status")).toHaveText("Saved as the default: every browser shows the view this way.");
+  // A named one is saved over as it is arranged, keeping its name.
+  const [edited] = await savedLayouts(page);
+  const count = (columns: Column[]) => columns.reduce((total, column) => total + column.panels.length, 0);
+  await arrange.click();
+  await panels.getByRole("button", { name: /^Remove / }).last().click();
+  await expect.poll(async () => count(await savedLayout(page, edited!.id))).toBe(count(edited!.layout.columns) - 1);
+  await arrange.click();
+  await expect(list).toHaveAccessibleName("Layout: Made from roles (edited)");
+
+  // Saved as Default, a browser that hasn't picked one opens on it.
+  await act("Save as Default");
+  await expect(box.getByRole("status")).toHaveText("Saved as Default: a browser that hasn't picked a layout opens on it.");
   const other = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const elsewhere = await other.newPage();
   await elsewhere.goto("/");
-  await expect(
-    elsewhere.getByRole("group", { name: "The view's panels" }).getByRole("region", { name: "Plot of arm_joints.joint_positions" }),
-  ).toBeVisible({ timeout: 20_000 });
+  await expect(layoutList(elsewhere).list).toHaveAccessibleName("Layout: Default", { timeout: 20_000 });
+  await expect(elsewhere.getByRole("group", { name: "The view's panels" }).getByRole("region", { name: "Plot of role:gripper.opening" })).toHaveCount(0);
   await other.close();
-
-  // Reset: the package's layout again, here and in every browser.
-  await editor.getByRole("button", { name: "Reset to the package's" }).click();
-  await expect(editor.getByRole("status")).toHaveText("Back to the package's layout, in every browser.");
-  await expect(panels.getByRole("region", { name: "Plot of role:gripper.opening" })).toBeVisible();
-  await expect(added).toHaveCount(0);
+  await forgetLayouts(page);
 });
 
 test("the operator arranges the view by dragging its panels and the edges between them", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
   const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
-  await page.evaluate(
-    (columns) => localStorage.setItem("kapto.layout.arm7", JSON.stringify({ columns })),
-    [
-      { width: 1, panels: [panel("robot")] },
-      { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] },
-    ],
-  );
-  await page.reload();
-  const kept = async () =>
-    page.evaluate(
-      () => JSON.parse(localStorage.getItem("kapto.layout.arm7") ?? "{}") as { columns: { width: number; panels: { kind: string; height: number }[] }[] },
-    );
+  const id = await showLayout(page, "Dragged", [
+    { width: 1, panels: [panel("robot")] },
+    { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] },
+  ]);
+  const kept = async () => ({ columns: await savedLayout(page, id) });
   const kinds = async () => (await kept()).columns.map((column) => column.panels.map((each) => each.kind));
   await page.getByRole("button", { name: "Arrange" }).click();
   const panels = page.getByRole("group", { name: "The view's panels" });
@@ -1175,24 +1202,19 @@ test("the operator arranges the view by dragging its panels and the edges betwee
   expect(await kinds()).toEqual([["events"], ["plot", "robot"]]);
   await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click();
   await expect.poll(kinds).toEqual([["events"], ["robot"]]);
-  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  await forgetLayouts(page);
 });
 
 test("a panel is given a title of its own by clicking its name while arranging, kept after a reload, and cleared again", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
   const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
-  await page.evaluate(
-    (columns) => localStorage.setItem("kapto.layout.arm7", JSON.stringify({ columns })),
-    [{ width: 1, panels: [panel("robot")] }, { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] }],
-  );
-  await page.reload();
+  const id = await showLayout(page, "Titled", [
+    { width: 1, panels: [panel("robot")] },
+    { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] },
+  ]);
   const panels = page.getByRole("group", { name: "The view's panels" });
-  const kept = async () =>
-    page.evaluate(() => {
-      const layout = JSON.parse(localStorage.getItem("kapto.layout.arm7") ?? "{}") as { columns: { panels: { title?: string }[] }[] };
-      return layout.columns.map((column) => column.panels.map((each) => each.title ?? null));
-    });
+  const kept = async () => (await savedLayout(page, id)).map((column) => column.panels.map((each) => each.title ?? null));
   await page.getByRole("button", { name: "Arrange" }).click();
 
   // Its name clicked: a field in its place, the made name shown while empty.
@@ -1232,26 +1254,20 @@ test("a panel is given a title of its own by clicking its name while arranging, 
   await page.keyboard.press("Enter");
   await expect.poll(kept).toEqual([[null], [null, "What the operator marked"]]);
   await expect(panels.getByRole("button", { name: "Drag the plot of role:gripper.opening to another place" })).toHaveText("role:gripper.opening");
-  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  await forgetLayouts(page);
 });
 
-test("a layout kept in the browser naming a field the package lacks says so in its place", async ({ page }) => {
+test("a named layout naming a field the package lacks says so in its place", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
-  await page.evaluate(() => {
-    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
-    localStorage.setItem(
-      "kapto.layout.arm7",
-      JSON.stringify({ columns: [{ width: 1, panels: [panel("robot"), panel("plot", { fields: ["arm_joints.torques"] })] }] }),
-    );
-  });
-  await page.reload();
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  await showLayout(page, "Torques", [{ width: 1, panels: [panel("robot"), panel("plot", { fields: ["arm_joints.torques"] })] }]);
   const panels = page.getByRole("group", { name: "The view's panels" });
   await expect(panels.getByRole("note")).toHaveText(
     "The plot of arm_joints.torques can't be shown: `arm_joints` decodes no field `torques`. Remove it, or change it, with Arrange.",
     { timeout: 20_000 },
   );
-  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  await forgetLayouts(page);
 });
 
 test("pointing at a plot says the time there and each value, and stops when the pointer leaves", async ({ page }) => {
@@ -1327,14 +1343,10 @@ test("the robot isn't drawn while no panel shows it, and is drawn standing as it
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
   const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
-  await page.evaluate(
-    (columns) => localStorage.setItem("kapto.layout.arm7", JSON.stringify({ columns })),
-    [
-      { width: 1, panels: [panel("robot")] },
-      { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] })] },
-    ],
-  );
-  await page.reload();
+  await showLayout(page, "Robot and a plot", [
+    { width: 1, panels: [panel("robot")] },
+    { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] })] },
+  ]);
   const live = page.getByTitle("Live view of the robot");
   const count = async (name: string) => Number(await live.getAttribute(name));
   await expect.poll(() => count("data-draws"), { timeout: 20_000 }).toBeGreaterThan(10);
@@ -1360,22 +1372,16 @@ test("the robot isn't drawn while no panel shows it, and is drawn standing as it
   await expect(panels.locator(".slot canvas")).toBeVisible();
   await expect.poll(() => count("data-draws"), { timeout: 1_000 }).toBeGreaterThan(draws);
   expect(await count("data-drawn-frame")).toBeGreaterThanOrEqual(since);
-  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  await forgetLayouts(page);
 });
 
 test("a column of more plots than fit scrolls, each plot keeping room for its chart", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
-  await page.evaluate(() => {
-    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
-    // As a robot of many streams is shown by the layout made for it.
-    const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
-    localStorage.setItem(
-      "kapto.layout.arm7",
-      JSON.stringify({ columns: [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }] }),
-    );
-  });
-  await page.reload();
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  // As a robot of many streams is shown by the layout made for it.
+  const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
+  await showLayout(page, "Many plots", [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }]);
   const charts = page.getByRole("group", { name: "The view's panels" }).locator(".uplot canvas");
   await expect(charts).toHaveCount(13, { timeout: 20_000 });
   for (const chart of await charts.all()) {
@@ -1383,21 +1389,16 @@ test("a column of more plots than fit scrolls, each plot keeping room for its ch
     await expect(chart).toBeInViewport({ ratio: 1 });
     expect((await chart.boundingBox())?.height).toBeGreaterThanOrEqual(80);
   }
-  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  await forgetLayouts(page);
 });
 
 test("the edge between two plots in a column of more than fit resizes them both", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
-  await page.evaluate(() => {
-    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
-    const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
-    localStorage.setItem(
-      "kapto.layout.arm7",
-      JSON.stringify({ columns: [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }] }),
-    );
-  });
-  await page.reload();
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  // As a robot of many streams is shown by the layout made for it.
+  const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
+  await showLayout(page, "Many plots", [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }]);
   await page.getByRole("button", { name: "Arrange" }).click();
   const panels = page.getByRole("group", { name: "The view's panels" });
   const column = panels.locator(".column").nth(1);
@@ -1428,7 +1429,7 @@ test("the edge between two plots in a column of more than fit resizes them both"
   await column.getByRole("separator").nth(1).focus();
   await page.keyboard.press("ArrowUp");
   await expect.poll(shares).toEqual([2, 1, 2]);
-  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  await forgetLayouts(page);
 });
 
 test("streams with long names still fit the side panel with every count", async ({ page }) => {

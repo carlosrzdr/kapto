@@ -3,6 +3,7 @@ import { expect, test, type Route } from "@playwright/test";
 import { open, shot, shotWhole, tab, viewer, VIEWPORT } from "./screens";
 import { choose, pick } from "./controls";
 import { drawnShare } from "./drawn";
+import { forgetLayouts, showLayout } from "./layouts";
 
 // A route that fetches the real answer before changing it reads that answer
 // after the request is made: the page's polls keep coming until the test
@@ -567,12 +568,9 @@ test("a screenshot of a column of more plots than fit, two of them resized by th
   const nothingLeft = await open(page);
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
   // As a robot of many streams is shown by the layout made for it.
-  await page.evaluate(() => {
-    const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
-    const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
-    localStorage.setItem("kapto.layout.arm7", JSON.stringify({ columns: [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }] }));
-  });
-  await page.reload();
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  const plots = Array.from({ length: 13 }, () => panel("plot", { fields: ["arm_joints.joint_positions", "role:gripper.opening"] }));
+  await showLayout(page, "Many plots", [{ width: 3, panels: [panel("robot")] }, { width: 2, panels: plots }]);
   await page.getByRole("button", { name: "Arrange" }).click();
   await viewer(page, false);
   const column = page.getByRole("group", { name: "The view's panels" }).locator(".column").nth(1);
@@ -583,7 +581,7 @@ test("a screenshot of a column of more plots than fit, two of them resized by th
   await page.mouse.up();
   await page.waitForTimeout(500);
   await shot(page, "live-arrange-scrolling-column-resized");
-  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  await forgetLayouts(page);
   nothingLeft();
 });
 
@@ -607,7 +605,7 @@ test("a screenshot of a panel's title being written while arranging, and of the 
   await viewer(page, true);
   await page.waitForTimeout(3_000);
   await shot(page, "live-titled");
-  await page.evaluate(() => localStorage.removeItem("kapto.layout.arm7"));
+  await forgetLayouts(page);
   nothingLeft();
 });
 

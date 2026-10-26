@@ -10,19 +10,11 @@
     offered: Offered;
     /** Streams the package records without decoding them: nothing to plot. */
     recordedOnly?: string[];
-    /** Told each change. */
+    /** Told each change, which is saved as it is made. */
     onchange: (layout: LayoutInput) => void;
-    /** Saves the layout as the package's default, for every browser. */
-    onsave: () => void;
-    /** Forgets this browser's layout and the package's default. */
-    onreset: () => void;
-    /** What the last save or reset did, or why it failed. */
-    said?: string;
-    /** Whether that failed. */
-    failed?: boolean;
   }
 
-  let { layout, offered, recordedOnly = [], onchange, onsave, onreset, said = "", failed = false }: Props = $props();
+  let { layout, offered, recordedOnly = [], onchange }: Props = $props();
 
   const KINDS = [
     { kind: "robot", name: "Robot" },
@@ -60,8 +52,8 @@
 
 <section class="editor" aria-label="Arrange the view">
   <p class="about">
-    Drag a panel by its grip, or an edge between two, on the view; or move a grip with the arrow keys. Arranged in this browser, for
-    this robot package. <em>Save as default</em> arranges every browser's view this way.
+    Drag a panel by its grip, or an edge between two, on the view; or move a grip with the arrow keys. Saved as it is arranged, for
+    every browser; <em>Package's</em> and <em>Made from roles</em> are first saved as a layout of their own.
   </p>
   <fieldset class="add">
     <legend>Add a panel</legend>
@@ -114,16 +106,6 @@
       <p class="note">{MAX_PANELS} panels is as many as the page can draw.</p>
     {/if}
   </fieldset>
-
-  <div class="actions">
-    <button type="button" class="save" onclick={onsave}>Save as default</button>
-    <button type="button" title="Forget this browser's arrangement and the saved default" onclick={onreset}
-      >Reset to the package's</button
-    >
-  </div>
-  {#if said}
-    <p class:problem={failed} role={failed ? "alert" : "status"}>{said}</p>
-  {/if}
 </section>
 
 <style>
@@ -142,12 +124,6 @@
   .note {
     font-size: var(--text-xs);
   }
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.25rem;
-  }
   button {
     min-width: var(--control-height);
     height: var(--control-height);
@@ -158,9 +134,6 @@
     color: var(--text);
     font: inherit;
     cursor: pointer;
-  }
-  .save {
-    border-color: var(--accent);
   }
   fieldset {
     display: flex;
@@ -193,13 +166,5 @@
     color: var(--text);
     font-family: var(--font-data);
     font-size: var(--text-xs);
-  }
-  .problem {
-    margin: 0;
-    color: var(--warning);
-  }
-  p[role="status"] {
-    margin: 0;
-    color: var(--muted);
   }
 </style>

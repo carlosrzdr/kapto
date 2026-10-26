@@ -523,9 +523,12 @@ and shapes for it come from `/api/robot/scene`
 reaches, which serve works out once at start, sampling joint values within
 their limits through the same forward kinematics, so the page frames the
 robot once and it stays in view as it moves. The view is arranged by the
-layout `/api/robot` gives, the package's *Default* among its named
-layouts in the configuration folder, its own, or the one made from its
-roles: columns of panels (the robot, a camera, a plot of fields or roles,
+layout picked from the list beside *Arrange*: the package's named layouts
+in the configuration folder (*Default* first), *Package's* (its own
+`layout.toml`, if it has one) and *Made from roles*. The browser
+remembers only which one it shows, per package, and opens on that one,
+else *Default*, else *Package's*, else *Made from roles*. A layout is
+columns of panels (the robot, a camera, a plot of fields or roles,
 the streams' counts, the marks), one under another below 70rem; the
 robot's 3D view is made once and moved to the panel that shows it. An
 operator arranges their own view with *Arrange*, on the view itself: a
@@ -533,9 +536,11 @@ panel dragged by its grip into any column or beside one as a new column,
 an edge between two columns or panels dragged to share the room anew, each
 by the arrow keys too; saved as the same whole shares of 1 to 12; a
 panel given a title of its own by clicking its name on the grip, shown in
-place of the one made from what it shows. Kept in
-that browser for the package, before every other layout, until saved as
-the package's *Default* or reset. A
+place of the one made from what it shows. A named layout is saved
+through the API as it is arranged; *Package's* and *Made from roles*
+follow the package, so arranging either first saves it as a named layout
+of its own ("Package's (edited)"), then shown. The list saves the one
+shown as *Default*. A
 replay is arranged by the layout its recording carries, or one made from
 what the recording declares, which the worker stores in the replay view. The page loads nothing from
 elsewhere and its Content-Security-Policy lets it reach only Kapto's API

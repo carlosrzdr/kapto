@@ -21,8 +21,11 @@ import {
   type ProfilesOverview,
   type ReplayOpening,
   type ReplayStatus,
+  type LayoutFile,
   type LayoutInput,
   type NamedLayout,
+  type NamedLayoutInput,
+  type NamedLayouts,
   type RobotOverview,
   type ViewLayout,
   type RobotScene,
@@ -317,19 +320,38 @@ export const getEventKinds = (): Promise<EventVocabulary> => request<EventVocabu
 /** Sends an event: recorded in the episode being recorded, if one is. */
 export const sendEvent = (event: SendEvent): Promise<EventSent> => post<EventSent>("/api/episodes/events", event);
 
-/** Saves `layout` as the robot package's *Default*, for every browser: what `/api/robot` gives from then on. */
-export const saveDefaultLayout = (layout: LayoutInput): Promise<ViewLayout> =>
-  request<NamedLayout>("/api/layouts/default", {
+/** The robot package's named layouts, as their files hold them now, with its own and the one made from it. */
+export const getLayouts = (): Promise<NamedLayouts> => request<NamedLayouts>("/api/layouts");
+
+const layoutPath = (id: string) => `/api/layouts/${encodeURIComponent(id)}`;
+
+/** Saves `layout` under a new name, for every browser. */
+export const createLayout = (layout: NamedLayoutInput): Promise<NamedLayout> => post<NamedLayout>("/api/layouts", layout);
+
+/** Saves `layout` over the named layout `id`, keeping its name; `default` is made if there is none. */
+export const writeLayout = (id: string, layout: LayoutInput): Promise<NamedLayout> =>
+  request<NamedLayout>(layoutPath(id), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(layout),
-  }).then((saved) => saved.layout);
+  });
 
-/** `layout` as the view draws it, each panel with what the robot's streams lack of it; nothing is saved. */
-export const checkLayout = (layout: LayoutInput): Promise<ViewLayout> => post<ViewLayout>("/api/layout/check", layout);
+/** Renames the named layout `id`: its `id` changes with its name. */
+export const renameLayout = (id: string, name: string): Promise<NamedLayout> =>
+  request<NamedLayout>(layoutPath(id), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
 
-/** Deletes the robot package's *Default*: its own layout is back. */
-export const removeDefaultLayout = (): Promise<ViewLayout> => request<ViewLayout>("/api/layouts/default", { method: "DELETE" });
+/** Deletes the named layout `id`; answers with the layout `/api/robot` now gives. */
+export const deleteLayout = (id: string): Promise<ViewLayout> => request<ViewLayout>(layoutPath(id), { method: "DELETE" });
+
+/** `layout` as a file of its own, named from its name; nothing is saved. */
+export const exportLayout = (layout: NamedLayoutInput): Promise<LayoutFile> => post<LayoutFile>("/api/layout/export", layout);
+
+/** The layout a file holds, to save with `createLayout`; nothing is saved. */
+export const importLayout = (file: LayoutFile): Promise<NamedLayoutInput> => post<NamedLayoutInput>("/api/layout/import", file);
 
 /** How long to wait before opening the event stream again after it closed. */
 const RECONNECT_MS = 2000;

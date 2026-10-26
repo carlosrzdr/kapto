@@ -13,14 +13,12 @@
     getReplayScene,
     getReplayWindow,
     getRobotScene,
-    checkLayout,
-    removeDefaultLayout,
-    saveDefaultLayout,
   } from "./api";
   import type { LayoutInput, LiveViewCounts, RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
   import CameraPanel from "./CameraPanel.svelte";
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
   import LayoutEditor from "./LayoutEditor.svelte";
+  import LayoutList from "./LayoutList.svelte";
   import MarkBar from "./MarkBar.svelte";
   import PanelTitle from "./PanelTitle.svelte";
   import PlotPanel from "./PlotPanel.svelte";
@@ -41,10 +39,7 @@
   import { type ColumnBoxes, dragged, dropPlace } from "./viewer/dragging";
   import {
     apportioned,
-    browserLayouts,
     editable,
-    laidOut,
-    type LayoutStore,
     MAX_SHARE,
     nudged,
     type Offered,
@@ -57,6 +52,7 @@
     withHeights,
     withWidths,
   } from "./viewer/layouts";
+  import { PackageLayouts } from "./viewer/layout-list.svelte";
   import { decodeMesh } from "./viewer/mesh";
   import { ALL_MS, asked, type PlotStream, plotStreams, SampleBuffer } from "./viewer/plots";
   import { openedAt, playedTo, type Started } from "./viewer/play";
@@ -83,12 +79,10 @@
     roles?: RobotRole[];
     /** What a `health` panel shows: the streams' counts. */
     health?: Snippet;
-    /** The robot package the view is for, which a layout is kept and saved for; none to arrange without one. */
+    /** The robot package the view is for, whose layouts are offered and saved; none to arrange without one. */
     packageId?: string | null;
     /** Streams recorded without being decoded: nothing to plot. */
     recordedOnly?: string[];
-    /** Where this browser keeps its own layouts. */
-    layouts?: LayoutStore;
     /** What became of each camera's frames on their way to the live view, by stream name. */
     tallies?: Record<string, LiveViewCounts | null | undefined>;
   }
@@ -103,7 +97,6 @@
     health,
     packageId = null,
     recordedOnly = [],
-    layouts = browserLayouts(),
     tallies = {},
   }: Props = $props();
 
@@ -401,31 +394,13 @@
   /** The same plots filled from the bridge's last minutes, while looking back or showing more than the page keeps. */
   let lookedBack = $state.raw<PlotStream[] | null>(null);
 
-  /** This browser's own layout for the package, which comes before every other. */
-  let own = $state.raw<LayoutInput | null>(null);
-  /** The default as saved or removed from this page, newer than the one the page was given. */
-  let latest = $state.raw<ViewLayout | null>(null);
+  /** The package's layouts, chosen from the list beside Arrange; until it is read, the one `layout` gives. */
+  let chosen = $state.raw<PackageLayouts | null>(null);
   let arranging = $state(false);
-  let arrangeSaid = $state("");
-  let arrangeFailed = $state(false);
-  /** The own layout as the server checked it, each panel with what it lacks. */
-  let ownChecked = $state.raw<ViewLayout | null>(null);
   $effect(() => {
-    own = packageId ? layouts.load(packageId) : null;
-  });
-  $effect(() => {
-    const asked = own;
-    ownChecked = null;
-    if (asked) {
-      checkLayout(asked)
-        .then((checked) => {
-          if (own === asked) {
-            ownChecked = checked;
-          }
-        })
-        // Unchecked, it is shown as it is, saying it lacks nothing.
-        .catch(() => {});
-    }
+    const layouts = packageId ? new PackageLayouts(packageId) : null;
+    chosen = layouts;
+    void layouts?.load();
   });
   /** What the package has that a panel may show, as the page receives it. */
   const offered: Offered = $derived({
@@ -433,18 +408,14 @@
     fields: plots.flatMap((stream) => stream.fields.map((field) => `${stream.name}.${field.name}`)),
     roles: roles.map((each) => each.role),
   });
-  const liveLayout = $derived(own ? (ownChecked ?? laidOut(own)) : (latest ?? layout ?? ROBOT_ONLY));
+  const liveLayout = $derived(chosen?.view ?? layout ?? ROBOT_ONLY);
   // A replay is arranged as its recording says, if its replay says; else
   // as the live view is.
   const arrangedBy = $derived(replay?.opening.layout ?? liveLayout);
   const columns = $derived(arrangedBy.columns);
 
   function arrange(next: LayoutInput) {
-    own = next;
-    arrangeSaid = "";
-    if (packageId) {
-      layouts.save(packageId, next);
-    }
+    chosen?.arrange(next);
   }
 
   // Arranging on the view itself: a panel dragged by its grip to another
@@ -462,7 +433,7 @@
   const stacked = () => (grid ? getComputedStyle(grid).flexDirection === "column" : false);
   const columnBoxes = (): HTMLElement[] => (grid ? [...grid.querySelectorAll<HTMLElement>(":scope > .column")] : []);
   const panelBoxes = (column: HTMLElement): HTMLElement[] => [...column.querySelectorAll<HTMLElement>(":scope > .panel")];
-  const editing = () => own ?? editable(liveLayout);
+  const editing = () => chosen?.arranged ?? editable(liveLayout);
 
   function measured(): ColumnBoxes[] {
     return columnBoxes().map((column) => ({
@@ -645,21 +616,6 @@
   /** Whether the view can be arranged on: only the live view, of a package. */
   const onView = $derived(arranging && packageId !== null && packageId !== undefined && replay === null);
 
-  /** Runs a save or a reset, then follows what the API now gives, forgetting this browser's own. */
-  async function settle(call: () => Promise<ViewLayout>, done: string) {
-    try {
-      latest = await call();
-      own = null;
-      if (packageId) {
-        layouts.clear(packageId);
-      }
-      arrangeSaid = done;
-      arrangeFailed = false;
-    } catch (error) {
-      arrangeSaid = error instanceof ApiFailure ? `${sentence(error.message)} ${error.remedy}` : String(error);
-      arrangeFailed = true;
-    }
-  }
   /** Whether the view is held at `cursorMs` rather than following now. */
   let paused = $state(false);
   let cursorMs = $state<number | null>(null);
@@ -1360,6 +1316,7 @@
        panel shows (the robot's own buttons, a plot's key, a camera's
        picture); the list of layouts goes beside it, on its left. -->
   <div class="view-bar">
+    {#if chosen}<LayoutList layouts={chosen} />{/if}
     <button
       type="button"
       class="arrange-toggle"
@@ -1376,14 +1333,10 @@
          it opens under it rather than at the page's foot. -->
     <div class="arranging" id="arranging" class:faded={carried !== null || sharing !== null}>
       <LayoutEditor
-        layout={own ?? editable(liveLayout)}
+        layout={editing()}
         {offered}
         {recordedOnly}
         onchange={arrange}
-        onsave={() => void settle(() => saveDefaultLayout(own ?? editable(liveLayout)), "Saved as the default: every browser shows the view this way.")}
-        onreset={() => void settle(removeDefaultLayout, "Back to the package's layout, in every browser.")}
-        said={arrangeSaid}
-        failed={arrangeFailed}
       />
     </div>
   {/if}
@@ -1520,9 +1473,9 @@
             <div class="placeholder" role="note">
               <p>{named(panel)} can't be shown: {panel.missing.join("; ")}.</p>
               <p class="remedy">
-                {arrangedBy.source === "own"
-                  ? "Remove it, or change it, with Arrange."
-                  : "Change the package's layout.toml, or what it declares."}
+                {arrangedBy.source === "package" || arrangedBy.source === "made"
+                  ? "Change the package's layout.toml, or what it declares."
+                  : "Remove it, or change it, with Arrange."}
               </p>
             </div>
           {:else if panel.kind === "robot"}

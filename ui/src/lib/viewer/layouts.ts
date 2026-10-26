@@ -1,6 +1,5 @@
-// The operator's own layout: edited in the page and kept in this browser per
-// robot package; the server says what each of its panels lacks.
-// A layout kept here comes before the package's default and its own.
+// A layout as the operator arranges it in the page: each change a new
+// layout, saved by the server, which says what each of its panels lacks.
 
 import type { LayoutInput, PanelInput, ViewLayout, ViewPanel } from "../api-types";
 
@@ -254,42 +253,4 @@ export function withHeights(layout: LayoutInput, column: number, heights: number
     panel.height = clamp(heights[place] ?? panel.height);
   });
   return next;
-}
-
-/** Where the operator's own layouts are kept in a browser. */
-export interface LayoutStore {
-  load(packageId: string): LayoutInput | null;
-  save(packageId: string, layout: LayoutInput): void;
-  clear(packageId: string): void;
-}
-
-const key = (packageId: string) => `kapto.layout.${packageId}`;
-
-/** This browser's local storage; reading or writing it may fail (private windows), which leaves the layout unkept. */
-export function browserLayouts(storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = localStorage): LayoutStore {
-  return {
-    load(packageId) {
-      try {
-        const text = storage.getItem(key(packageId));
-        const read = text ? (JSON.parse(text) as LayoutInput) : null;
-        return read && Array.isArray(read.columns) ? read : null;
-      } catch {
-        return null;
-      }
-    },
-    save(packageId, layout) {
-      try {
-        storage.setItem(key(packageId), JSON.stringify(layout));
-      } catch {
-        // Not kept: the page still shows it until it is reloaded.
-      }
-    },
-    clear(packageId) {
-      try {
-        storage.removeItem(key(packageId));
-      } catch {
-        // Nothing kept to forget.
-      }
-    },
-  };
 }

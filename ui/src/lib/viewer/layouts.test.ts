@@ -4,7 +4,6 @@ import type { LayoutInput } from "../api-types";
 import {
   added,
   apportioned,
-  browserLayouts,
   editable,
   laidOut,
   MAX_PANEL_TITLE,
@@ -151,40 +150,6 @@ describe("the operator's own layout", () => {
     const titled = retitled(layout, 0, 0, "Arm");
     expect(laidOut(titled).columns.map((column) => column.panels.map((panel) => panel.title))).toEqual([["Arm"], [null, null]]);
     expect(editable(laidOut(titled))).toEqual(titled);
-  });
-});
-
-describe("keeping a layout in the browser", () => {
-  it("keeps one per package, and forgets it", () => {
-    const kept = new Map<string, string>();
-    const storage = {
-      getItem: (name: string) => kept.get(name) ?? null,
-      setItem: (name: string, value: string) => void kept.set(name, value),
-      removeItem: (name: string) => void kept.delete(name),
-    };
-    const store = browserLayouts(storage);
-    store.save("arm7", layout);
-    expect(store.load("arm7")).toEqual(layout);
-    expect(store.load("rover")).toBeNull();
-    store.clear("arm7");
-    expect(store.load("arm7")).toBeNull();
-  });
-
-  it("does without when the browser keeps nothing, or kept something else", () => {
-    const refusing = {
-      getItem: () => {
-        throw new Error("denied");
-      },
-      setItem: () => {
-        throw new Error("denied");
-      },
-      removeItem: () => {},
-    };
-    const store = browserLayouts(refusing);
-    expect(() => store.save("arm7", layout)).not.toThrow();
-    expect(store.load("arm7")).toBeNull();
-    const garbled = browserLayouts({ getItem: () => "{oops", setItem: () => {}, removeItem: () => {} });
-    expect(garbled.load("arm7")).toBeNull();
   });
 });
 

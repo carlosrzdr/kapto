@@ -15,10 +15,8 @@ const offered = { cameras: ["wrist_camera"], fields: ["arm_joints.joint_position
 
 function editor(more: object = {}) {
   const onchange = vi.fn<(next: LayoutInput) => void>();
-  const onsave = vi.fn();
-  const onreset = vi.fn();
-  render(LayoutEditor, { layout, offered, onchange, onsave, onreset, ...more });
-  return { onchange, onsave, onreset };
+  render(LayoutEditor, { layout, offered, onchange, ...more });
+  return { onchange };
 }
 
 const kinds = (next: LayoutInput) => next.columns.map((column) => column.panels.map((panel) => panel.kind));
@@ -51,13 +49,5 @@ describe("LayoutEditor", () => {
     await chooseValue("Camera", "wrist_camera");
     await fireEvent.click(screen.getByRole("button", { name: "Add" }));
     expect(onchange.mock.lastCall![0].columns[0]!.panels[1]).toEqual({ kind: "camera", height: 1, stream: "wrist_camera", fields: [] });
-  });
-
-  it("saves as default and resets, and says why one failed", async () => {
-    const { onsave, onreset } = editor({ said: "No robot package to save the layout for.", failed: true });
-    await fireEvent.click(screen.getByRole("button", { name: "Save as default" }));
-    await fireEvent.click(screen.getByRole("button", { name: "Reset to the package's" }));
-    expect([onsave.mock.calls.length, onreset.mock.calls.length]).toEqual([1, 1]);
-    expect(screen.getByRole("alert").textContent).toBe("No robot package to save the layout for.");
   });
 });
