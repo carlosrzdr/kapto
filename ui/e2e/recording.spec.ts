@@ -1079,7 +1079,7 @@ function layoutList(page: Page) {
   };
 }
 
-test("layouts are picked from the list beside Arrange, saved as arranged, and saved as Default", async ({
+test("layouts are picked from the list beside Arrange, saved as arranged, renamed, duplicated, deleted and saved as Default", async ({
   page,
   browser,
 }) => {
@@ -1111,16 +1111,34 @@ test("layouts are picked from the list beside Arrange, saved as arranged, and sa
   await pick("Made from roles (edited)");
   await expect(gripper).toHaveCount(0);
 
+  await act("Rename…");
+  const rename = box.getByRole("form", { name: "Rename the layout" });
+  await rename.getByRole("textbox").fill("Without the gripper");
+  await rename.getByRole("button", { name: "Rename" }).click();
+  await expect(list).toHaveAccessibleName("Layout: Without the gripper");
+  await expect(box.getByRole("status")).toHaveText("Renamed Without the gripper.");
+
   // A named one is saved over as it is arranged, keeping its name.
-  const [edited] = await savedLayouts(page);
+  const [renamed] = await savedLayouts(page);
   const count = (columns: Column[]) => columns.reduce((total, column) => total + column.panels.length, 0);
   await arrange.click();
   await panels.getByRole("button", { name: /^Remove / }).last().click();
-  await expect.poll(async () => count(await savedLayout(page, edited!.id))).toBe(count(edited!.layout.columns) - 1);
+  await expect.poll(async () => count(await savedLayout(page, renamed!.id))).toBe(count(renamed!.layout.columns) - 1);
   await arrange.click();
-  await expect(list).toHaveAccessibleName("Layout: Made from roles (edited)");
+  await expect(list).toHaveAccessibleName("Layout: Without the gripper");
+
+  await act("Duplicate");
+  await expect(list).toHaveAccessibleName("Layout: Without the gripper (copy)");
+  await act("Delete…");
+  await box.getByRole("form", { name: "Delete the layout" }).getByRole("button", { name: "Delete" }).click();
+  await expect(box.getByRole("status")).toHaveText("Deleted Without the gripper (copy).");
+  await expect(list).toHaveAccessibleName("Layout: Made from roles");
+  await list.click();
+  await expect(page.getByRole("menuitemradio")).toHaveText([/Without the gripper$/, /Made from roles$/]);
+  await page.keyboard.press("Escape");
 
   // Saved as Default, a browser that hasn't picked one opens on it.
+  await pick("Without the gripper");
   await act("Save as Default");
   await expect(box.getByRole("status")).toHaveText("Saved as Default: a browser that hasn't picked a layout opens on it.");
   const other = await browser.newContext({ baseURL: test.info().project.use.baseURL });

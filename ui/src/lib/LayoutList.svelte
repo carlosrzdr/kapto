@@ -2,7 +2,7 @@
   import { DropdownMenu } from "bits-ui";
 
   import Icon from "./Icon.svelte";
-  import { DEFAULT, type PackageLayouts } from "./viewer/layout-list.svelte";
+  import { DEFAULT, isNamed, type PackageLayouts } from "./viewer/layout-list.svelte";
 
   interface Props {
     /** The package's layouts, the one shown and what the list last did. */
@@ -12,9 +12,37 @@
   let { layouts }: Props = $props();
 
   let open = $state(false);
+  /** What the box under the list asks, if anything. */
+  let asking = $state<"rename" | "delete" | null>(null);
+  let name = $state("");
+
   const shown = $derived(layouts.shown);
+  const named = $derived(shown !== null && isNamed(shown.id));
   const isDefault = $derived(shown?.id === DEFAULT);
 
+  function ask(what: "rename" | "delete") {
+    asking = what;
+    name = shown?.name ?? "";
+    layouts.dismiss();
+  }
+
+  async function answer(event: SubmitEvent) {
+    event.preventDefault();
+    if (asking === "rename") {
+      await layouts.rename(name);
+    } else if (asking === "delete") {
+      await layouts.remove();
+    }
+    if (!layouts.failed) {
+      asking = null;
+    }
+  }
+
+  function cancel() {
+    asking = null;
+  }
+
+  const prompt = $derived(asking);
 </script>
 
 <div class="layouts" role="group" aria-label="Layouts">
@@ -35,16 +63,38 @@
           {/each}
         </DropdownMenu.RadioGroup>
         <DropdownMenu.Separator class="rule" />
+        <DropdownMenu.Item class="item" disabled={!named || isDefault} onSelect={() => ask("rename")}>Rename…</DropdownMenu.Item>
+        <DropdownMenu.Item class="item" onSelect={() => void layouts.duplicate()}>Duplicate</DropdownMenu.Item>
+        <DropdownMenu.Item class="item" disabled={!named} onSelect={() => ask("delete")}>Delete…</DropdownMenu.Item>
         <DropdownMenu.Item class="item" disabled={isDefault} onSelect={() => void layouts.saveAsDefault()}>Save as Default</DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Portal>
   </DropdownMenu.Root>
-  {#if layouts.said}
+  {#if prompt || layouts.said}
     <div class="box">
-      <div class="said">
-        <p class:problem={layouts.failed} role={layouts.failed ? "alert" : "status"}>{layouts.said}</p>
-        <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => layouts.dismiss()}>×</button>
-      </div>
+      {#if prompt}
+        <form aria-label={prompt === "rename" ? "Rename the layout" : "Delete the layout"} onsubmit={answer}>
+          {#if prompt === "delete"}
+            <p>Delete {shown?.name} for every browser? Its file goes from the config folder.</p>
+          {:else}
+            <label>
+              Name
+              <!-- svelte-ignore a11y_autofocus -->
+              <input type="text" maxlength="64" required bind:value={name} autofocus />
+            </label>
+          {/if}
+          <div class="actions">
+            <button type="submit" class="go">{prompt === "rename" ? "Rename" : "Delete"}</button>
+            <button type="button" onclick={cancel}>Cancel</button>
+          </div>
+        </form>
+      {/if}
+      {#if layouts.said}
+        <div class="said">
+          <p class:problem={layouts.failed} role={layouts.failed ? "alert" : "status"}>{layouts.said}</p>
+          {#if !prompt}<button type="button" class="dismiss" aria-label="Dismiss" onclick={() => layouts.dismiss()}>×</button>{/if}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -137,7 +187,7 @@
     width: 1ch;
     flex: none;
   }
-  /* Under the list, over the panels while it tells, never moving them. */
+  /* Under the list, over the panels while it asks or tells, never moving them. */
   .box {
     position: absolute;
     top: calc(100% + var(--space-1));
@@ -154,6 +204,26 @@
     font-size: var(--text-sm);
     box-sizing: border-box;
   }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    color: var(--muted);
+  }
+  input[type="text"] {
+    height: var(--control-height);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--control-line);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--text);
+    font: inherit;
+  }
   p {
     margin: 0;
   }
@@ -162,6 +232,10 @@
   }
   .problem {
     color: var(--warning);
+  }
+  .actions {
+    display: flex;
+    gap: var(--space-1);
   }
   button {
     height: var(--control-height);
@@ -172,6 +246,9 @@
     color: var(--text);
     font: inherit;
     cursor: pointer;
+  }
+  .go {
+    border-color: var(--accent);
   }
   .said {
     display: flex;

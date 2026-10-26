@@ -237,6 +237,49 @@ export class PackageLayouts {
     }
   }
 
+  /** Renames the one shown, if it is named. */
+  rename(name: string): Promise<void> {
+    return this.queued(async () => {
+      const id = this.shownId;
+      if (id === null || !isNamed(id)) {
+        return;
+      }
+      const saved = await this.api.rename(id, name.trim());
+      this.keep(saved, id);
+      this.showSaved(saved);
+      this.tell(`Renamed ${saved.name}.`);
+    });
+  }
+
+  /** Saves the one shown, as it is shown, under a name of its own, which is then shown. */
+  duplicate(): Promise<void> {
+    return this.queued(async () => {
+      const shown = this.shown;
+      const layout = this.view;
+      if (!shown || !layout) {
+        return;
+      }
+      const saved = await this.api.create({ name: unique(shown.name, " (copy)", this.names()), columns: editable(layout).columns });
+      this.keep(saved);
+      this.pick(saved.id);
+      this.tell(`Saved as ${saved.name}.`);
+    });
+  }
+
+  /** Deletes the one shown, if it is named, and shows the one a browser would open on. */
+  remove(): Promise<void> {
+    return this.queued(async () => {
+      const shown = this.shown;
+      if (!shown || !isNamed(shown.id)) {
+        return;
+      }
+      await this.api.remove(shown.id);
+      this.list = await this.api.list();
+      this.pick(opensOn(this.offers, null));
+      this.tell(`Deleted ${shown.name}.`);
+    });
+  }
+
   /** Saves the one shown, as it is shown, as *Default*: what a browser that hasn't picked one opens on. */
   saveAsDefault(): Promise<void> {
     return this.queued(async () => {
@@ -259,10 +302,16 @@ export class PackageLayouts {
     return this.list?.layouts.map((each) => each.name) ?? [];
   }
 
-  private keep(saved: NamedLayout) {
+  private keep(saved: NamedLayout, was?: string) {
     if (this.list) {
-      this.list = withSaved(this.list, saved);
+      this.list = withSaved(this.list, saved, was);
     }
+  }
+
+  /** Shows `saved` in place of the one it was, as arranged here if it is. */
+  private showSaved(saved: NamedLayout) {
+    this.shownId = saved.id;
+    this.memory.set(this.packageId, saved.id);
   }
 
   private queued(work: () => Promise<void>): Promise<void> {

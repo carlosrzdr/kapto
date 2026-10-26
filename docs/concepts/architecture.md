@@ -539,8 +539,9 @@ panel given a title of its own by clicking its name on the grip, shown in
 place of the one made from what it shows. A named layout is saved
 through the API as it is arranged; *Package's* and *Made from roles*
 follow the package, so arranging either first saves it as a named layout
-of its own ("Package's (edited)"), then shown. The list saves the one
-shown as *Default*. A
+of its own ("Package's (edited)"), then shown. The list renames,
+duplicates and deletes a named layout and saves the one shown as
+*Default*. A
 replay is arranged by the layout its recording carries, or one made from
 what the recording declares, which the worker stores in the replay view. The page loads nothing from
 elsewhere and its Content-Security-Policy lets it reach only Kapto's API

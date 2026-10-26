@@ -165,15 +165,18 @@ describe("arranging the one shown", () => {
 });
 
 describe("the list's actions", () => {
-  it("saves the one shown as Default, which it goes on showing", async () => {
+  it("renames, duplicates, deletes and saves the one shown as Default", async () => {
     const { api, layouts } = served([named("night", "Night")], "night");
     await layouts.load();
+    await layouts.rename("Night shift");
+    expect([layouts.shownId, layouts.shown?.name, layouts.said]).toEqual(["night-shift", "Night shift", "Renamed Night shift."]);
+    await layouts.duplicate();
+    expect([layouts.shownId, layouts.shown?.name]).toEqual(["night-shift-copy", "Night shift (copy)"]);
     await layouts.saveAsDefault();
     expect(api.write).toHaveBeenCalledWith("default", input("health"));
-    expect([layouts.offers[0]?.name, layouts.shownId, layouts.said]).toEqual([
-      "Default",
-      "night",
-      "Saved as Default: a browser that hasn't picked a layout opens on it.",
-    ]);
+    expect(layouts.offers[0]?.name).toBe("Default");
+    await layouts.remove();
+    expect(api.remove).toHaveBeenCalledWith("night-shift-copy");
+    expect([layouts.shownId, layouts.said]).toEqual(["default", "Deleted Night shift (copy)."]);
   });
 });
