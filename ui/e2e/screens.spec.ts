@@ -710,6 +710,24 @@ test("a screenshot of the list of layouts open, and of an import whose name is t
   nothingLeft();
 });
 
+test("a screenshot of the robot from two sides at once", async ({ page }) => {
+  test.setTimeout(180_000);
+  const nothingLeft = await open(page);
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 60_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  await showLayout(page, "Two sides", [
+    { width: 2, panels: [panel("robot", { view: "front" })] },
+    { width: 2, panels: [panel("robot", { view: "side" })] },
+    { width: 2, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("camera", { stream: "wrist_camera" })] },
+  ]);
+  await expect(page.getByRole("button", { name: /^Layout: / })).toHaveAccessibleName("Layout: Two sides", { timeout: 60_000 });
+  await expect(page.getByTitle("Live view of the robot").getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 60_000 });
+  await page.waitForTimeout(3_000);
+  await shot(page, "live-two-views");
+  await forgetLayouts(page);
+  nothingLeft();
+});
+
 // The console on a tablet beside the robot, held sideways: each tab whole.
 test("a screenshot of the page Kapto can't show, built for another version of its API", async ({ page }) => {
   await page.route("**/api/version", (route) => route.fulfill({ json: { kapto: "9.9.9", api: 999 } }));

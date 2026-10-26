@@ -14,7 +14,7 @@
     getReplayWindow,
     getRobotScene,
   } from "./api";
-  import type { LayoutInput, LiveViewCounts, RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
+  import type { LayoutInput, LiveViewCounts, PanelView, RobotRole, ViewLayout, ViewPanel, VocabularyKind } from "./api-types";
   import CameraPanel from "./CameraPanel.svelte";
   import EnvironmentPanel from "./EnvironmentPanel.svelte";
   import LayoutEditor from "./LayoutEditor.svelte";
@@ -62,6 +62,7 @@
   import { openingOf, type Played, type Replaying } from "./viewer/replay";
   import { Robots } from "./viewer/robots";
   import { Questions } from "./viewer/questions";
+  import { boxesOf, framed as framedFrom, placedOf, sameBoxes } from "./viewer/views";
   import { decodeStretch, type Stretch, STREAM_VERSION, type Watched, watchStream } from "./viewer/stream";
   import { sentence, time } from "./format";
   import { shortcut } from "./keys";
@@ -111,27 +112,42 @@
   const roleFields = $derived(
     Object.fromEntries((replay?.opening.layout ? replay.opening.roles : roles).map((each) => [each.role, each.field])),
   );
-  /** Where the robot's view waits while no panel shows it, drawing nothing. */
-  let home = $state<HTMLDivElement | null>(null);
-  /** How many times the robot's view was drawn, and the frame whose poses it showed last, for the page's tests. */
+  /** How many times the robot's views were drawn, and the frame whose poses they showed last, for the page's tests. */
   let draws = $state(0);
   let drawnFrame = $state(0);
 
-  /**
-   * Shows the robot's view in a panel. It is made once and moved, never
-   * made again: its 3D scene draws into the one canvas it was made with.
-   */
-  function adopt(slot: HTMLElement) {
-    const view = container;
-    if (view) {
-      slot.append(view);
-    }
-    return () => {
-      if (view && view.parentElement === slot) {
-        home?.append(view);
-      }
+  /** A robot panel on the page: where it is in the layout, and the view the layout gives it. */
+  interface RobotSlot {
+    element: HTMLElement;
+    column: number;
+    at: number;
+    view: () => PanelView | null | undefined;
+  }
+  /** The robot panels shown, in the order they appeared; the scene draws into each one's place. */
+  const slots: RobotSlot[] = [];
+  /** Frames one panel's camera on the robot as it stands now; set once the scene exists. */
+  let frameSlot: (column: number, at: number) => void = () => {};
+
+  /** Shows the robot in a panel, from its own camera, for as long as the panel is there. */
+  function robotSlot(column: number, at: number, view: () => PanelView | null | undefined) {
+    return (element: HTMLElement) => {
+      const slot = { element, column, at, view };
+      slots.push(slot);
+      return () => {
+        slots.splice(slots.indexOf(slot), 1);
+      };
     };
   }
+  /** The robot panel that carries the view's words and buttons, and its state for the page's tests: the first shown. */
+  const firstRobot = $derived.by(() => {
+    for (const [column, each] of columns.entries()) {
+      const at = each.panels.findIndex((panel) => panel.kind === "robot" && panel.missing.length === 0);
+      if (at >= 0) {
+        return { column, at };
+      }
+    }
+    return null;
+  });
 
   /** What a panel is, in words, for its placeholder. */
   function named(panel: ViewPanel): string {
@@ -172,7 +188,7 @@
   /** Draws the robot replay `id` was recorded with, or the live one for `null`; set once the scene exists. */
   let drawRobotOf: (id: string | null) => void = () => {};
 
-  let container = $state<HTMLDivElement | null>(null);
+  /** One canvas over the whole view, which every robot panel's camera draws into the panel's place on. */
   let canvas = $state<HTMLCanvasElement | null>(null);
   /** What the overlay says: "Live" once frames arrive, or why there are none. */
   let said = $state("Loading the robot…");
@@ -1050,14 +1066,29 @@
     }
   }
 
+  /** What the robot's first view says of it, for the page's tests. */
+  const liveData = $derived({
+    "data-frames": frames,
+    "data-showing": paused && cursorMs !== null ? String(Math.round(cursorMs)) : "live",
+    "data-playing": playing ? "yes" : "no",
+    "data-looked-back": lookedBack === null ? "no" : "yes",
+    "data-environment": drawn,
+    "data-framings": framings,
+    "data-draws": draws,
+    "data-drawn-frame": drawnFrame,
+    "data-replay": replay?.id ?? "",
+    "data-robot": robotOf,
+    "data-delay-ms": delayMs ?? "",
+  });
+
   /** How many recent delays the shown one is the median of. */
   const DELAYS = 60;
 
   onMount(() => {
-    if (!canvas || !container) {
+    if (!canvas) {
       return;
     }
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(token("background", "#0b0c0d"));
@@ -1069,12 +1100,45 @@
     const grid = new THREE.GridHelper(4, 40, token("control-line", "#6b7378"), token("line", "#2a2e31"));
     grid.rotation.x = Math.PI / 2;
     scene.add(grid);
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
-    camera.up.set(0, 0, 1);
-    camera.position.set(1.6, -1.6, 1.2);
-    const controls = new OrbitControls(camera, canvas);
-    controls.target.set(0, 0, 0.4);
-    controls.update();
+    /** A robot panel's own camera, turned by the pointer within the panel. */
+    interface View {
+      slot: RobotSlot;
+      camera: THREE.PerspectiveCamera;
+      controls: OrbitControls;
+      /** Whether it was framed, or placed where the layout says; a new one is framed once it has a size. */
+      framed: boolean;
+      /** The layout's view it was last placed from, to tell when the layout changes it. */
+      from: string;
+      boxes: ReturnType<typeof boxesOf>;
+    }
+    const views = new Map<HTMLElement, View>();
+    const viewOf = (slot: RobotSlot): View => {
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+      camera.up.set(0, 0, 1);
+      const controls = new OrbitControls(camera, slot.element.querySelector<HTMLElement>(".orbit") ?? slot.element);
+      const view: View = { slot, camera, controls, framed: false, from: "", boxes: null };
+      place(view);
+      controls.addEventListener("change", () => (dirty = true));
+      return view;
+    };
+    /** Puts `view`'s camera where its layout says: a place as it is, a preset framed from its side. */
+    const place = (view: View) => {
+      const given = view.slot.view() ?? null;
+      view.from = JSON.stringify(given);
+      const placed = placedOf(given);
+      if (placed) {
+        view.camera.position.fromArray(placed.from);
+        view.controls.target.fromArray(placed.at);
+        view.framed = true;
+      } else {
+        const { from, at } = framedFrom(given, [0, 0, 0.4], 2.4);
+        view.camera.position.fromArray(from);
+        view.controls.target.fromArray(at);
+        view.framed = false;
+      }
+      view.controls.update();
+      dirty = true;
+    };
 
     // What surrounds the robot: each thing built once, then only moved,
     // unless its shape or file changes.
@@ -1128,55 +1192,65 @@
 
     let robot: Robot | null = null;
     let pending: Float32Array | null = null;
-    let framed = false;
     let dirty = true;
     const delays: number[] = [];
     let closed = false;
-    controls.addEventListener("change", () => (dirty = true));
 
-    /** Puts `sphere` in view, from the front right and a little above. */
-    const frameSphere = (sphere: THREE.Sphere) => {
-      if (sphere.radius <= 0 || !Number.isFinite(sphere.radius)) {
+    /**
+     * Puts `sphere` in view of each of `which`, each from its own side;
+     * counted as one framing for the page's tests. Hidden, a view keeps the
+     * aspect it had, so one framed then isn't left out of sight once shown.
+     */
+    const frameSphere = (sphere: THREE.Sphere, which: View[], counted = true) => {
+      if (sphere.radius <= 0 || !Number.isFinite(sphere.radius) || which.length === 0) {
         return;
       }
-      controls.target.copy(sphere.center);
-      const distance = viewingDistance(sphere.radius, camera.fov, camera.aspect);
-      camera.position.copy(sphere.center).add(new THREE.Vector3(1, -1, 0.7).normalize().multiplyScalar(distance));
-      controls.update();
-      framed = true;
-      framings += 1;
+      for (const view of which) {
+        const { camera, controls } = view;
+        const distance = viewingDistance(sphere.radius, camera.fov, camera.aspect);
+        // A place left while arranging keeps its direction, framed along it.
+        const given = view.slot.view() ?? null;
+        const side = placedOf(given) ? { from: camera.position.toArray(), at: controls.target.toArray() } : given;
+        const { from, at } = framedFrom(side, sphere.center.toArray(), distance);
+        camera.position.fromArray(from);
+        controls.target.fromArray(at);
+        controls.update();
+        view.framed = true;
+      }
+      if (counted) {
+        framings += 1;
+      }
       dirty = true;
     };
-    /** Puts the whole robot in view as it stands now. */
-    const frameRobot = (root: THREE.Object3D) =>
-      frameSphere(new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere()));
+    /** The whole robot as it stands now. */
+    const bounds = (root: THREE.Object3D) => new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere());
     frameNow = () => {
       if (robot) {
-        frameRobot(robot.root);
+        frameSphere(bounds(robot.root), [...views.values()]);
+      }
+    };
+    frameSlot = (column, at) => {
+      const view = [...views.values()].find(({ slot }) => slot.column === column && slot.at === at);
+      if (robot && view) {
+        frameSphere(bounds(robot.root), [view]);
       }
     };
 
     const resize = () => {
-      const { clientWidth: width, clientHeight: height } = container ?? { clientWidth: 1, clientHeight: 1 };
-      renderer.setSize(width, height, false);
-      // Hidden, or waiting unshown for its panel, the view has no size: an
-      // aspect of none would put the robot framed then (F, a replay's robot
-      // loading) infinitely far away, drawn empty once shown. The camera
-      // keeps the aspect it had until the view has a size again.
-      if (width > 0 && height > 0) {
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
+      renderer.setSize(canvas?.clientWidth ?? 0, canvas?.clientHeight ?? 0, false);
+      // Resized, a canvas is cleared: every view drawn again.
+      for (const view of views.values()) {
+        view.boxes = null;
       }
       dirty = true;
     };
     const observer = new ResizeObserver(resize);
-    observer.observe(container);
+    observer.observe(canvas);
     resize();
 
     let frame = 0;
-    // The frame whose poses the robot stands in, and whether a panel showed it last frame.
+    // The frame whose poses the robot stands in.
     let posedFrame = 0;
-    let wasShown = false;
     const draw = () => {
       frame = requestAnimationFrame(draw);
       if (playing && started) {
@@ -1204,20 +1278,71 @@
         applyPoses(robot.links, pending);
         pending = null;
         posedFrame = frames;
-        if (!framed) {
-          frameRobot(robot.root);
+        // A robot whose reach the scene doesn't give: framed as it first stands.
+        const unframed = [...views.values()].filter((view) => !view.framed);
+        if (unframed.length > 0 && !framedReach) {
+          frameSphere(bounds(robot.root), unframed);
         }
         dirty = true;
       }
-      // Posed all along, but drawn only into a panel: in its home it shows nowhere.
-      const shown = container !== null && container.parentElement !== home;
-      if (shown && !wasShown) {
-        // Back in a panel: drawn this frame at its size there, not the size it had hidden.
-        resize();
+      // Each panel's camera, made as the panel comes and let go as it goes.
+      let moved = false;
+      for (const [element, view] of views) {
+        if (!slots.some((slot) => slot.element === element)) {
+          view.controls.dispose();
+          views.delete(element);
+          moved = true;
+        }
       }
-      wasShown = shown;
+      const area = canvas?.getBoundingClientRect();
+      let shown = false;
+      for (const slot of slots) {
+        let view = views.get(slot.element);
+        if (!view) {
+          view = viewOf(slot);
+          views.set(slot.element, view);
+        } else if (JSON.stringify(slot.view() ?? null) !== view.from) {
+          // Its view changed in the layout, other than by being left there.
+          place(view);
+        }
+        const column = slot.element.closest(".column");
+        const boxes =
+          area && area.width > 0 && area.height > 0
+            ? boxesOf(slot.element.getBoundingClientRect(), column ? [column.getBoundingClientRect()] : [], area)
+            : null;
+        if (!sameBoxes(boxes, view.boxes)) {
+          moved = true;
+          // Hidden, a view has no size: its camera keeps the aspect it had.
+          if (boxes) {
+            view.camera.aspect = boxes.viewport.width / boxes.viewport.height;
+            view.camera.updateProjectionMatrix();
+          }
+        }
+        view.boxes = boxes;
+        shown ||= boxes !== null;
+        // A view new since the robot was framed: framed once it has a size, as it stands or by its reach.
+        if (boxes && !view.framed && robot) {
+          frameSphere(framedReach ?? bounds(robot.root), [view], false);
+        }
+      }
+      if (moved) {
+        // What was drawn where no panel shows the robot now is cleared, and every view drawn anew.
+        renderer.setScissorTest(false);
+        renderer.setClearColor(0x000000, 0);
+        renderer.clear();
+        dirty = true;
+      }
+      // Posed all along, but drawn only into the panels that show it.
       if (drawsNow(dirty, shown)) {
-        renderer.render(scene, camera);
+        renderer.setScissorTest(true);
+        for (const { camera, boxes } of views.values()) {
+          if (boxes) {
+            const { viewport, scissor } = boxes;
+            renderer.setViewport(viewport.x, viewport.y, viewport.width, viewport.height);
+            renderer.setScissor(scissor.x, scissor.y, scissor.width, scissor.height);
+            renderer.render(scene, camera);
+          }
+        }
         dirty = false;
         draws += 1;
         drawnFrame = posedFrame;
@@ -1278,9 +1403,13 @@
             links = robot.links.map((link) => link.name);
           }
           // Everywhere it can reach, framed once: it stays in view as it moves.
+          // A place left while arranging stays where it was left.
           if (loaded.reach && !(framedReach && framedReach.equals(loaded.reach))) {
             framedReach = loaded.reach;
-            frameSphere(loaded.reach);
+            frameSphere(
+              loaded.reach,
+              [...views.values()].filter((view) => !placedOf(view.slot.view())),
+            );
           }
           dirty = true;
           if (paused && cursorMs !== null) {
@@ -1404,7 +1533,9 @@
       clearInterval(following);
       cancelAnimationFrame(frame);
       observer.disconnect();
-      controls.dispose();
+      for (const view of views.values()) {
+        view.controls.dispose();
+      }
       renderer.dispose();
     };
   });
@@ -1413,6 +1544,8 @@
 <svelte:window onkeydown={viewKey} />
 
 <div class="view">
+<!-- Under every panel: each robot panel is a window onto the part of it in its place. -->
+<canvas class="scene" bind:this={canvas}></canvas>
 {#if packageId && replay === null}
   <!-- A bar of its own above the columns, so Arrange never covers what a
        panel shows (the robot's own buttons, a plot's key, a camera's
@@ -1474,45 +1607,35 @@
     onkeep={() => answerEpisode(episode.id, false)}
   />
 {/if}
-<div class="home" hidden bind:this={home}>
-<div
-  class="live"
-  bind:this={container}
-  title="Live view of the robot"
-  data-frames={frames}
-  data-showing={paused && cursorMs !== null ? String(Math.round(cursorMs)) : "live"}
-  data-playing={playing ? "yes" : "no"}
-  data-looked-back={lookedBack === null ? "no" : "yes"}
-  data-environment={drawn}
-  data-framings={framings}
-  data-draws={draws}
-  data-drawn-frame={drawnFrame}
-  data-replay={replay?.id ?? ""}
-  data-robot={robotOf}
-  data-delay-ms={delayMs ?? ""}
->
-  <canvas bind:this={canvas}></canvas>
+{#snippet robotView(first: boolean, column: number, at: number)}
   <div class="tools">
-    <button type="button" title="Fit the robot as it stands now in the view (F)" onclick={() => frameNow()}>
+    <button type="button" title="Fit the robot as it stands now in this view (F: in every view)" onclick={() => frameSlot(column, at)}>
       <Icon name="frame" /> Frame robot
     </button>
-    <button type="button" aria-expanded={environmentShown} onclick={() => (environmentShown = !environmentShown)}>
-      <Icon name="cube" /> Environment{placed.length > 0 ? ` (${placed.length})` : ""}
-    </button>
+    {#if first}
+      <button type="button" aria-expanded={environmentShown} onclick={() => (environmentShown = !environmentShown)}>
+        <Icon name="cube" /> Environment{placed.length > 0 ? ` (${placed.length})` : ""}
+      </button>
+    {/if}
   </div>
-  {#if environmentShown}
+  {#if first && environmentShown}
     <div class="environment">
       <EnvironmentPanel {placed} onput={putPlaced} onremove={removePlaced} problem={environmentProblem} />
     </div>
   {/if}
-  <p
-    class="said"
-    title="{delayMs === null ? 'From' : `${delayMs} ms from`} Kapto receiving a message to this page receiving it, on this computer's clock: on another computer, any difference between the two clocks is in it too"
-  >
-    {said}{#if late}<span class="late">{` · ${delayMs} ms`}</span>{/if}
-  </p>
-</div>
-</div>
+  {#if first}
+    <p
+      class="said"
+      title="{delayMs === null ? 'From' : `${delayMs} ms from`} Kapto receiving a message to this page receiving it, on this computer's clock: on another computer, any difference between the two clocks is in it too"
+    >
+      {said}{#if late}<span class="late">{` · ${delayMs} ms`}</span>{/if}
+    </p>
+  {/if}
+{/snippet}
+{#if firstRobot === null}
+  <!-- No panel shows the robot: what the page's tests read of it stays, drawing nothing. -->
+  <div class="live" hidden title="Live view of the robot" {...liveData}></div>
+{/if}
 <div
   class="columns"
   class:on-view={onView}
@@ -1612,7 +1735,17 @@
               </p>
             </div>
           {:else if panel.kind === "robot"}
-            <div class="slot" {@attach adopt}></div>
+            {@const first = firstRobot?.column === place && firstRobot.at === at}
+            {@const data = first ? liveData : {}}
+            <div
+              class="slot live"
+              title={first ? "Live view of the robot" : "Another view of the robot"}
+              {...data}
+              {@attach robotSlot(place, at, () => panel.view)}
+            >
+              <div class="orbit"></div>
+              {@render robotView(first, place, at)}
+            </div>
           {:else if panel.kind === "camera"}
             {@const shown = (replay === null ? liveShown : replayShown).filter((camera) => camera.name === panel.stream)}
             {#if shown.length > 0}
@@ -1707,6 +1840,8 @@
 <style>
   .view {
     position: relative;
+    /* Its own layers: the robot's canvas under its panels, over what is under the view. */
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -2037,7 +2172,12 @@
     min-height: 0;
     border-radius: var(--radius);
     overflow: hidden;
-    background: var(--viewer);
+  }
+  /* Where the pointer turns, pans and zooms the panel's camera, under its buttons. */
+  .orbit {
+    position: absolute;
+    inset: 0;
+    touch-action: none;
   }
   .tools {
     position: absolute;
@@ -2135,15 +2275,16 @@
     border-radius: var(--radius);
     background: color-mix(in srgb, var(--background) 92%, transparent);
   }
-  /* Laid over the view rather than in its flow: a canvas is as tall as the
-     picture last drawn in it, which would hold its panel at the size it had
-     on a wider page wherever the panel's height comes from what it holds. */
-  canvas {
+  /* Under the whole view rather than in its flow, so the panels never
+     move it; the robot's panels show it through, the rest of it clear. */
+  .scene {
     position: absolute;
     inset: 0;
+    z-index: -1;
     display: block;
     width: 100%;
     height: 100%;
+    pointer-events: none;
   }
   .said .late {
     color: var(--warning);

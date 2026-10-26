@@ -7,6 +7,7 @@ export interface Panel {
   fields?: string[];
   stream?: string | null;
   title?: string | null;
+  view?: string | { from: number[]; at: number[] } | null;
 }
 
 /** A column of a layout. */

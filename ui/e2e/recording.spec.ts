@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { expect, type Locator, test, type Page, type Route } from "@playwright/test";
 
-import { drawnShare } from "./drawn";
+import { changedShare, drawnShare, pictureOf } from "./drawn";
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
 import { choose } from "./controls";
@@ -775,7 +775,7 @@ test("the robot is framed by its whole reach, and framed again as it stands from
   await expect(live).toHaveAttribute("data-framings", "1");
 
   // Zoomed in, then framed again from the button, then from the keyboard.
-  await live.locator("canvas").hover();
+  await live.locator(".orbit").hover();
   await page.mouse.wheel(0, -600);
   await live.getByRole("button", { name: "Frame robot" }).click();
   await expect(live).toHaveAttribute("data-framings", "2");
@@ -1587,9 +1587,50 @@ test("the robot isn't drawn while no panel shows it, and is drawn standing as it
   await choose(page, "Shows", /^Robot$/);
   await choose(page, "In", "a new column");
   await page.getByRole("region", { name: "Arrange the view" }).getByRole("button", { name: "Add" }).click();
-  await expect(panels.locator(".slot canvas")).toBeVisible();
+  await expect(panels.getByTitle("Live view of the robot")).toBeVisible();
   await expect.poll(() => count("data-draws"), { timeout: 1_000 }).toBeGreaterThan(draws);
   expect(await count("data-drawn-frame")).toBeGreaterThanOrEqual(since);
+  await forgetLayouts(page);
+});
+
+test("the robot is seen from two sides at once, both views moving with it, and a fifth view is refused", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  await showLayout(page, "Two sides", [
+    { width: 1, panels: [panel("robot", { view: "front" })] },
+    { width: 1, panels: [panel("robot", { view: "top" })] },
+  ]);
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  const front = panels.getByTitle("Live view of the robot");
+  const top = panels.getByTitle("Another view of the robot");
+  await expect(front.getByText(/^Live( · \d+ ms)?$/)).toBeVisible({ timeout: 20_000 });
+  // Each panel draws the robot, from its own side: the two pictures differ.
+  await expect.poll(() => drawnShare(front), { message: "the robot drawn from the front" }).toBeGreaterThan(0.02);
+  await expect.poll(() => drawnShare(top), { message: "the robot drawn from above" }).toBeGreaterThan(0.02);
+  expect(await changedShare(top, await pictureOf(front))).toBeGreaterThan(0.02);
+  // One scene posed once a frame: both views move as the arm does.
+  const [frontBefore, topBefore] = [await pictureOf(front), await pictureOf(top)];
+  await expect.poll(() => changedShare(front, frontBefore), { message: "the front view moving" }).toBeGreaterThan(0.001);
+  await expect.poll(() => changedShare(top, topBefore), { message: "the view from above moving" }).toBeGreaterThan(0.001);
+  // Each view framed from its own button, and every view by F, each counted once.
+  const framings = Number(await front.getAttribute("data-framings"));
+  await top.getByRole("button", { name: "Frame robot" }).click();
+  await expect(front).toHaveAttribute("data-framings", String(framings + 1));
+  await page.keyboard.press("f");
+  await expect(front).toHaveAttribute("data-framings", String(framings + 2));
+
+  // Four views at most: a fifth isn't offered, and the server refuses a layout with one.
+  await showLayout(page, "Four sides", [{ width: 1, panels: ["front", "side", "top", null].map((view) => panel("robot", { view })) }]);
+  await page.getByRole("button", { name: "Arrange" }).click();
+  await choose(page, "Shows", /^Robot$/);
+  const editor = page.getByRole("region", { name: "Arrange the view" });
+  await expect(editor.getByText("4 views of the robot is as many as the page draws.")).toBeVisible();
+  await expect(editor.getByRole("button", { name: "Add" })).toBeDisabled();
+  const five = { columns: [{ width: 1, panels: Array.from({ length: 5 }, () => panel("robot")) }] };
+  const refused = await page.request.post("/api/layout/check", { data: five });
+  expect(refused.status()).toBe(409);
+  expect(((await refused.json()) as { code: string }).code).toBe("layout.too_many_views");
   await forgetLayouts(page);
 });
 

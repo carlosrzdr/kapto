@@ -1,7 +1,7 @@
 <script lang="ts">
   import Choice from "./controls/Choice.svelte";
-  import type { LayoutInput, PanelInput } from "./api-types";
-  import { added, MAX_PANELS, MAX_PLOT_FIELDS, type Offered, panelCount } from "./viewer/layouts";
+  import type { LayoutInput, PanelInput, ViewPreset } from "./api-types";
+  import { added, MAX_PANELS, MAX_PLOT_FIELDS, MAX_ROBOT_VIEWS, type Offered, panelCount, robotCount } from "./viewer/layouts";
 
   interface Props {
     /** The layout being arranged. */
@@ -28,17 +28,23 @@
   let stream = $state("");
   let picked = $state<string[]>([]);
   let column = $state(0);
+  /** A robot panel's viewpoint: `""` for the angle that frames the robot. */
+  let seen = $state<"" | ViewPreset>("");
 
   const full = $derived(panelCount(layout) >= MAX_PANELS);
+  const viewsFull = $derived(robotCount(layout) >= MAX_ROBOT_VIEWS);
   const choices = $derived([...offered.roles.map((role) => `role:${role}`), ...offered.fields]);
   const ready = $derived(
-    !full && (kind === "camera" ? offered.cameras.includes(stream) : kind === "plot" ? picked.length > 0 : true),
+    !full && !(kind === "robot" && viewsFull) && (kind === "camera" ? offered.cameras.includes(stream) : kind === "plot" ? picked.length > 0 : true),
   );
 
   function add() {
     const panel: PanelInput = { kind, height: 1, fields: kind === "plot" ? picked : [] };
     if (kind === "camera") {
       panel.stream = stream;
+    }
+    if (kind === "robot" && seen !== "") {
+      panel.view = seen;
     }
     onchange(added(layout, column, panel));
     picked = [];
@@ -72,6 +78,21 @@
       />
       {#if offered.cameras.length === 0}
         <p class="note">The package has no camera streams.</p>
+      {/if}
+    {:else if kind === "robot"}
+      <Choice
+        label="Seen from"
+        value={seen}
+        options={[
+          { value: "", label: "The front right" },
+          { value: "front", label: "The front" },
+          { value: "side", label: "The side" },
+          { value: "top", label: "Above" },
+        ]}
+        onchange={(value) => (seen = value as "" | ViewPreset)}
+      />
+      {#if viewsFull}
+        <p class="note">{MAX_ROBOT_VIEWS} views of the robot is as many as the page draws.</p>
       {/if}
     {:else if kind === "plot"}
       <fieldset class="fields">

@@ -529,8 +529,15 @@ in the configuration folder (*Default* first), *Package's* (its own
 remembers only which one it shows, per package, and opens on that one,
 else *Default*, else *Package's*, else *Made from roles*. A layout is
 columns of panels (the robot, a camera, a plot of fields or roles,
-the streams' counts, the marks), one under another below 70rem; the
-robot's 3D view is made once and moved to the panel that shows it. An
+the streams' counts, the marks), one under another below 70rem. The
+robot is one three.js scene, posed once a frame, under one canvas laid
+beneath the whole view: each `robot` panel, at most four, is a camera onto
+it from the panel's `view` (`front`, `side`, `top`, by default the front
+right framing the robot, or a place `{ from, at }`), turned within the
+panel, and one renderer draws each into the panel's place on the canvas
+(its viewport and scissor), so the meshes reach the graphics card once;
+while no panel shows the robot nothing is drawn. *Frame robot* frames its
+panel's view, `F` every view. An
 operator arranges their own view with *Arrange*, on the view itself: a
 panel dragged by its grip into any column or beside one as a new column,
 an edge between two columns or panels dragged to share the room anew, each
