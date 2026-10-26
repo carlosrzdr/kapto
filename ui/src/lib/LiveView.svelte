@@ -38,10 +38,13 @@
     type Placed,
     recolor,
   } from "./viewer/environment";
-  import { type Box, type ColumnBoxes, dragged, dropPlace, landing, shareTicks, sharesSaid, type Span } from "./viewer/dragging";
+  import { type ColumnBoxes, dragged, dropPlace, shareTicks, sharesSaid, type Span } from "./viewer/dragging";
   import {
     apportioned,
     editable,
+    type Keys,
+    keysAfter,
+    keysFor,
     MAX_SHARE,
     nudged,
     type Offered,
@@ -49,6 +52,7 @@
     moved,
     placed as droppedAt,
     removed,
+    showing,
     retitled,
     reshared,
     withHeights,
@@ -121,8 +125,9 @@
   /** A robot panel on the page: where it is in the layout, and the view the layout gives it. */
   interface RobotSlot {
     element: HTMLElement;
-    column: number;
-    at: number;
+    /** Read when needed: a panel moved while arranging keeps its slot. */
+    column: () => number;
+    at: () => number;
     view: () => PanelView | null | undefined;
   }
   /** The robot panels shown, in the order they appeared; the scene draws into each one's place. */
@@ -131,7 +136,7 @@
   let frameSlot: (column: number, at: number) => void = () => {};
 
   /** Shows the robot in a panel, from its own camera, for as long as the panel is there. */
-  function robotSlot(column: number, at: number, view: () => PanelView | null | undefined) {
+  function robotSlot(column: () => number, at: () => number, view: () => PanelView | null | undefined) {
     return (element: HTMLElement) => {
       const slot = { element, column, at, view };
       slots.push(slot);
@@ -140,12 +145,16 @@
       };
     };
   }
-  /** The robot panel that carries the view's words and buttons, and its state for the page's tests: the first shown. */
+  /**
+   * The robot panel that carries the view's words and buttons, and its state
+   * for the page's tests, by its key: the first in the layout, wherever a
+   * panel carried puts it for now.
+   */
   const firstRobot = $derived.by(() => {
     for (const [column, each] of columns.entries()) {
       const at = each.panels.findIndex((panel) => panel.kind === "robot" && panel.missing.length === 0);
       if (at >= 0) {
-        return { column, at };
+        return keys.columns[column]?.panels[at] ?? null;
       }
     }
     return null;
@@ -487,37 +496,128 @@
     }));
   }
 
+  /**
+   * The keys the page knows each column and panel by, kept with a panel as
+   * it is carried or moved by the keyboard: the page moves what shows it
+   * rather than making it anew, and slides it there from where it was.
+   */
+  let keptKeys = $state.raw<Keys | null>(null);
+  const keys = $derived(keysFor(arrangedBy, keptKeys));
+  let madeKeys = 0;
+  const freshKey = () => `n${(madeKeys += 1)}`;
+  /** The columns shown: as dropping the panel carried now would arrange them, that one's place shaded. */
+  const shown = $derived(showing(columns, keys, carried));
+
   /** Where the grip was pressed, and whether it went far enough from there to be a drag rather than a click on its name. */
-  let pressedAt: { x: number; y: number } | null = null;
+  let pressed: { column: number; at: number; x: number; y: number } | null = null;
   let draggedAway = false;
+  /**
+   * Taken as the panel is lifted: the boxes it is dropped among, as they
+   * stood, so where it goes depends on the pointer alone, never on the
+   * panels making room for it, and nothing is measured as it moves; where
+   * on it it was held, and its size, for the copy under the pointer.
+   */
+  let lifted: { boxes: ColumnBoxes[]; stacked: boolean; held: { x: number; y: number }; width: number; height: number } | null = null;
+  let pointer = { x: 0, y: 0 };
+  /** The see-through copy of the panel carried, which follows the pointer. */
+  let copyBox = $state<HTMLElement | null>(null);
 
   function carry(event: PointerEvent, column: number, at: number) {
     if (event.button !== 0) {
       return;
     }
-    pressedAt = { x: event.clientX, y: event.clientY };
+    pressed = { column, at, x: event.clientX, y: event.clientY };
     draggedAway = false;
     event.preventDefault();
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    carried = { column, at, to: null };
+    addEventListener("pointermove", carrying);
+    addEventListener("pointerup", drop);
+    addEventListener("pointercancel", letGo);
+    // Before the view's own keys, for which Escape goes back to now.
+    addEventListener("keydown", escaped, true);
   }
 
   function carrying(event: PointerEvent) {
-    if (pressedAt && Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > 4) {
-      draggedAway = true;
+    if (!pressed) {
+      return;
     }
-    if (carried) {
-      carried = { ...carried, to: dropPlace(measured(), event.clientX, event.clientY, stacked()) };
+    pointer = { x: event.clientX, y: event.clientY };
+    if (!carried) {
+      if (Math.hypot(pointer.x - pressed.x, pointer.y - pressed.y) <= 4) {
+        return;
+      }
+      draggedAway = true;
+      // Where the panels stay, not where a slide shows them on their way.
+      for (const element of grid?.querySelectorAll<HTMLElement>("[data-key]") ?? []) {
+        for (const running of element.getAnimations?.() ?? []) {
+          running.finish();
+        }
+      }
+      const boxes = measured();
+      const own = boxes[pressed.column]?.panels[pressed.at];
+      if (!own) {
+        return;
+      }
+      lifted = {
+        boxes,
+        stacked: stacked(),
+        held: { x: pressed.x - own.left, y: pressed.y - own.top },
+        width: own.right - own.left,
+        height: own.bottom - own.top,
+      };
+      carried = { column: pressed.column, at: pressed.at, to: null };
+    }
+    follow();
+    const to = lifted ? dropPlace(lifted.boxes, pointer.x, pointer.y, lifted.stacked) : null;
+    // Only a new place arranges the panels anew; a move within one changes nothing but the copy.
+    if (carried && JSON.stringify(to) !== JSON.stringify(carried.to)) {
+      carried = { ...carried, to };
     }
   }
 
+  /** The copy put under the pointer, where it was held on the panel; placed from here, as the page allows no style written into it. */
+  function follow() {
+    if (copyBox && lifted) {
+      copyBox.style.translate = `${pointer.x - lifted.held.x}px ${pointer.y - lifted.held.y}px`;
+    }
+  }
+  $effect(() => {
+    if (copyBox && lifted) {
+      copyBox.style.width = `${lifted.width}px`;
+      copyBox.style.height = `${lifted.height}px`;
+      follow();
+    }
+  });
+
+  /** Lets go of the panel: everything back where it was. */
+  function letGo() {
+    removeEventListener("pointermove", carrying);
+    removeEventListener("pointerup", drop);
+    removeEventListener("pointercancel", letGo);
+    removeEventListener("keydown", escaped, true);
+    pressed = null;
+    lifted = null;
+    carried = null;
+  }
+
+  function escaped(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      letGo();
+    }
+  }
+  $effect(() => letGo);
+
   function drop() {
     const was = carried;
-    carried = null;
+    letGo();
     if (was?.to) {
       // Dropped where it was, nothing is arranged: the package's layout stays the one shown.
       const next = droppedAt(editing(), was.column, was.at, was.to);
       if (JSON.stringify(next) !== JSON.stringify(editing())) {
+        const to = was.to;
+        keptKeys = keysAfter(keys, (each) => droppedAt(each, was.column, was.at, to), freshKey);
         arrange(next);
       }
     }
@@ -526,13 +626,10 @@
   /**
    * The panel's grip by the keyboard: the arrows move it up or down its
    * column, or to the end of the column beside it (a new one past the
-   * last), its grip keeping the focus; Escape lets go of a drag.
+   * last), its grip keeping the focus; the panels slide there as they do
+   * when one is carried.
    */
   async function step(event: KeyboardEvent, column: number, at: number) {
-    if (event.key === "Escape") {
-      carried = null;
-      return;
-    }
     const move = ({ ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" } as const)[event.key as string];
     if (move === undefined) {
       return;
@@ -543,6 +640,7 @@
     if (next === layout) {
       return;
     }
+    keptKeys = keysAfter(keys, (each) => moved(each, column, at, move), freshKey);
     arrange(next);
     // Where it went: along its column, or last in the one beside it, which
     // is one place further left when the column it left is gone.
@@ -562,7 +660,6 @@
   function startTitling(column: number, at: number) {
     const dragged = draggedAway;
     draggedAway = false;
-    pressedAt = null;
     if (!dragged) {
       titling = { column, at };
     }
@@ -589,12 +686,6 @@
       gripOf(was.column, was.at)?.focus();
     }
   }
-
-  /** The column dropping now would put the panel into, before panel `at`. */
-  const dropsBefore = (column: number, at: number) =>
-    carried?.to !== null && carried?.to !== undefined && "column" in carried.to && carried.to.column === column && carried.to.at === at;
-  /** Whether dropping now would make a new column `between`. */
-  const dropsBetween = (between: number) => carried?.to !== null && carried?.to !== undefined && "between" in carried.to && carried.to.between === between;
 
   /** Starts dragging the edge after `edge`: of the columns, or of the panels of `column`. */
   function grab(event: PointerEvent, column: number | null, edge: number) {
@@ -731,20 +822,60 @@
     saidBox.style.translate = `${x}px ${y}px`;
   });
 
-  /** Where the panel carried would land if dropped now, as large as it is. */
-  let landed = $state<Box | null>(null);
-  $effect(() => {
-    const was = carried;
-    const column = was?.to ? columnBoxes()[was.column] : undefined;
-    const own = column ? panelBoxes(column)[was!.at]?.getBoundingClientRect() : undefined;
-    landed = was?.to && own ? landing(measured(), was.to, own, stacked()) : null;
-  });
-
   /** A column's width share as shown: the one being dragged to, while it is. */
   const widthOf = (place: number, width: number) => (sharing?.column === null ? (sharing.shares[place] ?? width) : width);
   const heightOf = (place: number, at: number, height: number) => (sharing?.column === place ? (sharing.shares[at] ?? height) : height);
   /** Whether the view can be arranged on: only the live view, of a package. */
   const onView = $derived(arranging && packageId !== null && packageId !== undefined && replay === null);
+
+  /**
+   * Each column and panel slid from where it was to where it is now, when
+   * an arrangement shown while arranging changes: a panel carried to a new
+   * place, dropped, or moved by the keyboard. A panel slides within its
+   * column, which slides itself, so nothing is drawn outside its column;
+   * not at all where the operator asked for less motion.
+   */
+  const SLIDE_MS = 150;
+  let wereAt = new Map<string, DOMRect>();
+  const placesNow = () =>
+    new Map([...(grid?.querySelectorAll<HTMLElement>("[data-key]") ?? [])].map((each) => [each.dataset.key!, each.getBoundingClientRect()]));
+  $effect.pre(() => {
+    void shown;
+    wereAt = untrack(() => (onView ? placesNow() : new Map()));
+  });
+  $effect(() => {
+    void shown;
+    untrack(slide);
+  });
+  function slide() {
+    const were = wereAt;
+    wereAt = new Map();
+    if (were.size === 0 || !grid || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+    const elements = [...grid.querySelectorAll<HTMLElement>("[data-key]")];
+    // Each from where it shows now, mid-slide or not; then all measured at once.
+    for (const element of elements) {
+      for (const running of element.getAnimations?.() ?? []) {
+        running.cancel();
+      }
+    }
+    const now = placesNow();
+    for (const element of elements) {
+      const key = element.dataset.key!;
+      const [was, is] = [were.get(key), now.get(key)];
+      if (!was || !is || typeof element.animate !== "function") {
+        continue;
+      }
+      const column = element.classList.contains("panel") ? element.parentElement?.dataset.key : undefined;
+      const [columnWas, columnIs] = column ? [were.get(column), now.get(column)] : [undefined, undefined];
+      const x = was.left - is.left - (columnWas && columnIs ? columnWas.left - columnIs.left : 0);
+      const y = was.top - is.top - (columnWas && columnIs ? columnWas.top - columnIs.top : 0);
+      if (Math.abs(x) >= 1 || Math.abs(y) >= 1) {
+        element.animate([{ translate: `${x}px ${y}px` }, { translate: "0 0" }], { duration: SLIDE_MS, easing: "ease-out" });
+      }
+    }
+  }
 
   /** Whether the view is held at `cursorMs` rather than following now. */
   let paused = $state(false);
@@ -1148,7 +1279,7 @@
         // Its own change: the camera stays where it is rather than being placed again.
         view.from = JSON.stringify(left);
         view.placed = true;
-        arrange(withView(editing(), slot.column, slot.at, left));
+        arrange(withView(editing(), slot.column(), slot.at(), left));
       });
       return view;
     };
@@ -1279,7 +1410,7 @@
     };
     frameNow = () => frameBox([...views.values()]);
     frameSlot = (column, at) => {
-      const view = [...views.values()].find(({ slot }) => slot.column === column && slot.at === at);
+      const view = [...views.values()].find(({ slot }) => slot.column() === column && slot.at() === at);
       if (view) {
         frameBox([view]);
       }
@@ -1405,8 +1536,9 @@
           place(view);
         }
         const column = slot.element.closest(".column");
+        // A panel carried is shown by its shadow where it would land, the robot not drawn in it; its camera kept for the drop.
         const boxes =
-          area && area.width > 0 && area.height > 0
+          area && area.width > 0 && area.height > 0 && !slot.element.closest(".shadow")
             ? boxesOf(slot.element.getBoundingClientRect(), column ? [column.getBoundingClientRect()] : [], area)
             : null;
         const reshaped = !sameBoxes(boxes, view.boxes);
@@ -1750,12 +1882,12 @@
   class="columns"
   class:on-view={onView}
   class:carrying={carried !== null}
-  class:drop-last={dropsBetween(columns.length)}
   role="group"
   aria-label="The view's panels"
   bind:this={grid}
 >
-  {#each columns as column, place (place)}
+  <!-- By key, so a panel moving while arranging keeps what shows it, and slides. -->
+  {#each shown as column, place (column.key)}
     {#if onView && place > 0}
       <!-- A focusable separator with a value is ARIA's window splitter, a widget of its own, which these checks don't know. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -1765,7 +1897,7 @@
         tabindex="0"
         aria-orientation="vertical"
         aria-label={`Between columns ${place} and ${place + 1}`}
-        aria-valuenow={widthOf(place - 1, columns[place - 1]!.width)}
+        aria-valuenow={widthOf(place - 1, shown[place - 1]!.width)}
         aria-valuemin={1}
         aria-valuemax={MAX_SHARE}
         onpointerdown={(event) => grab(event, null, place - 1)}
@@ -1775,8 +1907,9 @@
         onkeydown={(event) => nudge(event, null, place - 1)}
       ></div>
     {/if}
-    <div class={`column grow-${widthOf(place, column.width)}`} class:drop-new={dropsBetween(place)} class:drop-end={dropsBefore(place, column.panels.length)}>
-      {#each column.panels as panel, at (at)}
+    <div class={`column grow-${widthOf(place, column.width)}`} data-key={column.key}>
+      {#each column.panels as entry, at (entry.key)}
+        {@const panel = entry.panel}
         {#if onView && at > 0}
           <!-- A focusable separator with a value is ARIA's window splitter, a widget of its own, which these checks don't know. -->
           <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -1785,8 +1918,8 @@
             role="separator"
             tabindex="0"
             aria-orientation="horizontal"
-            aria-label={`Between ${inWords(column.panels[at - 1]!)} and ${inWords(panel)}`}
-            aria-valuenow={heightOf(place, at - 1, column.panels[at - 1]!.height)}
+            aria-label={`Between ${inWords(column.panels[at - 1]!.panel)} and ${inWords(panel)}`}
+            aria-valuenow={heightOf(place, at - 1, column.panels[at - 1]!.panel.height)}
             aria-valuemin={1}
             aria-valuemax={MAX_SHARE}
             onpointerdown={(event) => grab(event, place, at - 1)}
@@ -1799,8 +1932,8 @@
         <div
           class={`panel grow-${heightOf(place, at, panel.height)}`}
           class:camera={panel.kind === "camera"}
-          class:drop-before={dropsBefore(place, at)}
-          class:carried={carried?.column === place && carried.at === at}
+          class:shadow={entry.carried}
+          data-key={entry.key}
         >
           {#if onView}
             <div class="grip-bar">
@@ -1819,9 +1952,6 @@
                   aria-label={`Drag ${inWords(panel)} to another place`}
                   title="Drag to another place, or move it with the arrow keys; click its name, or press Enter, to give it a title"
                   onpointerdown={(event) => carry(event, place, at)}
-                  onpointermove={carrying}
-                  onpointerup={drop}
-                  onpointercancel={() => (carried = null)}
                   onclick={() => startTitling(place, at)}
                   onkeydown={(event) => void step(event, place, at)}><Icon name="grip" /><span>{titled(panel)}</span></button
                 >
@@ -1845,13 +1975,13 @@
               </p>
             </div>
           {:else if panel.kind === "robot"}
-            {@const first = firstRobot?.column === place && firstRobot.at === at}
+            {@const first = firstRobot === entry.key}
             {@const data = first ? liveData : {}}
             <div
               class="slot live"
               title={first ? "Live view of the robot" : "Another view of the robot"}
               {...data}
-              {@attach robotSlot(place, at, () => panel.view)}
+              {@attach robotSlot(() => place, () => at, () => panel.view)}
             >
               <div class="orbit"></div>
               {@render robotView(first, place, at)}
@@ -1897,31 +2027,32 @@
     </div>
   {/each}
 </div>
-<!-- Over the view while arranging, in the page's own pixels: the steps an edge dragged moves in, and where a panel carried would land. -->
-{#if ruler || landed}
+<!-- Over the view while an edge is dragged, in the page's own pixels: the steps it moves in. -->
+{#if ruler}
+  {@const [from, to] = ruler.span}
   <svg class="guides" aria-hidden="true">
-    {#if landed}
-      <rect class="landing" x={landed.left} y={landed.top} width={landed.right - landed.left} height={landed.bottom - landed.top} />
-    {/if}
-    {#if ruler}
-      {@const [from, to] = ruler.span}
-      {#if ruler.across}
-        <line class="ruler" x1={from} x2={to} y1={ruler.at} y2={ruler.at} />
-        {#each ruler.ticks as tick, index (index)}
-          <line class="tick" x1={tick} x2={tick} y1={ruler.at - 6} y2={ruler.at + 6} />
-        {/each}
-      {:else}
-        <line class="ruler" x1={ruler.at} x2={ruler.at} y1={from} y2={to} />
-        {#each ruler.ticks as tick, index (index)}
-          <line class="tick" x1={ruler.at - 6} x2={ruler.at + 6} y1={tick} y2={tick} />
-        {/each}
-      {/if}
+    {#if ruler.across}
+      <line class="ruler" x1={from} x2={to} y1={ruler.at} y2={ruler.at} />
+      {#each ruler.ticks as tick, index (index)}
+        <line class="tick" x1={tick} x2={tick} y1={ruler.at - 6} y2={ruler.at + 6} />
+      {/each}
+    {:else}
+      <line class="ruler" x1={ruler.at} x2={ruler.at} y1={from} y2={to} />
+      {#each ruler.ticks as tick, index (index)}
+        <line class="tick" x1={ruler.at - 6} x2={ruler.at + 6} y1={tick} y2={tick} />
+      {/each}
     {/if}
   </svg>
-{/if}
-{#if ruler}
   <!-- The separator says the share before it as its value; this is the same, seen. -->
   <p class="shares-said" aria-hidden="true" bind:this={saidBox}>{ruler.said}</p>
+{/if}
+{#if carried}
+  {@const panel = columns[carried.column]?.panels[carried.at]}
+  <!-- The panel carried, see-through, under the pointer: its header on its
+       frame, light to move whatever it shows (a robot's view, a camera). -->
+  <div class="carried-copy" aria-hidden="true" bind:this={copyBox}>
+    {#if panel}<p class="grip"><Icon name="grip" /><span>{titled(panel)}</span></p>{/if}
+  </div>
 {/if}
 <Timeline
   {paused}
@@ -2119,22 +2250,33 @@
   .carrying .grip {
     cursor: grabbing;
   }
-  .panel.carried {
-    opacity: 0.45;
+  /* The panel carried, in the place dropping it now gives it, as large as
+     it will be there: shaded, what it shows kept but hidden until the drop. */
+  .on-view .panel.shadow {
+    outline: 2px dashed var(--accent);
+    outline-offset: -2px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
-  /* Where the panel carried would go: before a panel, at a column's end,
-     or as a new column beside one. */
-  .panel.drop-before {
-    box-shadow: 0 -3px 0 var(--accent);
+  .panel.shadow > :global(*) {
+    visibility: hidden;
   }
-  .column.drop-end {
-    box-shadow: inset 0 -3px 0 var(--accent);
+  /* Its copy under the pointer: see-through, its header on a plain frame. */
+  .carried-copy {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 30;
+    box-sizing: border-box;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--panel) 70%, transparent);
+    box-shadow: var(--shadow-floating);
+    opacity: 0.85;
+    pointer-events: none;
   }
-  .column.drop-new {
-    box-shadow: -3px 0 0 var(--accent);
-  }
-  .columns.drop-last > .column:last-of-type {
-    box-shadow: 3px 0 0 var(--accent);
+  .carried-copy .grip {
+    width: fit-content;
+    cursor: grabbing;
   }
   /* Drawn over the view while arranging, never in the pointer's way. */
   .guides {
@@ -2156,13 +2298,6 @@
   }
   .guides .tick {
     stroke-width: 2;
-  }
-  .guides .landing {
-    fill: color-mix(in srgb, var(--accent) 12%, transparent);
-    stroke: var(--accent);
-    stroke-width: 2;
-    stroke-dasharray: 6 4;
-    rx: var(--radius);
   }
   .shares-said {
     position: fixed;
@@ -2202,18 +2337,6 @@
       width: 0.5rem;
       height: auto;
       cursor: col-resize;
-    }
-    .panel.drop-before {
-      box-shadow: -3px 0 0 var(--accent);
-    }
-    .column.drop-end {
-      box-shadow: inset -3px 0 0 var(--accent);
-    }
-    .column.drop-new {
-      box-shadow: 0 -3px 0 var(--accent);
-    }
-    .columns.drop-last > .column:last-of-type {
-      box-shadow: 0 3px 0 var(--accent);
     }
   }
   /* As on a tablet, too narrow for a camera beside plots: each camera on a

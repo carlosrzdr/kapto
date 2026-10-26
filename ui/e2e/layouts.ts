@@ -49,6 +49,15 @@ export async function forgetLayouts(page: Page): Promise<void> {
 }
 
 /**
+ * Waits until the view's columns and panels have slid to where an
+ * arrangement puts them, so what is measured or pressed next is where it
+ * stays.
+ */
+export async function settled(page: Page): Promise<void> {
+  await page.waitForFunction(() => [...document.querySelectorAll("[data-key]")].every((each) => each.getAnimations().length === 0));
+}
+
+/**
  * Opens Arrange with its editor folded to its bar, as an operator does to
  * reach the panels the editor floats over, when nothing in it is needed.
  */

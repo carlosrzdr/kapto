@@ -104,7 +104,7 @@ test("a screenshot of each tab and state while Kapto runs", async ({ page }) => 
   await page.getByRole("button", { name: "Arrange" }).click();
   await page.waitForTimeout(500);
   await shot(page, "live-arrange");
-  // A panel carried by its grip: where it would go is marked.
+  // A panel carried by its grip: a copy of it under the pointer, the others making room for it.
   const grips = page.getByRole("button", { name: /^Drag the .* to another place$/ });
   const grip = await grips.first().boundingBox();
   const target = await grips.last().boundingBox();
@@ -609,7 +609,7 @@ test("a screenshot of a column of more plots than fit, two of them resized by th
   nothingLeft();
 });
 
-test("a screenshot of the shares an edge gives while dragged, and of where a panel carried would land", async ({ page }) => {
+test("a screenshot of the shares an edge gives while dragged, and of a panel carried, the others making room for it", async ({ page }) => {
   test.setTimeout(180_000);
   const nothingLeft = await open(page);
   await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
@@ -654,12 +654,15 @@ test("a screenshot of the shares an edge gives while dragged, and of where a pan
     const box = await robot();
     return { x: box.x + box.width * across, y: box.y + box.height * down };
   };
+  // Just lifted, its copy under the pointer over its own place; then carried under the robot, and to its left.
+  await holding(grip, async (at) => ({ x: at.x + 90, y: at.y + 70 }), "live-arrange-carrying-lifted");
   await holding(grip, () => into(0.5, 0.9), "live-arrange-carrying");
   await holding(grip, () => into(0.02, 0.5), "live-arrange-carrying-new-column");
 
   // At a tablet's width, the columns one under another: the same, turned.
   await page.setViewportSize({ width: 1024, height: 768 });
   await holding(columns, async (at) => ({ x: at.x + 80, y: at.y - 90 }), "tablet-live-arrange-edge-dragging");
+  await holding(grip, () => into(0.9, 0.5), "tablet-live-arrange-carrying");
   await forgetLayouts(page);
   nothingLeft();
 });

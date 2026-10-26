@@ -551,7 +551,15 @@ the millimetre; turned while only looking, the layout stays as it was. An
 operator arranges their own view with *Arrange*, on the view itself: a
 panel dragged by its grip into any column or beside one as a new column,
 an edge between two columns or panels dragged to share the room anew, each
-by the arrow keys too; saved as the same whole shares of 1 to 12; a
+by the arrow keys too; saved as the same whole shares of 1 to 12. A panel
+carried follows the pointer as a see-through copy of its frame and title,
+while the others slide (150 ms, none where less motion is asked for) into
+the arrangement dropping it there would give, its place shaded at the size
+it will take; where it goes is worked out from the panels as they stood
+when it was lifted, so nothing is measured as it moves, and Escape puts
+everything back. Each panel is kept by a key as it moves, so what shows it
+moves with it rather than being made anew, the robot's views drawn where
+their panels are each frame; the arrow keys slide them the same way. A
 panel given a title of its own by clicking its name on the grip, shown in
 place of the one made from what it shows. Its editor floats over the view
 under *Arrange*, so the columns arranged keep the width they are shown

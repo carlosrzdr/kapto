@@ -5,11 +5,14 @@ import {
   added,
   apportioned,
   editable,
+  keysAfter,
+  keysFor,
   laidOut,
   MAX_PANEL_TITLE,
   MAX_PANELS,
   MAX_ROBOT_VIEWS,
   moved,
+  NEW_COLUMN,
   nudged,
   panelCount,
   placed,
@@ -18,6 +21,8 @@ import {
   reshared,
   retitled,
   robotCount,
+  showing,
+  type ShowingColumn,
   withHeights,
   withView,
   withWidths,
@@ -158,6 +163,58 @@ describe("editing a layout", () => {
     retitled(layout, 0, 0, "Arm");
     withView(layout, 0, 0, { from: [1, 0, 1], at: [0, 0, 0] });
     expect(layout).toEqual(before);
+  });
+});
+
+describe("the view while a panel is carried", () => {
+  const keys = keysFor(layout, null);
+  /** Each column shown as its panels' kinds, the one carried as its shadow. */
+  const seen = (columns: ShowingColumn<{ kind: string }>[]) =>
+    columns.map((column) => column.panels.map(({ panel, carried }) => (carried ? `(${panel.kind})` : panel.kind)));
+
+  it("shows the panels as they are, by keys that follow the layout's shape", () => {
+    expect(seen(showing(layout.columns, keys, null))).toEqual([["robot"], ["camera", "plot"]]);
+    expect(keys.columns.map((column) => column.panels)).toEqual([["p0.0"], ["p1.0", "p1.1"]]);
+    // The same shape keeps the keys it had, with the layout's widths; another shape is keyed anew.
+    const kept = { columns: [{ key: "a", width: 1, panels: ["x"] }, { key: "b", width: 1, panels: ["y", "z"] }] };
+    expect(keysFor(withWidths(layout, [4, 5]), kept)).toEqual({ columns: [{ ...kept.columns[0], width: 4 }, { ...kept.columns[1], width: 5 }] });
+    expect(keysFor(removed(layout, 1, 0), kept).columns.map((column) => column.panels)).toEqual([["p0.0"], ["p1.0"]]);
+  });
+
+  it("lays the others out as dropping it now would, the one carried in its place", () => {
+    // Up its own column: the camera under it.
+    expect(seen(showing(layout.columns, keys, { column: 1, at: 1, to: { column: 1, at: 0 } }))).toEqual([["robot"], ["(plot)", "camera"]]);
+    // Into another column, which takes the room its own column leaves.
+    expect(seen(showing(layout.columns, keys, { column: 0, at: 0, to: { column: 1, at: 1 } }))).toEqual([["camera", "(robot)", "plot"]]);
+    // As a new column, as wide as the narrowest beside it, keyed as new.
+    const apart = showing(layout.columns, keys, { column: 1, at: 0, to: { between: 0 } });
+    expect(seen(apart)).toEqual([["(camera)"], ["robot"], ["plot"]]);
+    expect(apart.map((column) => [column.key, column.width])).toEqual([[NEW_COLUMN, 3], ["c0", 3], ["c1", 2]]);
+    // Not yet anywhere, or where it was: as they are.
+    expect(seen(showing(layout.columns, keys, { column: 1, at: 0, to: null }))).toEqual([["robot"], ["(camera)", "plot"]]);
+    expect(seen(showing(layout.columns, keys, { column: 0, at: 0, to: { between: 1 } }))).toEqual([["(robot)"], ["camera", "plot"]]);
+  });
+
+  it("arranges as the drop does, each panel keeping its key, a column made new given one", () => {
+    for (const to of [{ column: 0, at: 0 }, { column: 1, at: 2 }, { between: 0 }, { between: 2 }] as const) {
+      const dropped = placed(layout, 1, 0, to);
+      const shownThen = showing(layout.columns, keys, { column: 1, at: 0, to });
+      expect(seen(shownThen).map((column) => column.map((kind) => kind.replace(/[()]/g, "")))).toEqual(kinds(dropped));
+      // After the drop, the keys follow the panels to where they were shown.
+      let made = 0;
+      const after = keysAfter(keys, (each) => placed(each, 1, 0, to), () => `n${(made += 1)}`);
+      expect(showing(dropped.columns, keysFor(dropped, after), null).map((column) => column.panels.map((each) => each.key))).toEqual(
+        shownThen.map((column) => column.panels.map((each) => each.key)),
+      );
+      expect(after.columns.every((column) => column.key !== NEW_COLUMN && column.key !== undefined)).toBe(true);
+    }
+  });
+
+  it("keeps each panel's key as the keyboard moves it", () => {
+    const after = keysAfter(keys, (each) => moved(each, 1, 1, "left"), () => "n1");
+    expect(after.columns.map((column) => column.panels)).toEqual([["p0.0", "p1.1"], ["p1.0"]]);
+    expect(keysAfter(keys, (each) => moved(each, 0, 0, "right"), () => "n1").columns.map((column) => column.key)).toEqual(["c1"]);
+    expect(keysAfter(keys, (each) => moved(each, 1, 1, "right"), () => "n1").columns.map((column) => column.key)).toEqual(["c0", "c1", "n1"]);
   });
 });
 

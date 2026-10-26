@@ -6,7 +6,7 @@ import { changedShare, drawnShare, pictureOf, robotSpan } from "./drawn";
 import { fitsPanel } from "./fits";
 import { requestsLeavingTheMachine } from "./local-only";
 import { choose } from "./controls";
-import { arrangeFolded, type Column, forgetLayouts, savedLayout, savedLayouts, showLayout } from "./layouts";
+import { arrangeFolded, type Column, forgetLayouts, savedLayout, savedLayouts, settled, showLayout } from "./layouts";
 
 const open = (page: Page, tab: RegExp) => page.getByRole("tab", { name: tab }).click();
 
@@ -1489,6 +1489,7 @@ test("the operator arranges the view by dragging its panels and the edges betwee
     await page.mouse.down();
     await page.mouse.move(to.x, to.y, { steps: 8 });
     await page.mouse.up();
+    await settled(page);
   };
   const middle = (box: { x: number; y: number; width: number; height: number } | null) => ({
     x: (box?.x ?? 0) + (box?.width ?? 0) / 2,
@@ -1554,6 +1555,122 @@ test("the operator arranges the view by dragging its panels and the edges betwee
   await page.getByRole("button", { name: "Move to the left" }).click();
   await panels.getByRole("button", { name: "Remove the plot of role:gripper.opening" }).click();
   await expect.poll(kinds).toEqual([["events"], ["robot"]]);
+  await forgetLayouts(page);
+});
+
+test("a panel carried follows the pointer, the others making room for it before the drop, Escape putting them back, the keyboard sliding them too", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Arrange" })).toBeVisible({ timeout: 20_000 });
+  const panel = (kind: string, more: object = {}) => ({ kind, height: 1, fields: [], ...more });
+  const id = await showLayout(page, "Carried", [
+    { width: 1, panels: [panel("robot")] },
+    { width: 1, panels: [panel("plot", { fields: ["role:gripper.opening"] }), panel("events")] },
+  ]);
+  const kinds = async () => (await savedLayout(page, id)).map((column) => column.panels.map((each) => each.kind));
+  await arrangeFolded(page);
+  const panels = page.getByRole("group", { name: "The view's panels" });
+  /** The panels as the page shows them now, column by column, the one carried in brackets where it would land. */
+  const shown = () =>
+    panels.evaluate((group) =>
+      [...group.querySelectorAll(":scope > .column")].map((column) =>
+        [...column.querySelectorAll(":scope > .panel")].map((each) => {
+          const kind = /^Drag the (\w+)/.exec(each.querySelector(".grip:not(.remove)")?.getAttribute("aria-label") ?? "")?.[1] ?? "?";
+          return each.classList.contains("shadow") ? `(${kind})` : kind;
+        }),
+      ),
+    );
+  // Every slide the page starts, by the key of what slides.
+  await page.evaluate(() => {
+    const slid: string[] = [];
+    (window as unknown as { slid: string[] }).slid = slid;
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (this: HTMLElement, ...given: Parameters<Element["animate"]>) {
+      slid.push(this.dataset.key ?? "");
+      return animate.apply(this, given);
+    };
+  });
+  const slides = () => page.evaluate(() => (window as unknown as { slid: string[] }).slid.length);
+  const middle = (box: { x: number; y: number; width: number; height: number } | null) => ({
+    x: (box?.x ?? 0) + (box?.width ?? 0) / 2,
+    y: (box?.y ?? 0) + (box?.height ?? 0) / 2,
+  });
+  const robot = panels.locator(".panel").filter({ has: page.getByRole("button", { name: "Drag the robot panel to another place" }) });
+  const grip = panels.getByRole("button", { name: "Drag the events panel to another place" });
+  const copy = page.locator(".carried-copy");
+  const tall = (await robot.boundingBox())!;
+  const under = { x: tall.x + tall.width / 2, y: tall.y + tall.height * 0.9 };
+
+  // Held and carried under the robot: a see-through copy of it under the
+  // pointer, the robot making room for it and the plot taking its
+  // column, before anything is let go of or saved.
+  const from = middle(await grip.boundingBox());
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(under.x, under.y, { steps: 8 });
+  await expect(copy).toBeVisible();
+  await expect(copy).toContainText("Marks");
+  const held = (await copy.boundingBox())!;
+  expect(under.x).toBeGreaterThan(held.x);
+  expect(under.x).toBeLessThan(held.x + held.width);
+  expect(under.y).toBeGreaterThan(held.y);
+  expect(under.y).toBeLessThan(held.y + held.height);
+  await expect.poll(shown).toEqual([["robot", "(events)"], ["plot"]]);
+  expect((await robot.boundingBox())!.height).toBeLessThan(tall.height * 0.75);
+  expect(await slides()).toBeGreaterThan(0);
+  expect(await kinds()).toEqual([["robot"], ["plot", "events"]]);
+
+  // Escape puts everything back, and letting go after changes nothing.
+  await page.keyboard.press("Escape");
+  await expect(copy).toHaveCount(0);
+  await expect.poll(shown).toEqual([["robot"], ["plot", "events"]]);
+  await page.mouse.up();
+  expect(await kinds()).toEqual([["robot"], ["plot", "events"]]);
+  await expect(page.getByRole("button", { name: "Arrange" })).toHaveAttribute("aria-pressed", "true");
+  await settled(page);
+
+  // Carried there again and dropped: it lands as it was shown.
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(under.x, under.y, { steps: 8 });
+  await expect.poll(shown).toEqual([["robot", "(events)"], ["plot"]]);
+  await page.mouse.up();
+  await expect(copy).toHaveCount(0);
+  await expect.poll(shown).toEqual([["robot", "events"], ["plot"]]);
+  await expect.poll(kinds).toEqual([["robot", "events"], ["plot"]]);
+
+  // By the keyboard, the panels slide to each new place the same way.
+  const before = await slides();
+  await panels.getByRole("button", { name: "Drag the events panel to another place" }).focus();
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(kinds).toEqual([["events", "robot"], ["plot"]]);
+  expect(await slides()).toBeGreaterThan(before);
+  // Not where the operator asked for less motion.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const still = await slides();
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(kinds).toEqual([["robot", "events"], ["plot"]]);
+  expect(await slides()).toBe(still);
+  await page.emulateMedia({ reducedMotion: null });
+  await settled(page);
+
+  // At a tablet's width, the columns one under another, the same turned:
+  // the plot carried to the right of the robot, its row making room.
+  const viewport = page.viewportSize();
+  await page.setViewportSize({ width: 1024, height: 768 });
+  const row = (await robot.boundingBox())!;
+  const plot = middle(await panels.getByRole("button", { name: "Drag the plot of role:gripper.opening to another place" }).boundingBox());
+  await page.mouse.move(plot.x, plot.y);
+  await page.mouse.down();
+  await page.mouse.move(row.x + row.width * 0.9, row.y + row.height / 2, { steps: 8 });
+  await expect.poll(shown).toEqual([["robot", "(plot)", "events"]]);
+  expect((await robot.boundingBox())!.width).toBeLessThan(row.width * 0.75);
+  await page.mouse.up();
+  await expect.poll(kinds).toEqual([["robot", "plot", "events"]]);
+  if (viewport) {
+    await page.setViewportSize(viewport);
+  }
   await forgetLayouts(page);
 });
 

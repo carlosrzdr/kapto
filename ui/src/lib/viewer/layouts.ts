@@ -70,7 +70,7 @@ export function panelCount(layout: LayoutInput): number {
 
 // Through JSON rather than structuredClone: a layout from the page's state
 // holds its proxies, which can't be cloned.
-const copy = (layout: LayoutInput): LayoutInput => JSON.parse(JSON.stringify(layout)) as LayoutInput;
+const copy = <L>(layout: L): L => JSON.parse(JSON.stringify(layout)) as L;
 const clamp = (value: number) => Math.min(MAX_SHARE, Math.max(1, value));
 
 /** How many robot panels `layout` has. */
@@ -152,10 +152,19 @@ export function removed(layout: LayoutInput, column: number, place: number): Lay
 export type Move = "up" | "down" | "left" | "right";
 
 /**
+ * Columns of panels, whatever a panel is: a layout's, or the keys the page
+ * knows its panels by, which move as they do. A column made new has only
+ * its width and its panels.
+ */
+export interface Arrangement {
+  columns: { width: number; panels: unknown[] }[];
+}
+
+/**
  * `layout` with the panel at `place` of `column` moved: up or down its
  * column, or to the end of the column beside it (a new one past the last).
  */
-export function moved(layout: LayoutInput, column: number, place: number, move: Move): LayoutInput {
+export function moved<L extends Arrangement>(layout: L, column: number, place: number, move: Move): L {
   const next = copy(layout);
   const from = next.columns[column];
   const panel = from?.panels[place];
@@ -177,7 +186,7 @@ export function moved(layout: LayoutInput, column: number, place: number, move: 
   }
   from.panels.splice(place, 1);
   if (to >= next.columns.length) {
-    next.columns.push({ width: 1, panels: [] });
+    next.columns.push({ width: 1, panels: [] } as L["columns"][number]);
   }
   next.columns[to]!.panels.push(panel);
   next.columns = next.columns.filter((each) => each.panels.length > 0);
@@ -192,7 +201,7 @@ export type Place = { column: number; at: number } | { between: number };
  * is dragged: a column it leaves empty goes, and a new one is as wide as
  * the narrowest beside it.
  */
-export function placed(layout: LayoutInput, column: number, at: number, to: Place): LayoutInput {
+export function placed<L extends Arrangement>(layout: L, column: number, at: number, to: Place): L {
   const next = copy(layout);
   const panel = next.columns[column]?.panels[at];
   if (!panel) {
@@ -207,7 +216,7 @@ export function placed(layout: LayoutInput, column: number, at: number, to: Plac
     const beside = [next.columns[between - 1], next.columns[between]].filter((each) => each !== undefined);
     const width = Math.min(...beside.map((each) => each.width));
     next.columns[column]!.panels.splice(at, 1);
-    next.columns.splice(between, 0, { width, panels: [panel] });
+    next.columns.splice(between, 0, { width, panels: [panel] } as L["columns"][number]);
   } else {
     const into = next.columns[to.column];
     if (!into) {
@@ -223,6 +232,80 @@ export function placed(layout: LayoutInput, column: number, at: number, to: Plac
   }
   next.columns = next.columns.filter((each) => each.panels.length > 0);
   return next;
+}
+
+/**
+ * The keys the page knows a view's columns and panels by, in the layout's
+ * shape: each kept with its panel as it moves, so the page moves what
+ * shows it rather than making it anew, and slides it from where it was.
+ */
+export interface Keys {
+  columns: { key: string; width: number; panels: string[] }[];
+}
+
+/**
+ * `kept` while `layout` has its shape, with `layout`'s widths; otherwise
+ * keys by place, the same each time for the same shape.
+ */
+export function keysFor(layout: Arrangement, kept: Keys | null): Keys {
+  const same =
+    kept?.columns.length === layout.columns.length &&
+    kept.columns.every((column, place) => column.panels.length === layout.columns[place]!.panels.length);
+  return {
+    columns: layout.columns.map((column, place) => ({
+      key: same ? kept.columns[place]!.key : `c${place}`,
+      width: column.width,
+      panels: column.panels.map((_, at) => (same ? kept.columns[place]!.panels[at]! : `p${place}.${at}`)),
+    })),
+  };
+}
+
+/** `keys` changed as their layout is, by the same function: a column made new keyed by `fresh`. */
+export function keysAfter(keys: Keys, change: (keys: Keys) => Keys, fresh: () => string): Keys {
+  const next = change(keys);
+  // A column made new has only its width and panels.
+  return { columns: next.columns.map((column) => ({ ...column, key: (column.key as string | undefined) ?? fresh() })) };
+}
+
+/** A panel as the page shows it while arranging: by its key, and whether it is the one carried, shown where it would land. */
+export interface Showing<P> {
+  panel: P;
+  key: string;
+  carried: boolean;
+}
+
+/** A column as the page shows it while arranging. */
+export interface ShowingColumn<P> {
+  key: string;
+  width: number;
+  panels: Showing<P>[];
+}
+
+/** The key of the column a panel carried would make, while it would. */
+export const NEW_COLUMN = "new";
+
+/**
+ * `columns` as the page shows them, by `keys`: as they are, or, while the
+ * panel at `at` of `column` is carried, as dropping it at `to` would
+ * arrange them, by the same rules as the drop ([`placed`]), the one carried
+ * in the place it would take.
+ */
+export function showing<P>(
+  columns: { panels: P[] }[],
+  keys: Keys,
+  carried: { column: number; at: number; to: Place | null } | null,
+): ShowingColumn<P>[] {
+  const panels = new Map(keys.columns.flatMap((column, place) => column.panels.map((key, at) => [key, columns[place]?.panels[at]] as const)));
+  const carriedKey = carried ? keys.columns[carried.column]?.panels[carried.at] : undefined;
+  const arranged = carried?.to ? placed(keys, carried.column, carried.at, carried.to) : keys;
+  return arranged.columns.map((column) => ({
+    key: (column.key as string | undefined) ?? NEW_COLUMN,
+    width: column.width,
+    panels: column.panels.flatMap((key) => {
+      const panel = panels.get(key);
+      return panel === undefined ? [] : [{ panel, key, carried: key === carriedKey }];
+    }),
+  }));
 }
 
 /**
