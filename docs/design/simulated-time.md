@@ -69,17 +69,26 @@ is the record of the simulation's time.
 clock's messages.** Each message pairs the time Kapto received it with
 the simulated time it carries; between two messages, simulated time is
 taken to move as it did between them. Where it doesn't move, the
-simulation was paused or waiting to be stepped. Where it goes back by
-more than a tick, the simulation was reset: the mapping starts a new
-segment there, rather than calling the clock broken. The mapping is worked
+simulation was paused or waiting to be stepped; so it was too where its
+clock fell silent for many times longer than it usually waits between
+messages and came back no more than a tick on, as a simulation that
+publishes its clock only while it plays does when paused. Where it goes
+back by more than a tick, the simulation was reset: the mapping starts a
+new segment there, rather than calling the clock broken; a smaller step
+back is a message out of order, left out. The mapping is worked
 out wherever it is needed: by the worker once the episode is finalised,
 by the server for a replay, by the viewer's bridge live from the newest
 clock messages.
 
-**`episode.json` says how the simulation ran**, in an optional
-`simulated` object written once the episode is finalised: its simulated
-start, end and duration, the ratio of simulated to real time, each pause
-and each reset with when it happened. The schema only gains it.
+**The episode's runtime state says how the simulation ran**, worked out
+by the worker once the episode is finalised, from the values its quality
+checks read of the recording, kept in `kapto.db` and given by the API
+with the episode: its simulated start, end and duration, the ratio of
+simulated to real time while it ran, each pause and each reset with when
+it happened. `episode.json` doesn't change: it is hashed in the manifest
+before `_FINALISED`, and nothing may change it after. An uploaded episode
+doesn't carry it; it is worked out again from the recording wherever it
+is needed.
 
 **Rates are judged in simulated time.** With the role given, pre-flight's
 rate check, the rate checks and the loss estimated from silences count a
@@ -134,3 +143,8 @@ from the newest clock message, and says when it is paused.
 - **The mapping written into the recording when it is finalised.** It
   repeats what the clock's channel holds, and the recording is closed by
   then.
+- **How the simulation ran in `episode.json`.** Written as the episode
+  closes, it would mean reading the whole recording back on capture's
+  side, every camera frame decompressed for a clock's messages, before
+  the episode is finalised; written after, it would change a file the
+  manifest vouches for.
