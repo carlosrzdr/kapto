@@ -17,11 +17,11 @@ use std::path::PathBuf;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use kapto_capture::StreamIndex;
 use kapto_capture::control::{Pending, Response};
 use kapto_capture::preflight::{
     Measured, Needs, RouterSeen, StreamSeen, WRITE_TEST_BYTES, evaluate, write_speed,
 };
+use kapto_capture::{SimulatedNow, StreamIndex};
 use kapto_config::{DeploymentConfig, PreflightFailures, StreamDeclaration};
 use kapto_core::clock::utc_now_ns;
 use kapto_core::{ErrorCode, KaptoError, say, utc_iso8601};
@@ -55,6 +55,8 @@ struct Run {
     began: Duration,
     /// Each stream's messages received when it began.
     received: Vec<u64>,
+    /// The simulation's time when it began, if followed and known.
+    simulated_ns: Option<u64>,
     /// The disk test, or why it couldn't start.
     write: Result<JoinHandle<io::Result<f64>>, String>,
     /// Over Zenoh, trying the router: where, and how it went.
@@ -132,6 +134,7 @@ impl Preflight {
         self.run = Some(Run {
             began: elapsed,
             received: live.streams().map(|(_, totals)| totals.received).collect(),
+            simulated_ns: live.simulated.and_then(SimulatedNow::get),
             write,
             router,
         });
@@ -184,8 +187,16 @@ impl Preflight {
                 },
             )
             .collect();
+        // Across a reset, simulated time went back: nothing to judge by.
+        let simulated = live
+            .simulated
+            .and_then(SimulatedNow::get)
+            .zip(run.simulated_ns)
+            .and_then(|(now, began)| now.checked_sub(began))
+            .map(Duration::from_nanos);
         let measured = Measured {
             window,
+            simulated,
             streams,
             free_bytes: kapto_capture::disk::free_bytes(&self.folder).map_err(|e| e.to_string()),
             write_bytes_per_second,

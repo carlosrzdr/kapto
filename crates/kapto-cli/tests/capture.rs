@@ -1393,6 +1393,75 @@ fn a_cameras_frames_on_their_way_to_the_live_view_are_counted_in_the_status() {
     assert!(capture.stop().status.success());
 }
 
+/// Pre-flight's failed stream checks, run on demand while a simulation at
+/// half real time sends its clock and a sensor at their simulated 100 Hz,
+/// with the clock's role given or not.
+fn preflight_of_a_half_speed_simulation(name: &str, mapped: bool) -> Vec<(String, String)> {
+    let folder = scratch(name);
+    let (clock_port, sensor_port) = (free_udp_port(), free_udp_port());
+    let streams = format!(
+        "[streams.clock]\nrate_hz = 100\nudp = {{ bind = \"127.0.0.1:{clock_port}\" }}\n\
+         decoder = {{ kind = \"struct\", fields = [\
+           {{ name = \"time\", type = \"time\", offset = 0 }} ] }}\n\
+         [streams.sensor]\nrate_hz = 100\nudp = {{ bind = \"127.0.0.1:{sensor_port}\" }}\n"
+    );
+    std::fs::create_dir_all(&folder).unwrap();
+    let mapping = folder.join("mapping.toml");
+    std::fs::write(&mapping, "[roles]\n\"time.simulated\" = \"clock.time\"\n").unwrap();
+    let mut flags = vec![
+        "--capture-preflight",
+        "warn",
+        "--capture-preflight-window",
+        "2",
+    ];
+    if mapped {
+        flags.extend(["--mapping", mapping.to_str().unwrap()]);
+    }
+    let capture = Capture::declaring(&folder, &streams, &clock_port, &flags);
+    // The first run, at startup, saw nothing sent.
+    capture.client().ask(&Request::Preflight).unwrap();
+
+    let sending = std::thread::spawn(move || {
+        let robot = UdpSocket::bind("127.0.0.1:0").unwrap();
+        // A simulated 10 ms tick every 20 ms of real time, for 3 s.
+        for tick in 0..150_u32 {
+            let simulated = f64::from(tick) * 0.01;
+            let to = |port: &str| format!("127.0.0.1:{port}");
+            robot
+                .send_to(&simulated.to_le_bytes(), to(&clock_port))
+                .unwrap();
+            robot.send_to(&[0; 8], to(&sensor_port)).unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    let Response::Preflight(report) = capture.client().ask(&Request::Preflight).unwrap() else {
+        panic!("not a pre-flight");
+    };
+    sending.join().unwrap();
+    assert!(capture.stop().status.success());
+    report
+        .checks
+        .into_iter()
+        .filter(|check| !check.passed)
+        .map(|check| (check.code, check.stream.unwrap_or_default()))
+        .collect()
+}
+
+#[test]
+fn pre_flight_counts_a_simulations_streams_per_simulated_second_once_its_clock_is_mapped() {
+    assert_eq!(
+        preflight_of_a_half_speed_simulation("preflight-simulated", true),
+        []
+    );
+    // In real time, both send at half their rate.
+    let slow = |stream: &str| ("preflight.stream_slow".to_owned(), stream.to_owned());
+    assert_eq!(
+        preflight_of_a_half_speed_simulation("preflight-real-time", false),
+        [slow("clock"), slow("sensor")]
+    );
+}
+
 /// With failpoints set: closing an episode held, or ended as a crash
 /// would, at each of its steps.
 #[cfg(feature = "failpoints")]

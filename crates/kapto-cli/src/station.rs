@@ -291,6 +291,8 @@ pub(crate) struct Live<'a> {
     frames: Option<&'a FrameStats>,
     /// Each stream's newest decoded values, if the live view runs.
     pub(crate) latest: Option<&'a LatestValues>,
+    /// A simulation's newest time, if the live view runs and follows one.
+    pub(crate) simulated: Option<&'a SimulatedNow>,
     /// Where events go to be written into the episode's recording, while
     /// one is recorded.
     events: Option<&'a mpsc::Sender<Event>>,
@@ -815,6 +817,7 @@ impl Station {
             tap: self.tap_stats.as_deref(),
             frames: self.frame_stats.as_deref(),
             latest: self.latest.as_deref(),
+            simulated: self.simulated.as_deref(),
             kept: self.kept.held(),
             waiting: self.pre_roll.waiting(),
             post_roll: self.post_roll.clone(),

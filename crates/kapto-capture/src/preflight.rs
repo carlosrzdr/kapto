@@ -9,7 +9,9 @@
 //! - the disk takes a short written-and-flushed test file at least as fast
 //!   as the streams' rate;
 //! - over Zenoh, the router the robot's topics are found through answers;
-//! - every declared stream arrives, and at roughly its declared rate.
+//! - every declared stream arrives, and at roughly its declared rate: per
+//!   simulated second for a simulation whose time is followed, which sends
+//!   per simulated tick.
 //!
 //! The streams' rate is an upper bound: each stream's declared or measured
 //! rate, whichever is higher, times its largest message.
@@ -68,6 +70,9 @@ pub struct StreamSeen {
 pub struct Measured {
     /// How long the streams were watched.
     pub window: Duration,
+    /// How much a simulation's time moved on meanwhile, if it is followed
+    /// and ran: each stream's rate is then per simulated second.
+    pub simulated: Option<Duration>,
     /// Each declared stream.
     pub streams: Vec<StreamSeen>,
     /// Bytes free on the disk holding the recordings, or why that can't be
@@ -121,7 +126,7 @@ pub fn evaluate(measured: &Measured, needs: Needs) -> Vec<PreflightCheck> {
         measured
             .streams
             .iter()
-            .map(|seen| stream(seen, measured.window)),
+            .map(|seen| stream(seen, measured.window, measured.simulated)),
     );
     checks
 }
@@ -195,13 +200,28 @@ fn speed(measured: &Measured, rate: f64) -> PreflightCheck {
     clippy::cast_precision_loss,
     reason = "a rate needs no more than a few significant digits"
 )]
-fn stream(seen: &StreamSeen, window: Duration) -> PreflightCheck {
-    let observed = seen.received as f64 / window.as_secs_f64().max(f64::EPSILON);
-    let measured = format!(
-        "{} messages in {:.1} s, {observed:.0}/s",
-        seen.received,
-        window.as_secs_f64()
-    );
+fn stream(seen: &StreamSeen, window: Duration, simulated: Option<Duration>) -> PreflightCheck {
+    let (lasted, measured) = match simulated.filter(|simulated| !simulated.is_zero()) {
+        Some(simulated) => (
+            simulated,
+            format!(
+                "{} messages in {:.1} simulated s ({:.1} s)",
+                seen.received,
+                simulated.as_secs_f64(),
+                window.as_secs_f64()
+            ),
+        ),
+        None => (
+            window,
+            format!(
+                "{} messages in {:.1} s",
+                seen.received,
+                window.as_secs_f64()
+            ),
+        ),
+    };
+    let observed = seen.received as f64 / lasted.as_secs_f64().max(f64::EPSILON);
+    let measured = format!("{measured}, {observed:.0}/s");
     let mut check = match seen.declared_hz {
         _ if seen.received == 0 && seen.kept => check(
             ErrorCode::PreflightKeptMissing,
@@ -310,6 +330,7 @@ mod tests {
     fn measured() -> Measured {
         Measured {
             window: Duration::from_secs(2),
+            simulated: None,
             streams: vec![StreamSeen {
                 stream: "arm".into(),
                 declared_hz: Some(1000),
@@ -460,6 +481,55 @@ mod tests {
             checks[3].needed,
             "a message kept for every episode: it sends them once, to late subscribers"
         );
+    }
+
+    #[test]
+    fn a_simulation_at_half_real_time_sending_at_its_simulated_rate_passes() {
+        // 1000 messages in 2 s: 500/s in real time, 1000/s in the 1 s of
+        // simulated time that passed.
+        let mut measured = measured();
+        measured.streams[0].received = 1000;
+        assert_eq!(
+            failed(&evaluate(&measured, needs())),
+            [("preflight.stream_slow", Some("arm"))],
+            "too slow in real time"
+        );
+        measured.simulated = Some(Duration::from_secs(1));
+        let checks = evaluate(&measured, needs());
+        assert_eq!(failed(&checks), []);
+        assert_eq!(
+            checks[2].measured,
+            "1000 messages in 1.0 simulated s (2.0 s), 1000/s"
+        );
+        // The disk is still judged at the rate messages arrive at.
+        let real = evaluate(
+            &Measured {
+                simulated: None,
+                ..measured
+            },
+            needs(),
+        );
+        assert_eq!(checks[1].needed, real[1].needed);
+    }
+
+    #[test]
+    fn a_simulation_sending_slower_than_its_simulated_rate_fails() {
+        // At real time, but half its rate: 1000 messages in 2 simulated s.
+        let mut measured = measured();
+        measured.streams[0].received = 1000;
+        measured.simulated = Some(Duration::from_secs(2));
+        assert_eq!(
+            failed(&evaluate(&measured, needs())),
+            [("preflight.stream_slow", Some("arm"))]
+        );
+    }
+
+    #[test]
+    fn a_simulation_paused_throughout_is_judged_in_real_time() {
+        let mut measured = measured();
+        measured.simulated = Some(Duration::ZERO);
+        let checks = evaluate(&measured, needs());
+        assert_eq!(checks[2].measured, "2000 messages in 2.0 s, 1000/s");
     }
 
     #[test]

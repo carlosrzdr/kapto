@@ -173,8 +173,9 @@ tool and Foxglove:
 Before recording, **pre-flight** checks that this machine can record what
 the robot sends: room on the disk for `capture.preflight_disk_time` of
 recording, a written-and-flushed test file at least as fast as the streams
-send, and every declared stream arriving at roughly its declared rate. The
-capture process runs it once when it starts, watching the streams for
+send, and every declared stream arriving at roughly its declared rate,
+per simulated second for a simulation whose clock capture follows, as its
+loss accounting does. The capture process runs it once when it starts, watching the streams for
 `capture.preflight_window` while a `cap-preflight` thread writes the test
 file, and again whenever asked (`kapto episode preflight`, or `POST
 /api/preflight`), but never during an episode, whose writes the test would
