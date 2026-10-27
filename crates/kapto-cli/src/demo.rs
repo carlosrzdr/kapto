@@ -154,11 +154,11 @@ fn run(flags: &SettingFlags, args: &DemoArgs) -> Outcome<()> {
             .transpose()?;
         let served = serve::run(
             flags,
-            &RobotFiles {
+            Ok(RobotFiles {
                 robot: folder.join("urdf/arm7.urdf"),
                 streams: folder.join("streams.toml"),
                 mapping: folder.join("mapping.toml"),
-            },
+            }),
         );
         stop.store(true, Ordering::Relaxed);
         if let Ok(Err(error)) = sending.join() {

@@ -80,6 +80,13 @@ error_codes! {
         remedy: "Run the capture process and whatever controls it from the same Kapto release, and restart both after an upgrade.",
     }
 
+    /// `kapto serve` runs without a robot it can serve, so nothing is
+    /// received or recorded until the robot is fixed and serve restarted.
+    CaptureRobotInvalid = "capture.robot_invalid" {
+        summary: "The robot can't be served, so nothing is received or recorded",
+        remedy: "Fix what the robot's report lists (`errors` in `/api/robot`, shown in the web UI and printed as serve started), then restart serve. `kapto package lint` checks a package.",
+    }
+
     /// No capture process answers on the control socket.
     CaptureControlUnreachable = "capture.control_unreachable" {
         summary: "Can't reach the capture process",

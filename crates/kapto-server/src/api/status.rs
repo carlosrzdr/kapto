@@ -138,7 +138,7 @@ pub(super) async fn version() -> Json<Version> {
     path = "/api/status",
     responses(
         (status = 200, body = Status),
-        (status = 503, description = "The capture process doesn't answer", body = ApiError)
+        (status = 503, description = "The capture process doesn't answer, or isn't running as the robot can't be served", body = ApiError)
     )
 )]
 pub(super) async fn status(State(state): State<Arc<ApiState>>) -> Result<Json<Status>, Failure> {
@@ -147,6 +147,9 @@ pub(super) async fn status(State(state): State<Arc<ApiState>>) -> Result<Json<St
 
 /// What the capture process is doing, as it last answered.
 pub(super) async fn current_status(state: &ApiState) -> Result<Status, Failure> {
+    if let Some(invalid) = state.robot_invalid() {
+        return Err(invalid);
+    }
     let status = state
         .capture_status
         .latest(&state.control_socket)

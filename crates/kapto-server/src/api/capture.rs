@@ -88,7 +88,7 @@ pub struct Aborted {
         (status = 200, body = PreflightRun),
         (status = 400, description = "The body isn't a pre-flight request", body = ApiError),
         (status = 409, description = "An episode is being recorded", body = ApiError),
-        (status = 503, description = "The capture process doesn't answer", body = ApiError)
+        (status = 503, description = "The capture process doesn't answer, or isn't running as the robot can't be served", body = ApiError)
     )
 )]
 pub(super) async fn preflight(
@@ -112,7 +112,7 @@ pub(super) async fn preflight(
         (status = 400, description = "The body isn't a start request", body = ApiError),
         (status = 404, description = "No such profile or task", body = ApiError),
         (status = 409, description = "An episode is already being recorded, a check of pre-flight's latest run failed, the profile is for another robot package, or the profile or task file can't be read", body = ApiError),
-        (status = 503, description = "The capture process doesn't answer", body = ApiError)
+        (status = 503, description = "The capture process doesn't answer, or isn't running as the robot can't be served", body = ApiError)
     )
 )]
 pub(super) async fn start(
@@ -153,7 +153,7 @@ pub(super) async fn start(
         (status = 200, body = Stopped),
         (status = 400, description = "The body isn't a stop request", body = ApiError),
         (status = 409, description = "No episode is being recorded", body = ApiError),
-        (status = 503, description = "The capture process doesn't answer", body = ApiError)
+        (status = 503, description = "The capture process doesn't answer, or isn't running as the robot can't be served", body = ApiError)
     )
 )]
 pub(super) async fn stop(
@@ -189,7 +189,7 @@ pub(super) async fn stop(
         (status = 200, body = Aborted),
         (status = 400, description = "The body isn't an abort request", body = ApiError),
         (status = 409, description = "No episode is being recorded", body = ApiError),
-        (status = 503, description = "The capture process doesn't answer", body = ApiError)
+        (status = 503, description = "The capture process doesn't answer, or isn't running as the robot can't be served", body = ApiError)
     )
 )]
 pub(super) async fn abort(
@@ -214,7 +214,7 @@ pub(super) async fn abort(
         (status = 201, body = EventSent),
         (status = 400, description = "The body isn't an event, or the event isn't well formed", body = ApiError),
         (status = 409, description = "Its kind isn't one that may be sent", body = ApiError),
-        (status = 503, description = "The capture process doesn't answer", body = ApiError)
+        (status = 503, description = "The capture process doesn't answer, or isn't running as the robot can't be served", body = ApiError)
     )
 )]
 pub(super) async fn send_event(

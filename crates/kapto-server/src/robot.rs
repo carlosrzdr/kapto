@@ -39,6 +39,11 @@ pub struct RobotOverview {
     /// Problems that don't stop Kapto, such as a mesh that isn't there or
     /// a joint nothing drives.
     pub warnings: Vec<ApiError>,
+    /// Why the robot can't be served, if it can't: serve runs without it,
+    /// receiving and recording nothing, until these are fixed and serve
+    /// restarted.
+    #[serde(default)]
+    pub errors: Vec<ApiError>,
 }
 
 /// The files a robot was loaded from.

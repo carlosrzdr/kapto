@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use clap::Args;
 use kapto_capture::control::{ControlClient, Request};
-use kapto_config::DeploymentConfig;
+use kapto_config::{DeploymentConfig, StreamDeclaration};
 use kapto_core::{ClockSample, ErrorCode, KaptoError, say};
 use kapto_robot::{Declared, Package, discover, load_package};
 use kapto_server::api::ApiError;
@@ -115,14 +115,15 @@ impl RobotFiles {
 }
 
 pub(crate) fn serve(flags: &SettingFlags, args: &ServeArgs) -> ExitCode {
-    let files = crate::config::load(flags).and_then(|(_, deployment)| {
-        chosen(
+    let served = crate::config::load(flags).and_then(|(_, deployment)| {
+        let given = chosen(
             args,
             &deployment.packages_dir.value,
             &deployment.data_dir.value,
-        )
+        );
+        run(flags, given)
     });
-    match files.and_then(|files| run(flags, &files)) {
+    match served {
         Ok(()) => ExitCode::SUCCESS,
         Err(errors) => {
             let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
@@ -204,6 +205,23 @@ fn chosen(args: &ServeArgs, packages: &Path, data: &Path) -> Outcome<RobotFiles>
     }
 }
 
+/// Whether this Kapto can receive every stream `declarations` declares: a
+/// ROS 2 topic needs a Kapto built with ROS 2.
+fn receivable(declarations: &[StreamDeclaration]) -> Outcome<()> {
+    let topics = declarations
+        .iter()
+        .filter(|stream| stream.ros2.is_some())
+        .count();
+    if cfg!(feature = "ros2") || topics == 0 {
+        return Ok(());
+    }
+    Err(vec![
+        KaptoError::new(ErrorCode::TransportRos2NotBuilt).detail(format!(
+            "{topics} of the streams are ROS 2 topics, which this Kapto can't subscribe to"
+        )),
+    ])
+}
+
 /// The robot and its streams as the API shows them, and the robot as the
 /// web UI draws it, from the files serve was given.
 fn robot(
@@ -235,17 +253,61 @@ fn robot(
     ))
 }
 
-/// Runs Kapto until SIGINT or SIGTERM.
-pub(crate) fn run(flags: &SettingFlags, args: &RobotFiles) -> Outcome<()> {
+/// The robot serve runs with, and the robot as the API shows it and the
+/// web UI draws it; or none, when it can't be served, and the reasons as
+/// the API shows them, said once here. Checked here once, rather than by
+/// children that would fail and be restarted over and over.
+fn served(
+    given: Outcome<RobotFiles>,
+    deployment: &DeploymentConfig,
+    config_folder: &Path,
+) -> (
+    Option<RobotFiles>,
+    (Arc<RobotOverview>, Arc<Scene>, Layouts),
+) {
+    let served = given.and_then(|files| {
+        let (declarations, _) = load_plan(&files.streams, &RecordSettings::of(deployment))?;
+        receivable(&declarations)?;
+        let loaded = robot(&files, &deployment.packages_dir.value, config_folder)?;
+        Ok((files, loaded))
+    });
+    match served {
+        Ok((files, loaded)) => (Some(files), loaded),
+        Err(errors) => {
+            let reports: Vec<String> = errors.iter().map(KaptoError::report).collect();
+            say!(
+                "The robot can't be served, so Kapto runs without it, receiving and recording nothing, until this is fixed and serve restarted:\n\n{}\n",
+                reports.join("\n\n")
+            );
+            let overview = RobotOverview {
+                errors: errors.iter().map(ApiError::from).collect(),
+                ..RobotOverview::default()
+            };
+            let (layouts, _) = Layouts::load(
+                config_folder,
+                None,
+                Declared::default(),
+                overview.layout.clone(),
+            );
+            (
+                None,
+                (Arc::new(overview), Arc::new(Scene::default()), layouts),
+            )
+        }
+    }
+}
+
+/// Runs Kapto until SIGINT or SIGTERM, with the robot `given`, or the
+/// reasons it can't be served: then without one, saying why, until it is
+/// fixed and serve restarted.
+pub(crate) fn run(flags: &SettingFlags, given: Outcome<RobotFiles>) -> Outcome<()> {
     let (file, deployment) = crate::config::load(flags)?;
     // Before anything touches the data directory, held until serve returns.
     let _data_dir = DataDirLock::take(&deployment.data_dir.value).map_err(|error| vec![error])?;
     let settings = Arc::new(crate::config::overview(&file, &deployment));
-    // Checked here once, rather than by children that would fail and be
-    // restarted over and over.
-    load_plan(&args.streams, &RecordSettings::of(&deployment))?;
     let config_folder = crate::config::config_folder(flags);
-    let (robot, scene, layouts) = robot(args, &deployment.packages_dir.value, &config_folder)?;
+    let (args, (robot, scene, layouts)) = served(given, &deployment, &config_folder);
+    let args = args.as_ref();
     let shutdown = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, Arc::clone(&shutdown)).map_err(|error| {
@@ -275,7 +337,8 @@ pub(crate) fn run(flags: &SettingFlags, args: &RobotFiles) -> Outcome<()> {
     // The job socket listens until serve returns, when dropping it removes
     // the socket.
     let (store, _jobs) = open_state(&deployment)?;
-    let processes = Arc::new(Processes::new("serve", &CHILDREN));
+    let started: &[&str] = if args.is_some() { &CHILDREN } else { &[WORKER] };
+    let processes = Arc::new(Processes::new("serve", started));
     let announcements = CaptureAnnouncements::default();
     let running = start_children(
         &program,
@@ -291,7 +354,9 @@ pub(crate) fn run(flags: &SettingFlags, args: &RobotFiles) -> Outcome<()> {
         layouts,
         settings,
         config_folder,
-        package: crate::record::loaded_package(&args.streams).map(|package| package.manifest.id),
+        package: args
+            .and_then(|args| crate::record::loaded_package(&args.streams))
+            .map(|package| package.manifest.id),
         bind: deployment.server_bind.value,
         control_socket: deployment.control_socket.value.clone(),
         data_dir: deployment.data_dir.value.clone(),
@@ -422,7 +487,7 @@ impl Running {
 fn start_children(
     program: &Path,
     flags: &SettingFlags,
-    args: &RobotFiles,
+    args: Option<&RobotFiles>,
     deployment: &DeploymentConfig,
     (shutdown, processes, announcements, store): (
         &AtomicBool,
@@ -455,7 +520,9 @@ fn start_children(
     let supervisor = Supervisor::start(children, policy, &listener).map_err(|error| {
         vec![KaptoError::new(ErrorCode::ServerChildFailed).detail(error.to_string())]
     })?;
-    if let Err(error) = greet_capture(&deployment.control_socket.value, shutdown) {
+    if args.is_some()
+        && let Err(error) = greet_capture(&deployment.control_socket.value, shutdown)
+    {
         supervisor.stop();
         return Err(vec![error]);
     }
@@ -508,7 +575,7 @@ fn start_children(
 fn children(
     program: &Path,
     flags: &SettingFlags,
-    args: &RobotFiles,
+    args: Option<&RobotFiles>,
     (capture_stop_grace, bridge_stop_grace): (Duration, Duration),
 ) -> Vec<ChildSpec> {
     let settings = flags.to_args();
@@ -522,45 +589,53 @@ fn children(
         args: own.into_iter().chain(settings.iter().cloned()).collect(),
         stop_grace,
     };
-    vec![
-        child(
-            CAPTURE,
-            vec![
-                "capture".into(),
-                "--streams".into(),
-                args.streams.clone().into(),
-                "--mapping".into(),
-                args.mapping.clone().into(),
-            ]
-            .into_iter()
-            .chain(parent.iter().cloned())
-            .collect(),
-            capture_stop_grace,
-        ),
-        child(
-            VIZ_BRIDGE,
-            vec![
-                "viz-bridge".into(),
-                "--robot".into(),
-                args.robot.clone().into(),
-                "--streams".into(),
-                args.streams.clone().into(),
-                "--mapping".into(),
-                args.mapping.clone().into(),
-            ]
-            .into_iter()
-            .chain(parent.iter().cloned())
-            .collect(),
-            bridge_stop_grace,
-        ),
-        child(
+    // Without a robot to serve, only the worker: capture and the bridge
+    // would end at once, and be started again over and over.
+    let robot = args.map(|args| {
+        [
+            child(
+                CAPTURE,
+                vec![
+                    "capture".into(),
+                    "--streams".into(),
+                    args.streams.clone().into(),
+                    "--mapping".into(),
+                    args.mapping.clone().into(),
+                ]
+                .into_iter()
+                .chain(parent.iter().cloned())
+                .collect(),
+                capture_stop_grace,
+            ),
+            child(
+                VIZ_BRIDGE,
+                vec![
+                    "viz-bridge".into(),
+                    "--robot".into(),
+                    args.robot.clone().into(),
+                    "--streams".into(),
+                    args.streams.clone().into(),
+                    "--mapping".into(),
+                    args.mapping.clone().into(),
+                ]
+                .into_iter()
+                .chain(parent.iter().cloned())
+                .collect(),
+                bridge_stop_grace,
+            ),
+        ]
+    });
+    robot
+        .into_iter()
+        .flatten()
+        .chain(std::iter::once(child(
             WORKER,
             std::iter::once("worker".into())
                 .chain(parent.iter().cloned())
                 .collect(),
             WORKER_STOP_GRACE,
-        ),
-    ]
+        )))
+        .collect()
 }
 
 /// Waits until the capture process answers on its control socket, which

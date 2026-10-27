@@ -499,27 +499,17 @@ fn a_capture_left_idle_by_a_killed_serve_ends_and_the_next_serve_records() {
 }
 
 #[test]
-fn a_mistake_in_the_robots_files_is_reported_before_anything_starts() {
+fn a_mistake_in_the_robots_files_is_reported_and_serve_runs_without_it() {
     let folder = scratch("mistake");
-    let mapping = folder.join("mapping.toml");
+    let packages = folder.join("packages");
+    let arm7 = arm7_package(&packages, "arm7");
     std::fs::write(
-        &mapping,
+        arm7.join("mapping.toml"),
         "[joints]\njoint_9 = \"arm_joints.joint_positions[0]\"\n",
     )
     .unwrap();
-    let mut serve = Serve::start(&folder, &mapping);
-    let status = serve.child.take().unwrap().wait().unwrap();
-    assert_eq!(status.code(), Some(1));
-    let first = serve.wait_for("error[", 1);
-    assert!(first.starts_with("error[mapping.unknown_joint]"), "{first}");
-    assert!(
-        !serve
-            .lines
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|line| line.starts_with("[serve] started"))
-    );
+    let said = without_robot(&folder, &packages, &[], &[]);
+    assert!(said.starts_with("mapping.unknown_joint: "), "{said}");
 }
 
 #[test]
@@ -678,33 +668,57 @@ fn the_packages_folders_one_package_is_served_when_no_robot_is_given() {
     assert_eq!(robot_of(&serve)["package"], "arm7");
 }
 
-/// What serve says, refusing to start with its robot given as `given`
-/// and `env`, the packages folder being `packages`.
-fn refused(
+/// What serve says is wrong with its robot, given as `given` and `env`
+/// with the packages folder `packages`, running without it: each problem
+/// as `code: message`, once checked that serve started no capture and
+/// refuses to record.
+fn without_robot(
     folder: &std::path::Path,
     packages: &std::path::Path,
     given: &[&str],
     env: &[(&str, &str)],
 ) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_kapto"))
-        .arg("serve")
-        .args(given)
-        .arg("--paths-packages")
-        .arg(packages)
-        .arg("--data-dir")
-        .arg(folder.join("data"))
-        .env_clear()
-        .envs(env.iter().copied())
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert_eq!(output.status.code(), Some(1), "{stderr}");
-    assert!(!stderr.contains("[serve] started"), "{stderr}");
-    stderr
+    let serve = serve_given(folder, packages, given, env);
+    let robot = robot_of(&serve);
+    let (code, body) = serve.http("POST", "/api/episodes/start", Some("{}"));
+    assert_eq!(code, 503, "{body}");
+    assert!(
+        body.contains("\"code\":\"capture.robot_invalid\""),
+        "{body}"
+    );
+    let (code, body) = serve.http("GET", "/api/status", None);
+    assert_eq!(code, 503, "{body}");
+    let lines = serve.lines.lock().unwrap().clone();
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("The robot can't be served")),
+        "{lines:#?}"
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.starts_with("[serve] started capture")),
+        "{lines:#?}"
+    );
+    robot["errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| {
+            format!(
+                "{}: {}",
+                error["code"].as_str().unwrap(),
+                error["message"].as_str().unwrap()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[test]
-fn a_robot_given_two_ways_or_not_at_all_among_several_packages_is_refused_before_anything_starts() {
+fn a_robot_given_two_ways_or_not_at_all_among_several_packages_is_reported_and_serve_runs_without_it()
+ {
     let folder = scratch("robot-ambiguous");
     let packages = folder.join("packages");
     let arm7 = arm7_package(&packages, "arm7");
@@ -723,26 +737,33 @@ fn a_robot_given_two_ways_or_not_at_all_among_several_packages_is_refused_before
         &mapping,
     ];
     // A package and the three files.
-    let both = refused(&folder, &packages, &files, &[("KAPTO_ROBOT", "arm7")]);
-    assert!(both.starts_with("error[config.robot_ambiguous]"), "{both}");
+    let both = without_robot(
+        &folder.join("both"),
+        &packages,
+        &files,
+        &[("KAPTO_ROBOT", "arm7")],
+    );
+    assert!(both.starts_with("config.robot_ambiguous: "), "{both}");
     assert!(
         both.contains("given as a package (`--package` or `KAPTO_ROBOT`) and as its files"),
         "{both}"
     );
     // Nothing given, and two packages to choose from.
     arm7_package(&packages, "arm7_left");
-    let several = refused(&folder, &packages, &[], &[]);
-    assert!(
-        several.starts_with("error[config.robot_ambiguous]"),
-        "{several}"
-    );
+    let several = without_robot(&folder.join("several"), &packages, &[], &[]);
+    assert!(several.starts_with("config.robot_ambiguous: "), "{several}");
     assert!(several.contains("2 packages: arm7, arm7_left"), "{several}");
     // A package that isn't there, by ID.
-    let unknown = refused(&folder, &packages, &["--package", "arm9"], &[]);
-    assert!(unknown.starts_with("error[package.not_found]"), "{unknown}");
+    let unknown = without_robot(
+        &folder.join("unknown"),
+        &packages,
+        &["--package", "arm9"],
+        &[],
+    );
+    assert!(unknown.starts_with("package.not_found: "), "{unknown}");
     // Nothing given, and no package at all.
-    let none = refused(&folder, &folder.join("empty"), &[], &[]);
-    assert!(none.starts_with("error[package.not_found]"), "{none}");
+    let none = without_robot(&folder.join("none"), &folder.join("empty"), &[], &[]);
+    assert!(none.starts_with("package.not_found: "), "{none}");
     assert!(none.contains("no robot was given"), "{none}");
 }
 
@@ -863,12 +884,28 @@ fn a_package_kapto_didnt_make_is_never_replaced_by_one_made_from_a_urdf() {
     let urdf = vendor_urdf(&folder);
     let own = arm7_package(&folder.join("data/packages"), "test_arm");
     let before = contents(&own);
-    let said = refused(
+    let said = without_robot(
         &folder,
         &folder.join("packages"),
         &["--urdf", urdf.to_str().unwrap()],
         &[],
     );
-    assert!(said.starts_with("error[package.import_exists]"), "{said}");
+    assert!(said.starts_with("package.import_exists: "), "{said}");
     assert_eq!(contents(&own), before);
+}
+
+/// Without ROS 2, a robot that sends ROS 2 topics can't be received: said
+/// once, with the remedy, rather than capture failing again and again.
+#[cfg(not(feature = "ros2"))]
+#[test]
+fn a_ros_2_robot_is_reported_as_needing_kapto_built_with_ros_2_where_this_one_isnt() {
+    let folder = scratch("robot-needs-ros2");
+    let urdf = vendor_urdf(&folder);
+    let said = without_robot(
+        &folder,
+        &folder.join("packages"),
+        &["--urdf", urdf.to_str().unwrap()],
+        &[],
+    );
+    assert!(said.starts_with("transport.ros2.not_built: "), "{said}");
 }

@@ -731,6 +731,15 @@ kept beside it as `<id>.source`, and the package is made again only when
 that changes, so corrections to it are kept until then. A folder there that
 Kapto didn't make is never replaced (`package.import_exists`).
 
+A robot that can't be served doesn't stop `serve`: what is wrong with it
+(a package that doesn't load, a mistake in its files, a ROS 2 topic in a
+Kapto built without ROS 2, two ways of giving it) is printed once, and
+`serve` runs without capture or the viewer bridge, only the worker, so a
+container isn't started again and again. `/api/robot` lists the problems as
+`errors`; `/api/status` and every order to capture (Start, Stop, pre-flight,
+events) answer `capture.robot_invalid` until the robot is fixed and `serve`
+restarted.
+
 `kapto serve` runs Kapto as its processes, all from the same binary: it
 starts `kapto capture`, `kapto viz-bridge` and `kapto worker` as children
 and keeps them running. It first locks `kapto.lock` in the data directory

@@ -162,6 +162,22 @@ pub struct ApiState {
     pub destinations: Vec<kapto_config::UploadDestination>,
 }
 
+impl ApiState {
+    /// Why nothing is received, when serve runs without a robot it can
+    /// serve: capture isn't running, so nothing asked of it is answered.
+    fn robot_invalid(&self) -> Option<Failure> {
+        let first = self.robot.errors.first()?;
+        let more = match self.robot.errors.len() {
+            1 => String::new(),
+            n => format!(" (and {} more)", n - 1),
+        };
+        Some(Failure::from(
+            KaptoError::new(ErrorCode::CaptureRobotInvalid)
+                .detail(format!("{}{more}", first.message)),
+        ))
+    }
+}
+
 /// The API's routes.
 pub fn router(state: ApiState) -> Router {
     let state = Arc::new(state);
@@ -460,6 +476,7 @@ impl From<KaptoError> for Failure {
     fn from(error: KaptoError) -> Self {
         let status = match error.code() {
             ErrorCode::CaptureControlUnreachable
+            | ErrorCode::CaptureRobotInvalid
             | ErrorCode::CaptureControlVersionMismatch
             | ErrorCode::CaptureControlBusy => StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::ApiInvalidRequest | ErrorCode::CaptureEventInvalid => {
@@ -542,6 +559,9 @@ fn invalid(rejection: &JsonRejection) -> Failure {
 /// [`ApiState::capture_status`] instead, and asked for again once the order
 /// is answered, so what it changed is what the next read sees.
 async fn ask(state: &ApiState, request: Request) -> Result<control::Response, Failure> {
+    if let Some(invalid) = state.robot_invalid() {
+        return Err(invalid);
+    }
     let socket = state.control_socket.clone();
     let answered = tokio::task::spawn_blocking(move || {
         ControlClient::connect(&socket, ANSWER_TIMEOUT)?.ask(&request)

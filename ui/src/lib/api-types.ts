@@ -952,6 +952,12 @@ export interface RobotJoint {
 
 /** The robot and its streams, as `kapto serve` loaded them. */
 export interface RobotOverview {
+  /**
+   * Why the robot can't be served, if it can't: serve runs without it,
+   * receiving and recording nothing, until these are fixed and serve
+   * restarted.
+   */
+  errors?: ApiError[];
   /** The files it was loaded from. */
   files: RobotFiles;
   /** Its joints, in the order the description declares them. */

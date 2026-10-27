@@ -45,6 +45,7 @@ pub(crate) fn overview(
             .chain(&layout_problems)
             .map(ApiError::from)
             .collect(),
+        errors: Vec::new(),
     }
 }
 

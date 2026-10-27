@@ -154,7 +154,7 @@
             }
           },
           "503": {
-            "description": "The capture process doesn't answer",
+            "description": "The capture process doesn't answer, or isn't running as the robot can't be served",
             "content": {
               "application/json": {
                 "schema": {
@@ -212,7 +212,7 @@
             }
           },
           "503": {
-            "description": "The capture process doesn't answer",
+            "description": "The capture process doesn't answer, or isn't running as the robot can't be served",
             "content": {
               "application/json": {
                 "schema": {
@@ -280,7 +280,7 @@
             }
           },
           "503": {
-            "description": "The capture process doesn't answer",
+            "description": "The capture process doesn't answer, or isn't running as the robot can't be served",
             "content": {
               "application/json": {
                 "schema": {
@@ -338,7 +338,7 @@
             }
           },
           "503": {
-            "description": "The capture process doesn't answer",
+            "description": "The capture process doesn't answer, or isn't running as the robot can't be served",
             "content": {
               "application/json": {
                 "schema": {
@@ -1996,7 +1996,7 @@
             }
           },
           "503": {
-            "description": "The capture process doesn't answer",
+            "description": "The capture process doesn't answer, or isn't running as the robot can't be served",
             "content": {
               "application/json": {
                 "schema": {
@@ -2183,7 +2183,7 @@
             }
           },
           "503": {
-            "description": "The capture process doesn't answer",
+            "description": "The capture process doesn't answer, or isn't running as the robot can't be served",
             "content": {
               "application/json": {
                 "schema": {
@@ -4501,6 +4501,13 @@
           "warnings"
         ],
         "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiError"
+            },
+            "description": "Why the robot can't be served, if it can't: serve runs without it,\nreceiving and recording nothing, until these are fixed and serve\nrestarted."
+          },
           "files": {
             "$ref": "#/components/schemas/RobotFiles",
             "description": "The files it was loaded from."
