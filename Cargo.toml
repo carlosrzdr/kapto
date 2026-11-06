@@ -84,7 +84,7 @@ rustc-demangle = "0.1"
 # version is the one tested and no system library is needed;
 # `fallible_uint` stores unsigned counts, refusing any too large for SQLite
 # rather than wrapping them.
-rusqlite = { version = "0.40", features = ["bundled", "fallible_uint"] }
+rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 rustix = { version = "1.1", features = ["time"] }
 schemars = "1.2"
 serde = { version = "1.0", features = ["derive"] }
